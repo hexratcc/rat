@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace rat {
@@ -24,6 +25,7 @@ namespace rat {
 	template <typename Type> using UniquePtr = std::unique_ptr<Type>;
 	template <typename Key, typename Value>
 	using Map = std::unordered_map<Key, Value>;
+	template <typename Key> using Set = std::unordered_set<Key>;
 } // namespace rat
 
 #endif

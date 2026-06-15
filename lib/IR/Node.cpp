@@ -99,6 +99,35 @@ namespace rat {
 		}
 	}
 
+	B32 Node::isCommutative() const {
+		switch (op) {
+		case Opcode::Add:
+		case Opcode::Mul:
+		case Opcode::And:
+		case Opcode::Or:
+		case Opcode::Xor:
+		case Opcode::Eq:
+		case Opcode::Ne:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	Node* Node::getControlInput() const {
+		switch (op) {
+		case Opcode::Return:
+		case Opcode::If:
+		case Opcode::Load:
+		case Opcode::Store:
+		case Opcode::Call:
+		case Opcode::Phi: // input[0] is the controlling Region
+			return getInput(0);
+		default:
+			return nullptr;
+		}
+	}
+
 	StartNode::StartNode(Function& fn, Type* tupleType, U32 paramCount)
 			: Node(fn, Opcode::Start, tupleType, {}), paramCount(paramCount) {}
 

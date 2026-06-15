@@ -38,6 +38,9 @@ namespace rat {
 
 		B32 isCFG() const;
 		B32 hasSideEffects() const;
+		B32 isCommutative() const;
+
+		Node* getControlInput() const;
 
 	protected:
 		void removeUser(Node* user);

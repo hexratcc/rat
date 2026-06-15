@@ -15,8 +15,8 @@ namespace rat {
 		B32 active = false; // ctrl established
 		B32 loopHeader = false;
 		B32 finished = false; // ended in a terminator
-		std::unordered_map<U32, Node*> defs;
-		std::unordered_map<U32, PhiNode*> incompletePhis;
+		Map<U32, Node*> defs;
+		Map<U32, PhiNode*> incompletePhis;
 	};
 
 	Module& Function::getModule() const { return *mod; }
