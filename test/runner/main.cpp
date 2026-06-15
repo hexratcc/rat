@@ -124,7 +124,7 @@ namespace {
 	B32 parseTestFile(const String& text, TestFile& tf, String& err) {
 		std::istringstream ss(text);
 		String line;
-		i32 section = 0; // 0 none, 1 input, 2 expect
+		I32 section = 0; // 0 none, 1 input, 2 expect
 		while (std::getline(ss, line)) {
 			String t = trim(line);
 			if (t.rfind("@name", 0) == 0) {
@@ -227,13 +227,13 @@ namespace {
 	}
 } // namespace
 
-i32 main(i32 argc, char** argv) {
+I32 main(I32 argc, char** argv) {
 	if (argc < 2) {
 		std::cerr << "usage: " << argv[0] << " <test.rat> [more.rat ...]\n";
 		return 2;
 	}
 	U32 passed = 0, failed = 0;
-	for (i32 i = 1; i < argc; ++i) {
+	for (I32 i = 1; i < argc; ++i) {
 		if (runTest(argv[i]))
 			++passed;
 		else
