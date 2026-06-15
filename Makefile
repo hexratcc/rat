@@ -28,7 +28,7 @@ LIB_SRCS := \
 	lib/CodeGen/Schedule.cpp
 
 LIB_OBJS := $(patsubst %.cpp,build/%.o,$(LIB_SRCS))
-LIB      := build/libratson.a
+LIB      := build/rat.a
 
 SOURCES  := $(LIB_SRCS) test/tour/main.cpp
 HEADERS  := $(wildcard include/*.h include/IR/*.h include/Pass/*.h include/Pass/Emit/*.h include/Pass/Opt/*.h include/CodeGen/*.h)
