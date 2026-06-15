@@ -1,0 +1,30 @@
+@name memoryopt: redundant loads forwarded
+@passes memoryopt fold
+
+@input
+func mem(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v10
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "arg0" of v0
+	v5 = const : i32  7
+	v6 = store : mem v2, v3, v4, v5
+	v7 = load : i32 v2, v6, v4
+	v8 = load : i32 v2, v6, v4
+	v9 = add : i32 v7, v8
+	v10 = return : ctrl v2, v6, v9
+}
+
+@expect
+func mem(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v10
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "arg0" of v0
+	v5 = const : i32  7
+	v6 = store : mem v2, v3, v4, v5
+	v10 = return : ctrl v2, v6, v11
+	v11 = const : i32  14
+}

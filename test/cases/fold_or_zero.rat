@@ -1,0 +1,24 @@
+@name fold: x | 0 simplifies to x
+@passes fold
+
+@input
+func t(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v7
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = const : i32  0
+	v5 = proj : i32  #2 "arg0" of v0
+	v6 = or : i32 v5, v4
+	v7 = return : ctrl v2, v3, v6
+}
+
+@expect
+func t(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v7
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v5 = proj : i32  #2 "arg0" of v0
+	v7 = return : ctrl v2, v3, v5
+}

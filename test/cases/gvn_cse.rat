@@ -1,0 +1,29 @@
+@name gvn: (a+b) and (b+a) share one node
+@passes gvn
+
+@input
+func gvn(i32, i32) -> i32 {
+	v0 = start : (ctrl, mem, i32, i32)
+	v1 = stop : ctrl v9
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = proj : i32  #3 "arg1" of v0
+	v6 = add : i32 v5, v4
+	v7 = add : i32 v4, v5
+	v8 = mul : i32 v7, v6
+	v9 = return : ctrl v2, v3, v8
+}
+
+@expect
+func gvn(i32, i32) -> i32 {
+	v0 = start : (ctrl, mem, i32, i32)
+	v1 = stop : ctrl v9
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = proj : i32  #3 "arg1" of v0
+	v6 = add : i32 v5, v4
+	v8 = mul : i32 v6, v6
+	v9 = return : ctrl v2, v3, v8
+}

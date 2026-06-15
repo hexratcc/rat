@@ -1,0 +1,35 @@
+@name memoryopt: forwarding looks past a provably non-aliasing store
+@passes memoryopt fold
+
+@input
+func t(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v12
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "arg0" of v0
+	v5 = const : i64  8
+	v6 = add : ptr v4, v5
+	v7 = const : i32  11
+	v8 = store : mem v2, v3, v4, v7
+	v9 = const : i32  22
+	v10 = store : mem v2, v8, v6, v9
+	v11 = load : i32 v2, v10, v4
+	v12 = return : ctrl v2, v10, v11
+}
+
+@expect
+func t(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v12
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "arg0" of v0
+	v5 = const : i64  8
+	v6 = add : ptr v4, v5
+	v7 = const : i32  11
+	v8 = store : mem v2, v3, v4, v7
+	v9 = const : i32  22
+	v10 = store : mem v2, v8, v6, v9
+	v12 = return : ctrl v2, v10, v7
+}

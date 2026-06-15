@@ -1,0 +1,23 @@
+@name fold: eq(x, x) folds to true
+@passes fold
+
+@input
+func t(i32) -> i1 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v6
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = eq : i1 v4, v4
+	v6 = return : ctrl v2, v3, v5
+}
+
+@expect
+func t(i32) -> i1 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v6
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v6 = return : ctrl v2, v3, v7
+	v7 = const : i1  1
+}

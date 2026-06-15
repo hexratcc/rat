@@ -1,0 +1,32 @@
+@name simplifycfg: constant branch collapses the diamond
+@passes fold simplifycfg gvn
+
+@input
+func cfg(i32, i32) -> i32 {
+	v0 = start : (ctrl, mem, i32, i32)
+	v1 = stop : ctrl v15
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = proj : i32  #3 "arg1" of v0
+	v6 = const : i32  2
+	v7 = const : i32  1
+	v8 = slt : i1 v7, v6
+	v9 = if : (ctrl, ctrl) v2, v8
+	v10 = proj : ctrl  #0 "then" of v9
+	v11 = proj : ctrl  #1 "else" of v9
+	v12 = region : ctrl v11, v10
+	v13 = phi : i32 v12, v5, v4
+	v14 = phi : mem v12, v3, v3
+	v15 = return : ctrl v12, v3, v13
+}
+
+@expect
+func cfg(i32, i32) -> i32 {
+	v0 = start : (ctrl, mem, i32, i32)
+	v1 = stop : ctrl v15
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v15 = return : ctrl v2, v3, v4
+}

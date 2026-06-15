@@ -1,0 +1,23 @@
+@name fold: sext of a constant folds to a wider constant
+@passes fold
+
+@input
+func t(i32) -> i64 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v6
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = const : i32  7
+	v5 = sext : i64 v4
+	v6 = return : ctrl v2, v3, v5
+}
+
+@expect
+func t(i32) -> i64 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v6
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v6 = return : ctrl v2, v3, v7
+	v7 = const : i64  7
+}

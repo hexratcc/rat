@@ -1,0 +1,27 @@
+@name memoryopt: two loads from the same address share one
+@passes memoryopt
+
+@input
+func t(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v8
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "arg0" of v0
+	v5 = load : i32 v2, v3, v4
+	v6 = load : i32 v2, v3, v4
+	v7 = add : i32 v5, v6
+	v8 = return : ctrl v2, v3, v7
+}
+
+@expect
+func t(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v8
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "arg0" of v0
+	v5 = load : i32 v2, v3, v4
+	v7 = add : i32 v5, v5
+	v8 = return : ctrl v2, v3, v7
+}

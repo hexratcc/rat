@@ -1,0 +1,30 @@
+@name gvn: two equal constants collapse to one
+@passes gvn
+
+@input
+func t(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v10
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = const : i32  5
+	v6 = add : i32 v4, v5
+	v7 = const : i32  5
+	v8 = add : i32 v4, v7
+	v9 = add : i32 v8, v6
+	v10 = return : ctrl v2, v3, v9
+}
+
+@expect
+func t(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v10
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = const : i32  5
+	v6 = add : i32 v4, v5
+	v9 = add : i32 v6, v6
+	v10 = return : ctrl v2, v3, v9
+}

@@ -1,0 +1,28 @@
+@name fold: (x + 2) + 3 reassociates to x + 5
+@passes fold
+
+@input
+func t(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v9
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = const : i32  3
+	v5 = const : i32  2
+	v6 = proj : i32  #2 "arg0" of v0
+	v7 = add : i32 v6, v5
+	v8 = add : i32 v7, v4
+	v9 = return : ctrl v2, v3, v8
+}
+
+@expect
+func t(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v9
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v6 = proj : i32  #2 "arg0" of v0
+	v9 = return : ctrl v2, v3, v11
+	v10 = const : i32  5
+	v11 = add : i32 v6, v10
+}

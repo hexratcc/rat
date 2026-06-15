@@ -1,0 +1,30 @@
+@name memoryopt: a load from a different pointer is not forwarded
+@passes memoryopt
+
+@input
+func t(ptr, ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v9
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "arg0" of v0
+	v5 = proj : ptr  #3 "arg1" of v0
+	v6 = const : i32  7
+	v7 = store : mem v2, v3, v4, v6
+	v8 = load : i32 v2, v7, v5
+	v9 = return : ctrl v2, v7, v8
+}
+
+@expect
+func t(ptr, ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v9
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "arg0" of v0
+	v5 = proj : ptr  #3 "arg1" of v0
+	v6 = const : i32  7
+	v7 = store : mem v2, v3, v4, v6
+	v8 = load : i32 v2, v7, v5
+	v9 = return : ctrl v2, v7, v8
+}

@@ -1,0 +1,48 @@
+@name parser round-trip: a loop survives parse+emit unchanged
+@passes 
+
+@input
+func sum(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v18
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = const : i32  0
+	v6 = const : i32  0
+	v7 = region : ctrl  loop v2, v12
+	v8 = phi : i32 v7, v6, v16
+	v9 = sle : i1 v4, v8
+	v10 = if : (ctrl, ctrl) v7, v9
+	v11 = proj : ctrl  #0 "then" of v10
+	v12 = proj : ctrl  #1 "else" of v10
+	v13 = phi : i32 v7, v5, v14
+	v14 = add : i32 v13, v8
+	v15 = const : i32  1
+	v16 = add : i32 v8, v15
+	v17 = phi : mem v7, v3, v3
+	v18 = return : ctrl v11, v3, v13
+}
+
+@expect
+func sum(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v18
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = const : i32  0
+	v6 = const : i32  0
+	v7 = region : ctrl  loop v2, v12
+	v8 = phi : i32 v7, v6, v16
+	v9 = sle : i1 v4, v8
+	v10 = if : (ctrl, ctrl) v7, v9
+	v11 = proj : ctrl  #0 "then" of v10
+	v12 = proj : ctrl  #1 "else" of v10
+	v13 = phi : i32 v7, v5, v14
+	v14 = add : i32 v13, v8
+	v15 = const : i32  1
+	v16 = add : i32 v8, v15
+	v17 = phi : mem v7, v3, v3
+	v18 = return : ctrl v11, v3, v13
+}
