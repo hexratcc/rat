@@ -6,6 +6,7 @@
 CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
 INC      := -Iinclude
+DEPFLAGS := -MMD -MP
 
 LIB_SRCS := \
 	lib/IR/Opcode.cpp \
@@ -28,7 +29,9 @@ all: bin/tour
 
 build/%.o: %.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $(INC) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) $(INC) -c $< -o $@
+
+-include $(LIB_OBJS:.o=.d)
 
 $(LIB): $(LIB_OBJS)
 	@mkdir -p $(dir $@)

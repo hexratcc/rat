@@ -5,11 +5,14 @@
 #include "IR/Node.h"
 #include "IR/Type.h"
 
+#include <functional>
+
 namespace rat {
 	struct Module;
 
 	struct Function {
 		Function(Module& module, String name, const List<Type*>& params, Type* ret);
+		~Function();
 
 		Module& getModule() const;
 		TypeContext& types() const;
@@ -30,13 +33,96 @@ namespace rat {
 			return raw;
 		}
 
+		struct Block;
+		using Var = U32;
+
+		// TODO
+		Type* boolTy() const;
+		Type* intTy(U32 bits) const;
+		Type* ptrTy() const;
+		Type* memTy() const;
+		Type* ctrlTy() const;
+		Type* intPtrTy() const;
+		Node* control() const;
+		Node* memory();
 		Node* param(U32 index);
+
 		Node* constInt(Type* type, I64 value);
 		Node* constBool(B32 value);
+
 		Node* binary(Opcode op, Node* lhs, Node* rhs);
 		Node* add(Node* lhs, Node* rhs);
 		Node* sub(Node* lhs, Node* rhs);
 		Node* mul(Node* lhs, Node* rhs);
+		Node* sdiv(Node* lhs, Node* rhs);
+		Node* udiv(Node* lhs, Node* rhs);
+		Node* srem(Node* lhs, Node* rhs);
+		Node* urem(Node* lhs, Node* rhs);
+		Node* and_(Node* lhs, Node* rhs);
+		Node* or_(Node* lhs, Node* rhs);
+		Node* xor_(Node* lhs, Node* rhs);
+		Node* shl(Node* lhs, Node* rhs);
+		Node* lshr(Node* lhs, Node* rhs);
+		Node* ashr(Node* lhs, Node* rhs);
+
+		Node* unary(Opcode op, Node* operand);
+		Node* neg(Node* operand);
+		Node* bitNot(Node* operand);
+
+		Node* compare(Opcode op, Node* lhs, Node* rhs);
+		Node* eq(Node* lhs, Node* rhs);
+		Node* ne(Node* lhs, Node* rhs);
+		Node* slt(Node* lhs, Node* rhs);
+		Node* sle(Node* lhs, Node* rhs);
+		Node* sgt(Node* lhs, Node* rhs);
+		Node* sge(Node* lhs, Node* rhs);
+		Node* ult(Node* lhs, Node* rhs);
+		Node* ule(Node* lhs, Node* rhs);
+		Node* ugt(Node* lhs, Node* rhs);
+		Node* uge(Node* lhs, Node* rhs);
+
+		Node* convert(Opcode op, Node* operand, Type* destType);
+		Node* trunc(Node* operand, Type* destType);
+		Node* sext(Node* operand, Type* destType);
+		Node* zext(Node* operand, Type* destType);
+
+		Node* load(Type* valueType, Node* pointer);
+		void store(Node* pointer, Node* value);
+
+		Node* call(const String& callee, Type* retType, const List<Node*>& args);
+
+		IfNode* iff(Node* predicate);
+		ProjNode* proj(Node* tuple, U32 index, Type* type, String label = "");
+		RegionNode* region(const List<Node*>& preds);
+		PhiNode* phi(Type* type, RegionNode* region, const List<Node*>& values);
+
+		Block* createBlock(String name = "");
+		Block* createLoopHeader(String name = "");
+		void setInsertBlock(Block* block);
+		Block* insertBlock() const;
+		B32 blockFinished() const;
+		void seal(Block* block);
+		void jmp(Block* target);
+		void jumpif(Node* cond, Block* target);
+
+		Var newVar(String name, Type* type);
+		void writeVar(Var var, Node* value);
+		Node* readVar(Var var);
+		void writeVarIn(Var var, Block* block, Node* value);
+		Node* readVarIn(Var var, Block* block);
+
+		Var declareLocal(String name, Node* init);
+		Node* get(Var var);
+		void set(Var var, Node* value);
+		const String& localName(Var var) const;
+		U32 numLocals() const;
+
+		void loop(const std::function<void()>& bodyFn);
+		void break_();
+		void continue_();
+		void breakIf(Node* cond);
+		void continueIf(Node* cond);
+
 		void ret(Node* value);
 		void retVoid();
 
@@ -51,10 +137,25 @@ namespace rat {
 		NodeIterator end() const;
 		U32 size() const;
 
+		// sweep userless, side-effect-free nodes to a fixpoint. control-flow
+		// nodes are kept unless includeControl is set. returns the count removed.
+		U32 eliminateDeadNodes(B32 includeControl = false);
+
 		friend struct Node;
 
 	private:
 		U32 allocateId();
+
+		Node* readVariable(Var var, Block* block);
+		Node* readVariableRecursive(Var var, Block* block);
+		Node* addPhiOperands(Var var, PhiNode* phi, Block* block);
+		Node* tryRemoveTrivialPhi(PhiNode* phi);
+		PhiNode* newIncompletePhi(Var var, Block* block);
+		void replacePhiEverywhere(PhiNode* phi, Node* with);
+
+		Block* makeBlock(String name, B32 loopHeader);
+		void addEdge(Node* exitControl, Block* from, Block* to);
+		void activateOnSeal(Block* block);
 
 		Module* mod;
 		String name;
@@ -66,9 +167,24 @@ namespace rat {
 
 		StartNode* start = nullptr;
 		StopNode* stop = nullptr;
-		ProjNode* control = nullptr; // projected control token of start
-		ProjNode* memory = nullptr;	 // projected memory token of start
-		List<Node*> paramCache;			 // memoized parameter projections
+
+		List<UniquePtr<Block>> blocks; // ownership of all blocks
+		Block* cur = nullptr;					 // current insertion block
+
+		struct VarInfo {
+			String name;
+			Type* ty;
+		};
+		List<VarInfo> varInfos;
+		Var memVar = 0; // reserved variable carrying the memory token
+
+		struct LoopCtx {
+			Block* header;
+			Block* exit;
+		};
+		List<LoopCtx> loopStack;
+
+		List<Node*> paramCache;
 	};
 } // namespace rat
 

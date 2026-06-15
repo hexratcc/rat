@@ -2,6 +2,8 @@
 
 #include "IR/Function.h"
 
+#include <algorithm>
+
 namespace rat {
 	Node::Node(Function& fn, Opcode op, Type* type, const List<Node*>& inputs)
 			: op(op), ty(type), fn(&fn), inputs(inputs) {
@@ -31,6 +33,70 @@ namespace rat {
 		inputs.push_back(value);
 		if (value)
 			value->users.push_back(this);
+	}
+
+	void Node::removeUser(Node* user) {
+		// remove a single occurrence: each using operand contributes one entry
+		auto it = std::find(users.begin(), users.end(), user);
+		if (it != users.end())
+			users.erase(it);
+	}
+
+	void Node::setInput(U32 index, Node* value) {
+		Node* old = inputs[index];
+		if (old == value)
+			return;
+		if (old)
+			old->removeUser(this);
+		inputs[index] = value;
+		if (value)
+			value->users.push_back(this);
+	}
+
+	void Node::removeInput(U32 index) {
+		if (inputs[index])
+			inputs[index]->removeUser(this);
+		inputs.erase(inputs.begin() + index);
+	}
+
+	void Node::replaceInput(Node* old, Node* replacement) {
+		for (U32 i = 0, e = getInputCount(); i < e; ++i)
+			if (inputs[i] == old)
+				setInput(i, replacement);
+	}
+
+	void Node::replaceAllUsesWith(Node* value) {
+		// snapshot users
+		List<Node*> snapshot = users;
+		for (Node* user : snapshot)
+			for (U32 i = 0, e = user->getInputCount(); i < e; ++i)
+				if (user->getInput(i) == this)
+					user->setInput(i, value);
+	}
+
+	B32 Node::isCFG() const {
+		switch (op) {
+		case Opcode::Start:
+		case Opcode::Stop:
+		case Opcode::Return:
+		case Opcode::Region:
+		case Opcode::If:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	B32 Node::hasSideEffects() const {
+		switch (op) {
+		case Opcode::Store:
+		case Opcode::Call:
+		case Opcode::Return:
+		case Opcode::Stop:
+			return true;
+		default:
+			return false;
+		}
 	}
 
 	StartNode::StartNode(Function& fn, Type* tupleType, U32 paramCount)
@@ -84,6 +150,7 @@ namespace rat {
 	}
 	U32 PhiNode::getValueCount() const { return getInputCount() - 1; }
 	Node* PhiNode::getValue(U32 index) const { return getInput(1 + index); }
+	void PhiNode::setValue(U32 index, Node* value) { setInput(1 + index, value); }
 
 	ConstantNode::ConstantNode(Function& fn, Type* type, I64 value)
 			: Node(fn, Opcode::Constant, type, {}), value(value) {}

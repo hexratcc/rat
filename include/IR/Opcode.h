@@ -58,6 +58,19 @@ namespace rat {
 	};
 
 	const char* getOpcodeMnemonic(Opcode op);
+
+	constexpr B32 isBinaryOpcode(Opcode op) {
+		return op >= Opcode::Add && op <= Opcode::AShr;
+	}
+	constexpr B32 isUnaryOpcode(Opcode op) {
+		return op >= Opcode::Neg && op <= Opcode::Not;
+	}
+	constexpr B32 isCompareOpcode(Opcode op) {
+		return op >= Opcode::Eq && op <= Opcode::Ule;
+	}
+	constexpr B32 isConvertOpcode(Opcode op) {
+		return op >= Opcode::Trunc && op <= Opcode::ZExt;
+	}
 } // namespace rat
 
 #endif

@@ -30,8 +30,18 @@ namespace rat {
 		B32 hasUsers() const;
 
 		void addInput(Node* value);
+		void setInput(U32 index, Node* value);
+		void removeInput(U32 index);
+		void replaceInput(Node* old, Node* replacement);
+
+		void replaceAllUsesWith(Node* value);
+
+		B32 isCFG() const;
+		B32 hasSideEffects() const;
 
 	protected:
+		void removeUser(Node* user);
+
 		Opcode op;
 		Type* ty;
 		U32 id;
@@ -106,6 +116,7 @@ namespace rat {
 		RegionNode* getRegion() const;
 		U32 getValueCount() const;
 		Node* getValue(U32 index) const;
+		void setValue(U32 index, Node* value);
 	};
 
 	struct ConstantNode : Node {
