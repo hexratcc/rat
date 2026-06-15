@@ -9,14 +9,11 @@ $ make format # clang-format
 ```
 
 ## passes:
-### optimization:
-- **FoldPass:** Constant folding and algebraic simplification
-- **GVNPass:** Global value numbering
-- **SimplifyCFGPass:** Control-flow simplification
-- **MemoryOptPass:** Load/store forwarding
-### emit:
-- **CEmitterPass:** Emit C code
-### other:
-- **VerifyPass:** Edge consistency + per-opcode structural invariants
-- **TextEmitterPass:** Textual IR viz
-- **GraphEmitterPass:** Graph IR viz
+- [**FoldPass:**](./include/Pass/Opt/Fold.h) Constant folding and algebraic simplification
+- [**GVNPass:**](./include/Pass/Opt/GVN.h) Global value numbering
+- [**SimplifyCFGPass:**](./include/Pass/Opt/SimplifyCFG.h) Control-flow simplification
+- [**MemoryOptPass:**](./include/Pass/Opt/MemoryOpt.h) Load/store forwarding
+- [**CEmitterPass:**](./include/Pass/Emit/CEmitter.h) Emit C code
+- [**VerifyPass:**](./include/Pass/Verify.h) Edge consistency + per-opcode structural invariants
+- [**TextEmitterPass:**](./include/Pass/Emit/TextEmitter.h) Textual IR viz
+- [**GraphEmitterPass:**](./include/Pass/Emit/GraphEmitter.h) Graph IR viz
