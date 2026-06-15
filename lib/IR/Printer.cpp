@@ -6,10 +6,22 @@
 
 namespace rat {
 	namespace {
+		constexpr const char* Reset = "\033[0m";
+		constexpr const char* Green = "\033[32m";
+		constexpr const char* TempColors[] = {
+				"\033[31m", "\033[33m", "\033[34m", "\033[35m", "\033[36m",
+				"\033[91m", "\033[93m", "\033[94m", "\033[95m", "\033[96m",
+		};
+		constexpr U32 TempColorCount = sizeof(TempColors) / sizeof(TempColors[0]);
+
+		String comment(const String& text) { return Green + text + Reset; }
+
 		String ref(const Node* node) {
 			if (!node)
 				return "<null>";
-			return "v" + std::to_string(node->getId());
+			U32 id = node->getId();
+			return TempColors[id % TempColorCount] + ("v" + std::to_string(id)) +
+						 Reset;
 		}
 
 		void printOperands(const Node* node, std::ostream& os) {
@@ -23,22 +35,25 @@ namespace rat {
 
 			switch (node->getOpcode()) {
 			case Opcode::Constant:
-				os << "  " << static_cast<const ConstantNode*>(node)->getValue();
+				os << comment(
+						"  " +
+						std::to_string(static_cast<const ConstantNode*>(node)->getValue()));
 				break;
 			case Opcode::Proj: {
 				const auto* proj = static_cast<const ProjNode*>(node);
-				os << "  #" << proj->getIndex();
+				os << comment("  #" + std::to_string(proj->getIndex()));
 				if (!proj->getLabel().empty())
-					os << " \"" << proj->getLabel() << "\"";
-				os << " of " << ref(proj->getProducer());
+					os << comment(" \"" + proj->getLabel() + "\"");
+				os << comment(" of ") << ref(proj->getProducer());
 				return;
 			}
 			case Opcode::Call:
-				os << "  \"" << static_cast<const CallNode*>(node)->getCallee() << "\"";
+				os << comment("  \"" + static_cast<const CallNode*>(node)->getCallee() +
+											"\"");
 				break;
 			case Opcode::Region:
 				if (static_cast<const RegionNode*>(node)->isLoopHeader())
-					os << "  loop";
+					os << comment("  loop");
 				break;
 			default:
 				break;
