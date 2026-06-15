@@ -1,5 +1,6 @@
 #include "IR/Function.h"
 
+#include "CodeGen/Target.h"
 #include "IR/Module.h"
 
 #include <unordered_map>
@@ -36,7 +37,10 @@ namespace rat {
 	Type* Function::ptrTy() const { return mod->getPtr(); }
 	Type* Function::memTy() const { return mod->getMemory(); }
 	Type* Function::ctrlTy() const { return mod->getControl(); }
-	Type* Function::intPtrTy() const { return mod->getInt(64); }
+	Type* Function::intPtrTy() const {
+		const TargetInfo* t = mod->target();
+		return mod->getInt(t ? t->getPointerSizeInBits() : 64);
+	}
 
 	Function::Function(Module& module, String name, const List<Type*>& params,
 										 Type* ret)

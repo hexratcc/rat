@@ -1,4 +1,4 @@
-#include "Pass/PrintPass.h"
+#include "Pass/Emit/TextEmitter.h"
 
 #include "IR/Function.h"
 #include "IR/Module.h"
@@ -61,38 +61,42 @@ namespace rat {
 
 			printOperands(node, os);
 		}
-
-		void printFunction(const Function& fn, std::ostream& os) {
-			os << "func " << fn.getName() << "(";
-			for (U32 i = 0; i < fn.getParamCount(); ++i) {
-				if (i)
-					os << ", ";
-				os << fn.getParamType(i)->str();
-			}
-			os << ") -> " << (fn.returnsValue() ? fn.getReturnType()->str() : "void")
-				 << " {\n";
-
-			for (const Node* node : fn) {
-				printNode(node, os);
-				os << "\n";
-			}
-
-			os << "}\n";
-		}
 	} // namespace
 
-	PrintPass::PrintPass(std::ostream& os) : os(&os) {}
+	void emitText(const Function& fn, std::ostream& os) {
+		os << "func " << fn.getName() << "(";
+		for (U32 i = 0; i < fn.getParamCount(); ++i) {
+			if (i)
+				os << ", ";
+			os << fn.getParamType(i)->str();
+		}
+		os << ") -> " << (fn.returnsValue() ? fn.getReturnType()->str() : "void")
+			 << " {\n";
 
-	const char* PrintPass::name() const { return "print"; }
+		for (const Node* node : fn) {
+			printNode(node, os);
+			os << "\n";
+		}
 
-	B32 PrintPass::run(Module& module) {
+		os << "}\n";
+	}
+
+	void emitText(const Module& module, std::ostream& os) {
 		B32 first = true;
 		for (const Function* fn : module) {
 			if (!first)
-				*os << "\n";
+				os << "\n";
 			first = false;
-			printFunction(*fn, *os);
+			emitText(*fn, os);
 		}
+	}
+
+	TextEmitterPass::TextEmitterPass(std::ostream& os) : os(&os) {}
+
+	const char* TextEmitterPass::name() const { return "text-emitter"; }
+
+	B32 TextEmitterPass::run(Module& module) {
+		emitText(module, *os);
 		return false;
 	}
 } // namespace rat

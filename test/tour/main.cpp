@@ -1,16 +1,22 @@
 #include "CodeGen/Schedule.h"
+#include "CodeGen/Target.h"
 #include "IR/Module.h"
+#include "Pass/Emit/CEmitter.h"
+#include "Pass/Emit/GraphEmitter.h"
+#include "Pass/Emit/TextEmitter.h"
 #include "Pass/Opt/Fold.h"
 #include "Pass/Opt/GVN.h"
 #include "Pass/Opt/MemoryOpt.h"
 #include "Pass/Opt/SimplifyCFG.h"
 #include "Pass/PassManager.h"
-#include "Pass/PrintPass.h"
+#include "Pass/Verify.h"
 
 #include <iostream>
 
 int main() {
 	rat::Module module;
+	rat::Generic64 target;
+	module.setTarget(&target);
 	rat::Type* i32 = module.getInt(32);
 
 	// int add(int a, int b) { return a + b + 3; }
@@ -77,9 +83,13 @@ int main() {
 	rat::Node* lb = mem->load(i32, pp);
 	mem->ret(mem->add(la, lb));
 
-	std::cout << "; before opt\n";
+	std::cout << "; verify (before opt)\n";
+	if (rat::verify(module, std::cout))
+		std::cout << "; ok\n";
+
+	std::cout << "\n; before opt\n";
 	rat::PassManager before;
-	before.add<rat::PrintPass>(std::cout);
+	before.add<rat::TextEmitterPass>(std::cout);
 	before.run(module);
 
 	std::cout << "\n; after memoryopt + fold + gvn + simplifycfg\n";
@@ -88,7 +98,8 @@ int main() {
 	pm.add<rat::FoldPass>();
 	pm.add<rat::GVNPass>();
 	pm.add<rat::SimplifyCFGPass>();
-	pm.add<rat::PrintPass>(std::cout);
+	pm.add<rat::VerifyPass>(std::cout);
+	pm.add<rat::TextEmitterPass>(std::cout);
 	pm.run(module);
 
 	std::cout << "\n; schedule of sum (blocks in rpo)\n";
@@ -99,5 +110,11 @@ int main() {
 							<< " loopDepth=" << bl.loopDepth << " phis=" << bl.phis.size()
 							<< " nodes=" << bl.nodes.size() << "\n";
 	}
+
+	std::cout << "\n/* --- c --- */\n";
+	rat::emitC(module, std::cout);
+
+	std::cout << "\n// --- graph ---\n";
+	rat::emitDot(*fn, std::cout);
 	return 0;
 }

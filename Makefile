@@ -16,7 +16,10 @@ LIB_SRCS := \
 	lib/IR/Module.cpp \
 	lib/Pass/Pass.cpp \
 	lib/Pass/PassManager.cpp \
-	lib/Pass/PrintPass.cpp \
+	lib/Pass/Verify.cpp \
+	lib/Pass/Emit/TextEmitter.cpp \
+	lib/Pass/Emit/GraphEmitter.cpp \
+	lib/Pass/Emit/CEmitter.cpp \
 	lib/Pass/Opt/Fold.cpp \
 	lib/Pass/Opt/GVN.cpp \
 	lib/Pass/Opt/SimplifyCFG.cpp \
@@ -28,7 +31,7 @@ LIB_OBJS := $(patsubst %.cpp,build/%.o,$(LIB_SRCS))
 LIB      := build/libratson.a
 
 SOURCES  := $(LIB_SRCS) test/tour/main.cpp
-HEADERS  := $(wildcard include/*.h include/IR/*.h include/Pass/*.h include/Pass/Opt/*.h include/CodeGen/*.h)
+HEADERS  := $(wildcard include/*.h include/IR/*.h include/Pass/*.h include/Pass/Emit/*.h include/Pass/Opt/*.h include/CodeGen/*.h)
 
 .PHONY: all run format clean
 all: bin/tour

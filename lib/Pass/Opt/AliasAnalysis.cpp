@@ -1,6 +1,8 @@
 #include "Pass/Opt/AliasAnalysis.h"
 
+#include "CodeGen/Target.h"
 #include "IR/Function.h"
+#include "IR/Module.h"
 #include "IR/Node.h"
 #include "IR/Type.h"
 
@@ -59,7 +61,9 @@ namespace rat {
 
 		if (t->isInt())
 			return (t->getIntWidth() + 7) / 8;
-		// TODO: pointer width to model pointer accesses
+		if (t->isPtr())
+			if (const TargetInfo* tgt = fn.getModule().target())
+				return tgt->getPointerSizeInBits() / 8;
 		return 0;
 	}
 

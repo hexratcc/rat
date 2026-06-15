@@ -5,6 +5,9 @@ namespace rat {
 
 	const String& Module::getName() const { return name; }
 
+	const TargetInfo* Module::target() const { return tgt; }
+	void Module::setTarget(const TargetInfo* t) { tgt = t; }
+
 	Function* Module::createFunction(const String& name,
 																	 const List<Type*>& params, Type* ret) {
 		auto owned = std::make_unique<Function>(*this, name, params, ret);

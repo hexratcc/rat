@@ -6,10 +6,15 @@
 #include "IR/Type.h"
 
 namespace rat {
+	struct TargetInfo;
+
 	struct Module : TypeContext {
 		explicit Module(String name = "module");
 
 		const String& getName() const;
+
+		const TargetInfo* target() const;
+		void setTarget(const TargetInfo* t);
 
 		Function* createFunction(const String& name, const List<Type*>& params,
 														 Type* ret);
@@ -28,6 +33,7 @@ namespace rat {
 
 	private:
 		String name;
+		const TargetInfo* tgt = nullptr;
 		List<UniquePtr<Function>> funcs;
 	};
 } // namespace rat
