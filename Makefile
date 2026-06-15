@@ -14,6 +14,7 @@ LIB_SRCS := \
 	lib/IR/Node.cpp \
 	lib/IR/Function.cpp \
 	lib/IR/Module.cpp \
+	lib/IR/TextParser.cpp \
 	lib/Pass/Pass.cpp \
 	lib/Pass/PassManager.cpp \
 	lib/Pass/Verify.cpp \
@@ -30,10 +31,12 @@ LIB_SRCS := \
 LIB_OBJS := $(patsubst %.cpp,build/%.o,$(LIB_SRCS))
 LIB      := build/rat.a
 
-SOURCES  := $(LIB_SRCS) test/tour/main.cpp
+SOURCES  := $(LIB_SRCS) test/tour/main.cpp test/runner/main.cpp
 HEADERS  := $(wildcard include/*.h include/IR/*.h include/Pass/*.h include/Pass/Emit/*.h include/Pass/Opt/*.h include/CodeGen/*.h)
 
-.PHONY: all run format clean
+CASES := $(wildcard test/cases/*.rat)
+
+.PHONY: all run test format clean
 all: bin/tour
 
 build/%.o: %.cpp
@@ -52,6 +55,13 @@ bin/tour: test/tour/main.cpp $(LIB)
 
 run: bin/tour
 	./bin/tour
+
+bin/ratest: test/runner/main.cpp $(LIB)
+	@mkdir -p bin
+	$(CXX) $(CXXFLAGS) $(INC) $< $(LIB) -o $@
+
+test: bin/ratest
+	./bin/ratest $(CASES)
 
 format:
 	clang-format -i $(SOURCES) $(HEADERS)
