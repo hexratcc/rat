@@ -1,4 +1,4 @@
-#include "IR/Printer.h"
+#include "Pass/PrintPass.h"
 
 #include "IR/Function.h"
 #include "IR/Module.h"
@@ -61,33 +61,38 @@ namespace rat {
 
 			printOperands(node, os);
 		}
+
+		void printFunction(const Function& fn, std::ostream& os) {
+			os << "func " << fn.getName() << "(";
+			for (U32 i = 0; i < fn.getParamCount(); ++i) {
+				if (i)
+					os << ", ";
+				os << fn.getParamType(i)->str();
+			}
+			os << ") -> " << (fn.returnsValue() ? fn.getReturnType()->str() : "void")
+				 << " {\n";
+
+			for (const Node* node : fn) {
+				printNode(node, os);
+				os << "\n";
+			}
+
+			os << "}\n";
+		}
 	} // namespace
 
-	void print(const Function& fn, std::ostream& os) {
-		os << "func " << fn.getName() << "(";
-		for (U32 i = 0; i < fn.getParamCount(); ++i) {
-			if (i)
-				os << ", ";
-			os << fn.getParamType(i)->str();
-		}
-		os << ") -> " << (fn.returnsValue() ? fn.getReturnType()->str() : "void")
-			 << " {\n";
+	PrintPass::PrintPass(std::ostream& os) : os(&os) {}
 
-		for (const Node* node : fn) {
-			printNode(node, os);
-			os << "\n";
-		}
+	const char* PrintPass::name() const { return "print"; }
 
-		os << "}\n";
-	}
-
-	void print(const Module& module, std::ostream& os) {
+	B32 PrintPass::run(Module& module) {
 		B32 first = true;
 		for (const Function* fn : module) {
 			if (!first)
-				os << "\n";
+				*os << "\n";
 			first = false;
-			print(*fn, os);
+			printFunction(*fn, *os);
 		}
+		return false;
 	}
 } // namespace rat

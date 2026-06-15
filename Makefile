@@ -13,13 +13,15 @@ LIB_SRCS := \
 	lib/IR/Node.cpp \
 	lib/IR/Function.cpp \
 	lib/IR/Module.cpp \
-	lib/IR/Printer.cpp
+	lib/Pass/Pass.cpp \
+	lib/Pass/PassManager.cpp \
+	lib/Pass/PrintPass.cpp
 
 LIB_OBJS := $(patsubst %.cpp,build/%.o,$(LIB_SRCS))
 LIB      := build/libratson.a
 
 SOURCES  := $(LIB_SRCS) test/tour/main.cpp
-HEADERS  := $(wildcard include/*.h include/IR/*.h)
+HEADERS  := $(wildcard include/*.h include/IR/*.h include/Pass/*.h)
 
 .PHONY: all run format clean
 all: bin/tour

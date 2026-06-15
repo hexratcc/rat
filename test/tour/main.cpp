@@ -1,5 +1,6 @@
 #include "IR/Module.h"
-#include "IR/Printer.h"
+#include "Pass/PassManager.h"
+#include "Pass/PrintPass.h"
 
 #include <iostream>
 
@@ -12,6 +13,8 @@ int main() {
 	rat::Node* sum = add->add(add->param(0), add->param(1));
 	add->ret(add->add(sum, add->constInt(i32, 3)));
 
-	rat::print(module, std::cout);
+	rat::PassManager pm;
+	pm.add<rat::PrintPass>(std::cout);
+	pm.run(module);
 	return 0;
 }
