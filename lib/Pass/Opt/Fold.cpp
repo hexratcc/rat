@@ -1,3 +1,12 @@
+// peephole constant folding and algebraic simplification, applied as local
+// graph rewrites in the spirit of parse-time pessimistic peepholes
+//
+// references:
+// - C. Click and M. Paleczny, "A Simple Graph-Based Intermediate
+//   Representation", ACM SIGPLAN Workshop on IRs, 1995
+// - C. Click, "Combining Analyses, Combining Optimizations", PhD thesis,
+//   Rice University, 1995 (peephole rewriting on the sea-of-nodes graph)
+
 #include "Pass/Opt/Fold.h"
 
 #include "IR/Function.h"

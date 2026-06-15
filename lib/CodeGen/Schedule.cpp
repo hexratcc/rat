@@ -1,3 +1,11 @@
+// global code motion: recover a CFG and place each floating node into a basic
+// block, hoisting out of loops where legal and otherwise sinking toward uses
+//
+// references:
+// - C. Click, "Global Code Motion / Global Value Numbering", PLDI, 1995
+// - T. Lengauer and R. E. Tarjan, "A Fast Algorithm for Finding Dominators
+//   in a Flowgraph", ACM TOPLAS, 1979
+
 #include "CodeGen/Schedule.h"
 
 #include "IR/Function.h"

@@ -69,7 +69,7 @@ namespace rat {
 		}
 
 		Opcode opcodeForMnemonic(const String& m, B32& ok) {
-			for (int i = (int)Opcode::Start; i <= (int)Opcode::Call; ++i) {
+			for (i32 i = (i32)Opcode::Start; i <= (i32)Opcode::Call; ++i) {
 				Opcode op = (Opcode)i;
 				if (m == getOpcodeMnemonic(op)) {
 					ok = true;
@@ -139,7 +139,7 @@ namespace rat {
 					}
 					String inner = t.substr(1, t.size() - 2);
 					List<Type*> elems;
-					int depth = 0;
+					i32 depth = 0;
 					String cur;
 					auto flush = [&]() -> B32 {
 						String e = trim(cur);
@@ -195,7 +195,7 @@ namespace rat {
 
 				List<Type*> params;
 				{
-					int depth = 0;
+					i32 depth = 0;
 					String cur;
 					auto flush = [&]() -> B32 {
 						String p = trim(cur);
@@ -279,7 +279,7 @@ namespace rat {
 				String after = ltrim(rest.substr(colon + 3));
 				String typeStr, remainder;
 				if (!after.empty() && after.front() == '(') {
-					int depth = 0;
+					i32 depth = 0;
 					U32 i = 0;
 					for (; i < after.size(); ++i) {
 						if (after[i] == '(')

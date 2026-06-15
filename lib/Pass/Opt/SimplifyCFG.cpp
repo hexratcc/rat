@@ -1,3 +1,12 @@
+// control-flow simplification: fold branches on constant predicates, collapse
+// single-predecessor regions and their phis, and prune unreachable control
+//
+// references:
+// - C. Click and M. Paleczny, "A Simple Graph-Based Intermediate
+//   Representation", ACM SIGPLAN Workshop on IRs, 1995
+// - C. Click, "Combining Analyses, Combining Optimizations", PhD thesis,
+//   Rice University, 1995
+
 #include "Pass/Opt/SimplifyCFG.h"
 
 #include "IR/Function.h"

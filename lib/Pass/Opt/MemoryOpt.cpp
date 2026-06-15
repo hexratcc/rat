@@ -1,3 +1,14 @@
+// memory optimization: redundant-load elimination and store-to-load
+// forwarding over the explicit memory-state edges of the SON,
+// disambiguated by AliasAnalysis
+//
+// references:
+// - C. Click and M. Paleczny, "A Simple Graph-Based Intermediate
+//   Representation", ACM SIGPLAN Workshop on IRs, 1995 (memory as a value)
+// - F. Chow, S. Chan, S.-M. Liu, R. Lo and M. Streich, "Effective
+//   Representation of Aliases and Indirect Memory Operations in SSA Form",
+//   Compiler Construction (CC), 1996
+
 #include "Pass/Opt/MemoryOpt.h"
 
 #include "CodeGen/Schedule.h"

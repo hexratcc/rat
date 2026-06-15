@@ -1,3 +1,11 @@
+// alias analysis: decide whether two memory accesses may, must, or never
+// refer to overlapping storage, used to drive MemoryOpt
+//
+// references:
+// - F. Chow, S. Chan, S.-M. Liu, R. Lo and M. Streich, "Effective
+//   Representation of Aliases and Indirect Memory Operations in SSA Form",
+//   Compiler Construction (CC), 1996
+
 #include "Pass/Opt/AliasAnalysis.h"
 
 #include "CodeGen/Target.h"
