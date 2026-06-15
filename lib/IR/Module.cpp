@@ -1,0 +1,31 @@
+#include "IR/Module.h"
+
+namespace rat {
+	Module::Module(String name) : name(std::move(name)) {}
+
+	const String& Module::getName() const { return name; }
+
+	Function* Module::createFunction(const String& name,
+																	 const List<Type*>& params, Type* ret) {
+		auto owned = std::make_unique<Function>(*this, name, params, ret);
+		Function* raw = owned.get();
+		funcs.push_back(std::move(owned));
+		return raw;
+	}
+
+	Function* Module::FunctionIterator::operator*() const { return it->get(); }
+
+	Module::FunctionIterator& Module::FunctionIterator::operator++() {
+		++it;
+		return *this;
+	}
+
+	B32 Module::FunctionIterator::operator!=(
+			const FunctionIterator& other) const {
+		return it != other.it;
+	}
+
+	Module::FunctionIterator Module::begin() const { return {funcs.begin()}; }
+	Module::FunctionIterator Module::end() const { return {funcs.end()}; }
+	B32 Module::empty() const { return funcs.empty(); }
+} // namespace rat

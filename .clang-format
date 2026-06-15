@@ -1,0 +1,7 @@
+BasedOnStyle: LLVM
+PointerAlignment: Left
+UseTab: Always
+TabWidth: 2
+IndentWidth: 2
+NamespaceIndentation: All
+FixNamespaceComments: true

@@ -1,0 +1,79 @@
+#include "IR/Opcode.h"
+
+namespace rat {
+	const char* getOpcodeMnemonic(Opcode op) {
+		switch (op) {
+		case Opcode::Start:
+			return "start";
+		case Opcode::Stop:
+			return "stop";
+		case Opcode::Return:
+			return "return";
+		case Opcode::Region:
+			return "region";
+		case Opcode::If:
+			return "if";
+		case Opcode::Proj:
+			return "proj";
+		case Opcode::Phi:
+			return "phi";
+		case Opcode::Constant:
+			return "const";
+		case Opcode::Add:
+			return "add";
+		case Opcode::Sub:
+			return "sub";
+		case Opcode::Mul:
+			return "mul";
+		case Opcode::SDiv:
+			return "sdiv";
+		case Opcode::UDiv:
+			return "udiv";
+		case Opcode::SRem:
+			return "srem";
+		case Opcode::URem:
+			return "urem";
+		case Opcode::And:
+			return "and";
+		case Opcode::Or:
+			return "or";
+		case Opcode::Xor:
+			return "xor";
+		case Opcode::Shl:
+			return "shl";
+		case Opcode::LShr:
+			return "lshr";
+		case Opcode::AShr:
+			return "ashr";
+		case Opcode::Neg:
+			return "neg";
+		case Opcode::Not:
+			return "not";
+		case Opcode::Eq:
+			return "eq";
+		case Opcode::Ne:
+			return "ne";
+		case Opcode::Slt:
+			return "slt";
+		case Opcode::Sle:
+			return "sle";
+		case Opcode::Ult:
+			return "ult";
+		case Opcode::Ule:
+			return "ule";
+		case Opcode::Trunc:
+			return "trunc";
+		case Opcode::SExt:
+			return "sext";
+		case Opcode::ZExt:
+			return "zext";
+		case Opcode::Load:
+			return "load";
+		case Opcode::Store:
+			return "store";
+		case Opcode::Call:
+			return "call";
+		}
+		return "<invalid>";
+	}
+} // namespace rat
