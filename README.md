@@ -8,7 +8,7 @@ $ make run    # build and runs the demo
 $ make format # clang-format
 ```
 
-## passes:
+## passes
 - [**FoldPass:**](./include/Pass/Opt/Fold.h) Constant folding and algebraic simplification
 - [**GVNPass:**](./include/Pass/Opt/GVN.h) Global value numbering
 - [**SimplifyCFGPass:**](./include/Pass/Opt/SimplifyCFG.h) Control-flow simplification
