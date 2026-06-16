@@ -184,7 +184,7 @@ namespace detail {
 			std::cout << "[FAIL] " << path << ": " << err << "\n";
 			return false;
 		}
-		String label = tf.name.empty() ? path : (tf.name + " (" + path + ")");
+		const String& label = path;
 
 		Generic64 target;
 		Module mod;
