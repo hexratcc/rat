@@ -1,0 +1,33 @@
+@name memoryopt: a load forwards past a store to a distinct stack object
+@passes memoryopt
+
+@input
+func t() -> i32 {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v11
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = alloc : ptr  i32
+	v5 = alloc : ptr  i32
+	v6 = const : i32  1
+	v7 = store : mem v2, v3, v4, v6
+	v8 = const : i32  2
+	v9 = store : mem v2, v7, v5, v8
+	v10 = load : i32 v2, v9, v4
+	v11 = return : ctrl v2, v9, v10
+}
+
+@expect
+func t() -> i32 {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v11
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = alloc : ptr  i32
+	v5 = alloc : ptr  i32
+	v6 = const : i32  1
+	v7 = store : mem v2, v3, v4, v6
+	v8 = const : i32  2
+	v9 = store : mem v2, v7, v5, v8
+	v11 = return : ctrl v2, v9, v6
+}

@@ -66,13 +66,27 @@ namespace rat {
 		else
 			return 0;
 
-		if (t->isInt())
-			return (t->getIntWidth() + 7) / 8;
-		if (t->isPtr())
-			if (const TargetInfo* tgt = fn.getModule().target())
-				return tgt->getPointerSizeInBits() / 8;
-		return 0;
+		U32 ptrBytes = 0;
+		if (const TargetInfo* tgt = fn.getModule().target())
+			ptrBytes = tgt->getPointerSizeInBits() / 8;
+		return t->byteSize(ptrBytes);
 	}
+
+	namespace {
+		B32 isIdentified(const Node* n) {
+			return isa<AllocNode>(n) || isa<GlobalNode>(n);
+		}
+
+		B32 distinctObjects(const Node* a, const Node* b) {
+			if (!isIdentified(a) || !isIdentified(b))
+				return false;
+
+			if (isa<AllocNode>(a) || isa<AllocNode>(b))
+				return a != b;
+			return cast<GlobalNode>(a)->getSymbol() !=
+						 cast<GlobalNode>(b)->getSymbol();
+		}
+	} // namespace
 
 	AliasResult AliasAnalysis::alias(Node* addrA, U32 sizeA, Node* addrB,
 																	 U32 sizeB) const {
@@ -81,7 +95,8 @@ namespace rat {
 
 		// different (or unknown) base objects
 		if (a.base != b.base)
-			return AliasResult::MayAlias;
+			return distinctObjects(a.base, b.base) ? AliasResult::NoAlias
+																						 : AliasResult::MayAlias;
 
 		// same base, but the symbolic parts must match to compare offsets
 		if (a.symbolic.size() != b.symbolic.size())
