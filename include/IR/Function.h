@@ -135,6 +135,7 @@ namespace rat {
 		U32 size() const;
 
 		U32 eliminateDeadNodes(B32 includeControl = false);
+		void removeNode(Node* n);
 
 		friend struct Node;
 

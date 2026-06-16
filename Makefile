@@ -25,6 +25,7 @@ LIB_SRCS := \
 	lib/Pass/Emit/CEmitter.cpp \
 	lib/Pass/Opt/Fold.cpp \
 	lib/Pass/Opt/GVN.cpp \
+	lib/Pass/Opt/Inline.cpp \
 	lib/Pass/Opt/SimplifyCFG.cpp \
 	lib/Pass/Opt/AliasAnalysis.cpp \
 	lib/Pass/Opt/MemoryOpt.cpp \

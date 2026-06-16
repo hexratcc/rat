@@ -472,5 +472,16 @@ namespace rat {
 		return removed;
 	}
 
+	void Function::removeNode(Node* n) {
+		// drop outgoing edges so input user-lists stay correct
+		while (n->getInputCount() > 0)
+			n->removeInput(n->getInputCount() - 1);
+		for (auto it = nodes.begin(); it != nodes.end(); ++it)
+			if (*it == n) {
+				nodes.erase(it);
+				break;
+			}
+	}
+
 	U32 Function::allocateId() { return nextId++; }
 } // namespace rat

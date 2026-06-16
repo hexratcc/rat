@@ -1,0 +1,45 @@
+@name inline then fold: callee result folds into a constant
+@passes inline fold
+
+@input
+func two() -> i32 {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v5
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = const : i32  2
+	v5 = return : ctrl v2, v3, v4
+}
+
+func use() -> i32 {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v9
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v5 = call : (ctrl, mem, i32) "two" v2, v3
+	v6 = proj : ctrl  #0 "ctrl" of v5
+	v7 = proj : mem  #1 "mem" of v5
+	v8 = proj : i32  #2 "ret" of v5
+	v10 = const : i32  3
+	v11 = add : i32 v8, v10
+	v9 = return : ctrl v6, v7, v11
+}
+
+@expect
+func two() -> i32 {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v5
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = const : i32  2
+	v5 = return : ctrl v2, v3, v4
+}
+
+func use() -> i32 {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v5
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = const : i32  5
+	v5 = return : ctrl v2, v3, v4
+}

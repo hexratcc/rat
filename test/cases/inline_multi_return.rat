@@ -1,0 +1,67 @@
+@name inline: a callee with two returns merges at a region/phi
+@passes inline
+
+@input
+func absish(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v11, v12
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = const : i32  0
+	v6 = slt : i1 v4, v5
+	v7 = if : (ctrl, ctrl) v2, v6
+	v8 = proj : ctrl  #0 "then" of v7
+	v9 = proj : ctrl  #1 "else" of v7
+	v10 = neg : i32 v4
+	v11 = return : ctrl v8, v3, v10
+	v12 = return : ctrl v9, v3, v4
+}
+
+func caller(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v9
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = call : (ctrl, mem, i32) "absish" v2, v3, v4
+	v6 = proj : ctrl  #0 "ctrl" of v5
+	v7 = proj : mem  #1 "mem" of v5
+	v8 = proj : i32  #2 "ret" of v5
+	v9 = return : ctrl v6, v7, v8
+}
+
+@expect
+func absish(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v11, v12
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = const : i32  0
+	v6 = slt : i1 v4, v5
+	v7 = if : (ctrl, ctrl) v2, v6
+	v8 = proj : ctrl  #0 "then" of v7
+	v9 = proj : ctrl  #1 "else" of v7
+	v10 = neg : i32 v4
+	v11 = return : ctrl v8, v3, v10
+	v12 = return : ctrl v9, v3, v4
+}
+
+func caller(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v14
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = const : i32  0
+	v6 = slt : i1 v4, v5
+	v7 = if : (ctrl, ctrl) v2, v6
+	v8 = proj : ctrl  #0 "then" of v7
+	v9 = proj : ctrl  #1 "else" of v7
+	v10 = neg : i32 v4
+	v11 = region : ctrl v8, v9
+	v12 = phi : mem v11, v3, v3
+	v13 = phi : i32 v11, v10, v4
+	v14 = return : ctrl v11, v12, v13
+}

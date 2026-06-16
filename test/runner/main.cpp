@@ -14,6 +14,7 @@
 #include "Pass/Emit/TextEmitter.h"
 #include "Pass/Opt/Fold.h"
 #include "Pass/Opt/GVN.h"
+#include "Pass/Opt/Inline.h"
 #include "Pass/Opt/MemoryOpt.h"
 #include "Pass/Opt/SimplifyCFG.h"
 #include "Pass/PassManager.h"
@@ -87,6 +88,8 @@ namespace detail {
 			pm.add<FoldPass>();
 		else if (name == "gvn")
 			pm.add<GVNPass>();
+		else if (name == "inline")
+			pm.add<InlinePass>();
 		else if (name == "simplifycfg")
 			pm.add<SimplifyCFGPass>();
 		else if (name == "memoryopt")

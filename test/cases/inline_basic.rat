@@ -1,0 +1,50 @@
+@name inline: straight-line callee is spliced into the caller
+@passes inline
+
+@input
+func callee(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v6
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = const : i32  1
+	v6 = return : ctrl v2, v3, v7
+	v7 = add : i32 v4, v5
+}
+
+func caller(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v9
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = call : (ctrl, mem, i32) "callee" v2, v3, v4
+	v6 = proj : ctrl  #0 "ctrl" of v5
+	v7 = proj : mem  #1 "mem" of v5
+	v8 = proj : i32  #2 "ret" of v5
+	v9 = return : ctrl v6, v7, v8
+}
+
+@expect
+func callee(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v7
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = const : i32  1
+	v6 = add : i32 v4, v5
+	v7 = return : ctrl v2, v3, v6
+}
+
+func caller(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v7
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = const : i32  1
+	v6 = add : i32 v4, v5
+	v7 = return : ctrl v2, v3, v6
+}
