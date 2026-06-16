@@ -67,6 +67,8 @@ namespace rat {
 		B32 hasSideEffects;
 		B32 isCommutative;
 		I8 controlInputIndex;
+		I8 minInputs;
+		I8 maxInputs;
 	};
 
 	const OpcodeInfo& getOpcodeInfo(Opcode op);

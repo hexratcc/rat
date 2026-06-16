@@ -51,23 +51,25 @@ namespace rat {
 			static B32 isMem(const Node* n) { return n->getType()->isMemory(); }
 			static B32 isData(const Node* n) { return n->getType()->isData(); }
 
-			B32 wantInputs(const Node* n, U32 lo, U32 hi) {
+			B32 checkArity(const Node* n) {
+				const OpcodeInfo& info = getOpcodeInfo(n->getOpcode());
 				U32 c = n->getInputCount();
-				if (c < lo || c > hi) {
+				U32 lo = (U32)info.minInputs;
+				B32 variadic = info.maxInputs < 0;
+				if (c < lo || (!variadic && c > (U32)info.maxInputs)) {
 					std::ostringstream os;
 					os << "expects ";
-					if (lo == hi)
+					if (variadic)
+						os << lo << "+";
+					else if ((U32)info.maxInputs == lo)
 						os << lo;
 					else
-						os << lo << ".." << hi;
+						os << lo << ".." << (U32)info.maxInputs;
 					os << " inputs but has " << c;
 					err(n, os.str());
 					return false;
 				}
 				return true;
-			}
-			B32 wantInputs(const Node* n, U32 exact) {
-				return wantInputs(n, exact, exact);
 			}
 
 			void checkEdges(Node* n) {
@@ -113,12 +115,13 @@ namespace rat {
 				const Type* t = n->getType();
 				Opcode op = n->getOpcode();
 
+				if (!checkArity(n))
+					return;
+
 				switch (op) {
 				case Opcode::Start: {
 					if (n != fn.getStart())
 						err(n, "duplicate Start node");
-					if (n->getInputCount() != 0)
-						err(n, "Start must have no inputs");
 					if (!t->isTuple()) {
 						err(n, "Start type must be a tuple");
 						break;
@@ -146,8 +149,6 @@ namespace rat {
 					break;
 
 				case Opcode::Return: {
-					if (!wantInputs(n, 2, 3))
-						break;
 					auto* r = cast<ReturnNode>(n);
 					if (!isCtrl(r->getControl()))
 						err(n, "Return input 0 (control) is not control-typed");
@@ -173,8 +174,6 @@ namespace rat {
 					auto* r = cast<RegionNode>(n);
 					if (!t->isControl())
 						err(n, "Region type must be control");
-					if (r->getPredecessorCount() < 1)
-						err(n, "Region has no predecessors");
 					for (U32 i = 0, e = r->getPredecessorCount(); i < e; ++i)
 						if (!isCtrl(r->getPredecessor(i)))
 							err(n, "Region predecessor " + std::to_string(i) +
@@ -182,8 +181,6 @@ namespace rat {
 					break;
 				}
 				case Opcode::If: {
-					if (!wantInputs(n, 2))
-						break;
 					auto* iff = cast<IfNode>(n);
 					if (!isCtrl(iff->getControl()))
 						err(n, "If input 0 (control) is not control-typed");
@@ -202,8 +199,6 @@ namespace rat {
 					break;
 				}
 				case Opcode::Proj: {
-					if (!wantInputs(n, 1))
-						break;
 					auto* p = cast<ProjNode>(n);
 					Node* prod = p->getProducer();
 					Opcode po = prod->getOpcode();
@@ -220,10 +215,8 @@ namespace rat {
 					break;
 				}
 				case Opcode::Phi: {
-					if (!wantInputs(n, 1, ~0u))
-						break;
 					auto* phi = cast<PhiNode>(n);
-					Node* reg = phi->getInputCount() ? phi->getInput(0) : nullptr;
+					Node* reg = phi->getInput(0);
 					if (!reg || reg->getOpcode() != Opcode::Region) {
 						err(n, "Phi input 0 must be a Region");
 						break;
@@ -245,16 +238,12 @@ namespace rat {
 				case Opcode::Constant:
 					if (!t->isInt())
 						err(n, "Constant type must be an integer");
-					if (n->getInputCount() != 0)
-						err(n, "Constant must have no inputs");
 					break;
 
 				case Opcode::Global: {
 					auto* g = cast<GlobalNode>(n);
 					if (!t->isPtr())
 						err(n, "Global type must be a pointer");
-					if (n->getInputCount() != 0)
-						err(n, "Global must have no inputs");
 					if (!fn.getModule().getGlobal(g->getSymbol()))
 						err(n, "Global references unknown symbol '" + g->getSymbol() + "'");
 					break;
@@ -263,15 +252,11 @@ namespace rat {
 				case Opcode::Alloc:
 					if (!t->isPtr())
 						err(n, "Alloc type must be a pointer");
-					if (n->getInputCount() != 0)
-						err(n, "Alloc must have no inputs");
 					if (!cast<AllocNode>(n)->getAllocType())
 						err(n, "Alloc has no allocated type");
 					break;
 
 				case Opcode::Load: {
-					if (!wantInputs(n, 3))
-						break;
 					auto* l = cast<LoadNode>(n);
 					if (!isCtrl(l->getControl()))
 						err(n, "Load input 0 (control) is not control-typed");
@@ -284,8 +269,6 @@ namespace rat {
 					break;
 				}
 				case Opcode::Store: {
-					if (!wantInputs(n, 4))
-						break;
 					auto* s = cast<StoreNode>(n);
 					if (!isCtrl(s->getControl()))
 						err(n, "Store input 0 (control) is not control-typed");
@@ -300,8 +283,6 @@ namespace rat {
 					break;
 				}
 				case Opcode::Call: {
-					if (!wantInputs(n, 2, ~0u))
-						break;
 					auto* c = cast<CallNode>(n);
 					if (!isCtrl(c->getControl()))
 						err(n, "Call input 0 (control) is not control-typed");
@@ -326,8 +307,6 @@ namespace rat {
 				}
 				default:
 					if (isBinaryOpcode(op)) {
-						if (!wantInputs(n, 2))
-							break;
 						auto* b = cast<BinaryNode>(n);
 						const Type* lt = b->getLHS()->getType();
 						const Type* rt = b->getRHS()->getType();
@@ -351,24 +330,18 @@ namespace rat {
 							err(n, "binary operates on a non-data type");
 						}
 					} else if (isUnaryOpcode(op)) {
-						if (!wantInputs(n, 1))
-							break;
 						auto* u = cast<UnaryNode>(n);
 						if (!t->isInt())
 							err(n, "unary operates on a non-integer type");
 						if (u->getOperand()->getType() != t)
 							err(n, "unary result type differs from its operand");
 					} else if (isCompareOpcode(op)) {
-						if (!wantInputs(n, 2))
-							break;
 						auto* c = cast<CompareNode>(n);
 						if (!t->isInt() || t->getIntWidth() != 1)
 							err(n, "comparison result must be i1");
 						if (c->getLHS()->getType() != c->getRHS()->getType())
 							err(n, "comparison operands have different types");
 					} else if (isConvertOpcode(op)) {
-						if (!wantInputs(n, 1))
-							break;
 						auto* c = cast<ConvertNode>(n);
 						const Type* s = c->getOperand()->getType();
 						if (!s->isInt() || !t->isInt()) {
