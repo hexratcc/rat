@@ -72,6 +72,18 @@ int main() {
 	rat::Node* lb = mem->load(i32, pp);
 	mem->ret(mem->add(la, lb));
 
+	// module storage
+	module.createString("greeting", "hi");
+	module.createGlobal("counter", i32, /*isConst=*/false, {});
+
+	rat::Function* obj = module.createFunction("obj", {}, i32);
+	rat::Node* aSlot = obj->alloc(i32);
+	rat::Node* bSlot = obj->alloc(i32);
+	obj->store(aSlot, obj->constInt(i32, 1));
+	obj->store(bSlot, obj->constInt(i32, 2));
+	obj->store(obj->global("counter"), obj->constInt(i32, 5));
+	obj->ret(obj->load(i32, aSlot));
+
 	std::cout << "; verify (before opt)\n";
 	if (rat::verify(module, std::cout))
 		std::cout << "; ok\n";

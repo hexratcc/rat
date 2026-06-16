@@ -100,6 +100,10 @@ namespace rat {
 						return "arg" + std::to_string(p->getIndex() - 2);
 					return temp(n);
 				}
+				if (GlobalNode* g = dyn_cast<GlobalNode>(n))
+					return "((char *)" + g->getSymbol() + ")";
+				if (isa<AllocNode>(n))
+					return "((char *)" + temp(n) + ")";
 				return temp(n);
 			}
 
@@ -201,7 +205,23 @@ namespace rat {
 						continue;
 					os << "  " << cType(n->getType()) << " " << temp(n) << ";\n";
 				}
-				if (!needTemp.empty())
+
+				// stack allocations become local byte buffers
+				U32 ptrBytes = 0;
+				if (const TargetInfo* t = fn.getModule().target())
+					ptrBytes = t->getPointerSizeInBits() / 8;
+				B32 anyAlloc = false;
+				for (const Node* nc : fn) {
+					if (AllocNode* a = dyn_cast<AllocNode>(const_cast<Node*>(nc))) {
+						U32 size = a->getAllocType()->byteSize(ptrBytes);
+						if (size == 0)
+							size = 1;
+						os << "  unsigned char " << temp(a) << "[" << size << "];\n";
+						anyAlloc = true;
+					}
+				}
+
+				if (!needTemp.empty() || anyAlloc)
 					os << "\n";
 
 				// only label blocks that are jump targets
@@ -386,6 +406,29 @@ namespace rat {
 				 << "' (" << t->getPointerSizeInBits() << "-bit pointers)\");\n";
 		}
 		os << "\n";
+
+		U32 ptrBytes = 0;
+		if (const TargetInfo* t = module.target())
+			ptrBytes = t->getPointerSizeInBits() / 8;
+		B32 anyGlobal = false;
+		for (const Global* g : module.globals()) {
+			U32 size = g->getType()->byteSize(ptrBytes);
+			if (size == 0)
+				size = (U32)g->getInit().size();
+			const List<U8>& init = g->getInit();
+			os << (g->isConstant() ? "const " : "") << "unsigned char "
+				 << g->getName() << "[" << size << "] = {";
+			for (U32 i = 0; i < size; ++i) {
+				if (i)
+					os << ", ";
+				os << (U32)(i < init.size() ? init[i] : 0);
+			}
+			os << "};\n";
+			anyGlobal = true;
+		}
+		if (anyGlobal)
+			os << "\n";
+
 		for (const Function* fn : module) {
 			printSignature(*fn, os);
 			os << ";\n";

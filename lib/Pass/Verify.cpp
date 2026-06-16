@@ -249,6 +249,26 @@ namespace rat {
 						err(n, "Constant must have no inputs");
 					break;
 
+				case Opcode::Global: {
+					auto* g = cast<GlobalNode>(n);
+					if (!t->isPtr())
+						err(n, "Global type must be a pointer");
+					if (n->getInputCount() != 0)
+						err(n, "Global must have no inputs");
+					if (!fn.getModule().getGlobal(g->getSymbol()))
+						err(n, "Global references unknown symbol '" + g->getSymbol() + "'");
+					break;
+				}
+
+				case Opcode::Alloc:
+					if (!t->isPtr())
+						err(n, "Alloc type must be a pointer");
+					if (n->getInputCount() != 0)
+						err(n, "Alloc must have no inputs");
+					if (!cast<AllocNode>(n)->getAllocType())
+						err(n, "Alloc has no allocated type");
+					break;
+
 				case Opcode::Load: {
 					if (!wantInputs(n, 3))
 						break;

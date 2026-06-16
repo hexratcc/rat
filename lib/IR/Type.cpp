@@ -11,6 +11,7 @@ namespace rat {
 	B32 Type::isInt() const { return kind == Int; }
 	B32 Type::isPtr() const { return kind == Ptr; }
 	B32 Type::isTuple() const { return kind == Tuple; }
+	B32 Type::isArray() const { return kind == Array; }
 	B32 Type::isData() const { return isInt() || isPtr(); }
 
 	U32 Type::getIntWidth() const { return bits; }
@@ -20,6 +21,22 @@ namespace rat {
 	Type* Type::getTupleElement(U32 index) const { return elements[index]; }
 
 	U32 Type::getTupleElementCount() const { return (U32)elements.size(); }
+
+	Type* Type::getArrayElement() const { return elements[0]; }
+	U32 Type::getArrayCount() const { return bits; }
+
+	U32 Type::byteSize(U32 ptrBytes) const {
+		switch (kind) {
+		case Int:
+			return (bits + 7) / 8;
+		case Ptr:
+			return ptrBytes;
+		case Array:
+			return getArrayCount() * getArrayElement()->byteSize(ptrBytes);
+		default:
+			return 0;
+		}
+	}
 
 	void Type::print(std::ostream& os) const {
 		switch (kind) {
@@ -43,6 +60,11 @@ namespace rat {
 				elements[i]->print(os);
 			}
 			os << ')';
+			return;
+		case Array:
+			os << '[' << bits << " x ";
+			elements[0]->print(os);
+			os << ']';
 			return;
 		}
 	}
@@ -82,6 +104,18 @@ namespace rat {
 
 		Type* t = arena.make<Type>(Type::Tuple, 0, elements);
 		tuples.push_back(t);
+		return t;
+	}
+
+	Type* TypeContext::getArray(Type* element, U32 count) {
+		for (Type* existing : arrays) {
+			if (existing->getArrayElement() == element &&
+					existing->getArrayCount() == count)
+				return existing;
+		}
+
+		Type* t = arena.make<Type>(Type::Array, count, List<Type*>{element});
+		arrays.push_back(t);
 		return t;
 	}
 } // namespace rat

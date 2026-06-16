@@ -68,8 +68,40 @@ namespace rat {
 			return out;
 		}
 
+		B32 unquoteBytes(const String& s, List<U8>& out) {
+			String t = trim(s);
+			if (t.size() < 2 || t.front() != '"' || t.back() != '"')
+				return false;
+			auto hexVal = [](char c, U8& v) -> B32 {
+				if (c >= '0' && c <= '9')
+					v = (U8)(c - '0');
+				else if (c >= 'a' && c <= 'f')
+					v = (U8)(c - 'a' + 10);
+				else if (c >= 'A' && c <= 'F')
+					v = (U8)(c - 'A' + 10);
+				else
+					return false;
+				return true;
+			};
+			for (U32 i = 1; i + 1 < t.size();) {
+				if (t[i] == '\\') {
+					if (i + 3 >= t.size())
+						return false;
+					U8 hi, lo;
+					if (!hexVal(t[i + 1], hi) || !hexVal(t[i + 2], lo))
+						return false;
+					out.push_back((U8)((hi << 4) | lo));
+					i += 3;
+				} else {
+					out.push_back((U8)t[i]);
+					++i;
+				}
+			}
+			return true;
+		}
+
 		Opcode opcodeForMnemonic(const String& m, B32& ok) {
-			for (I32 i = (I32)Opcode::Start; i <= (I32)Opcode::Call; ++i) {
+			for (I32 i = (I32)Opcode::Start; i <= (I32)Opcode::Alloc; ++i) {
 				Opcode op = (Opcode)i;
 				if (m == getOpcodeMnemonic(op)) {
 					ok = true;
@@ -88,6 +120,8 @@ namespace rat {
 			U32 projIndex = 0; // Proj
 			String projLabel; // Proj
 			String callee; // Call
+			String symbol; // Global
+			Type* allocType = nullptr; // Alloc
 			B32 loopHeader = false; // Region
 			List<U32> operands;
 		};
@@ -119,8 +153,11 @@ namespace rat {
 					if (t.rfind("func ", 0) == 0) {
 						if (!parseFunction(t, in))
 							return false;
+					} else if (t.rfind("const ", 0) == 0 || t.rfind("var ", 0) == 0) {
+						if (!parseGlobal(t))
+							return false;
 					} else {
-						return fail("expected a 'func' header, got: " + t);
+						return fail("expected a 'func', 'const' or 'var', got: " + t);
 					}
 				}
 				return !failed;
@@ -168,6 +205,27 @@ namespace rat {
 						return nullptr;
 					return mod.getTuple(elems);
 				}
+				if (t.front() == '[') {
+					if (t.back() != ']') {
+						fail("unbalanced array type: " + t);
+						return nullptr;
+					}
+					String inner = t.substr(1, t.size() - 2);
+					size_t x = inner.find(" x ");
+					if (x == String::npos) {
+						fail("array type must be '[N x T]': " + t);
+						return nullptr;
+					}
+					String countStr = trim(inner.substr(0, x));
+					if (!allDigits(countStr)) {
+						fail("bad array count in: " + t);
+						return nullptr;
+					}
+					Type* elem = parseType(inner.substr(x + 3));
+					if (!elem)
+						return nullptr;
+					return mod.getArray(elem, (U32)std::stoul(countStr));
+				}
 				if (t == "ctrl")
 					return mod.getControl();
 				if (t == "mem")
@@ -178,6 +236,28 @@ namespace rat {
 					return mod.getInt((U32)std::stoul(t.substr(1)));
 				fail("unknown type '" + t + "'");
 				return nullptr;
+			}
+
+			B32 parseGlobal(const String& line) {
+				B32 isConst = line.rfind("const ", 0) == 0;
+				String rest = trim(line.substr(isConst ? 6 : 4));
+				size_t colon = rest.find(" : ");
+				size_t eq = rest.find(" = ");
+				if (colon == String::npos || eq == String::npos || eq < colon)
+					return fail("malformed global (want NAME : TYPE = \"...\"): " + line);
+				String name = trim(rest.substr(0, colon));
+				String typeStr = trim(rest.substr(colon + 3, eq - (colon + 3)));
+				String initStr = trim(rest.substr(eq + 3));
+				if (name.empty())
+					return fail("global has no name: " + line);
+				Type* ty = parseType(typeStr);
+				if (!ty)
+					return false;
+				List<U8> init;
+				if (!unquoteBytes(initStr, init))
+					return fail("malformed global initializer: " + initStr);
+				mod.createGlobal(name, ty, isConst, std::move(init));
+				return true;
 			}
 
 			B32 parseFunction(const String& header, std::istream& in) {
@@ -355,6 +435,23 @@ namespace rat {
 					r.operands = parseVRefs(remainder.substr(q2 + 1));
 					break;
 				}
+				case Opcode::Global: {
+					size_t q1 = remainder.find('"');
+					size_t q2 =
+							(q1 == String::npos) ? String::npos : remainder.find('"', q1 + 1);
+					if (q1 == String::npos || q2 == String::npos)
+						return fail("global node is missing its quoted symbol: " + line);
+					r.symbol = remainder.substr(q1 + 1, q2 - q1 - 1);
+					break;
+				}
+				case Opcode::Alloc: {
+					if (remainder.empty())
+						return fail("alloc node is missing its type: " + line);
+					r.allocType = parseType(remainder);
+					if (!r.allocType)
+						return false;
+					break;
+				}
 				case Opcode::Region: {
 					String body = remainder;
 					std::istringstream ss(body);
@@ -525,6 +622,10 @@ namespace rat {
 							if (!v)
 								return false;
 							n = fn->create<ConvertNode>(op, r.ty, v);
+						} else if (op == Opcode::Global) {
+							n = fn->create<GlobalNode>(r.ty, r.symbol);
+						} else if (op == Opcode::Alloc) {
+							n = fn->create<AllocNode>(r.ty, r.allocType);
 						} else {
 							return fail(String("cannot construct opcode '") +
 													getOpcodeMnemonic(op) + "'");

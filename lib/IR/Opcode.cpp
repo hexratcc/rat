@@ -73,6 +73,10 @@ namespace rat {
 			return "store";
 		case Opcode::Call:
 			return "call";
+		case Opcode::Global:
+			return "global";
+		case Opcode::Alloc:
+			return "alloc";
 		}
 		return "<invalid>";
 	}

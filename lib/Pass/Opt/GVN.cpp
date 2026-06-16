@@ -20,8 +20,9 @@ namespace rat {
 	namespace {
 		B32 isPureValue(Node* n) {
 			Opcode op = n->getOpcode();
-			return op == Opcode::Constant || isBinaryOpcode(op) ||
-						 isUnaryOpcode(op) || isCompareOpcode(op) || isConvertOpcode(op);
+			return op == Opcode::Constant || op == Opcode::Global ||
+						 isBinaryOpcode(op) || isUnaryOpcode(op) || isCompareOpcode(op) ||
+						 isConvertOpcode(op);
 		}
 
 		String signatureOf(Node* n) {
@@ -29,6 +30,8 @@ namespace rat {
 									 std::to_string((uintptr_t)n->getType()) + "|";
 			if (ConstantNode* c = dyn_cast<ConstantNode>(n))
 				return key + "c" + std::to_string(c->getValue());
+			if (GlobalNode* g = dyn_cast<GlobalNode>(n))
+				return key + "g" + g->getSymbol();
 
 			List<U32> ops;
 			ops.reserve(n->getInputCount());

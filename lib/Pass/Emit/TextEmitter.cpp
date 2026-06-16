@@ -16,6 +16,24 @@ namespace rat {
 
 		String comment(const String& text) { return Green + text + Reset; }
 
+		// raw bytes as a quoted string: printable ASCII verbatim, everything
+		// else (and " and \) as a \HH hex escape, so the form round-trips
+		String quoteBytes(const List<U8>& bytes) {
+			static const char* hex = "0123456789abcdef";
+			String out = "\"";
+			for (U8 b : bytes) {
+				if (b >= 0x20 && b <= 0x7e && b != '"' && b != '\\') {
+					out.push_back((char)b);
+				} else {
+					out.push_back('\\');
+					out.push_back(hex[b >> 4]);
+					out.push_back(hex[b & 0xf]);
+				}
+			}
+			out.push_back('"');
+			return out;
+		}
+
 		String ref(const Node* node) {
 			if (!node)
 				return "<null>";
@@ -51,6 +69,12 @@ namespace rat {
 				os << comment("  \"" + cast<CallNode>(node)->getCallee() +
 											"\"");
 				break;
+			case Opcode::Global:
+				os << comment("  \"" + cast<GlobalNode>(node)->getSymbol() + "\"");
+				break;
+			case Opcode::Alloc:
+				os << comment("  " + cast<AllocNode>(node)->getAllocType()->str());
+				break;
 			case Opcode::Region:
 				if (cast<RegionNode>(node)->isLoopHeader())
 					os << comment("  loop");
@@ -82,9 +106,16 @@ namespace rat {
 	}
 
 	void emitText(const Module& module, std::ostream& os) {
+		B32 any = false;
+		for (const Global* g : module.globals()) {
+			os << (g->isConstant() ? "const " : "var ") << g->getName() << " : "
+				 << g->getType()->str() << " = " << quoteBytes(g->getInit()) << "\n";
+			any = true;
+		}
+
 		B32 first = true;
 		for (const Function* fn : module) {
-			if (!first)
+			if (!first || any)
 				os << "\n";
 			first = false;
 			emitText(*fn, os);
