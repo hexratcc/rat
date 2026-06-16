@@ -17,7 +17,7 @@
 #include "Pass/Opt/AliasAnalysis.h"
 
 namespace rat {
-	namespace {
+	namespace detail {
 		Node* effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr,
 											 U32 size) {
 			while (StoreNode* s = dyn_cast<StoreNode>(mem)) {
@@ -30,7 +30,8 @@ namespace rat {
 			}
 			return mem;
 		}
-	} // namespace
+	} // namespace detail
+	using namespace detail;
 
 	U32 optimizeMemory(Function& fn) {
 		AliasAnalysis aa(fn);

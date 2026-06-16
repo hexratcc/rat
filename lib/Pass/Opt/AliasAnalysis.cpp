@@ -8,7 +8,6 @@
 
 #include "Pass/Opt/AliasAnalysis.h"
 
-#include "CodeGen/Target.h"
 #include "IR/Function.h"
 #include "IR/Module.h"
 #include "IR/Node.h"
@@ -66,13 +65,10 @@ namespace rat {
 		else
 			return 0;
 
-		U32 ptrBytes = 0;
-		if (const TargetInfo* tgt = fn.getModule().target())
-			ptrBytes = tgt->getPointerSizeInBits() / 8;
-		return t->byteSize(ptrBytes);
+		return t->byteSize(fn.getModule().pointerBytes());
 	}
 
-	namespace {
+	namespace detail {
 		B32 isIdentified(const Node* n) {
 			return isa<AllocNode>(n) || isa<GlobalNode>(n);
 		}
@@ -86,7 +82,8 @@ namespace rat {
 			return cast<GlobalNode>(a)->getSymbol() !=
 						 cast<GlobalNode>(b)->getSymbol();
 		}
-	} // namespace
+	} // namespace detail
+	using namespace detail;
 
 	AliasResult AliasAnalysis::alias(Node* addrA, U32 sizeA, Node* addrB,
 																	 U32 sizeB) const {

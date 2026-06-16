@@ -31,6 +31,8 @@ namespace rat {
 		const TargetInfo* target() const;
 		void setTarget(const TargetInfo* t);
 
+		U32 pointerBytes() const;
+
 		Function* createFunction(const String& name, const List<Type*>& params,
 														 Type* ret);
 

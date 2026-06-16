@@ -17,7 +17,7 @@
 #include <unordered_map>
 
 namespace rat {
-	namespace {
+	namespace detail {
 		B32 isPureValue(Node* n) {
 			Opcode op = n->getOpcode();
 			return op == Opcode::Constant || op == Opcode::Global ||
@@ -43,7 +43,8 @@ namespace rat {
 				key += std::to_string(id) + ",";
 			return key;
 		}
-	} // namespace
+	} // namespace detail
+	using namespace detail;
 
 	U32 gvn(Function& fn) {
 		U32 removed = 0;

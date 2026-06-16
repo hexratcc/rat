@@ -17,7 +17,7 @@
 #include <utility>
 
 namespace rat {
-	namespace {
+	namespace detail {
 		I64 signExtend(I64 v, U32 w) {
 			if (w == 0 || w >= 64)
 				return v;
@@ -80,7 +80,8 @@ namespace rat {
 		Node* constBool(Function& fn, B32 b) {
 			return constant(fn, fn.types().getBool(), b ? 1 : 0);
 		}
-	} // namespace
+	} // namespace detail
+	using namespace detail;
 
 	Node* constant(Function& fn, Type* type, I64 value) {
 		return fn.create<ConstantNode>(type,
@@ -407,7 +408,7 @@ namespace rat {
 		return n;
 	}
 
-	namespace {
+	namespace detail {
 		U32 foldFunction(Function& fn) {
 			U32 changed = 0;
 			B32 again = true;
@@ -437,7 +438,7 @@ namespace rat {
 				fn.eliminateDeadNodes();
 			return changed;
 		}
-	} // namespace
+	} // namespace detail
 
 	const char* FoldPass::name() const { return "fold"; }
 

@@ -10,7 +10,7 @@
 #include <sstream>
 
 namespace rat {
-	namespace {
+	namespace detail {
 		String stripAnsi(const String& s) {
 			String out;
 			out.reserve(s.size());
@@ -660,7 +660,8 @@ namespace rat {
 				return true;
 			}
 		};
-	} // namespace
+	} // namespace detail
+	using namespace detail;
 
 	B32 parseText(std::istream& in, Module& module, std::ostream& errors) {
 		return Parser(module, errors).parse(in);

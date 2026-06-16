@@ -79,7 +79,7 @@ namespace rat {
 		}
 	}
 
-	namespace {
+	namespace detail {
 		Node* controlProjOf(Node* call) {
 			Node* p = call->projection(CallNode::controlProjIndex());
 			assert(p && "call without a control projection");
@@ -91,7 +91,8 @@ namespace rat {
 			assert(p && "if without expected projection");
 			return p;
 		}
-	} // namespace
+	} // namespace detail
+	using namespace detail;
 
 	void Schedule::buildCFG() {
 		for (I32 b = 0; b < (I32)blocks.size(); ++b) {
@@ -285,7 +286,7 @@ namespace rat {
 					 isCompareOpcode(op) || isConvertOpcode(op);
 	}
 
-	namespace {
+	namespace detail {
 		I32 fixedDataBlock(const Schedule& s, Node* n,
 											 const Map<const Node*, I32>& early) {
 			if (Schedule::isFloating(n)) {
@@ -311,7 +312,7 @@ namespace rat {
 				return -1; // no constraint
 			}
 		}
-	} // namespace
+	} // namespace detail
 
 	void Schedule::scheduleEarly(Map<const Node*, I32>& early) {
 		List<Node*> work;

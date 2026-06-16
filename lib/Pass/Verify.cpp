@@ -8,7 +8,7 @@
 #include <sstream>
 
 namespace rat {
-	namespace {
+	namespace detail {
 		String vref(const Node* n) {
 			return n ? ("v" + std::to_string(n->getId())) : String("<null>");
 		}
@@ -398,7 +398,8 @@ namespace rat {
 					err(stop, "function never returns (Stop has no Return inputs)");
 			}
 		};
-	} // namespace
+	} // namespace detail
+	using namespace detail;
 
 	B32 verify(const Function& fn, List<String>& errors) {
 		return FunctionVerifier(fn, errors).run();

@@ -29,15 +29,15 @@ namespace rat {
 	using Map = std::unordered_map<Key, Value>;
 	template <typename Key> using Set = std::unordered_set<Key>;
 
-	namespace {
+	namespace detail {
 		constexpr std::size_t kDefaultChunk = 4096;
 
-		char* alignUp(char* p, std::size_t align) {
+		inline char* alignUp(char* p, std::size_t align) {
 			auto v = reinterpret_cast<std::uintptr_t>(p);
 			std::uintptr_t a = align;
 			return reinterpret_cast<char*>((v + (a - 1)) & ~(a - 1));
 		}
-	} // namespace
+	} // namespace detail
 
 	struct Arena {
 		Arena() = default;
@@ -59,14 +59,15 @@ namespace rat {
 
 	private:
 		void* allocate(std::size_t size, std::size_t align) {
-			char* aligned = cur ? alignUp(cur, align) : nullptr;
+			char* aligned = cur ? detail::alignUp(cur, align) : nullptr;
 			if (!aligned || aligned + size > end) {
-				std::size_t chunkSize =
-						size + align > kDefaultChunk ? size + align : kDefaultChunk;
+				std::size_t chunkSize = size + align > detail::kDefaultChunk
+																		? size + align
+																		: detail::kDefaultChunk;
 				chunks.push_back(UniquePtr<char[]>(new char[chunkSize]));
 				cur = chunks.back().get();
 				end = cur + chunkSize;
-				aligned = alignUp(cur, align);
+				aligned = detail::alignUp(cur, align);
 			}
 			cur = aligned + size;
 			return aligned;

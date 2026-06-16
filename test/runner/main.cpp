@@ -25,7 +25,7 @@
 
 using namespace rat;
 
-namespace {
+namespace detail {
 	String stripAnsi(const String& s) {
 		String out;
 		for (U32 i = 0; i < s.size();) {
@@ -225,7 +225,8 @@ namespace {
 		std::cout << "[PASS] " << label << "\n";
 		return true;
 	}
-} // namespace
+} // namespace detail
+using namespace ::detail;
 
 I32 main(I32 argc, char** argv) {
 	if (argc < 2) {

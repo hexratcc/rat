@@ -9,7 +9,7 @@
 #include <sstream>
 
 namespace rat {
-	namespace {
+	namespace detail {
 		String intCType(U32 width, B32 isSigned) {
 			if (width <= 1)
 				return "int"; // booleans
@@ -207,9 +207,7 @@ namespace rat {
 				}
 
 				// stack allocations become local byte buffers
-				U32 ptrBytes = 0;
-				if (const TargetInfo* t = fn.getModule().target())
-					ptrBytes = t->getPointerSizeInBits() / 8;
+				U32 ptrBytes = fn.getModule().pointerBytes();
 				B32 anyAlloc = false;
 				for (const Node* nc : fn) {
 					if (AllocNode* a = dyn_cast<AllocNode>(const_cast<Node*>(nc))) {
@@ -391,7 +389,8 @@ namespace rat {
 				}
 			}
 		};
-	} // namespace
+	} // namespace detail
+	using namespace detail;
 
 	void emitC(const Function& fn, std::ostream& os) { CEmitter(fn, os).run(); }
 
@@ -407,9 +406,7 @@ namespace rat {
 		}
 		os << "\n";
 
-		U32 ptrBytes = 0;
-		if (const TargetInfo* t = module.target())
-			ptrBytes = t->getPointerSizeInBits() / 8;
+		U32 ptrBytes = module.pointerBytes();
 		B32 anyGlobal = false;
 		for (const Global* g : module.globals()) {
 			U32 size = g->getType()->byteSize(ptrBytes);

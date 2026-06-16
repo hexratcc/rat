@@ -5,7 +5,7 @@
 #include "IR/Node.h"
 
 namespace rat {
-	namespace {
+	namespace detail {
 		constexpr const char* Reset = "\033[0m";
 		constexpr const char* Green = "\033[32m";
 		constexpr const char* TempColors[] = {
@@ -85,7 +85,8 @@ namespace rat {
 
 			printOperands(node, os);
 		}
-	} // namespace
+	} // namespace detail
+	using namespace detail;
 
 	void emitText(const Function& fn, std::ostream& os) {
 		os << "func " << fn.getName() << "(";

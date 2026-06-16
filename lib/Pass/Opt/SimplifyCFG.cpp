@@ -16,7 +16,7 @@
 #include <unordered_set>
 
 namespace rat {
-	namespace {
+	namespace detail {
 		B32 isControlNode(Node* n) {
 			switch (n->getOpcode()) {
 			case Opcode::Start:
@@ -65,7 +65,8 @@ namespace rat {
 					phis.push_back(p);
 			return phis;
 		}
-	} // namespace
+	} // namespace detail
+	using namespace detail;
 
 	U32 simplifyCFG(Function& fn) {
 		U32 changed = 0;

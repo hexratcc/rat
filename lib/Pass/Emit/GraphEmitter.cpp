@@ -8,7 +8,7 @@
 #include <sstream>
 
 namespace rat {
-	namespace {
+	namespace detail {
 		String nodeId(const Function& fn, const Node* n) {
 			return "n" +
 						 std::to_string(reinterpret_cast<uintptr_t>(&fn) & 0xffffff) + "_" +
@@ -100,7 +100,8 @@ namespace rat {
 				}
 			}
 		}
-	} // namespace
+	} // namespace detail
+	using namespace detail;
 
 	void emitDot(const Function& fn, std::ostream& os) {
 		os << "digraph \"" << fn.getName() << "\" {\n";
