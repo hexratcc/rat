@@ -9,6 +9,7 @@ INC      := -Iinclude
 DEPFLAGS := -MMD -MP
 
 LIB_SRCS := \
+	lib/Support/Arena.cpp \
 	lib/IR/Opcode.cpp \
 	lib/IR/Type.cpp \
 	lib/IR/Node.cpp \
@@ -32,7 +33,7 @@ LIB_OBJS := $(patsubst %.cpp,build/%.o,$(LIB_SRCS))
 LIB      := build/rat.a
 
 SOURCES  := $(LIB_SRCS) test/tour/main.cpp test/runner/main.cpp
-HEADERS  := $(wildcard include/*.h include/IR/*.h include/Pass/*.h include/Pass/Emit/*.h include/Pass/Opt/*.h include/CodeGen/*.h)
+HEADERS  := $(wildcard include/*.h include/IR/*.h include/Support/*.h include/Pass/*.h include/Pass/Emit/*.h include/Pass/Opt/*.h include/CodeGen/*.h)
 
 CASES := $(wildcard test/cases/*.rat)
 
