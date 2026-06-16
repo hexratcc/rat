@@ -5,7 +5,7 @@ Sea of Nodes compiler backend for toying around with various optimizations
 ```shell
 $ make        # build
 $ make run    # build and runs the demo
-$ make format # clang-format
+$ make test   # builds and runs tests
 ```
 
 ## passes
