@@ -19,9 +19,9 @@ namespace rat {
 
 	Node* simplify(Function& fn, Node* n);
 
-	struct FoldPass : Pass {
+	struct FoldPass : FunctionPass {
 		const char* name() const override;
-		B32 run(Module& module) override;
+		U32 runOnFunction(Function& fn) override;
 	};
 } // namespace rat
 

@@ -9,9 +9,9 @@ namespace rat {
 
 	U32 simplifyCFG(Function& fn);
 
-	struct SimplifyCFGPass : Pass {
+	struct SimplifyCFGPass : FunctionPass {
 		const char* name() const override;
-		B32 run(Module& module) override;
+		U32 runOnFunction(Function& fn) override;
 	};
 } // namespace rat
 

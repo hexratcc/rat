@@ -10,7 +10,6 @@
 #include "Pass/Opt/SimplifyCFG.h"
 
 #include "IR/Function.h"
-#include "IR/Module.h"
 #include "IR/Node.h"
 #include "IR/Type.h"
 
@@ -33,32 +32,11 @@ namespace rat {
 			}
 		}
 
-		ProjNode* asProj(Node* n) {
-			return n->getOpcode() == Opcode::Proj ? static_cast<ProjNode*>(n)
-																						: nullptr;
-		}
-
-		Node* entryControl(Function& fn) {
-			for (Node* u : fn.getStart()->getUsers())
-				if (ProjNode* p = asProj(u))
-					if (p->getIndex() == StartNode::controlProjIndex())
-						return p;
-			return nullptr;
-		}
-
-		ProjNode* projOf(IfNode* iff, U32 index) {
-			for (Node* u : iff->getUsers())
-				if (ProjNode* p = asProj(u))
-					if (p->getIndex() == index)
-						return p;
-			return nullptr;
-		}
-
 		Set<Node*> reachableControl(Function& fn) {
 			Set<Node*> seen;
 			seen.insert(fn.getStart());
 			List<Node*> work;
-			if (Node* e = entryControl(fn))
+			if (Node* e = fn.getStart()->projection(StartNode::controlProjIndex()))
 				work.push_back(e);
 			while (!work.empty()) {
 				Node* n = work.back();
@@ -83,8 +61,8 @@ namespace rat {
 		List<PhiNode*> phisOn(RegionNode* r) {
 			List<PhiNode*> phis;
 			for (Node* u : r->getUsers())
-				if (u->getOpcode() == Opcode::Phi)
-					phis.push_back(static_cast<PhiNode*>(u));
+				if (PhiNode* p = dyn_cast<PhiNode>(u))
+					phis.push_back(p);
 			return phis;
 		}
 	} // namespace
@@ -97,15 +75,15 @@ namespace rat {
 
 			// constant branch folding
 			for (Node* n : nodesOfOpcode(fn, Opcode::If)) {
-				IfNode* iff = static_cast<IfNode*>(n);
+				IfNode* iff = cast<IfNode>(n);
 				Node* pred = iff->getPredicate();
-				if (pred->getOpcode() != Opcode::Constant)
+				ConstantNode* c = dyn_cast<ConstantNode>(pred);
+				if (!c)
 					continue;
-				ConstantNode* c = static_cast<ConstantNode*>(pred);
 				U32 takenIdx = c->getValue() != 0 ? IfNode::thenProjIndex()
 																					: IfNode::elseProjIndex();
 				Node* ctrl = iff->getControl();
-				if (ProjNode* taken = projOf(iff, takenIdx))
+				if (ProjNode* taken = iff->projection(takenIdx))
 					taken->replaceAllUsesWith(ctrl);
 				while (iff->getInputCount() > 0)
 					iff->removeInput(iff->getInputCount() - 1);
@@ -118,7 +96,7 @@ namespace rat {
 
 			// drop region predecessors whose control is no longer reachable
 			for (Node* n : regions) {
-				RegionNode* r = static_cast<RegionNode*>(n);
+				RegionNode* r = cast<RegionNode>(n);
 				if (!reach.count(r))
 					continue;
 				List<PhiNode*> phis = phisOn(r);
@@ -135,7 +113,7 @@ namespace rat {
 
 			// collapse single predecessor regions
 			for (Node* n : regions) {
-				RegionNode* r = static_cast<RegionNode*>(n);
+				RegionNode* r = cast<RegionNode>(n);
 				if (!reach.count(r) || r->getPredecessorCount() != 1)
 					continue;
 				for (PhiNode* phi : phisOn(r))
@@ -152,10 +130,5 @@ namespace rat {
 
 	const char* SimplifyCFGPass::name() const { return "simplifycfg"; }
 
-	B32 SimplifyCFGPass::run(Module& module) {
-		U32 changed = 0;
-		for (Function* fn : module)
-			changed += simplifyCFG(*fn);
-		return changed != 0;
-	}
+	U32 SimplifyCFGPass::runOnFunction(Function& fn) { return simplifyCFG(fn); }
 } // namespace rat

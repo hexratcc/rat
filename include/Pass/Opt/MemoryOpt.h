@@ -9,9 +9,9 @@ namespace rat {
 
 	U32 optimizeMemory(Function& fn);
 
-	struct MemoryOptPass : Pass {
+	struct MemoryOptPass : FunctionPass {
 		const char* name() const override;
-		B32 run(Module& module) override;
+		U32 runOnFunction(Function& fn) override;
 	};
 } // namespace rat
 

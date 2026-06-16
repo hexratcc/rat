@@ -9,9 +9,9 @@ namespace rat {
 
 	U32 gvn(Function& fn);
 
-	struct GVNPass : Pass {
+	struct GVNPass : FunctionPass {
 		const char* name() const override;
-		B32 run(Module& module) override;
+		U32 runOnFunction(Function& fn) override;
 	};
 } // namespace rat
 

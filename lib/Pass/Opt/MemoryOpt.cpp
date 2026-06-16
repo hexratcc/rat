@@ -13,7 +13,6 @@
 
 #include "CodeGen/Schedule.h"
 #include "IR/Function.h"
-#include "IR/Module.h"
 #include "IR/Node.h"
 #include "Pass/Opt/AliasAnalysis.h"
 
@@ -21,8 +20,7 @@ namespace rat {
 	namespace {
 		Node* effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr,
 											 U32 size) {
-			while (mem->getOpcode() == Opcode::Store) {
-				StoreNode* s = static_cast<StoreNode*>(mem);
+			while (StoreNode* s = dyn_cast<StoreNode>(mem)) {
 				if (aa.alias(addr, size, s->getPointer(), aa.accessSize(s)) ==
 						AliasResult::NoAlias) {
 					mem = s->getMemory();
@@ -39,8 +37,8 @@ namespace rat {
 
 		List<LoadNode*> loads;
 		for (Node* n : fn)
-			if (n->getOpcode() == Opcode::Load)
-				loads.push_back(static_cast<LoadNode*>(n));
+			if (LoadNode* l = dyn_cast<LoadNode>(n))
+				loads.push_back(l);
 
 		U32 removed = 0;
 
@@ -50,9 +48,9 @@ namespace rat {
 				continue;
 			U32 sz = aa.accessSize(l);
 			Node* def = effectiveDef(aa, l->getMemory(), l->getPointer(), sz);
-			if (def->getOpcode() != Opcode::Store)
+			StoreNode* s = dyn_cast<StoreNode>(def);
+			if (!s)
 				continue;
-			StoreNode* s = static_cast<StoreNode*>(def);
 			if (aa.alias(l->getPointer(), sz, s->getPointer(), aa.accessSize(s)) ==
 							AliasResult::MustAlias &&
 					aa.accessSize(s) == sz && s->getValue()->getType() == l->getType()) {
@@ -111,10 +109,5 @@ namespace rat {
 
 	const char* MemoryOptPass::name() const { return "memoryopt"; }
 
-	B32 MemoryOptPass::run(Module& module) {
-		U32 removed = 0;
-		for (Function* fn : module)
-			removed += optimizeMemory(*fn);
-		return removed != 0;
-	}
+	U32 MemoryOptPass::runOnFunction(Function& fn) { return optimizeMemory(fn); }
 } // namespace rat
