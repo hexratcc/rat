@@ -1,11 +1,13 @@
 #ifndef RAT_CORE_H
 #define RAT_CORE_H
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <ostream>
 
 namespace rat {
 	using U8 = uint8_t;
@@ -26,6 +28,64 @@ namespace rat {
 	template <typename Key, typename Value>
 	using Map = std::unordered_map<Key, Value>;
 	template <typename Key> using Set = std::unordered_set<Key>;
+
+	namespace {
+		constexpr std::size_t kDefaultChunk = 4096;
+
+		char* alignUp(char* p, std::size_t align) {
+			auto v = reinterpret_cast<std::uintptr_t>(p);
+			std::uintptr_t a = align;
+			return reinterpret_cast<char*>((v + (a - 1)) & ~(a - 1));
+		}
+	} // namespace
+
+	struct Arena {
+		Arena() = default;
+		~Arena() {
+			for (auto it = dtors.rbegin(); it != dtors.rend(); ++it)
+				it->run(it->obj);
+		}
+
+		Arena(const Arena&) = delete;
+		Arena& operator=(const Arena&) = delete;
+
+		template <typename T, typename... Args> T* make(Args&&... args) {
+			void* mem = allocate(sizeof(T), alignof(T));
+			T* obj = ::new (mem) T(std::forward<Args>(args)...);
+			if constexpr (!std::is_trivially_destructible_v<T>)
+				registerDtor(obj, [](void* p) { static_cast<T*>(p)->~T(); });
+			return obj;
+		}
+
+	private:
+		void* allocate(std::size_t size, std::size_t align) {
+			char* aligned = cur ? alignUp(cur, align) : nullptr;
+			if (!aligned || aligned + size > end) {
+				std::size_t chunkSize =
+						size + align > kDefaultChunk ? size + align : kDefaultChunk;
+				chunks.push_back(UniquePtr<char[]>(new char[chunkSize]));
+				cur = chunks.back().get();
+				end = cur + chunkSize;
+				aligned = alignUp(cur, align);
+			}
+			cur = aligned + size;
+			return aligned;
+		}
+
+		void registerDtor(void* obj, void (*dtor)(void*)) {
+			dtors.push_back({obj, dtor});
+		}
+
+		struct Dtor {
+			void* obj;
+			void (*run)(void*);
+		};
+
+		List<UniquePtr<char[]>> chunks;
+		char* cur = nullptr;
+		char* end = nullptr;
+		List<Dtor> dtors;
+	};
 } // namespace rat
 
 #endif

@@ -37,10 +37,6 @@ namespace rat {
 	Type* Function::ptrTy() const { return mod->getPtr(); }
 	Type* Function::memTy() const { return mod->getMemory(); }
 	Type* Function::ctrlTy() const { return mod->getControl(); }
-	Type* Function::intPtrTy() const {
-		const TargetInfo* t = mod->target();
-		return mod->getInt(t ? t->getPointerSizeInBits() : 64);
-	}
 
 	Function::Function(Module& module, String name, const List<Type*>& params,
 										 Type* ret)
@@ -236,11 +232,10 @@ namespace rat {
 	}
 
 	Function::Block* Function::makeBlock(String name, B32 loopHeader) {
-		auto owned = std::make_unique<Block>();
-		owned->name = std::move(name);
-		owned->loopHeader = loopHeader;
-		Block* b = owned.get();
-		blocks.push_back(std::move(owned));
+		Block* b = arena.make<Block>();
+		b->name = std::move(name);
+		b->loopHeader = loopHeader;
+		blocks.push_back(b);
 		if (loopHeader) {
 			b->region = create<RegionNode>(ctrlTy(), List<Node*>{});
 			b->region->setLoopHeader();
@@ -313,12 +308,6 @@ namespace rat {
 
 	void Function::writeVar(Var var, Node* value) { cur->defs[var] = value; }
 	Node* Function::readVar(Var var) { return readVariable(var, cur); }
-	void Function::writeVarIn(Var var, Block* block, Node* value) {
-		block->defs[var] = value;
-	}
-	Node* Function::readVarIn(Var var, Block* block) {
-		return readVariable(var, block);
-	}
 
 	Node* Function::readVariable(Var var, Block* block) {
 		auto it = block->defs.find(var);
@@ -357,7 +346,7 @@ namespace rat {
 
 	void Function::replacePhiEverywhere(PhiNode* phi, Node* with) {
 		phi->replaceAllUsesWith(with);
-		for (auto& b : blocks)
+		for (Block* b : blocks)
 			for (auto& kv : b->defs)
 				if (kv.second == phi)
 					kv.second = with;
@@ -379,7 +368,7 @@ namespace rat {
 		List<PhiNode*> phiUsers;
 		for (Node* u : phi->getUsers())
 			if (u != phi && u->getOpcode() == Opcode::Phi)
-				phiUsers.push_back(static_cast<PhiNode*>(u));
+				phiUsers.push_back(cast<PhiNode>(u));
 
 		replacePhiEverywhere(phi, same);
 
@@ -440,7 +429,7 @@ namespace rat {
 		cur->finished = true;
 	}
 
-	Node* Function::NodeIterator::operator*() const { return it->get(); }
+	Node* Function::NodeIterator::operator*() const { return *it; }
 	Function::NodeIterator& Function::NodeIterator::operator++() {
 		++it;
 		return *this;
@@ -459,11 +448,11 @@ namespace rat {
 		while (changed) {
 			changed = false;
 			for (auto it = nodes.begin(); it != nodes.end();) {
-				Node* n = it->get();
+				Node* n = *it;
 				B32 dead = !n->hasUsers() && !n->hasSideEffects() &&
 									 (includeControl || !n->isCFG()) && n != start && n != stop;
 				if (dead) {
-					// drop outgoing edges so input user-lists stay correct, then free
+					// drop outgoing edges so input user-lists stay correct
 					while (n->getInputCount() > 0)
 						n->removeInput(n->getInputCount() - 1);
 					it = nodes.erase(it);

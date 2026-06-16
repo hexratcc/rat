@@ -3,8 +3,6 @@
 
 #include "Core.h"
 
-#include <ostream>
-
 namespace rat {
 	struct Type {
 		enum Kind { Control, Memory, Int, Ptr, Tuple };
@@ -42,12 +40,15 @@ namespace rat {
 		Type* getBool();
 		Type* getTuple(const List<Type*>& elements);
 
+	protected:
+		Arena arena;
+
 	private:
-		UniquePtr<Type> control;
-		UniquePtr<Type> memory;
-		UniquePtr<Type> ptr;
-		List<UniquePtr<Type>> tuples;
-		Map<U32, UniquePtr<Type>> ints;
+		Type* control = nullptr;
+		Type* memory = nullptr;
+		Type* ptr = nullptr;
+		List<Type*> tuples;
+		Map<U32, Type*> ints;
 	};
 } // namespace rat
 

@@ -27,22 +27,19 @@ namespace rat {
 		StopNode* getStop() const;
 
 		template <typename T, typename... Args> T* create(Args&&... args) {
-			auto owned = std::make_unique<T>(*this, std::forward<Args>(args)...);
-			T* raw = owned.get();
-			nodes.push_back(std::move(owned));
-			return raw;
+			T* node = arena.make<T>(*this, std::forward<Args>(args)...);
+			nodes.push_back(node);
+			return node;
 		}
 
 		struct Block;
 		using Var = U32;
 
-		// TODO
 		Type* boolTy() const;
 		Type* intTy(U32 bits) const;
 		Type* ptrTy() const;
 		Type* memTy() const;
 		Type* ctrlTy() const;
-		Type* intPtrTy() const;
 		Node* control() const;
 		Node* memory();
 		Node* param(U32 index);
@@ -105,12 +102,9 @@ namespace rat {
 		void jmp(Block* target);
 		void jumpif(Node* cond, Block* target);
 
+		// locals: declare with newVar (define later) or declareLocal (with an
+		// initializer), then get / set. SSA phi placement is handled for you.
 		Var newVar(String name, Type* type);
-		void writeVar(Var var, Node* value);
-		Node* readVar(Var var);
-		void writeVarIn(Var var, Block* block, Node* value);
-		Node* readVarIn(Var var, Block* block);
-
 		Var declareLocal(String name, Node* init);
 		Node* get(Var var);
 		void set(Var var, Node* value);
@@ -127,7 +121,7 @@ namespace rat {
 		void retVoid();
 
 		struct NodeIterator {
-			List<UniquePtr<Node>>::const_iterator it;
+			List<Node*>::const_iterator it;
 			Node* operator*() const;
 			NodeIterator& operator++();
 			B32 operator!=(const NodeIterator& other) const;
@@ -137,14 +131,15 @@ namespace rat {
 		NodeIterator end() const;
 		U32 size() const;
 
-		// sweep userless, side-effect-free nodes to a fixpoint. control-flow
-		// nodes are kept unless includeControl is set. returns the count removed.
 		U32 eliminateDeadNodes(B32 includeControl = false);
 
 		friend struct Node;
 
 	private:
 		U32 allocateId();
+
+		void writeVar(Var var, Node* value);
+		Node* readVar(Var var);
 
 		Node* readVariable(Var var, Block* block);
 		Node* readVariableRecursive(Var var, Block* block);
@@ -162,14 +157,15 @@ namespace rat {
 		List<Type*> paramTypes;
 		Type* retType; // null for a void function
 
-		List<UniquePtr<Node>> nodes; // ownership of all nodes
+		Arena arena;
+		List<Node*> nodes; // in creation order
 		U32 nextId = 0;
 
 		StartNode* start = nullptr;
 		StopNode* stop = nullptr;
 
-		List<UniquePtr<Block>> blocks; // ownership of all blocks
-		Block* cur = nullptr;					 // current insertion block
+		List<Block*> blocks; // every block
+		Block* cur = nullptr; // current insertion block
 
 		struct VarInfo {
 			String name;

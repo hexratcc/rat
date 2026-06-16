@@ -54,34 +54,34 @@ namespace rat {
 	}
 
 	TypeContext::TypeContext() {
-		control.reset(new Type(Type::Control, 0, {}));
-		memory.reset(new Type(Type::Memory, 0, {}));
-		ptr.reset(new Type(Type::Ptr, 0, {}));
+		control = arena.make<Type>(Type::Control, 0, List<Type*>{});
+		memory = arena.make<Type>(Type::Memory, 0, List<Type*>{});
+		ptr = arena.make<Type>(Type::Ptr, 0, List<Type*>{});
 	}
 
-	Type* TypeContext::getControl() { return control.get(); }
-	Type* TypeContext::getMemory() { return memory.get(); }
-	Type* TypeContext::getPtr() { return ptr.get(); }
+	Type* TypeContext::getControl() { return control; }
+	Type* TypeContext::getMemory() { return memory; }
+	Type* TypeContext::getPtr() { return ptr; }
 
 	Type* TypeContext::getBool() { return getInt(1); }
 
 	Type* TypeContext::getInt(U32 bits) {
 		auto it = ints.find(bits);
 		if (it != ints.end())
-			return it->second.get();
-		Type* t = new Type(Type::Int, bits, {});
-		ints.emplace(bits, UniquePtr<Type>(t));
+			return it->second;
+		Type* t = arena.make<Type>(Type::Int, bits, List<Type*>{});
+		ints.emplace(bits, t);
 		return t;
 	}
 
 	Type* TypeContext::getTuple(const List<Type*>& elements) {
-		for (auto& existing : tuples) {
+		for (Type* existing : tuples) {
 			if (existing->getTupleElements() == elements)
-				return existing.get();
+				return existing;
 		}
 
-		Type* t = new Type(Type::Tuple, 0, elements);
-		tuples.emplace_back(t);
+		Type* t = arena.make<Type>(Type::Tuple, 0, elements);
+		tuples.push_back(t);
 		return t;
 	}
 } // namespace rat

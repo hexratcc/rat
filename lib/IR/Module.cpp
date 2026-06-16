@@ -10,13 +10,12 @@ namespace rat {
 
 	Function* Module::createFunction(const String& name,
 																	 const List<Type*>& params, Type* ret) {
-		auto owned = std::make_unique<Function>(*this, name, params, ret);
-		Function* raw = owned.get();
-		funcs.push_back(std::move(owned));
-		return raw;
+		Function* fn = arena.make<Function>(*this, name, params, ret);
+		funcs.push_back(fn);
+		return fn;
 	}
 
-	Function* Module::FunctionIterator::operator*() const { return it->get(); }
+	Function* Module::FunctionIterator::operator*() const { return *it; }
 
 	Module::FunctionIterator& Module::FunctionIterator::operator++() {
 		++it;

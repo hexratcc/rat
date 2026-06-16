@@ -1,15 +1,4 @@
-#include "CodeGen/Schedule.h"
-#include "CodeGen/Target.h"
-#include "IR/Module.h"
-#include "Pass/Emit/CEmitter.h"
-#include "Pass/Emit/GraphEmitter.h"
-#include "Pass/Emit/TextEmitter.h"
-#include "Pass/Opt/Fold.h"
-#include "Pass/Opt/GVN.h"
-#include "Pass/Opt/MemoryOpt.h"
-#include "Pass/Opt/SimplifyCFG.h"
-#include "Pass/PassManager.h"
-#include "Pass/Verify.h"
+#include "rat.h"
 
 #include <iostream>
 
@@ -64,15 +53,15 @@ int main() {
 	rat::Function::Block* thenB = cfg->createBlock("then");
 	rat::Function::Block* merge = cfg->createBlock("merge");
 	cfg->jumpif(cfg->slt(cfg->constInt(i32, 1), cfg->constInt(i32, 2)), thenB);
-	cfg->writeVar(r, q);
+	cfg->set(r, q);
 	cfg->jmp(merge);
 	cfg->seal(thenB);
 	cfg->setInsertBlock(thenB);
-	cfg->writeVar(r, p);
+	cfg->set(r, p);
 	cfg->jmp(merge);
 	cfg->seal(merge);
 	cfg->setInsertBlock(merge);
-	cfg->ret(cfg->readVar(r));
+	cfg->ret(cfg->get(r));
 
 	// int mem(int* p) { *p = 7; int a = *p; int b = *p; return a + b; }
 	rat::Type* ptr = module.getPtr();

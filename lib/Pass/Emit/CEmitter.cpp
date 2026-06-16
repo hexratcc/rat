@@ -47,11 +47,6 @@ namespace rat {
 			os << ")";
 		}
 
-		const ProjNode* asProj(const Node* n) {
-			return n->getOpcode() == Opcode::Proj ? static_cast<const ProjNode*>(n)
-																						: nullptr;
-		}
-
 		struct CEmitter {
 			const Function& fn;
 			std::ostream& os;
@@ -80,10 +75,8 @@ namespace rat {
 						if (producesTemp(n))
 							needTemp.insert(n);
 						if (n->getOpcode() == Opcode::Call)
-							for (Node* u : n->getUsers())
-								if (const ProjNode* p = asProj(u))
-									if (p->getIndex() == CallNode::valueProjIndex())
-										needTemp.insert(p);
+							if (ProjNode* p = n->projection(CallNode::valueProjIndex()))
+								needTemp.insert(p);
 					}
 				}
 			}
@@ -96,12 +89,12 @@ namespace rat {
 				if (n->getOpcode() == Opcode::Constant) {
 					U32 width = n->getType()->getIntWidth();
 					std::ostringstream oss;
-					oss << static_cast<ConstantNode*>(n)->getValue();
+					oss << cast<ConstantNode>(n)->getValue();
 					if (width > 32)
 						oss << "LL";
 					return oss.str();
 				}
-				if (const ProjNode* p = asProj(n)) {
+				if (const ProjNode* p = dyn_cast<ProjNode>(n)) {
 					Node* prod = p->getProducer();
 					if (prod->getOpcode() == Opcode::Start && p->getIndex() >= 2)
 						return "arg" + std::to_string(p->getIndex() - 2);
@@ -111,7 +104,7 @@ namespace rat {
 			}
 
 			String binExpr(Node* n) {
-				auto* bin = static_cast<BinaryNode*>(n);
+				auto* bin = cast<BinaryNode>(n);
 				U32 width = n->getType()->isInt() ? n->getType()->getIntWidth() : 0;
 				String a = valueExpr(bin->getLHS());
 				String b = valueExpr(bin->getRHS());
@@ -150,7 +143,7 @@ namespace rat {
 			}
 
 			String cmpExpr(Node* n) {
-				auto* cmp = static_cast<CompareNode*>(n);
+				auto* cmp = cast<CompareNode>(n);
 				const Type* ot = cmp->getLHS()->getType();
 				U32 width = ot->isInt() ? ot->getIntWidth() : 0;
 				String a = valueExpr(cmp->getLHS());
@@ -175,7 +168,7 @@ namespace rat {
 			}
 
 			String convExpr(Node* n) {
-				auto* cv = static_cast<ConvertNode*>(n);
+				auto* cv = cast<ConvertNode>(n);
 				Node* src = cv->getOperand();
 				U32 dstW = n->getType()->getIntWidth();
 				U32 srcW = src->getType()->getIntWidth();
@@ -193,7 +186,7 @@ namespace rat {
 			}
 
 			String loadExpr(Node* n) {
-				auto* l = static_cast<LoadNode*>(n);
+				auto* l = cast<LoadNode>(n);
 				String ptrTy = cType(n->getType(), true) + " *";
 				return "*(" + ptrTy + ")(" + valueExpr(l->getPointer()) + ")";
 			}
@@ -238,7 +231,7 @@ namespace rat {
 			void emitStatement(Node* n) {
 				switch (n->getOpcode()) {
 				case Opcode::Store: {
-					auto* s = static_cast<StoreNode*>(n);
+					auto* s = cast<StoreNode>(n);
 					String ptrTy = cType(s->getValue()->getType(), true) + " *";
 					os << "  *(" << ptrTy << ")(" << valueExpr(s->getPointer())
 						 << ") = " << valueExpr(s->getValue()) << ";\n";
@@ -248,7 +241,7 @@ namespace rat {
 					os << "  " << temp(n) << " = " << loadExpr(n) << ";\n";
 					return;
 				case Opcode::Call:
-					emitCall(static_cast<CallNode*>(n));
+					emitCall(cast<CallNode>(n));
 					return;
 				default:
 					break;
@@ -259,7 +252,7 @@ namespace rat {
 				else if (isConvertOpcode(n->getOpcode()))
 					rhs = convExpr(n);
 				else if (isUnaryOpcode(n->getOpcode())) {
-					auto* un = static_cast<UnaryNode*>(n);
+					auto* un = cast<UnaryNode>(n);
 					rhs = (n->getOpcode() == Opcode::Neg ? "-" : "~") +
 								valueExpr(un->getOperand());
 				} else
@@ -274,11 +267,7 @@ namespace rat {
 						args << ", ";
 					args << valueExpr(c->getArg(i));
 				}
-				Node* valProj = nullptr;
-				for (Node* u : c->getUsers())
-					if (const ProjNode* p = asProj(u))
-						if (p->getIndex() == CallNode::valueProjIndex())
-							valProj = const_cast<Node*>(static_cast<const Node*>(p));
+				Node* valProj = c->projection(CallNode::valueProjIndex());
 
 				os << "  ";
 				if (valProj)
@@ -362,7 +351,7 @@ namespace rat {
 				const Schedule::Block& blk = sched.block(b);
 				switch (blk.term) {
 				case TK::Return: {
-					auto* r = static_cast<ReturnNode*>(blk.termNode);
+					auto* r = cast<ReturnNode>(blk.termNode);
 					if (r->hasValue())
 						os << "  return " << valueExpr(r->getValue()) << ";\n";
 					else
@@ -370,7 +359,7 @@ namespace rat {
 					return;
 				}
 				case TK::Branch: {
-					auto* iff = static_cast<IfNode*>(blk.termNode);
+					auto* iff = cast<IfNode>(blk.termNode);
 					os << "  if (" << valueExpr(iff->getPredicate()) << ") goto L"
 						 << blk.thenB << "; else goto L" << blk.elseB << ";\n";
 					return;

@@ -17,15 +17,6 @@
 #include <unordered_set>
 
 namespace rat {
-	namespace {
-		ProjNode* asProj(Node* n) {
-			return n->getOpcode() == Opcode::Proj ? static_cast<ProjNode*>(n)
-																						: nullptr;
-		}
-		PhiNode* asPhi(Node* n) {
-			return n->getOpcode() == Opcode::Phi ? static_cast<PhiNode*>(n) : nullptr;
-		}
-	} // namespace
 
 	Schedule::Schedule(const Function& fn) : fn(fn) {
 		collectHeads();
@@ -49,7 +40,7 @@ namespace rat {
 	B32 Schedule::isHeadNode(const Node* n) {
 		if (n->getOpcode() == Opcode::Region)
 			return true;
-		if (ProjNode* p = asProj(const_cast<Node*>(n))) {
+		if (ProjNode* p = dyn_cast<ProjNode>(const_cast<Node*>(n))) {
 			Node* prod = p->getProducer();
 			if (prod->getOpcode() == Opcode::If)
 				return true;
@@ -65,7 +56,7 @@ namespace rat {
 				headIndex[n] = (I32)blocks.size();
 				blocks.emplace_back();
 				blocks.back().head = n;
-				if (ProjNode* p = asProj(n))
+				if (ProjNode* p = dyn_cast<ProjNode>(n))
 					if (p->getProducer()->getOpcode() == Opcode::Start)
 						entryBlock = headIndex[n];
 			}
@@ -82,29 +73,23 @@ namespace rat {
 		while (true) {
 			if (isHeadNode(ctrl))
 				return ctrl;
-			ProjNode* p = static_cast<ProjNode*>(ctrl);
-			CallNode* c = static_cast<CallNode*>(p->getProducer());
+			ProjNode* p = cast<ProjNode>(ctrl);
+			CallNode* c = cast<CallNode>(p->getProducer());
 			ctrl = c->getControlInput();
 		}
 	}
 
 	namespace {
 		Node* controlProjOf(Node* call) {
-			for (Node* u : call->getUsers())
-				if (ProjNode* p = asProj(u))
-					if (p->getIndex() == CallNode::controlProjIndex())
-						return p;
-			assert(false && "call without a control projection");
-			return nullptr;
+			Node* p = call->projection(CallNode::controlProjIndex());
+			assert(p && "call without a control projection");
+			return p;
 		}
 
 		Node* projOfIf(Node* iff, U32 index) {
-			for (Node* u : iff->getUsers())
-				if (ProjNode* p = asProj(u))
-					if (p->getIndex() == index)
-						return p;
-			assert(false && "if without expected projection");
-			return nullptr;
+			Node* p = iff->projection(index);
+			assert(p && "if without expected projection");
+			return p;
 		}
 	} // namespace
 
@@ -309,13 +294,13 @@ namespace rat {
 			}
 			switch (n->getOpcode()) {
 			case Opcode::Phi:
-				return s.blockOfHead(static_cast<PhiNode*>(n)->getRegion());
+				return s.blockOfHead(cast<PhiNode>(n)->getRegion());
 			case Opcode::Load:
 			case Opcode::Store:
 			case Opcode::Call:
 				return s.blockOf(n);
 			case Opcode::Proj: {
-				ProjNode* p = static_cast<ProjNode*>(n);
+				ProjNode* p = cast<ProjNode>(n);
 				Node* prod = p->getProducer();
 				if (prod->getOpcode() == Opcode::Call)
 					return s.blockOf(prod); // call value/control projection
@@ -361,7 +346,7 @@ namespace rat {
 	}
 
 	I32 Schedule::useBlock(Node* u, Node* n) const {
-		if (PhiNode* phi = asPhi(u)) {
+		if (PhiNode* phi = dyn_cast<PhiNode>(u)) {
 			I32 rb = headIndex.at(phi->getRegion());
 			I32 acc = -1;
 			for (U32 i = 0, e = phi->getValueCount(); i < e; ++i)
@@ -444,7 +429,7 @@ namespace rat {
 
 	void Schedule::buildBlockLists() {
 		for (Node* n : fn)
-			if (PhiNode* phi = asPhi(n))
+			if (PhiNode* phi = dyn_cast<PhiNode>(n))
 				if (phi->getType()->isData())
 					blocks[headIndex.at(phi->getRegion())].phis.push_back(phi);
 

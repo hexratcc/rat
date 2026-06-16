@@ -148,7 +148,7 @@ namespace rat {
 				case Opcode::Return: {
 					if (!wantInputs(n, 2, 3))
 						break;
-					auto* r = static_cast<ReturnNode*>(n);
+					auto* r = cast<ReturnNode>(n);
 					if (!isCtrl(r->getControl()))
 						err(n, "Return input 0 (control) is not control-typed");
 					if (!isMem(r->getMemory()))
@@ -170,7 +170,7 @@ namespace rat {
 					break;
 				}
 				case Opcode::Region: {
-					auto* r = static_cast<RegionNode*>(n);
+					auto* r = cast<RegionNode>(n);
 					if (!t->isControl())
 						err(n, "Region type must be control");
 					if (r->getPredecessorCount() < 1)
@@ -184,7 +184,7 @@ namespace rat {
 				case Opcode::If: {
 					if (!wantInputs(n, 2))
 						break;
-					auto* iff = static_cast<IfNode*>(n);
+					auto* iff = cast<IfNode>(n);
 					if (!isCtrl(iff->getControl()))
 						err(n, "If input 0 (control) is not control-typed");
 					if (!iff->getPredicate()->getType()->isInt() ||
@@ -196,7 +196,7 @@ namespace rat {
 						err(n, "If type must be (ctrl, ctrl)");
 					for (Node* u : n->getUsers())
 						if (u->getOpcode() == Opcode::Proj)
-							if (static_cast<ProjNode*>(u)->getIndex() > 1)
+							if (cast<ProjNode>(u)->getIndex() > 1)
 								err(u,
 										"projection index out of range for an If (must be 0 or 1)");
 					break;
@@ -204,7 +204,7 @@ namespace rat {
 				case Opcode::Proj: {
 					if (!wantInputs(n, 1))
 						break;
-					auto* p = static_cast<ProjNode*>(n);
+					auto* p = cast<ProjNode>(n);
 					Node* prod = p->getProducer();
 					Opcode po = prod->getOpcode();
 					if (po != Opcode::Start && po != Opcode::If && po != Opcode::Call)
@@ -222,13 +222,13 @@ namespace rat {
 				case Opcode::Phi: {
 					if (!wantInputs(n, 1, ~0u))
 						break;
-					auto* phi = static_cast<PhiNode*>(n);
+					auto* phi = cast<PhiNode>(n);
 					Node* reg = phi->getInputCount() ? phi->getInput(0) : nullptr;
 					if (!reg || reg->getOpcode() != Opcode::Region) {
 						err(n, "Phi input 0 must be a Region");
 						break;
 					}
-					auto* r = static_cast<RegionNode*>(reg);
+					auto* r = cast<RegionNode>(reg);
 					if (phi->getValueCount() != r->getPredecessorCount())
 						err(n, "Phi has " + std::to_string(phi->getValueCount()) +
 											 " values but its region " + vref(r) + " has " +
@@ -252,7 +252,7 @@ namespace rat {
 				case Opcode::Load: {
 					if (!wantInputs(n, 3))
 						break;
-					auto* l = static_cast<LoadNode*>(n);
+					auto* l = cast<LoadNode>(n);
 					if (!isCtrl(l->getControl()))
 						err(n, "Load input 0 (control) is not control-typed");
 					if (!isMem(l->getMemory()))
@@ -266,7 +266,7 @@ namespace rat {
 				case Opcode::Store: {
 					if (!wantInputs(n, 4))
 						break;
-					auto* s = static_cast<StoreNode*>(n);
+					auto* s = cast<StoreNode>(n);
 					if (!isCtrl(s->getControl()))
 						err(n, "Store input 0 (control) is not control-typed");
 					if (!isMem(s->getMemory()))
@@ -282,7 +282,7 @@ namespace rat {
 				case Opcode::Call: {
 					if (!wantInputs(n, 2, ~0u))
 						break;
-					auto* c = static_cast<CallNode*>(n);
+					auto* c = cast<CallNode>(n);
 					if (!isCtrl(c->getControl()))
 						err(n, "Call input 0 (control) is not control-typed");
 					if (!isMem(c->getMemory()))
@@ -308,7 +308,7 @@ namespace rat {
 					if (isBinaryOpcode(op)) {
 						if (!wantInputs(n, 2))
 							break;
-						auto* b = static_cast<BinaryNode*>(n);
+						auto* b = cast<BinaryNode>(n);
 						const Type* lt = b->getLHS()->getType();
 						const Type* rt = b->getRHS()->getType();
 						if (lt != t)
@@ -333,7 +333,7 @@ namespace rat {
 					} else if (isUnaryOpcode(op)) {
 						if (!wantInputs(n, 1))
 							break;
-						auto* u = static_cast<UnaryNode*>(n);
+						auto* u = cast<UnaryNode>(n);
 						if (!t->isInt())
 							err(n, "unary operates on a non-integer type");
 						if (u->getOperand()->getType() != t)
@@ -341,7 +341,7 @@ namespace rat {
 					} else if (isCompareOpcode(op)) {
 						if (!wantInputs(n, 2))
 							break;
-						auto* c = static_cast<CompareNode*>(n);
+						auto* c = cast<CompareNode>(n);
 						if (!t->isInt() || t->getIntWidth() != 1)
 							err(n, "comparison result must be i1");
 						if (c->getLHS()->getType() != c->getRHS()->getType())
@@ -349,7 +349,7 @@ namespace rat {
 					} else if (isConvertOpcode(op)) {
 						if (!wantInputs(n, 1))
 							break;
-						auto* c = static_cast<ConvertNode*>(n);
+						auto* c = cast<ConvertNode>(n);
 						const Type* s = c->getOperand()->getType();
 						if (!s->isInt() || !t->isInt()) {
 							err(n, "conversion requires integer source and destination");

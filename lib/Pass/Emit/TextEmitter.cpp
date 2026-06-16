@@ -37,10 +37,10 @@ namespace rat {
 			case Opcode::Constant:
 				os << comment(
 						"  " +
-						std::to_string(static_cast<const ConstantNode*>(node)->getValue()));
+						std::to_string(cast<ConstantNode>(node)->getValue()));
 				break;
 			case Opcode::Proj: {
-				const auto* proj = static_cast<const ProjNode*>(node);
+				const auto* proj = cast<ProjNode>(node);
 				os << comment("  #" + std::to_string(proj->getIndex()));
 				if (!proj->getLabel().empty())
 					os << comment(" \"" + proj->getLabel() + "\"");
@@ -48,11 +48,11 @@ namespace rat {
 				return;
 			}
 			case Opcode::Call:
-				os << comment("  \"" + static_cast<const CallNode*>(node)->getCallee() +
+				os << comment("  \"" + cast<CallNode>(node)->getCallee() +
 											"\"");
 				break;
 			case Opcode::Region:
-				if (static_cast<const RegionNode*>(node)->isLoopHeader())
+				if (cast<RegionNode>(node)->isLoopHeader())
 					os << comment("  loop");
 				break;
 			default:

@@ -128,6 +128,14 @@ namespace rat {
 		}
 	}
 
+	ProjNode* Node::projection(U32 index) const {
+		for (Node* u : users)
+			if (ProjNode* p = dyn_cast<ProjNode>(u))
+				if (p->getIndex() == index)
+					return p;
+		return nullptr;
+	}
+
 	StartNode::StartNode(Function& fn, Type* tupleType, U32 paramCount)
 			: Node(fn, Opcode::Start, tupleType, {}), paramCount(paramCount) {}
 
@@ -175,7 +183,7 @@ namespace rat {
 			: Node(fn, Opcode::Phi, type, inputs) {}
 
 	RegionNode* PhiNode::getRegion() const {
-		return static_cast<RegionNode*>(getInput(0));
+		return cast<RegionNode>(getInput(0));
 	}
 	U32 PhiNode::getValueCount() const { return getInputCount() - 1; }
 	Node* PhiNode::getValue(U32 index) const { return getInput(1 + index); }

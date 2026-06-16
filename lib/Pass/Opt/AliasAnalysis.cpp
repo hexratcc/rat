@@ -33,16 +33,15 @@ namespace rat {
 
 	AliasAnalysis::AddrInfo AliasAnalysis::decompose(Node* addr) const {
 		AddrInfo info{addr, 0, {}};
-		while (isBinaryOpcode(info.base->getOpcode())) {
-			BinaryNode* b = static_cast<BinaryNode*>(info.base);
+		while (BinaryNode* b = dyn_cast<BinaryNode>(info.base)) {
 			Opcode op = b->getOpcode();
 			B32 isAddSub = (op == Opcode::Add || op == Opcode::Sub);
 			if (!isAddSub || !b->getType()->isPtr() ||
 					!b->getLHS()->getType()->isPtr())
 				break; // not pointer +/- integer arithmetic
 			Node* off = b->getRHS();
-			if (off->getOpcode() == Opcode::Constant) {
-				I64 v = static_cast<ConstantNode*>(off)->getValue();
+			if (ConstantNode* co = dyn_cast<ConstantNode>(off)) {
+				I64 v = co->getValue();
 				info.constant += (op == Opcode::Add) ? v : -v;
 			} else if (op == Opcode::Add) {
 				info.symbolic.push_back(off);
@@ -63,7 +62,7 @@ namespace rat {
 		if (n->getOpcode() == Opcode::Load)
 			t = n->getType();
 		else if (n->getOpcode() == Opcode::Store)
-			t = static_cast<StoreNode*>(n)->getValue()->getType();
+			t = cast<StoreNode>(n)->getValue()->getType();
 		else
 			return 0;
 
@@ -108,9 +107,9 @@ namespace rat {
 	AliasResult AliasAnalysis::alias(Node* accessA, Node* accessB) const {
 		auto addrOf = [](Node* n) -> Node* {
 			if (n->getOpcode() == Opcode::Load)
-				return static_cast<LoadNode*>(n)->getPointer();
+				return cast<LoadNode>(n)->getPointer();
 			if (n->getOpcode() == Opcode::Store)
-				return static_cast<StoreNode*>(n)->getPointer();
+				return cast<StoreNode>(n)->getPointer();
 			return nullptr;
 		};
 		Node* pa = addrOf(accessA);

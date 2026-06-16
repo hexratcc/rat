@@ -7,6 +7,7 @@
 
 namespace rat {
 	struct Function;
+	struct ProjNode;
 
 	struct Node {
 		Node(Function& fn, Opcode op, Type* type, const List<Node*>& inputs);
@@ -41,6 +42,8 @@ namespace rat {
 		B32 isCommutative() const;
 
 		Node* getControlInput() const;
+
+		ProjNode* projection(U32 index) const;
 
 	protected:
 		void removeUser(Node* user);
@@ -195,6 +198,41 @@ namespace rat {
 		String callee;
 		B32 hasReturnValue;
 	};
+
+	namespace detail {
+		template <typename T> B32 nodeIsa(const Node* n);
+		// clang-format off
+		template <> inline B32 nodeIsa<StartNode>(const Node* n)    { return n->getOpcode() == Opcode::Start; }
+		template <> inline B32 nodeIsa<StopNode>(const Node* n)     { return n->getOpcode() == Opcode::Stop; }
+		template <> inline B32 nodeIsa<ReturnNode>(const Node* n)   { return n->getOpcode() == Opcode::Return; }
+		template <> inline B32 nodeIsa<RegionNode>(const Node* n)   { return n->getOpcode() == Opcode::Region; }
+		template <> inline B32 nodeIsa<IfNode>(const Node* n)       { return n->getOpcode() == Opcode::If; }
+		template <> inline B32 nodeIsa<ProjNode>(const Node* n)     { return n->getOpcode() == Opcode::Proj; }
+		template <> inline B32 nodeIsa<PhiNode>(const Node* n)      { return n->getOpcode() == Opcode::Phi; }
+		template <> inline B32 nodeIsa<ConstantNode>(const Node* n) { return n->getOpcode() == Opcode::Constant; }
+		template <> inline B32 nodeIsa<BinaryNode>(const Node* n)   { return isBinaryOpcode(n->getOpcode()); }
+		template <> inline B32 nodeIsa<UnaryNode>(const Node* n)    { return isUnaryOpcode(n->getOpcode()); }
+		template <> inline B32 nodeIsa<CompareNode>(const Node* n)  { return isCompareOpcode(n->getOpcode()); }
+		template <> inline B32 nodeIsa<ConvertNode>(const Node* n)  { return isConvertOpcode(n->getOpcode()); }
+		template <> inline B32 nodeIsa<LoadNode>(const Node* n)     { return n->getOpcode() == Opcode::Load; }
+		template <> inline B32 nodeIsa<StoreNode>(const Node* n)    { return n->getOpcode() == Opcode::Store; }
+		template <> inline B32 nodeIsa<CallNode>(const Node* n)     { return n->getOpcode() == Opcode::Call; }
+		// clang-format on
+	} // namespace detail
+
+	template <typename T> B32 isa(const Node* n) {
+		return n && detail::nodeIsa<T>(n);
+	}
+	template <typename T> T* cast(Node* n) { return static_cast<T*>(n); }
+	template <typename T> const T* cast(const Node* n) {
+		return static_cast<const T*>(n);
+	}
+	template <typename T> T* dyn_cast(Node* n) {
+		return isa<T>(n) ? static_cast<T*>(n) : nullptr;
+	}
+	template <typename T> const T* dyn_cast(const Node* n) {
+		return isa<T>(n) ? static_cast<const T*>(n) : nullptr;
+	}
 } // namespace rat
 
 #endif

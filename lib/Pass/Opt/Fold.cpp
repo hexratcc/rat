@@ -10,7 +10,6 @@
 #include "Pass/Opt/Fold.h"
 
 #include "IR/Function.h"
-#include "IR/Module.h"
 #include "IR/Node.h"
 #include "IR/Type.h"
 
@@ -38,28 +37,19 @@ namespace rat {
 			return signExtend(v, w);
 		}
 
-		ConstantNode* asConstant(Node* n) {
-			return n->getOpcode() == Opcode::Constant ? static_cast<ConstantNode*>(n)
-																								: nullptr;
-		}
-		BinaryNode* asBinary(Node* n) {
-			return isBinaryOpcode(n->getOpcode()) ? static_cast<BinaryNode*>(n)
-																						: nullptr;
-		}
-
 		B32 isConstWithValue(Node* n, I64 want) {
-			ConstantNode* c = asConstant(n);
+			ConstantNode* c = dyn_cast<ConstantNode>(n);
 			return c && c->getValue() == want;
 		}
 		B32 isZeroConst(Node* n) { return isConstWithValue(n, 0); }
 		B32 isOneConst(Node* n) { return isConstWithValue(n, 1); }
 		B32 isAllOnesConst(Node* n, U32 w) {
-			ConstantNode* c = asConstant(n);
+			ConstantNode* c = dyn_cast<ConstantNode>(n);
 			return c && c->getValue() == normalizeConst(-1, w);
 		}
 
 		I32 pow2Log(Node* n, U32 w) {
-			ConstantNode* c = asConstant(n);
+			ConstantNode* c = dyn_cast<ConstantNode>(n);
 			if (!c)
 				return -1;
 			U64 u = maskW(c->getValue(), w);
@@ -70,16 +60,16 @@ namespace rat {
 		}
 
 		B32 matchVarConst(Node* n, Opcode want, Node*& base, I64& c) {
-			BinaryNode* b = asBinary(n);
+			BinaryNode* b = dyn_cast<BinaryNode>(n);
 			if (!b || b->getOpcode() != want)
 				return false;
-			if (ConstantNode* cr = asConstant(b->getRHS())) {
+			if (ConstantNode* cr = dyn_cast<ConstantNode>(b->getRHS())) {
 				base = b->getLHS();
 				c = cr->getValue();
 				return true;
 			}
 			if (want == Opcode::Add || want == Opcode::Mul)
-				if (ConstantNode* cl = asConstant(b->getLHS())) {
+				if (ConstantNode* cl = dyn_cast<ConstantNode>(b->getLHS())) {
 					base = b->getRHS();
 					c = cl->getValue();
 					return true;
@@ -103,8 +93,8 @@ namespace rat {
 			return nullptr;
 		U32 w = ty->getIntWidth();
 
-		ConstantNode* cl = asConstant(lhs);
-		ConstantNode* cr = asConstant(rhs);
+		ConstantNode* cl = dyn_cast<ConstantNode>(lhs);
+		ConstantNode* cr = dyn_cast<ConstantNode>(rhs);
 
 		if (cl && cr) {
 			I64 a = cl->getValue(), b = cr->getValue();
@@ -163,7 +153,7 @@ namespace rat {
 			}
 		}
 
-		// mormalize a lone constant to the RHS for commutative ops, so every rule
+		// normalize a lone constant to the RHS for commutative ops, so every rule
 		// below only has to look on one side
 		if (cl && !cr &&
 				(op == Opcode::Add || op == Opcode::Mul || op == Opcode::And ||
@@ -284,10 +274,10 @@ namespace rat {
 
 		// shift-of-shift collapse
 		if (op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr) {
-			BinaryNode* in = asBinary(lhs);
-			ConstantNode* cb = asConstant(rhs);
+			BinaryNode* in = dyn_cast<BinaryNode>(lhs);
+			ConstantNode* cb = dyn_cast<ConstantNode>(rhs);
 			if (in && in->getOpcode() == op && cb) {
-				ConstantNode* ca = asConstant(in->getRHS());
+				ConstantNode* ca = dyn_cast<ConstantNode>(in->getRHS());
 				I64 a = ca ? ca->getValue() : -1;
 				I64 b = cb->getValue();
 				if (ca && a >= 0 && a < (I64)w && b >= 0 && b < (I64)w) {
@@ -305,7 +295,7 @@ namespace rat {
 	}
 
 	Node* foldUnary(Function& fn, Opcode op, Node* operand) {
-		if (ConstantNode* c = asConstant(operand)) {
+		if (ConstantNode* c = dyn_cast<ConstantNode>(operand)) {
 			if (!operand->getType()->isInt())
 				return nullptr;
 			U32 w = operand->getType()->getIntWidth();
@@ -322,8 +312,8 @@ namespace rat {
 			return nullptr;
 		U32 w = ty->getIntWidth();
 
-		ConstantNode* cl = asConstant(lhs);
-		ConstantNode* cr = asConstant(rhs);
+		ConstantNode* cl = dyn_cast<ConstantNode>(lhs);
+		ConstantNode* cr = dyn_cast<ConstantNode>(rhs);
 		if (cl && cr) {
 			I64 a = cl->getValue(), b = cr->getValue();
 			B32 res = false;
@@ -372,7 +362,7 @@ namespace rat {
 	Node* foldConvert(Function& fn, Opcode op, Node* operand, Type* destType) {
 		if (operand->getType() == destType)
 			return operand;
-		ConstantNode* c = asConstant(operand);
+		ConstantNode* c = dyn_cast<ConstantNode>(operand);
 		if (!c || !operand->getType()->isInt() || !destType->isInt())
 			return nullptr;
 		U32 srcW = operand->getType()->getIntWidth();
@@ -398,19 +388,19 @@ namespace rat {
 	Node* simplify(Function& fn, Node* n) {
 		Opcode op = n->getOpcode();
 		if (isBinaryOpcode(op)) {
-			BinaryNode* b = static_cast<BinaryNode*>(n);
+			BinaryNode* b = cast<BinaryNode>(n);
 			if (Node* r = foldBinary(fn, op, b->getLHS(), b->getRHS()))
 				return r;
 		} else if (isUnaryOpcode(op)) {
-			UnaryNode* u = static_cast<UnaryNode*>(n);
+			UnaryNode* u = cast<UnaryNode>(n);
 			if (Node* r = foldUnary(fn, op, u->getOperand()))
 				return r;
 		} else if (isCompareOpcode(op)) {
-			CompareNode* c = static_cast<CompareNode*>(n);
+			CompareNode* c = cast<CompareNode>(n);
 			if (Node* r = foldCompare(fn, op, c->getLHS(), c->getRHS()))
 				return r;
 		} else if (isConvertOpcode(op)) {
-			ConvertNode* c = static_cast<ConvertNode*>(n);
+			ConvertNode* c = cast<ConvertNode>(n);
 			if (Node* r = foldConvert(fn, op, c->getOperand(), n->getType()))
 				return r;
 		}
@@ -424,7 +414,7 @@ namespace rat {
 			while (again) {
 				again = false;
 				// snapshot value nodes: simplify may append constants to the node
-				// list, which would invalidate a live iterator (?)
+				// list, which would invalidate a live iterator
 				List<Node*> work;
 				for (Node* n : fn) {
 					Opcode op = n->getOpcode();
@@ -451,10 +441,5 @@ namespace rat {
 
 	const char* FoldPass::name() const { return "fold"; }
 
-	B32 FoldPass::run(Module& module) {
-		U32 changed = 0;
-		for (Function* fn : module)
-			changed += foldFunction(*fn);
-		return changed != 0;
-	}
+	U32 FoldPass::runOnFunction(Function& fn) { return foldFunction(fn); }
 } // namespace rat

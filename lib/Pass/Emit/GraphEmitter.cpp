@@ -20,11 +20,11 @@ namespace rat {
 			l << "v" << n->getId() << " " << n->getMnemonic();
 			switch (n->getOpcode()) {
 			case Opcode::Constant:
-				l << " " << static_cast<const ConstantNode*>(n)->getValue();
+				l << " " << cast<ConstantNode>(n)->getValue();
 				attrs = "shape=note, style=filled, fillcolor=\"#fff2cc\"";
 				break;
 			case Opcode::Proj: {
-				const auto* p = static_cast<const ProjNode*>(n);
+				const auto* p = cast<ProjNode>(n);
 				l << " #" << p->getIndex();
 				if (!p->getLabel().empty())
 					l << " " << p->getLabel();
@@ -32,7 +32,7 @@ namespace rat {
 				break;
 			}
 			case Opcode::Call:
-				l << " \"" << static_cast<const CallNode*>(n)->getCallee() << "\"";
+				l << " \"" << cast<CallNode>(n)->getCallee() << "\"";
 				attrs = "shape=box, style=filled, fillcolor=\"#d9d2e9\"";
 				break;
 			case Opcode::Start:
@@ -40,7 +40,7 @@ namespace rat {
 				attrs = "shape=box, style=\"filled,bold\", fillcolor=\"#f4cccc\"";
 				break;
 			case Opcode::Region:
-				if (static_cast<const RegionNode*>(n)->isLoopHeader())
+				if (cast<RegionNode>(n)->isLoopHeader())
 					attrs = "shape=box, style=\"filled,bold\", fillcolor=\"#9fc5e8\"";
 				else
 					attrs = "shape=box, style=filled, fillcolor=\"#cfe2f3\"";

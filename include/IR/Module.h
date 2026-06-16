@@ -24,7 +24,7 @@ namespace rat {
 			FunctionIterator& operator++();
 			B32 operator!=(const FunctionIterator& other) const;
 
-			List<UniquePtr<Function>>::const_iterator it;
+			List<Function*>::const_iterator it;
 		};
 
 		FunctionIterator begin() const;
@@ -34,7 +34,7 @@ namespace rat {
 	private:
 		String name;
 		const TargetInfo* tgt = nullptr;
-		List<UniquePtr<Function>> funcs;
+		List<Function*> funcs;
 	};
 } // namespace rat
 

@@ -384,7 +384,7 @@ namespace rat {
 				for (Node* u : fn->getStart()->getUsers()) {
 					if (u->getOpcode() != Opcode::Proj)
 						continue;
-					U32 idx = static_cast<ProjNode*>(u)->getIndex();
+					U32 idx = cast<ProjNode>(u)->getIndex();
 					if (idx == StartNode::controlProjIndex())
 						startCtrl = u;
 					else if (idx == StartNode::memoryProjIndex())
