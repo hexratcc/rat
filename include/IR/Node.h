@@ -253,6 +253,9 @@ namespace rat {
 	template <typename T> const T* dyn_cast(const Node* n) {
 		return isa<T>(n) ? static_cast<const T*>(n) : nullptr;
 	}
+
+	Node* cloneShell(Function& into, const Node* n);
+	String nodeSignature(const Node* n);
 } // namespace rat
 
 #endif

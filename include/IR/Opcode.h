@@ -61,6 +61,16 @@ namespace rat {
 		Alloc,
 	};
 
+	struct OpcodeInfo {
+		const char* mnemonic;
+		B32 isCFG;
+		B32 hasSideEffects;
+		B32 isCommutative;
+		I8 controlInputIndex;
+	};
+
+	const OpcodeInfo& getOpcodeInfo(Opcode op);
+
 	const char* getOpcodeMnemonic(Opcode op);
 
 	constexpr B32 isBinaryOpcode(Opcode op) {

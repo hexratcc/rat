@@ -2,7 +2,6 @@
 
 #include "IR/Function.h"
 
-#include <algorithm>
 
 namespace rat {
 	Node::Node(Function& fn, Opcode op, Type* type, const List<Node*>& inputs)
@@ -74,58 +73,20 @@ namespace rat {
 					user->setInput(i, value);
 	}
 
-	B32 Node::isCFG() const {
-		switch (op) {
-		case Opcode::Start:
-		case Opcode::Stop:
-		case Opcode::Return:
-		case Opcode::Region:
-		case Opcode::If:
-			return true;
-		default:
-			return false;
-		}
-	}
+	B32 Node::isCFG() const { return getOpcodeInfo(op).isCFG; }
 
 	B32 Node::hasSideEffects() const {
-		switch (op) {
-		case Opcode::Store:
-		case Opcode::Call:
-		case Opcode::Return:
-		case Opcode::Stop:
-			return true;
-		default:
-			return false;
-		}
+		return getOpcodeInfo(op).hasSideEffects;
 	}
 
 	B32 Node::isCommutative() const {
-		switch (op) {
-		case Opcode::Add:
-		case Opcode::Mul:
-		case Opcode::And:
-		case Opcode::Or:
-		case Opcode::Xor:
-		case Opcode::Eq:
-		case Opcode::Ne:
-			return true;
-		default:
-			return false;
-		}
+		return getOpcodeInfo(op).isCommutative;
 	}
 
 	Node* Node::getControlInput() const {
-		switch (op) {
-		case Opcode::Return:
-		case Opcode::If:
-		case Opcode::Load:
-		case Opcode::Store:
-		case Opcode::Call:
-		case Opcode::Phi: // input[0] is the controlling Region
-			return getInput(0);
-		default:
-			return nullptr;
-		}
+		// for Phi, input[0] is the controlling Region
+		I8 slot = getOpcodeInfo(op).controlInputIndex;
+		return slot < 0 ? nullptr : getInput((U32)slot);
 	}
 
 	ProjNode* Node::projection(U32 index) const {
@@ -258,4 +219,102 @@ namespace rat {
 			: Node(fn, Opcode::Alloc, ptrType, {}), allocType(allocType) {}
 
 	Type* AllocNode::getAllocType() const { return allocType; }
+
+	Node* cloneShell(Function& into, const Node* n) {
+		Opcode op = n->getOpcode();
+		Type* t = n->getType();
+		List<Node*> nulls(n->getInputCount(), nullptr);
+		switch (op) {
+		case Opcode::Start:
+			return into.create<StartNode>(t, cast<StartNode>(n)->getParamCount());
+		case Opcode::Stop: {
+			StopNode* s = into.create<StopNode>(t);
+			for (U32 i = 0, e = n->getInputCount(); i < e; ++i)
+				s->addInput(nullptr);
+			return s;
+		}
+		case Opcode::Return:
+			return into.create<ReturnNode>(t, nulls);
+		case Opcode::Region: {
+			RegionNode* r = into.create<RegionNode>(t, nulls);
+			r->setLoopHeader(cast<RegionNode>(n)->isLoopHeader());
+			return r;
+		}
+		case Opcode::If:
+			return into.create<IfNode>(t, nullptr, nullptr);
+		case Opcode::Proj: {
+			const ProjNode* p = cast<ProjNode>(n);
+			return into.create<ProjNode>(t, nullptr, p->getIndex(), p->getLabel());
+		}
+		case Opcode::Phi:
+			return into.create<PhiNode>(t, nulls);
+		case Opcode::Constant:
+			return into.create<ConstantNode>(t, cast<ConstantNode>(n)->getValue());
+		case Opcode::Load:
+			return into.create<LoadNode>(t, nullptr, nullptr, nullptr);
+		case Opcode::Store:
+			return into.create<StoreNode>(t, nullptr, nullptr, nullptr, nullptr);
+		case Opcode::Call: {
+			const CallNode* c = cast<CallNode>(n);
+			return into.create<CallNode>(t, c->getCallee(), c->returnsValue(),
+																	 nulls);
+		}
+		case Opcode::Global:
+			return into.create<GlobalNode>(t, cast<GlobalNode>(n)->getSymbol());
+		case Opcode::Alloc:
+			return into.create<AllocNode>(t, cast<AllocNode>(n)->getAllocType());
+		default:
+			break;
+		}
+		if (isBinaryOpcode(op))
+			return into.create<BinaryNode>(op, t, nullptr, nullptr);
+		if (isUnaryOpcode(op))
+			return into.create<UnaryNode>(op, t, nullptr);
+		if (isCompareOpcode(op))
+			return into.create<CompareNode>(op, t, nullptr, nullptr);
+		if (isConvertOpcode(op))
+			return into.create<ConvertNode>(op, t, nullptr);
+		return nullptr;
+	}
+
+	String nodeSignature(const Node* n) {
+		String key = std::to_string((U32)n->getOpcode()) + "|" +
+								 std::to_string((uintptr_t)n->getType()) + "|";
+
+		// immediate (non-edge) fields, by opcode
+		switch (n->getOpcode()) {
+		case Opcode::Constant:
+			key += "c" + std::to_string(cast<ConstantNode>(n)->getValue());
+			break;
+		case Opcode::Global:
+			key += "g" + cast<GlobalNode>(n)->getSymbol();
+			break;
+		case Opcode::Proj: {
+			const ProjNode* p = cast<ProjNode>(n);
+			key += "p" + std::to_string(p->getIndex()) + ":" + p->getLabel();
+			break;
+		}
+		case Opcode::Call:
+			key += "f" + cast<CallNode>(n)->getCallee();
+			break;
+		case Opcode::Alloc:
+			key += "a" +
+						 std::to_string((uintptr_t)cast<AllocNode>(n)->getAllocType());
+			break;
+		default:
+			break;
+		}
+		key += "|";
+
+		// sort for commutative opcodes
+		List<U32> ops;
+		ops.reserve(n->getInputCount());
+		for (U32 i = 0, e = n->getInputCount(); i < e; ++i)
+			ops.push_back(n->getInput(i)->getId());
+		if (n->isCommutative())
+			std::sort(ops.begin(), ops.end());
+		for (U32 id : ops)
+			key += std::to_string(id) + ",";
+		return key;
+	}
 } // namespace rat

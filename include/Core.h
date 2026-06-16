@@ -8,6 +8,9 @@
 #include <unordered_set>
 #include <vector>
 #include <ostream>
+#include <algorithm>
+#include <cstdint>
+#include <string>
 
 namespace rat {
 	using U8 = uint8_t;

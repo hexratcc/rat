@@ -42,50 +42,6 @@ namespace rat {
 			return false;
 		}
 
-		Node* cloneShell(Function& into, Node* n) {
-			Opcode op = n->getOpcode();
-			Type* t = n->getType();
-			if (ConstantNode* c = dyn_cast<ConstantNode>(n))
-				return into.create<ConstantNode>(t, c->getValue());
-			if (GlobalNode* g = dyn_cast<GlobalNode>(n))
-				return into.create<GlobalNode>(t, g->getSymbol());
-			if (AllocNode* a = dyn_cast<AllocNode>(n))
-				return into.create<AllocNode>(t, a->getAllocType());
-			if (ProjNode* p = dyn_cast<ProjNode>(n))
-				return into.create<ProjNode>(t, nullptr, p->getIndex(), p->getLabel());
-			if (isBinaryOpcode(op))
-				return into.create<BinaryNode>(op, t, nullptr, nullptr);
-			if (isUnaryOpcode(op))
-				return into.create<UnaryNode>(op, t, nullptr);
-			if (isCompareOpcode(op))
-				return into.create<CompareNode>(op, t, nullptr, nullptr);
-			if (isConvertOpcode(op))
-				return into.create<ConvertNode>(op, t, nullptr);
-			if (op == Opcode::Load)
-				return into.create<LoadNode>(t, nullptr, nullptr, nullptr);
-			if (op == Opcode::Store)
-				return into.create<StoreNode>(t, nullptr, nullptr, nullptr, nullptr);
-			if (op == Opcode::If)
-				return into.create<IfNode>(t, nullptr, nullptr);
-			if (op == Opcode::Region) {
-				List<Node*> nulls(n->getInputCount(), nullptr);
-				RegionNode* r = into.create<RegionNode>(t, nulls);
-				r->setLoopHeader(cast<RegionNode>(n)->isLoopHeader());
-				return r;
-			}
-			if (op == Opcode::Phi) {
-				List<Node*> nulls(n->getInputCount(), nullptr);
-				return into.create<PhiNode>(t, nulls);
-			}
-			if (op == Opcode::Call) {
-				CallNode* c = cast<CallNode>(n);
-				List<Node*> nulls(n->getInputCount(), nullptr);
-				return into.create<CallNode>(t, c->getCallee(), c->returnsValue(),
-																		 nulls);
-			}
-			return nullptr;
-		}
-
 		B32 isStartProj(const Function& callee, Node* n) {
 			ProjNode* p = dyn_cast<ProjNode>(n);
 			return p && p->getProducer() == callee.getStart();
