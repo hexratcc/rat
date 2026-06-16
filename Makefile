@@ -9,7 +9,6 @@ INC      := -Iinclude
 DEPFLAGS := -MMD -MP
 
 LIB_SRCS := \
-	lib/Support/Arena.cpp \
 	lib/IR/Opcode.cpp \
 	lib/IR/Type.cpp \
 	lib/IR/Node.cpp \
