@@ -306,7 +306,8 @@ namespace rat {
 					break;
 				}
 				default:
-					if (isBinaryOpcode(op)) {
+					switch (getOpClass(op)) {
+					case OpClass::Binary: {
 						auto* b = cast<BinaryNode>(n);
 						const Type* lt = b->getLHS()->getType();
 						const Type* rt = b->getRHS()->getType();
@@ -329,19 +330,25 @@ namespace rat {
 						} else {
 							err(n, "binary operates on a non-data type");
 						}
-					} else if (isUnaryOpcode(op)) {
+						break;
+					}
+					case OpClass::Unary: {
 						auto* u = cast<UnaryNode>(n);
 						if (!t->isInt())
 							err(n, "unary operates on a non-integer type");
 						if (u->getOperand()->getType() != t)
 							err(n, "unary result type differs from its operand");
-					} else if (isCompareOpcode(op)) {
+						break;
+					}
+					case OpClass::Compare: {
 						auto* c = cast<CompareNode>(n);
 						if (!t->isInt() || t->getIntWidth() != 1)
 							err(n, "comparison result must be i1");
 						if (c->getLHS()->getType() != c->getRHS()->getType())
 							err(n, "comparison operands have different types");
-					} else if (isConvertOpcode(op)) {
+						break;
+					}
+					case OpClass::Convert: {
 						auto* c = cast<ConvertNode>(n);
 						const Type* s = c->getOperand()->getType();
 						if (!s->isInt() || !t->isInt()) {
@@ -353,6 +360,10 @@ namespace rat {
 							err(n, "trunc widens its operand");
 						if ((op == Opcode::SExt || op == Opcode::ZExt) && dw < sw)
 							err(n, "extension narrows its operand");
+						break;
+					}
+					case OpClass::None:
+						break;
 					}
 					break;
 				}

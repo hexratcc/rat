@@ -61,6 +61,14 @@ namespace rat {
 		Alloc,
 	};
 
+	enum class OpClass : U8 {
+		None,
+		Binary,
+		Unary,
+		Compare,
+		Convert,
+	};
+
 	struct OpcodeInfo {
 		const char* mnemonic;
 		B32 isCFG;
@@ -69,11 +77,14 @@ namespace rat {
 		I8 controlInputIndex;
 		I8 minInputs;
 		I8 maxInputs;
+		OpClass opClass;
 	};
 
 	const OpcodeInfo& getOpcodeInfo(Opcode op);
 
 	const char* getOpcodeMnemonic(Opcode op);
+
+	inline OpClass getOpClass(Opcode op) { return getOpcodeInfo(op).opClass; }
 
 	constexpr B32 isBinaryOpcode(Opcode op) {
 		return op >= Opcode::Add && op <= Opcode::AShr;

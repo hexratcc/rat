@@ -266,14 +266,18 @@ namespace rat {
 		default:
 			break;
 		}
-		if (isBinaryOpcode(op))
+		switch (getOpClass(op)) {
+		case OpClass::Binary:
 			return into.create<BinaryNode>(op, t, nullptr, nullptr);
-		if (isUnaryOpcode(op))
+		case OpClass::Unary:
 			return into.create<UnaryNode>(op, t, nullptr);
-		if (isCompareOpcode(op))
+		case OpClass::Compare:
 			return into.create<CompareNode>(op, t, nullptr, nullptr);
-		if (isConvertOpcode(op))
+		case OpClass::Convert:
 			return into.create<ConvertNode>(op, t, nullptr);
+		case OpClass::None:
+			break;
+		}
 		return nullptr;
 	}
 
