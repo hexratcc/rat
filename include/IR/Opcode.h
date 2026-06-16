@@ -55,6 +55,10 @@ namespace rat {
 
 		// calls
 		Call,
+
+		// storage: a pointer to a module global or a stack allocation
+		Global,
+		Alloc,
 	};
 
 	const char* getOpcodeMnemonic(Opcode op);

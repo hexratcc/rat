@@ -8,6 +8,21 @@
 namespace rat {
 	struct TargetInfo;
 
+	struct Global {
+		Global(String name, Type* type, B32 isConst, List<U8> init);
+
+		const String& getName() const;
+		Type* getType() const;
+		B32 isConstant() const;
+		const List<U8>& getInit() const;
+
+	private:
+		String name;
+		Type* type;
+		B32 isConst;
+		List<U8> init;
+	};
+
 	struct Module : TypeContext {
 		explicit Module(String name = "module");
 
@@ -18,6 +33,13 @@ namespace rat {
 
 		Function* createFunction(const String& name, const List<Type*>& params,
 														 Type* ret);
+
+		Global* createGlobal(const String& name, Type* type, B32 isConst,
+												 List<U8> init);
+		Global* createString(const String& name, const String& bytes);
+		Global* getGlobal(const String& name) const;
+
+		const List<Global*>& globals() const;
 
 		struct FunctionIterator {
 			Function* operator*() const;
@@ -35,6 +57,7 @@ namespace rat {
 		String name;
 		const TargetInfo* tgt = nullptr;
 		List<Function*> funcs;
+		List<Global*> globs;
 	};
 } // namespace rat
 

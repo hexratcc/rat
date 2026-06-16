@@ -86,6 +86,9 @@ namespace rat {
 		Node* load(Type* valueType, Node* pointer);
 		void store(Node* pointer, Node* value);
 
+		Node* global(const String& name);
+		Node* alloc(Type* type);
+
 		Node* call(const String& callee, Type* retType, const List<Node*>& args);
 
 		IfNode* iff(Node* predicate);

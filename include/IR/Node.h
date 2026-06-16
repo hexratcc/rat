@@ -199,6 +199,24 @@ namespace rat {
 		B32 hasReturnValue;
 	};
 
+	struct GlobalNode : Node {
+		GlobalNode(Function& fn, Type* ptrType, String symbol);
+
+		const String& getSymbol() const;
+
+	private:
+		String symbol;
+	};
+
+	struct AllocNode : Node {
+		AllocNode(Function& fn, Type* ptrType, Type* allocType);
+
+		Type* getAllocType() const;
+
+	private:
+		Type* allocType;
+	};
+
 	namespace detail {
 		template <typename T> B32 nodeIsa(const Node* n);
 		// clang-format off
@@ -217,6 +235,8 @@ namespace rat {
 		template <> inline B32 nodeIsa<LoadNode>(const Node* n)     { return n->getOpcode() == Opcode::Load; }
 		template <> inline B32 nodeIsa<StoreNode>(const Node* n)    { return n->getOpcode() == Opcode::Store; }
 		template <> inline B32 nodeIsa<CallNode>(const Node* n)     { return n->getOpcode() == Opcode::Call; }
+		template <> inline B32 nodeIsa<GlobalNode>(const Node* n)   { return n->getOpcode() == Opcode::Global; }
+		template <> inline B32 nodeIsa<AllocNode>(const Node* n)    { return n->getOpcode() == Opcode::Alloc; }
 		// clang-format on
 	} // namespace detail
 

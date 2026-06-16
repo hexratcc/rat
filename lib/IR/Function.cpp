@@ -194,6 +194,12 @@ namespace rat {
 		writeVar(memVar, nm);
 	}
 
+	Node* Function::global(const String& name) {
+		return create<GlobalNode>(ptrTy(), name);
+	}
+
+	Node* Function::alloc(Type* type) { return create<AllocNode>(ptrTy(), type); }
+
 	Node* Function::call(const String& callee, Type* retType,
 											 const List<Node*>& args) {
 		List<Type*> elems{ctrlTy(), memTy()};

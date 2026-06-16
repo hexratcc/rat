@@ -248,4 +248,14 @@ namespace rat {
 	U32 CallNode::getArgCount() const { return getInputCount() - 2; }
 	Node* CallNode::getArg(U32 index) const { return getInput(2 + index); }
 	B32 CallNode::returnsValue() const { return hasReturnValue; }
+
+	GlobalNode::GlobalNode(Function& fn, Type* ptrType, String symbol)
+			: Node(fn, Opcode::Global, ptrType, {}), symbol(std::move(symbol)) {}
+
+	const String& GlobalNode::getSymbol() const { return symbol; }
+
+	AllocNode::AllocNode(Function& fn, Type* ptrType, Type* allocType)
+			: Node(fn, Opcode::Alloc, ptrType, {}), allocType(allocType) {}
+
+	Type* AllocNode::getAllocType() const { return allocType; }
 } // namespace rat

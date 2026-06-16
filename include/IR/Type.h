@@ -5,7 +5,7 @@
 
 namespace rat {
 	struct Type {
-		enum Kind { Control, Memory, Int, Ptr, Tuple };
+		enum Kind { Control, Memory, Int, Ptr, Tuple, Array };
 
 		Type(Kind kind, U32 bits, List<Type*> elements);
 
@@ -14,12 +14,17 @@ namespace rat {
 		B32 isInt() const;
 		B32 isPtr() const;
 		B32 isTuple() const;
+		B32 isArray() const;
 		B32 isData() const;
 
 		U32 getIntWidth() const;
 		const List<Type*>& getTupleElements() const;
 		Type* getTupleElement(U32 index) const;
 		U32 getTupleElementCount() const;
+
+		Type* getArrayElement() const;
+		U32 getArrayCount() const;
+		U32 byteSize(U32 ptrBytes) const;
 
 		void print(std::ostream& os) const;
 		String str() const;
@@ -39,6 +44,7 @@ namespace rat {
 		Type* getInt(U32 bits);
 		Type* getBool();
 		Type* getTuple(const List<Type*>& elements);
+		Type* getArray(Type* element, U32 count);
 
 	protected:
 		Arena arena;
@@ -48,6 +54,7 @@ namespace rat {
 		Type* memory = nullptr;
 		Type* ptr = nullptr;
 		List<Type*> tuples;
+		List<Type*> arrays;
 		Map<U32, Type*> ints;
 	};
 } // namespace rat
