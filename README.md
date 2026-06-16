@@ -13,6 +13,7 @@ $ make test   # builds and runs tests
 - [**GVNPass:**](./include/Pass/Opt/GVN.h) Global value numbering
 - [**SimplifyCFGPass:**](./include/Pass/Opt/SimplifyCFG.h) Control-flow simplification
 - [**MemoryOptPass:**](./include/Pass/Opt/MemoryOpt.h) Load/store forwarding
+- [**InlinePass:**](./include/Pass/Opt/Inline.h) Function inlining
 - [**CEmitterPass:**](./include/Pass/Emit/CEmitter.h) Emit C code
 - [**VerifyPass:**](./include/Pass/Verify.h) Edge consistency + per-opcode structural invariants
 - [**TextEmitterPass:**](./include/Pass/Emit/TextEmitter.h) Textual IR viz
