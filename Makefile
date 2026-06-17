@@ -27,6 +27,7 @@ LIB_SRCS := \
 	lib/Pass/Opt/GVN.cpp \
 	lib/Pass/Opt/Inline.cpp \
 	lib/Pass/Opt/SimplifyCFG.cpp \
+	lib/Pass/Opt/SCCP.cpp \
 	lib/Pass/Opt/AliasAnalysis.cpp \
 	lib/Pass/Opt/MemoryOpt.cpp \
 	lib/CodeGen/Schedule.cpp
