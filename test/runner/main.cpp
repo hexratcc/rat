@@ -9,21 +9,9 @@
 #include "CodeGen/Target.h"
 #include "IR/Module.h"
 #include "IR/TextParser.h"
-#include "Pass/Emit/CEmitter.h"
-#include "Pass/Emit/GraphEmitter.h"
 #include "Pass/Emit/TextEmitter.h"
-#include "Pass/Opt/Fold.h"
-#include "Pass/Opt/GVN.h"
-#include "Pass/Opt/Inline.h"
-#include "Pass/Opt/MemoryOpt.h"
-#include "Pass/Opt/SCCP.h"
-#include "Pass/Opt/SimplifyCFG.h"
 #include "Pass/PassManager.h"
-#include "Pass/Verify.h"
-
-#include <fstream>
-#include <iostream>
-#include <sstream>
+#include "Pass/PassRegistry.h"
 
 using namespace rat;
 
@@ -81,32 +69,6 @@ namespace detail {
 			return false;
 		}
 		out = emitToString(m);
-		return true;
-	}
-
-	B32 addPass(PassManager& pm, const String& name, std::ostream& sink) {
-		if (name == "fold")
-			pm.add<FoldPass>();
-		else if (name == "gvn")
-			pm.add<GVNPass>();
-		else if (name == "inline")
-			pm.add<InlinePass>();
-		else if (name == "simplifycfg")
-			pm.add<SimplifyCFGPass>();
-		else if (name == "sccp")
-			pm.add<SCCPPass>();
-		else if (name == "memoryopt")
-			pm.add<MemoryOptPass>();
-		else if (name == "verify")
-			pm.add<VerifyPass>(sink);
-		else if (name == "text-emitter")
-			pm.add<TextEmitterPass>(sink);
-		else if (name == "graph-emitter")
-			pm.add<GraphEmitterPass>(sink);
-		else if (name == "c-emitter")
-			pm.add<CEmitterPass>(sink);
-		else
-			return false;
 		return true;
 	}
 
@@ -201,11 +163,16 @@ namespace detail {
 
 		std::ostringstream sink;
 		PassManager pm;
+		String spec;
 		for (const String& p : tf.passes) {
-			if (!addPass(pm, p, sink)) {
-				std::cout << "[FAIL] " << label << ": unknown pass '" << p << "'\n";
-				return false;
-			}
+			if (!spec.empty())
+				spec += ',';
+			spec += p;
+		}
+		String perr2;
+		if (!buildPipeline(pm, spec, sink, perr2)) {
+			std::cout << "[FAIL] " << label << ": " << perr2 << "\n";
+			return false;
 		}
 		pm.run(mod);
 

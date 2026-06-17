@@ -1,5 +1,6 @@
-# make           build bin/tour
+# make           build bin/tour and bin/rat
 # make run       build and run the tour example
+# make rat       build the bin/rat pipeline driver
 # make test      run tests
 # make compiledb generate compile_commands.json for editors
 # make format    run clang-format over the sources
@@ -10,38 +11,18 @@ CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
 INC      := -Iinclude
 DEPFLAGS := -MMD -MP
 
-LIB_SRCS := \
-	lib/IR/Opcode.cpp \
-	lib/IR/Type.cpp \
-	lib/IR/Node.cpp \
-	lib/IR/Function.cpp \
-	lib/IR/Module.cpp \
-	lib/IR/TextParser.cpp \
-	lib/Pass/Pass.cpp \
-	lib/Pass/PassManager.cpp \
-	lib/Pass/Verify.cpp \
-	lib/Pass/Emit/TextEmitter.cpp \
-	lib/Pass/Emit/GraphEmitter.cpp \
-	lib/Pass/Emit/CEmitter.cpp \
-	lib/Pass/Opt/Fold.cpp \
-	lib/Pass/Opt/GVN.cpp \
-	lib/Pass/Opt/Inline.cpp \
-	lib/Pass/Opt/SimplifyCFG.cpp \
-	lib/Pass/Opt/SCCP.cpp \
-	lib/Pass/Opt/AliasAnalysis.cpp \
-	lib/Pass/Opt/MemoryOpt.cpp \
-	lib/CodeGen/Schedule.cpp
+LIB_SRCS := $(shell find lib -name '*.cpp' | sort)
 
 LIB_OBJS := $(patsubst %.cpp,build/%.o,$(LIB_SRCS))
 LIB      := build/rat.a
 
-SOURCES  := $(LIB_SRCS) test/tour/main.cpp test/runner/main.cpp
+SOURCES  := $(LIB_SRCS) test/tour/main.cpp test/runner/main.cpp test/driver/main.cpp
 HEADERS  := $(wildcard include/*.h include/IR/*.h include/Support/*.h include/Pass/*.h include/Pass/Emit/*.h include/Pass/Opt/*.h include/CodeGen/*.h)
 
 CASES := $(wildcard test/cases/*.rat)
 
-.PHONY: all run test compiledb format clean
-all: compiledb bin/tour
+.PHONY: all run rat test compiledb format clean
+all: compiledb bin/tour bin/rat
 
 build/%.o: %.cpp
 	@mkdir -p $(dir $@)
@@ -59,6 +40,12 @@ bin/tour: test/tour/main.cpp $(LIB)
 
 run: bin/tour
 	./bin/tour
+
+bin/rat: test/driver/main.cpp $(LIB)
+	@mkdir -p bin
+	$(CXX) $(CXXFLAGS) $(INC) $< $(LIB) -o $@
+
+rat: bin/rat
 
 bin/ratest: test/runner/main.cpp $(LIB)
 	@mkdir -p bin

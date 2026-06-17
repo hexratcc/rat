@@ -3,9 +3,6 @@
 
 #include "Core.h"
 
-#include <istream>
-#include <ostream>
-
 namespace rat {
 	struct Module;
 

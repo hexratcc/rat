@@ -9,6 +9,9 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <fstream>
+#include <iostream>
+#include <sstream>
 
 namespace rat {
 	using U8 = uint8_t;
