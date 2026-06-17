@@ -10,9 +10,8 @@
 namespace rat {
 	namespace detail {
 		String nodeId(const Function& fn, const Node* n) {
-			return "n" +
-						 std::to_string(reinterpret_cast<uintptr_t>(&fn) & 0xffffff) + "_" +
-						 std::to_string(n->getId());
+			return "n" + std::to_string(reinterpret_cast<uintptr_t>(&fn) & 0xffffff) +
+						 "_" + std::to_string(n->getId());
 		}
 
 		void styleOf(const Node* n, String& label, String& attrs) {

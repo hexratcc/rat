@@ -1,16 +1,14 @@
 #ifndef RAT_CORE_H
 #define RAT_CORE_H
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <ostream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <ostream>
-#include <algorithm>
-#include <cstdint>
-#include <string>
 
 namespace rat {
 	using U8 = uint8_t;

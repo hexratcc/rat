@@ -16,6 +16,7 @@
 #include "Pass/Opt/GVN.h"
 #include "Pass/Opt/Inline.h"
 #include "Pass/Opt/MemoryOpt.h"
+#include "Pass/Opt/SCCP.h"
 #include "Pass/Opt/SimplifyCFG.h"
 #include "Pass/PassManager.h"
 #include "Pass/Verify.h"
@@ -92,6 +93,8 @@ namespace detail {
 			pm.add<InlinePass>();
 		else if (name == "simplifycfg")
 			pm.add<SimplifyCFGPass>();
+		else if (name == "sccp")
+			pm.add<SCCPPass>();
 		else if (name == "memoryopt")
 			pm.add<MemoryOptPass>();
 		else if (name == "verify")

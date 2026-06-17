@@ -2,7 +2,6 @@
 
 #include "IR/Function.h"
 
-
 namespace rat {
 	Node::Node(Function& fn, Opcode op, Type* type, const List<Node*>& inputs)
 			: op(op), ty(type), fn(&fn), inputs(inputs) {
@@ -75,13 +74,9 @@ namespace rat {
 
 	B32 Node::isCFG() const { return getOpcodeInfo(op).isCFG; }
 
-	B32 Node::hasSideEffects() const {
-		return getOpcodeInfo(op).hasSideEffects;
-	}
+	B32 Node::hasSideEffects() const { return getOpcodeInfo(op).hasSideEffects; }
 
-	B32 Node::isCommutative() const {
-		return getOpcodeInfo(op).isCommutative;
-	}
+	B32 Node::isCommutative() const { return getOpcodeInfo(op).isCommutative; }
 
 	Node* Node::getControlInput() const {
 		// for Phi, input[0] is the controlling Region
@@ -256,8 +251,7 @@ namespace rat {
 			return into.create<StoreNode>(t, nullptr, nullptr, nullptr, nullptr);
 		case Opcode::Call: {
 			const CallNode* c = cast<CallNode>(n);
-			return into.create<CallNode>(t, c->getCallee(), c->returnsValue(),
-																	 nulls);
+			return into.create<CallNode>(t, c->getCallee(), c->returnsValue(), nulls);
 		}
 		case Opcode::Global:
 			return into.create<GlobalNode>(t, cast<GlobalNode>(n)->getSymbol());
@@ -302,8 +296,8 @@ namespace rat {
 			key += "f" + cast<CallNode>(n)->getCallee();
 			break;
 		case Opcode::Alloc:
-			key += "a" +
-						 std::to_string((uintptr_t)cast<AllocNode>(n)->getAllocType());
+			key +=
+					"a" + std::to_string((uintptr_t)cast<AllocNode>(n)->getAllocType());
 			break;
 		default:
 			break;

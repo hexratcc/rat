@@ -1,5 +1,5 @@
 ## rat
-Sea of Nodes compiler backend for toying around with various optimizations
+Compiler backend for toying around with various optimizations
 
 ## build
 ```shell
@@ -11,6 +11,7 @@ $ make test   # builds and runs tests
 ## passes
 - [**FoldPass:**](./include/Pass/Opt/Fold.h) Constant folding and algebraic simplification
 - [**GVNPass:**](./include/Pass/Opt/GVN.h) Global value numbering
+- [**SCCPPass:**](./include/Pass/Opt/SCCP.h) Sparse conditional constant propagation
 - [**SimplifyCFGPass:**](./include/Pass/Opt/SimplifyCFG.h) Control-flow simplification
 - [**MemoryOptPass:**](./include/Pass/Opt/MemoryOpt.h) Load/store forwarding
 - [**InlinePass:**](./include/Pass/Opt/Inline.h) Function inlining

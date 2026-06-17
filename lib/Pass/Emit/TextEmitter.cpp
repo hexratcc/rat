@@ -53,9 +53,8 @@ namespace rat {
 
 			switch (node->getOpcode()) {
 			case Opcode::Constant:
-				os << comment(
-						"  " +
-						std::to_string(cast<ConstantNode>(node)->getValue()));
+				os << comment("  " +
+											std::to_string(cast<ConstantNode>(node)->getValue()));
 				break;
 			case Opcode::Proj: {
 				const auto* proj = cast<ProjNode>(node);
@@ -66,8 +65,7 @@ namespace rat {
 				return;
 			}
 			case Opcode::Call:
-				os << comment("  \"" + cast<CallNode>(node)->getCallee() +
-											"\"");
+				os << comment("  \"" + cast<CallNode>(node)->getCallee() + "\"");
 				break;
 			case Opcode::Global:
 				os << comment("  \"" + cast<GlobalNode>(node)->getSymbol() + "\"");

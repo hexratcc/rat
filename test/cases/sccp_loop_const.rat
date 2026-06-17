@@ -1,0 +1,37 @@
+@name sccp: a loop-carried value proven constant around the back edge
+@passes sccp
+
+@input
+func loop(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v15
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = const : i32  7
+	v6 = const : i32  1
+	v7 = region : ctrl  loop v2, v11
+	v8 = phi : i32 v7, v5, v14
+	v9 = slt : i1 v8, v4
+	v10 = if : (ctrl, ctrl) v7, v9
+	v11 = proj : ctrl  #0 "then" of v10
+	v12 = proj : ctrl  #1 "else" of v10
+	v14 = mul : i32 v8, v6
+	v15 = return : ctrl v12, v3, v8
+}
+
+@expect
+func loop(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v11
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = region : ctrl  loop v2, v9
+	v6 = const : i32  7
+	v7 = slt : i1 v6, v4
+	v8 = if : (ctrl, ctrl) v5, v7
+	v9 = proj : ctrl  #0 "then" of v8
+	v10 = proj : ctrl  #1 "else" of v8
+	v11 = return : ctrl v10, v3, v6
+}

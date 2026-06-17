@@ -11,7 +11,6 @@
 #include "IR/Function.h"
 #include "IR/Node.h"
 
-
 namespace rat {
 	namespace detail {
 		B32 isPureValue(Node* n) {

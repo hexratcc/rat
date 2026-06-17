@@ -128,7 +128,8 @@ namespace rat {
 					}
 					U32 np = fn.getParamCount();
 					if (t->getTupleElementCount() != 2 + np)
-						err(n, "Start tuple arity does not match (control, memory, params)");
+						err(n,
+								"Start tuple arity does not match (control, memory, params)");
 					else {
 						if (!t->getTupleElement(0)->isControl())
 							err(n, "Start tuple element 0 must be control");
@@ -137,7 +138,7 @@ namespace rat {
 						for (U32 i = 0; i < np; ++i)
 							if (t->getTupleElement(2 + i) != fn.getParamType(i))
 								err(n, "Start tuple param " + std::to_string(i) +
-											 " does not match the function signature");
+													 " does not match the function signature");
 					}
 					break;
 				}
@@ -158,7 +159,8 @@ namespace rat {
 						if (!r->hasValue())
 							err(n, "Return in a value function carries no value");
 						else if (r->getValue()->getType() != fn.getReturnType())
-							err(n, "Return value type does not match the function return type");
+							err(n,
+									"Return value type does not match the function return type");
 					} else if (r->hasValue()) {
 						err(n, "Return in a void function carries a value");
 					}
@@ -177,7 +179,7 @@ namespace rat {
 					for (U32 i = 0, e = r->getPredecessorCount(); i < e; ++i)
 						if (!isCtrl(r->getPredecessor(i)))
 							err(n, "Region predecessor " + std::to_string(i) +
-										 " is not control-typed");
+												 " is not control-typed");
 					break;
 				}
 				case Opcode::If: {
@@ -313,8 +315,8 @@ namespace rat {
 						const Type* rt = b->getRHS()->getType();
 						if (lt != t)
 							err(n, "binary result type differs from its left operand");
-						B32 shift = op == Opcode::Shl || op == Opcode::LShr ||
-												op == Opcode::AShr;
+						B32 shift =
+								op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr;
 						if (lt->isPtr()) {
 							if (op != Opcode::Add && op != Opcode::Sub)
 								err(n, "pointer arithmetic supports only add/sub");
@@ -377,7 +379,7 @@ namespace rat {
 					if (stop->getInput(i) &&
 							stop->getInput(i)->getOpcode() != Opcode::Return)
 						err(stop, "Stop input " + std::to_string(i) + " (" +
-												vref(stop->getInput(i)) + ") is not a Return");
+													vref(stop->getInput(i)) + ") is not a Return");
 				if (stop->getInputCount() == 0)
 					err(stop, "function never returns (Stop has no Return inputs)");
 			}
