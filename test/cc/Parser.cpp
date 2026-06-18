@@ -153,6 +153,12 @@ namespace rat::cc {
 		return e;
 	}
 
+	Expr* Parser::makeIdent(const Token& tok) {
+		Expr* e = makeExpr(ExprKind::Ident, tok.offset);
+		e->ident.name = arena.make<String>(lex.text(tok));
+		return e;
+	}
+
 	Expr* Parser::makeUnary(U32 offset, ExprOp op, Expr* operand) {
 		Expr* e = makeExpr(ExprKind::Unary, offset);
 		e->unary = {op, operand};
@@ -228,6 +234,10 @@ namespace rat::cc {
 			if (!parseIntLiteral(lit, value, isUnsigned, isLong))
 				return nullptr;
 			return makeInt(lit, value, isUnsigned, isLong);
+		}
+		if (tok.kind == TokKind::Identifier) {
+			Token id = advance();
+			return makeIdent(id);
 		}
 		if (tok.kind == TokKind::LParen) {
 			advance();
@@ -323,10 +333,43 @@ namespace rat::cc {
 		return e;
 	}
 
+	Stmt* Parser::parseDeclaration() {
+		Token start = peek();
+		if (!expect(TokKind::KwInt, "'int'"))
+			return nullptr;
+		Stmt* s = arena.make<Stmt>();
+		s->kind = StmtKind::Decl;
+		s->offset = start.offset;
+		for (;;) {
+			if (peek().kind != TokKind::Identifier) {
+				fail(peek(), "expected declarator name");
+				return nullptr;
+			}
+			Token nameTok = advance();
+			Declarator d;
+			d.name = arena.make<String>(lex.text(nameTok));
+			d.offset = nameTok.offset;
+			if (accept(TokKind::Assign)) {
+				d.init = parseAssignment();
+				if (!d.init)
+					return nullptr;
+			}
+			s->decls.push_back(d);
+			if (!accept(TokKind::Comma))
+				break;
+		}
+		if (!expect(TokKind::Semicolon, "';'"))
+			return nullptr;
+		return s;
+	}
+
 	Stmt* Parser::parseStatement() {
 		const Token& tok = peek();
 		if (tok.kind == TokKind::LBrace)
 			return parseCompound();
+
+		if (tok.kind == TokKind::KwInt)
+			return parseDeclaration();
 
 		if (tok.kind == TokKind::KwReturn) {
 			Token kw = advance();

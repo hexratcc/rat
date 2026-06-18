@@ -13,6 +13,25 @@ namespace rat::cc {
 		failed = true;
 	}
 
+	void Emitter::pushScope() { scopes.emplace_back(); }
+
+	void Emitter::popScope() { scopes.pop_back(); }
+
+	void Emitter::declare(const String& name, U32 var) {
+		scopes.back()[name] = var;
+	}
+
+	B32 Emitter::lookup(const String& name, U32& var) const {
+		for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
+			auto found = it->find(name);
+			if (found != it->end()) {
+				var = found->second;
+				return true;
+			}
+		}
+		return false;
+	}
+
 	Node* Emitter::toBool(Function& fn, Node* value) {
 		return fn.ne(value, fn.constInt(i32, 0));
 	}
@@ -21,10 +40,77 @@ namespace rat::cc {
 		return fn.zext(value, i32);
 	}
 
+	Node* Emitter::emitAssign(Function& fn, const Expr* e) {
+		const Expr* target = e->binary.lhs;
+		if (target->kind != ExprKind::Ident) {
+			fail("expression is not assignable");
+			return nullptr;
+		}
+		U32 var;
+		if (!lookup(*target->ident.name, var)) {
+			fail("use of undeclared identifier '" + *target->ident.name + "'");
+			return nullptr;
+		}
+		Node* rhs = emitExpr(fn, e->binary.rhs);
+		if (!rhs)
+			return nullptr;
+
+		Node* result = nullptr;
+		switch (e->binary.op) {
+		case ExprOp::Assign:
+			result = rhs;
+			break;
+		case ExprOp::AddAssign:
+			result = fn.add(fn.get(var), rhs);
+			break;
+		case ExprOp::SubAssign:
+			result = fn.sub(fn.get(var), rhs);
+			break;
+		case ExprOp::MulAssign:
+			result = fn.mul(fn.get(var), rhs);
+			break;
+		case ExprOp::DivAssign:
+			result = fn.sdiv(fn.get(var), rhs);
+			break;
+		case ExprOp::RemAssign:
+			result = fn.srem(fn.get(var), rhs);
+			break;
+		case ExprOp::ShlAssign:
+			result = fn.shl(fn.get(var), rhs);
+			break;
+		case ExprOp::ShrAssign:
+			result = fn.ashr(fn.get(var), rhs);
+			break;
+		case ExprOp::AndAssign:
+			result = fn.and_(fn.get(var), rhs);
+			break;
+		case ExprOp::OrAssign:
+			result = fn.or_(fn.get(var), rhs);
+			break;
+		case ExprOp::XorAssign:
+			result = fn.xor_(fn.get(var), rhs);
+			break;
+		default:
+			fail("unsupported assignment operator");
+			return nullptr;
+		}
+		fn.set(var, result);
+		return result;
+	}
+
 	Node* Emitter::emitExpr(Function& fn, const Expr* e) {
 		switch (e->kind) {
 		case ExprKind::IntLit:
 			return fn.constInt(i32, e->intLit.value);
+
+		case ExprKind::Ident: {
+			U32 var;
+			if (!lookup(*e->ident.name, var)) {
+				fail("use of undeclared identifier '" + *e->ident.name + "'");
+				return nullptr;
+			}
+			return fn.get(var);
+		}
 
 		case ExprKind::Unary: {
 			Node* operand = emitExpr(fn, e->unary.operand);
@@ -47,10 +133,8 @@ namespace rat::cc {
 		}
 
 		case ExprKind::Binary: {
-			if (isAssignOp(e->binary.op)) {
-				fail("assignment requires an lvalue (not supported yet)");
-				return nullptr;
-			}
+			if (isAssignOp(e->binary.op))
+				return emitAssign(fn, e);
 			if (e->binary.op == ExprOp::LogAnd || e->binary.op == ExprOp::LogOr) {
 				Node* lhs = emitExpr(fn, e->binary.lhs);
 				if (!lhs)
@@ -137,12 +221,26 @@ namespace rat::cc {
 
 	B32 Emitter::emitStmt(Function& fn, const Stmt* s) {
 		switch (s->kind) {
-		case StmtKind::Compound:
+		case StmtKind::Compound: {
+			pushScope();
 			for (const Stmt* child : s->body) {
 				if (fn.blockFinished())
 					break; // unreachable code after a return
-				if (!emitStmt(fn, child))
+				if (!emitStmt(fn, child)) {
+					popScope();
 					return false;
+				}
+			}
+			popScope();
+			return true;
+		}
+
+		case StmtKind::Decl:
+			for (const Declarator& d : s->decls) {
+				Node* init = d.init ? emitExpr(fn, d.init) : fn.constInt(i32, 0);
+				if (!init)
+					return false;
+				declare(*d.name, fn.declareLocal(*d.name, init));
 			}
 			return true;
 
@@ -171,6 +269,7 @@ namespace rat::cc {
 		i32 = mod.getInt(32);
 		for (const FuncDef* def : unit.functions) {
 			Function* fn = mod.createFunction(def->name, {}, i32);
+			scopes.clear();
 			if (def->body && !emitStmt(*fn, def->body))
 				return false;
 			if (!fn->blockFinished())

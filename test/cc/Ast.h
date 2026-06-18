@@ -55,6 +55,7 @@ namespace rat::cc {
 
 	enum class ExprKind : U8 {
 		IntLit,
+		Ident,
 		Unary,
 		Binary, // also assignment (op in the assignment range)
 		Ternary,
@@ -70,6 +71,9 @@ namespace rat::cc {
 				B32 isUnsigned;
 				B32 isLong;
 			} intLit;
+			struct {
+				const String* name; // arena-owned identifier spelling
+			} ident;
 			struct {
 				ExprOp op;
 				Expr* operand;
@@ -93,16 +97,24 @@ namespace rat::cc {
 
 	enum class StmtKind : U8 {
 		Compound,
+		Decl,
 		Return,
 		Expr,
 		Empty,
 	};
 
+	struct Declarator {
+		const String* name = nullptr;
+		Expr* init = nullptr; // optional initializer
+		U32 offset = 0;
+	};
+
 	struct Stmt {
 		StmtKind kind = StmtKind::Empty;
 		U32 offset = 0;
-		Expr* expr = nullptr;  // Return (may be null), Expr
-		List<Stmt*> body;      // Compound only
+		Expr* expr = nullptr;     // Return (may be null), Expr
+		List<Stmt*> body;         // Compound only
+		List<Declarator> decls;   // Decl only
 	};
 
 	enum class TypeSpec : U8 {

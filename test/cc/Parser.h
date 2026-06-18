@@ -26,6 +26,7 @@ namespace rat::cc {
 		FuncDef* parseFunction();
 		Stmt* parseCompound();
 		Stmt* parseStatement();
+		Stmt* parseDeclaration();
 
 		Expr* parseExpression();
 		Expr* parseAssignment();
@@ -37,6 +38,7 @@ namespace rat::cc {
 		// node builders
 		Expr* makeExpr(ExprKind kind, U32 offset);
 		Expr* makeInt(const Token& tok, I64 value, B32 isUnsigned, B32 isLong);
+		Expr* makeIdent(const Token& tok);
 		Expr* makeUnary(U32 offset, ExprOp op, Expr* operand);
 		Expr* makeBinary(U32 offset, ExprOp op, Expr* lhs, Expr* rhs);
 

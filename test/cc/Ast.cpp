@@ -90,6 +90,9 @@ namespace rat::cc {
 					os << "l";
 				os << "\n";
 				return;
+			case ExprKind::Ident:
+				os << "ident " << *e->ident.name << "\n";
+				return;
 			case ExprKind::Unary:
 				os << "unary " << exprOpName(e->unary.op) << "\n";
 				dumpExpr(e->unary.operand, depth + 1, os);
@@ -121,6 +124,15 @@ namespace rat::cc {
 				os << "block\n";
 				for (const Stmt* child : s->body)
 					dumpStmt(child, depth + 1, os);
+				return;
+			case StmtKind::Decl:
+				os << "decl\n";
+				for (const Declarator& d : s->decls) {
+					pad(os, depth + 1);
+					os << "var " << *d.name << "\n";
+					if (d.init)
+						dumpExpr(d.init, depth + 2, os);
+				}
 				return;
 			case StmtKind::Return:
 				os << "return\n";
