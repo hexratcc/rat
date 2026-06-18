@@ -1,4 +1,5 @@
-# make        build bin/ratcc
+# make        build bin/ratcc and bin/ratcc-test
+# make test   build and run the value-golden test suite over cases/*.c
 # make run    tokenize cases/*.c (dump tokens) as a smoke test
 # make format run clang-format over the frontend sources
 # make clean  remove this frontend's build artifacts
@@ -10,36 +11,49 @@ INC      := -I$(ROOT)/include -I.
 DEPFLAGS := -MMD -MP
 
 LIB      := $(ROOT)/build/rat.a
+OBJDIR   := $(ROOT)/build/test/cc
 
-SRCS     := $(wildcard *.cpp)
-OBJS     := $(patsubst %.cpp,$(ROOT)/build/test/cc/%.o,$(SRCS))
+# Shared frontend translation units (everything except the two entry points).
+CORE     := Lexer.cpp Parser.cpp Ast.cpp Emit.cpp
+CORE_OBJS := $(patsubst %.cpp,$(OBJDIR)/%.o,$(CORE))
+
 HEADERS  := $(wildcard *.h)
+SRCS     := $(CORE) main.cpp Runner.cpp
+
 BIN      := $(ROOT)/bin/ratcc
+TESTBIN  := $(ROOT)/bin/ratcc-test
 
 CASES    := $(wildcard cases/*.c)
 
-.PHONY: all run format clean
-all: $(BIN)
+.PHONY: all test run format clean
+all: $(BIN) $(TESTBIN)
 
-$(ROOT)/build/test/cc/%.o: %.cpp
+$(OBJDIR)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(DEPFLAGS) $(INC) -c $< -o $@
 
--include $(OBJS:.o=.d)
+-include $(patsubst %.cpp,$(OBJDIR)/%.d,$(SRCS))
 
 .PHONY: $(LIB)
 $(LIB):
 	$(MAKE) -C $(ROOT) build/rat.a
 
-$(BIN): $(OBJS) $(LIB)
+$(BIN): $(CORE_OBJS) $(OBJDIR)/main.o $(LIB)
 	@mkdir -p $(ROOT)/bin
-	$(CXX) $(CXXFLAGS) $(INC) $(OBJS) $(LIB) -o $@
+	$(CXX) $(CXXFLAGS) $(INC) $(CORE_OBJS) $(OBJDIR)/main.o $(LIB) -o $@
+
+$(TESTBIN): $(CORE_OBJS) $(OBJDIR)/Runner.o $(LIB)
+	@mkdir -p $(ROOT)/bin
+	$(CXX) $(CXXFLAGS) $(INC) $(CORE_OBJS) $(OBJDIR)/Runner.o $(LIB) -o $@
+
+test: $(TESTBIN)
+	@$(TESTBIN) $(CASES)
 
 run: $(BIN)
 	@for c in $(CASES); do echo "== $$c =="; $(BIN) -dump-tokens $$c; done
 
 format:
-	clang-format -i $(SRCS) $(HEADERS)
+	clang-format -i $(CORE) main.cpp Runner.cpp $(HEADERS)
 
 clean:
-	rm -rf $(ROOT)/build/test/cc $(BIN)
+	rm -rf $(OBJDIR) $(BIN) $(TESTBIN)
