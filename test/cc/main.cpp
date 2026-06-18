@@ -1,4 +1,6 @@
+#include "Ast.h"
 #include "Lexer.h"
+#include "Parser.h"
 
 using namespace rat;
 using namespace rat::cc;
@@ -28,6 +30,19 @@ namespace {
 		}
 		return 0;
 	}
+
+	I32 dumpAst(const String& path, const String& source) {
+		Lexer lex(source.data(), (U32)source.size(), path);
+		Arena arena;
+		Parser parser(lex, arena);
+		TransUnit* unit = parser.parseUnit();
+		if (!unit) {
+			std::cerr << parser.error() << "\n";
+			return 1;
+		}
+		dumpAst(*unit, std::cout);
+		return 0;
+	}
 } // namespace
 
 I32 main(I32 argc, char** argv) {
@@ -36,7 +51,7 @@ I32 main(I32 argc, char** argv) {
 
 	for (I32 i = 1; i < argc; ++i) {
 		String arg = argv[i];
-		if (arg == "-dump-tokens") {
+		if (arg == "-dump-tokens" || arg == "-dump-ast") {
 			mode = arg;
 		} else if (!arg.empty() && arg[0] == '-') {
 			std::cerr << "ratcc: unknown option '" << arg << "'\n";
@@ -70,6 +85,8 @@ I32 main(I32 argc, char** argv) {
 
 	if (mode == "-dump-tokens")
 		return dumpTokens(inputPath, source);
+	if (mode == "-dump-ast")
+		return dumpAst(inputPath, source);
 
 	std::cerr << "ratcc: nothing to do\n";
 	return 2;
