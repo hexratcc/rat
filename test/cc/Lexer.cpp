@@ -1,43 +1,100 @@
 #include "Lexer.h"
 
+#include "CharClass.h"
+
 namespace rat::cc {
 	namespace {
-		B32 isIdentStart(char c) {
-			return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-		}
-		B32 isIdentCont(char c) { return isIdentStart(c) || (c >= '0' && c <= '9'); }
-		B32 isDigit(char c) { return c >= '0' && c <= '9'; }
-		B32 isHexDigit(char c) {
-			return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
-		}
-
 		struct Keyword {
 			const char* text;
 			TokKind kind;
 		};
 
-		// Sorted only for readability; lookup is a length-guarded linear scan.
 		const Keyword kKeywords[] = {
-				{"auto", TokKind::KwAuto},         {"break", TokKind::KwBreak},
-				{"case", TokKind::KwCase},         {"char", TokKind::KwChar},
-				{"const", TokKind::KwConst},       {"continue", TokKind::KwContinue},
-				{"default", TokKind::KwDefault},   {"do", TokKind::KwDo},
-				{"double", TokKind::KwDouble},     {"else", TokKind::KwElse},
-				{"enum", TokKind::KwEnum},         {"extern", TokKind::KwExtern},
-				{"float", TokKind::KwFloat},       {"for", TokKind::KwFor},
-				{"goto", TokKind::KwGoto},         {"if", TokKind::KwIf},
-				{"inline", TokKind::KwInline},     {"int", TokKind::KwInt},
-				{"long", TokKind::KwLong},         {"register", TokKind::KwRegister},
-				{"restrict", TokKind::KwRestrict}, {"return", TokKind::KwReturn},
-				{"short", TokKind::KwShort},       {"signed", TokKind::KwSigned},
-				{"sizeof", TokKind::KwSizeof},     {"static", TokKind::KwStatic},
-				{"struct", TokKind::KwStruct},     {"switch", TokKind::KwSwitch},
-				{"typedef", TokKind::KwTypedef},   {"union", TokKind::KwUnion},
-				{"unsigned", TokKind::KwUnsigned}, {"void", TokKind::KwVoid},
-				{"volatile", TokKind::KwVolatile}, {"while", TokKind::KwWhile},
-				{"_Bool", TokKind::KwBool},        {"_Complex", TokKind::KwComplex},
+				{"auto", TokKind::KwAuto},
+				{"break", TokKind::KwBreak},
+				{"case", TokKind::KwCase},
+				{"char", TokKind::KwChar},
+				{"const", TokKind::KwConst},
+				{"continue", TokKind::KwContinue},
+				{"default", TokKind::KwDefault},
+				{"do", TokKind::KwDo},
+				{"double", TokKind::KwDouble},
+				{"else", TokKind::KwElse},
+				{"enum", TokKind::KwEnum},
+				{"extern", TokKind::KwExtern},
+				{"float", TokKind::KwFloat},
+				{"for", TokKind::KwFor},
+				{"goto", TokKind::KwGoto},
+				{"if", TokKind::KwIf},
+				{"inline", TokKind::KwInline},
+				{"int", TokKind::KwInt},
+				{"long", TokKind::KwLong},
+				{"register", TokKind::KwRegister},
+				{"restrict", TokKind::KwRestrict},
+				{"return", TokKind::KwReturn},
+				{"short", TokKind::KwShort},
+				{"signed", TokKind::KwSigned},
+				{"sizeof", TokKind::KwSizeof},
+				{"static", TokKind::KwStatic},
+				{"struct", TokKind::KwStruct},
+				{"switch", TokKind::KwSwitch},
+				{"typedef", TokKind::KwTypedef},
+				{"union", TokKind::KwUnion},
+				{"unsigned", TokKind::KwUnsigned},
+				{"void", TokKind::KwVoid},
+				{"volatile", TokKind::KwVolatile},
+				{"while", TokKind::KwWhile},
+				{"_Bool", TokKind::KwBool},
+				{"_Complex", TokKind::KwComplex},
 				{"_Imaginary", TokKind::KwImaginary},
+				{"_Generic", TokKind::KwGeneric},
+				{"_Static_assert", TokKind::KwStaticAssert},
+				{"__real__", TokKind::KwReal},
+				{"__imag__", TokKind::KwImag},
+				{"typeof", TokKind::KwTypeof},
+				{"__typeof", TokKind::KwTypeof},
+				{"__typeof__", TokKind::KwTypeof},
 		};
+
+		B32 validIntSuffix(const char* s, U32 n) {
+			B32 haveU = false, haveL = false;
+			U32 i = 0;
+			while (i < n) {
+				char c = s[i];
+				if ((c == 'u' || c == 'U') && !haveU) {
+					haveU = true;
+					++i;
+				} else if ((c == 'l' || c == 'L') && !haveL) {
+					haveL = true;
+					// a long-long suffix must repeat the same letter
+					if (i + 1 < n && s[i + 1] == c)
+						i += 2;
+					else
+						++i;
+				} else {
+					return false;
+				}
+			}
+			return true;
+		}
+
+		B32 validFloatSuffix(const char* s, U32 n) {
+			B32 size = false, imag = false;
+			for (U32 i = 0; i < n; ++i) {
+				char c = s[i];
+				if (c == 'f' || c == 'F' || c == 'l' || c == 'L') {
+					if (size)
+						return false;
+					size = true;
+				} else if (c == 'i' || c == 'I' || c == 'j' || c == 'J') {
+					if (imag)
+						return false;
+					imag = true;
+				} else
+					return false;
+			}
+			return true;
+		}
 
 		TokKind keywordKind(const char* s, U32 n) {
 			for (const Keyword& kw : kKeywords) {
@@ -116,7 +173,23 @@ namespace rat::cc {
 			return finish(tok, TokKind::Eof);
 
 		char c = cur();
-		if (isIdentStart(c))
+		if (c == 'L' || c == 'u' || c == 'U') {
+			char n1 = at(pos + 1);
+			if (c == 'u' && n1 == '8' && at(pos + 2) == '"') {
+				bump(); // 'u'
+				bump(); // '8'
+				return lexString(tok);
+			}
+			if (n1 == '\'') {
+				bump(); // prefix
+				return lexChar(tok);
+			}
+			if (n1 == '"') {
+				bump(); // prefix
+				return lexString(tok);
+			}
+		}
+		if (isIdentStart(c) || isUcnStart(pos))
 			return lexIdentifier(tok);
 		if (isDigit(c) || (c == '.' && isDigit(at(pos + 1))))
 			return lexNumber(tok);
@@ -127,25 +200,70 @@ namespace rat::cc {
 		return lexPunct(tok);
 	}
 
+	B32 Lexer::isUcnStart(U32 p) const {
+		if (at(p) != '\\')
+			return false;
+		char n = at(p + 1);
+		return n == 'u' || n == 'U';
+	}
+
 	Token Lexer::lexIdentifier(Token tok) {
-		while (isIdentCont(cur()))
-			bump();
+		for (;;) {
+			if (isIdentCont(cur())) {
+				bump();
+			} else if (isUcnStart(pos)) {
+				bump(); // backslash
+				char kind = cur();
+				bump(); // 'u' or 'U'
+				U32 ndigits = (kind == 'u') ? 4 : 8;
+				for (U32 k = 0; k < ndigits; ++k) {
+					if (!isHexDigit(cur()))
+						return fail(tok, "incomplete universal character name");
+					bump();
+				}
+			} else {
+				break;
+			}
+		}
 		U32 n = pos - tok.offset;
 		return finish(tok, keywordKind(src + tok.offset, n));
 	}
 
 	Token Lexer::lexNumber(Token tok) {
-		// Hexadecimal integer.
 		if (cur() == '0' && (at(pos + 1) == 'x' || at(pos + 1) == 'X')) {
 			bump();
 			bump();
-			if (!isHexDigit(cur()))
+			B32 anyDigits = false;
+			while (isHexDigit(cur())) {
+				anyDigits = true;
+				bump();
+			}
+			B32 isFloat = false;
+			if (cur() == '.') {
+				isFloat = true;
+				bump();
+				while (isHexDigit(cur())) {
+					anyDigits = true;
+					bump();
+				}
+			}
+			if (!anyDigits)
 				return fail(tok, "expected hex digits after '0x'");
-			while (isHexDigit(cur()))
+			if (cur() == 'p' || cur() == 'P') {
+				isFloat = true;
 				bump();
-			while (cur() == 'u' || cur() == 'U' || cur() == 'l' || cur() == 'L')
-				bump();
-			return finish(tok, TokKind::IntConstant);
+				if (cur() == '+' || cur() == '-')
+					bump();
+				if (!isDigit(cur()))
+					return fail(tok, "expected digits in binary exponent");
+				while (isDigit(cur()))
+					bump();
+			} else if (isFloat) {
+				return fail(tok, "hexadecimal floating constant requires an exponent");
+			}
+			if (isFloat)
+				return lexFloatSuffix(tok);
+			return lexIntSuffix(tok);
 		}
 
 		B32 isFloat = false;
@@ -168,47 +286,55 @@ namespace rat::cc {
 				bump();
 		}
 
-		if (isFloat) {
-			if (cur() == 'f' || cur() == 'F' || cur() == 'l' || cur() == 'L')
-				bump();
-			return finish(tok, TokKind::FloatConstant);
-		}
+		if (isFloat)
+			return lexFloatSuffix(tok);
+		return lexIntSuffix(tok);
+	}
 
-		while (cur() == 'u' || cur() == 'U' || cur() == 'l' || cur() == 'L')
+	Token Lexer::lexIntSuffix(Token tok) {
+		U32 sfxStart = pos;
+		while (isIdentCont(cur()))
 			bump();
+		if (!validIntSuffix(src + sfxStart, pos - sfxStart))
+			return fail(tok, "invalid suffix on integer constant");
 		return finish(tok, TokKind::IntConstant);
 	}
 
-	Token Lexer::lexChar(Token tok) {
+	Token Lexer::lexFloatSuffix(Token tok) {
+		U32 sfxStart = pos;
+		while (isIdentCont(cur()))
+			bump();
+		if (!validFloatSuffix(src + sfxStart, pos - sfxStart))
+			return fail(tok, "invalid suffix on floating constant");
+		return finish(tok, TokKind::FloatConstant);
+	}
+
+	Token Lexer::lexQuoted(Token tok, char quote, const char* unterminated,
+												 TokKind kind) {
 		bump(); // opening quote
-		while (pos < len && cur() != '\'' && cur() != '\n') {
+		while (pos < len && cur() != quote && cur() != '\n') {
 			if (cur() == '\\')
-				bump(); // skip escaped char as a pair
+				bump(); // skip the escaped character as a pair
 			bump();
 		}
-		if (cur() != '\'')
-			return fail(tok, "unterminated character constant");
+		if (cur() != quote)
+			return fail(tok, unterminated);
 		bump(); // closing quote
-		return finish(tok, TokKind::CharConstant);
+		return finish(tok, kind);
+	}
+
+	Token Lexer::lexChar(Token tok) {
+		return lexQuoted(tok, '\'', "unterminated character constant",
+										 TokKind::CharConstant);
 	}
 
 	Token Lexer::lexString(Token tok) {
-		bump(); // opening quote
-		while (pos < len && cur() != '"' && cur() != '\n') {
-			if (cur() == '\\')
-				bump();
-			bump();
-		}
-		if (cur() != '"')
-			return fail(tok, "unterminated string literal");
-		bump(); // closing quote
-		return finish(tok, TokKind::StringLiteral);
+		return lexQuoted(tok, '"', "unterminated string literal",
+										 TokKind::StringLiteral);
 	}
 
 	Token Lexer::lexPunct(Token tok) {
 		char c = cur();
-		char c1 = at(pos + 1);
-		char c2 = at(pos + 2);
 
 		switch (c) {
 		case '(':
@@ -245,7 +371,7 @@ namespace rat::cc {
 			bump();
 			return finish(tok, TokKind::Colon);
 		case '.':
-			if (c1 == '.' && c2 == '.') {
+			if (at(pos + 1) == '.' && at(pos + 2) == '.') {
 				bump();
 				bump();
 				bump();
@@ -380,8 +506,14 @@ namespace rat::cc {
 
 	Token Lexer::next() {
 		if (hasLookahead) {
-			hasLookahead = false;
-			return lookahead;
+			Token t = lookahead;
+			if (hasLookahead2) {
+				lookahead = lookahead2;
+				hasLookahead2 = false;
+			} else {
+				hasLookahead = false;
+			}
+			return t;
 		}
 		return scan();
 	}
@@ -392,6 +524,15 @@ namespace rat::cc {
 			hasLookahead = true;
 		}
 		return lookahead;
+	}
+
+	const Token& Lexer::peek2() {
+		peek();
+		if (!hasLookahead2) {
+			lookahead2 = scan();
+			hasLookahead2 = true;
+		}
+		return lookahead2;
 	}
 
 	String Lexer::text(const Token& tok) const {
@@ -488,6 +629,16 @@ namespace rat::cc {
 			return "_Complex";
 		case TokKind::KwImaginary:
 			return "_Imaginary";
+		case TokKind::KwGeneric:
+			return "_Generic";
+		case TokKind::KwStaticAssert:
+			return "_Static_assert";
+		case TokKind::KwReal:
+			return "__real__";
+		case TokKind::KwImag:
+			return "__imag__";
+		case TokKind::KwTypeof:
+			return "typeof";
 		case TokKind::LParen:
 			return "(";
 		case TokKind::RParen:

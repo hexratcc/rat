@@ -50,9 +50,14 @@ namespace rat::cc {
 		KwVoid,
 		KwVolatile,
 		KwWhile,
-		KwBool,      // _Bool
-		KwComplex,   // _Complex
-		KwImaginary, // _Imaginary
+		KwBool,					// _Bool
+		KwComplex,			// _Complex
+		KwImaginary,		// _Imaginary
+		KwGeneric,			// _Generic
+		KwStaticAssert, // _Static_assert
+		KwReal,					// __real__ (extract the real part of a complex value)
+		KwImag,					// __imag__ (extract the imaginary part of a complex value)
+		KwTypeof,				// typeof / __typeof / __typeof__ (GCC: type of an expr)
 
 		// punctuators
 		LParen,
@@ -116,6 +121,7 @@ namespace rat::cc {
 
 		Token next();
 		const Token& peek();
+		const Token& peek2();
 
 		String text(const Token& tok) const;
 
@@ -131,8 +137,12 @@ namespace rat::cc {
 
 		Token lexIdentifier(Token tok);
 		Token lexNumber(Token tok);
+		Token lexIntSuffix(Token tok);
+		Token lexFloatSuffix(Token tok);
 		Token lexChar(Token tok);
 		Token lexString(Token tok);
+		Token lexQuoted(Token tok, char quote, const char* unterminated,
+										TokKind kind);
 		Token lexPunct(Token tok);
 
 		Token finish(Token tok, TokKind kind);
@@ -140,6 +150,7 @@ namespace rat::cc {
 
 		char at(U32 i) const { return i < len ? src[i] : '\0'; }
 		char cur() const { return at(pos); }
+		B32 isUcnStart(U32 p) const;
 
 		const char* src;
 		U32 len;
@@ -152,6 +163,8 @@ namespace rat::cc {
 
 		Token lookahead;
 		B32 hasLookahead = false;
+		Token lookahead2;
+		B32 hasLookahead2 = false;
 	};
 
 	const char* tokKindName(TokKind kind);
