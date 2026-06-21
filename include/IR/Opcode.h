@@ -31,23 +31,43 @@ namespace rat {
 		Shl,
 		LShr,
 		AShr,
+		// floating-point arithmetic
+		FAdd,
+		FSub,
+		FMul,
+		FDiv,
 
 		// unary
 		Neg,
 		Not,
+		FNeg,
 
-		// comparisons (always produce bool)
+		// comparisons
 		Eq,
 		Ne,
 		Slt,
 		Sle,
 		Ult,
 		Ule,
+		// floating-point comparisons
+		FEq,
+		FNe,
+		FLt,
+		FLe,
+		FGt,
+		FGe,
 
 		// conversions
 		Trunc,
 		SExt,
 		ZExt,
+		// int<->float and float<->float conversions
+		SIToFP,
+		UIToFP,
+		FPToSI,
+		FPToUI,
+		FPExt,
+		FPTrunc,
 
 		// memory
 		Load,
@@ -87,16 +107,21 @@ namespace rat {
 	inline OpClass getOpClass(Opcode op) { return getOpcodeInfo(op).opClass; }
 
 	constexpr B32 isBinaryOpcode(Opcode op) {
-		return op >= Opcode::Add && op <= Opcode::AShr;
+		return op >= Opcode::Add && op <= Opcode::FDiv;
 	}
 	constexpr B32 isUnaryOpcode(Opcode op) {
-		return op >= Opcode::Neg && op <= Opcode::Not;
+		return op >= Opcode::Neg && op <= Opcode::FNeg;
 	}
 	constexpr B32 isCompareOpcode(Opcode op) {
-		return op >= Opcode::Eq && op <= Opcode::Ule;
+		return op >= Opcode::Eq && op <= Opcode::FGe;
 	}
 	constexpr B32 isConvertOpcode(Opcode op) {
-		return op >= Opcode::Trunc && op <= Opcode::ZExt;
+		return op >= Opcode::Trunc && op <= Opcode::FPTrunc;
+	}
+	constexpr B32 isFloatOpcode(Opcode op) {
+		return (op >= Opcode::FAdd && op <= Opcode::FDiv) || op == Opcode::FNeg ||
+					 (op >= Opcode::FEq && op <= Opcode::FGe) ||
+					 (op >= Opcode::SIToFP && op <= Opcode::FPTrunc);
 	}
 } // namespace rat
 

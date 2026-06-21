@@ -3,14 +3,16 @@
 #include "CodeGen/Target.h"
 
 namespace rat {
-	Global::Global(String name, Type* type, B32 isConst, List<U8> init)
+	Global::Global(String name, Type* type, B32 isConst, List<U8> init,
+								 List<Reloc> relocs)
 			: name(std::move(name)), type(type), isConst(isConst),
-				init(std::move(init)) {}
+				init(std::move(init)), relocs(std::move(relocs)) {}
 
 	const String& Global::getName() const { return name; }
 	Type* Global::getType() const { return type; }
 	B32 Global::isConstant() const { return isConst; }
 	const List<U8>& Global::getInit() const { return init; }
+	const List<Reloc>& Global::getRelocs() const { return relocs; }
 
 	Module::Module(String name) : name(std::move(name)) {}
 
@@ -31,8 +33,9 @@ namespace rat {
 	}
 
 	Global* Module::createGlobal(const String& name, Type* type, B32 isConst,
-															 List<U8> init) {
-		Global* g = arena.make<Global>(name, type, isConst, std::move(init));
+															 List<U8> init, List<Reloc> relocs) {
+		Global* g = arena.make<Global>(name, type, isConst, std::move(init),
+																	 std::move(relocs));
 		globs.push_back(g);
 		return g;
 	}

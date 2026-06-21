@@ -194,16 +194,25 @@ namespace rat {
 	Node* StoreNode::getValue() const { return getInput(3); }
 
 	CallNode::CallNode(Function& fn, Type* tupleType, String callee,
-										 B32 returnsValue, const List<Node*>& controlMemoryArgs)
+										 B32 returnsValue, const List<Node*>& controlMemoryArgs,
+										 B32 indirect)
 			: Node(fn, Opcode::Call, tupleType, controlMemoryArgs),
-				callee(std::move(callee)), hasReturnValue(returnsValue) {}
+				callee(std::move(callee)), hasReturnValue(returnsValue),
+				indirect(indirect) {}
 
 	const String& CallNode::getCallee() const { return callee; }
 	Node* CallNode::getControl() const { return getInput(0); }
 	Node* CallNode::getMemory() const { return getInput(1); }
-	U32 CallNode::getArgCount() const { return getInputCount() - 2; }
-	Node* CallNode::getArg(U32 index) const { return getInput(2 + index); }
+	// indirect calls reserve one extra input (index 2) for the target pointer
+	U32 CallNode::getArgCount() const {
+		return getInputCount() - 2 - (indirect ? 1 : 0);
+	}
+	Node* CallNode::getArg(U32 index) const {
+		return getInput(2 + (indirect ? 1 : 0) + index);
+	}
 	B32 CallNode::returnsValue() const { return hasReturnValue; }
+	B32 CallNode::isIndirect() const { return indirect; }
+	Node* CallNode::getTarget() const { return indirect ? getInput(2) : nullptr; }
 
 	GlobalNode::GlobalNode(Function& fn, Type* ptrType, String symbol)
 			: Node(fn, Opcode::Global, ptrType, {}), symbol(std::move(symbol)) {}
@@ -213,7 +222,14 @@ namespace rat {
 	AllocNode::AllocNode(Function& fn, Type* ptrType, Type* allocType)
 			: Node(fn, Opcode::Alloc, ptrType, {}), allocType(allocType) {}
 
+	AllocNode::AllocNode(Function& fn, Type* ptrType, Type* allocType, Node* size)
+			: Node(fn, Opcode::Alloc, ptrType, {size}), allocType(allocType) {}
+
 	Type* AllocNode::getAllocType() const { return allocType; }
+
+	Node* AllocNode::getSizeOperand() const {
+		return getInputCount() > 0 ? getInput(0) : nullptr;
+	}
 
 	Node* cloneShell(Function& into, const Node* n) {
 		Opcode op = n->getOpcode();
@@ -251,12 +267,17 @@ namespace rat {
 			return into.create<StoreNode>(t, nullptr, nullptr, nullptr, nullptr);
 		case Opcode::Call: {
 			const CallNode* c = cast<CallNode>(n);
-			return into.create<CallNode>(t, c->getCallee(), c->returnsValue(), nulls);
+			return into.create<CallNode>(t, c->getCallee(), c->returnsValue(), nulls,
+																	 c->isIndirect());
 		}
 		case Opcode::Global:
 			return into.create<GlobalNode>(t, cast<GlobalNode>(n)->getSymbol());
-		case Opcode::Alloc:
-			return into.create<AllocNode>(t, cast<AllocNode>(n)->getAllocType());
+		case Opcode::Alloc: {
+			const AllocNode* a = cast<AllocNode>(n);
+			if (a->isVariableSized())
+				return into.create<AllocNode>(t, a->getAllocType(), nullptr);
+			return into.create<AllocNode>(t, a->getAllocType());
+		}
 		default:
 			break;
 		}

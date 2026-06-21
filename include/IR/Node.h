@@ -181,7 +181,7 @@ namespace rat {
 
 	struct CallNode : Node {
 		CallNode(Function& fn, Type* tupleType, String callee, B32 returnsValue,
-						 const List<Node*>& controlMemoryArgs);
+						 const List<Node*>& controlMemoryArgs, B32 indirect = false);
 
 		const String& getCallee() const;
 		Node* getControl() const;
@@ -189,6 +189,8 @@ namespace rat {
 		U32 getArgCount() const;
 		Node* getArg(U32 index) const;
 		B32 returnsValue() const;
+		B32 isIndirect() const;
+		Node* getTarget() const;
 
 		static constexpr U32 controlProjIndex() { return 0; }
 		static constexpr U32 memoryProjIndex() { return 1; }
@@ -197,6 +199,7 @@ namespace rat {
 	private:
 		String callee;
 		B32 hasReturnValue;
+		B32 indirect;
 	};
 
 	struct GlobalNode : Node {
@@ -210,8 +213,11 @@ namespace rat {
 
 	struct AllocNode : Node {
 		AllocNode(Function& fn, Type* ptrType, Type* allocType);
+		AllocNode(Function& fn, Type* ptrType, Type* allocType, Node* size);
 
 		Type* getAllocType() const;
+		Node* getSizeOperand() const;
+		B32 isVariableSized() const { return getInputCount() > 0; }
 
 	private:
 		Type* allocType;

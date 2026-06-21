@@ -3,8 +3,6 @@
 #include "CodeGen/Target.h"
 #include "IR/Module.h"
 
-#include <unordered_map>
-
 namespace rat {
 	struct Function::Block {
 		String name;
@@ -86,6 +84,20 @@ namespace rat {
 	}
 	Node* Function::constBool(B32 value) {
 		return constInt(boolTy(), value ? 1 : 0);
+	}
+	Node* Function::constFloat(Type* type, double value) {
+		I64 bits = 0;
+		if (type->getFloatWidth() == 32) {
+			float f = (float)value;
+			U32 u;
+			std::memcpy(&u, &f, sizeof(u));
+			bits = (I64)(U64)u;
+		} else {
+			U64 u;
+			std::memcpy(&u, &value, sizeof(u));
+			bits = (I64)u;
+		}
+		return create<ConstantNode>(type, bits);
 	}
 
 	Node* Function::binary(Opcode op, Node* lhs, Node* rhs) {
@@ -200,6 +212,10 @@ namespace rat {
 
 	Node* Function::alloc(Type* type) { return create<AllocNode>(ptrTy(), type); }
 
+	Node* Function::allocVLA(Type* type, Node* byteCount) {
+		return create<AllocNode>(ptrTy(), type, byteCount);
+	}
+
 	Node* Function::call(const String& callee, Type* retType,
 											 const List<Node*>& args) {
 		List<Type*> elems{ctrlTy(), memTy()};
@@ -212,6 +228,27 @@ namespace rat {
 			ins.push_back(a);
 
 		CallNode* c = create<CallNode>(tupleTy, callee, retType != nullptr, ins);
+		cur->ctrl = proj(c, CallNode::controlProjIndex(), ctrlTy(), "ctrl");
+		writeVar(memVar, proj(c, CallNode::memoryProjIndex(), memTy(), "mem"));
+		if (retType)
+			return proj(c, CallNode::valueProjIndex(), retType, "ret");
+		return nullptr;
+	}
+
+	Node* Function::callIndirect(Node* target, Type* retType,
+															 const List<Node*>& args) {
+		List<Type*> elems{ctrlTy(), memTy()};
+		if (retType)
+			elems.push_back(retType);
+		Type* tupleTy = mod->getTuple(elems);
+
+		// inputs: control, memory, target pointer, then the call arguments
+		List<Node*> ins{control(), readVar(memVar), target};
+		for (Node* a : args)
+			ins.push_back(a);
+
+		CallNode* c = create<CallNode>(tupleTy, String(), retType != nullptr, ins,
+																	 true);
 		cur->ctrl = proj(c, CallNode::controlProjIndex(), ctrlTy(), "ctrl");
 		writeVar(memVar, proj(c, CallNode::memoryProjIndex(), memTy(), "mem"));
 		if (retType)
@@ -290,11 +327,22 @@ namespace rat {
 	void Function::setInsertBlock(Block* block) { cur = block; }
 
 	void Function::jmp(Block* target) {
+		if (!cur->ctrl) {
+			cur->finished = true;
+			return;
+		}
 		addEdge(cur->ctrl, cur, target);
 		cur->finished = true;
 	}
 
 	void Function::jumpif(Node* cond, Block* target) {
+		if (!cur->ctrl) {
+			Block* fall = createBlock("ft");
+			cur->finished = true;
+			seal(fall);
+			setInsertBlock(fall);
+			return;
+		}
 		IfNode* branch = iff(cond);
 		Node* thenP = proj(branch, IfNode::thenProjIndex(), ctrlTy(), "then");
 		Node* elseP = proj(branch, IfNode::elseProjIndex(), ctrlTy(), "else");
@@ -422,6 +470,10 @@ namespace rat {
 	}
 
 	void Function::ret(Node* value) {
+		if (!cur->ctrl) {
+			cur->finished = true;
+			return;
+		}
 		Node* r = create<ReturnNode>(
 				ctrlTy(), List<Node*>{control(), readVar(memVar), value});
 		stop->addInput(r);
@@ -429,6 +481,10 @@ namespace rat {
 	}
 
 	void Function::retVoid() {
+		if (!cur->ctrl) {
+			cur->finished = true;
+			return;
+		}
 		Node* r =
 				create<ReturnNode>(ctrlTy(), List<Node*>{control(), readVar(memVar)});
 		stop->addInput(r);

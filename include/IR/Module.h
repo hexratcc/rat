@@ -8,19 +8,28 @@
 namespace rat {
 	struct TargetInfo;
 
+	struct Reloc {
+		U32 offset = 0;
+		String symbol;
+		I64 addend = 0;
+	};
+
 	struct Global {
-		Global(String name, Type* type, B32 isConst, List<U8> init);
+		Global(String name, Type* type, B32 isConst, List<U8> init,
+					 List<Reloc> relocs = {});
 
 		const String& getName() const;
 		Type* getType() const;
 		B32 isConstant() const;
 		const List<U8>& getInit() const;
+		const List<Reloc>& getRelocs() const;
 
 	private:
 		String name;
 		Type* type;
 		B32 isConst;
 		List<U8> init;
+		List<Reloc> relocs;
 	};
 
 	struct Module : TypeContext {
@@ -37,7 +46,7 @@ namespace rat {
 														 Type* ret);
 
 		Global* createGlobal(const String& name, Type* type, B32 isConst,
-												 List<U8> init);
+												 List<U8> init, List<Reloc> relocs = {});
 		Global* createString(const String& name, const String& bytes);
 		Global* getGlobal(const String& name) const;
 

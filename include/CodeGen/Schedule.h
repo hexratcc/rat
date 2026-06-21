@@ -3,8 +3,6 @@
 
 #include "Core.h"
 
-#include <unordered_map>
-
 namespace rat {
 	struct Function;
 	struct Node;

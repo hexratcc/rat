@@ -3,3 +3,4 @@ bin
 build
 compile_commands.json
 *.idx
+*.out

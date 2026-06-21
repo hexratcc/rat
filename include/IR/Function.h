@@ -23,6 +23,9 @@ namespace rat {
 		Type* getReturnType() const;
 		B32 returnsValue() const;
 
+		B32 isVariadic() const { return variadic; }
+		void setVariadic(B32 v) { variadic = v; }
+
 		StartNode* getStart() const;
 		StopNode* getStop() const;
 
@@ -46,6 +49,7 @@ namespace rat {
 
 		Node* constInt(Type* type, I64 value);
 		Node* constBool(B32 value);
+		Node* constFloat(Type* type, double value);
 
 		Node* binary(Opcode op, Node* lhs, Node* rhs);
 		Node* add(Node* lhs, Node* rhs);
@@ -88,8 +92,10 @@ namespace rat {
 
 		Node* global(const String& name);
 		Node* alloc(Type* type);
+		Node* allocVLA(Type* type, Node* byteCount);
 
 		Node* call(const String& callee, Type* retType, const List<Node*>& args);
+		Node* callIndirect(Node* target, Type* retType, const List<Node*>& args);
 
 		IfNode* iff(Node* predicate);
 		ProjNode* proj(Node* tuple, U32 index, Type* type, String label = "");
@@ -160,6 +166,7 @@ namespace rat {
 		String name;
 		List<Type*> paramTypes;
 		Type* retType; // null for a void function
+		B32 variadic = false;
 
 		Arena arena;
 		List<Node*> nodes; // in creation order

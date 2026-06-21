@@ -9,12 +9,14 @@ namespace rat {
 	B32 Type::isControl() const { return kind == Control; }
 	B32 Type::isMemory() const { return kind == Memory; }
 	B32 Type::isInt() const { return kind == Int; }
+	B32 Type::isFloat() const { return kind == Float; }
 	B32 Type::isPtr() const { return kind == Ptr; }
 	B32 Type::isTuple() const { return kind == Tuple; }
 	B32 Type::isArray() const { return kind == Array; }
-	B32 Type::isData() const { return isInt() || isPtr(); }
+	B32 Type::isData() const { return isInt() || isFloat() || isPtr(); }
 
 	U32 Type::getIntWidth() const { return bits; }
+	U32 Type::getFloatWidth() const { return bits; }
 
 	const List<Type*>& Type::getTupleElements() const { return elements; }
 
@@ -28,6 +30,7 @@ namespace rat {
 	U32 Type::byteSize(U32 ptrBytes) const {
 		switch (kind) {
 		case Int:
+		case Float:
 			return (bits + 7) / 8;
 		case Ptr:
 			return ptrBytes;
@@ -48,6 +51,9 @@ namespace rat {
 			return;
 		case Int:
 			os << 'i' << bits;
+			return;
+		case Float:
+			os << 'f' << bits;
 			return;
 		case Ptr:
 			os << "ptr";
@@ -93,6 +99,15 @@ namespace rat {
 			return it->second;
 		Type* t = arena.make<Type>(Type::Int, bits, List<Type*>{});
 		ints.emplace(bits, t);
+		return t;
+	}
+
+	Type* TypeContext::getFloat(U32 bits) {
+		auto it = floats.find(bits);
+		if (it != floats.end())
+			return it->second;
+		Type* t = arena.make<Type>(Type::Float, bits, List<Type*>{});
+		floats.emplace(bits, t);
 		return t;
 	}
 
