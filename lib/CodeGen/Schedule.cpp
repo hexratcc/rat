@@ -282,6 +282,8 @@ namespace rat {
 
 	B32 Schedule::isFloating(const Node* n) {
 		Opcode op = n->getOpcode();
+		if (op == Opcode::Alloc)
+			return cast<AllocNode>(n)->isVariableSized();
 		return op == Opcode::Load || isBinaryOpcode(op) || isUnaryOpcode(op) ||
 					 isCompareOpcode(op) || isConvertOpcode(op);
 	}
@@ -448,10 +450,47 @@ namespace rat {
 			blocks[b].nodes = topoOrder(raw[b]);
 	}
 
+	namespace detail {
+		Node* memoryInputOf(const Node* n) {
+			switch (n->getOpcode()) {
+			case Opcode::Load:
+				return cast<LoadNode>(n)->getMemory();
+			case Opcode::Store:
+				return cast<StoreNode>(n)->getMemory();
+			case Opcode::Call:
+				return cast<CallNode>(n)->getMemory();
+			default:
+				return nullptr;
+			}
+		}
+	} // namespace detail
+
 	List<Node*> Schedule::topoOrder(List<Node*>& nodes) const {
 		Set<const Node*> inBlock(nodes.begin(), nodes.end());
 		Map<const Node*, I32> inDeg;
 		inDeg.reserve(nodes.size() * 2);
+
+		Map<const Node*, List<Node*>> loadsByMem;
+		for (Node* n : nodes)
+			if (n->getOpcode() == Opcode::Load)
+				if (Node* m = detail::memoryInputOf(n))
+					loadsByMem[m].push_back(n);
+
+		Map<const Node*, List<Node*>> extraSuccs;
+		auto addAntiDep = [&](Node* writer) {
+			Node* m = detail::memoryInputOf(writer);
+			if (!m)
+				return;
+			auto it = loadsByMem.find(m);
+			if (it == loadsByMem.end())
+				return;
+			for (Node* ld : it->second)
+				if (ld != writer)
+					extraSuccs[ld].push_back(writer);
+		};
+		for (Node* n : nodes)
+			if (n->getOpcode() == Opcode::Store || n->getOpcode() == Opcode::Call)
+				addAntiDep(n);
 
 		auto laterId = [](const Node* a, const Node* b) {
 			return a->getId() > b->getId();
@@ -467,9 +506,14 @@ namespace rat {
 					++d;
 			}
 			inDeg[n] = d;
-			if (d == 0)
-				ready.push(n);
 		}
+		for (auto& kv : extraSuccs)
+			for (Node* succ : kv.second)
+				++inDeg[succ];
+
+		for (Node* n : nodes)
+			if (inDeg[n] == 0)
+				ready.push(n);
 
 		List<Node*> out;
 		out.reserve(nodes.size());
@@ -480,6 +524,11 @@ namespace rat {
 			for (Node* u : n->getUsers())
 				if (inBlock.count(u) && --inDeg[u] == 0)
 					ready.push(u);
+			auto se = extraSuccs.find(n);
+			if (se != extraSuccs.end())
+				for (Node* succ : se->second)
+					if (--inDeg[succ] == 0)
+						ready.push(succ);
 		}
 		assert(out.size() == nodes.size() && "cycle in intra-block schedule");
 		return out;
