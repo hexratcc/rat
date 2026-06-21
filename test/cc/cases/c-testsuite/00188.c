@@ -1,4 +1,11 @@
 // expect: 0
+// output:
+//| #include test
+//| b
+//| g
+//| i
+//| p
+//| r
 #include <stdio.h>
 
 int main()

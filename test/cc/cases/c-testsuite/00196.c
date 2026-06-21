@@ -1,4 +1,25 @@
 // expect: 0
+// output:
+//| fred
+//| 0
+//| fred
+//| joe
+//| 1
+//| joe
+//| fred
+//| 0
+//| joe
+//| 1
+//| fred
+//| 0
+//| fred
+//| joe
+//| 1
+//| joe
+//| fred
+//| 0
+//| joe
+//| 1
 #include <stdio.h>
 
 int fred()

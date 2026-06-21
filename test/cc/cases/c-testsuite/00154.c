@@ -1,4 +1,11 @@
 // expect: 0
+// output:
+//| 12
+//| 34
+//| 12
+//| 34
+//| 56
+//| 78
 #include <stdio.h>
 
 struct fred

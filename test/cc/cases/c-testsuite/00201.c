@@ -1,4 +1,6 @@
 // expect: 0
+// output:
+//| 42
 #include <stdio.h>	// printf()
 
 #define CAT2(a,b) a##b

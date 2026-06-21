@@ -1,4 +1,17 @@
 // expect: 0
+// output:
+//| char: a
+//| char: b
+//| char: c
+//| int: 97
+//| int: 98
+//| int: 99
+//| float: 97.000000
+//| float: 98.000000
+//| float: 99.000000
+//| 97 97
+//| 97 97
+//| 97.000000 97.000000
 #include <stdio.h>
 
 void charfunc(char a)

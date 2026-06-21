@@ -1,4 +1,11 @@
 // expect: 0
+// output:
+//| boom!
+//| boom!
+//| 11
+//| 12
+//| 0
+//| 1
 #include <stdio.h>
 
 /* This test segfaults as of April 27, 2015. */

@@ -1,4 +1,10 @@
 // expect: 0
+// output:
+//| abort = 111
+//| abort = 222
+//| abort = 333
+//| abort = 222
+//| abort = 111
 #include <stdio.h>
 
 int main()

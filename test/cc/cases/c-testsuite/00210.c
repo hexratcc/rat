@@ -1,4 +1,7 @@
 // expect: 0
+// output:
+//| 42
+//| 42
 typedef unsigned short uint16_t;
 typedef unsigned char uint8_t;
 

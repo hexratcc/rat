@@ -1,4 +1,9 @@
 // expect: 0
+// output:
+//|      _   _       _       _  
+//|   |  _|  _| |_| |_  |_    | 
+//|   | |_   _|   |  _| |_|   | 
+//|
 /* example from http://barnyard.syr.edu/quickies/led.c */
 
 /* led.c: print out number as if on 7 line led display. I.e., write integer

@@ -1,4 +1,7 @@
 // expect: 0
+// output:
+//| 12
+//| 12, 24, 36
 #include <stdio.h>
 
 #define FRED 12

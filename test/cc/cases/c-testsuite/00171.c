@@ -1,4 +1,8 @@
 // expect: 0
+// output:
+//| 42
+//| b is not NULL
+//| c is NULL
 #include <stdio.h>
 
 int main()

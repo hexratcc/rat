@@ -1,4 +1,6 @@
 // expect: 0
+// output:
+//| 0 test(s) failed
 /* $Id: lshift-type.c 53089 2012-07-06 11:18:26Z vinc17/ypig $
 
 Tests on left-shift type, written by Vincent Lefevre <vincent@vinc17.net>.

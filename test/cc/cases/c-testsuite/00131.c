@@ -1,4 +1,10 @@
 // expect: 0
+// output:
+//| Hello
+//| Hello
+//| Hello
+//| Hello
+//| Hello
 #include <stdio.h>
 
 int main() 

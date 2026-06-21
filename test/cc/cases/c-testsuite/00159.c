@@ -1,4 +1,9 @@
 // expect: 0
+// output:
+//| 9
+//| 16
+//| a=1234
+//| qfunc()
 #include <stdio.h>
 
 int myfunc(int x)

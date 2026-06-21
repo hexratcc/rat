@@ -1,4 +1,6 @@
 // expect: 0
+// output:
+//| data = "0123-5678"
 int printf(const char *, ...);
 char t[] = "012345678";
 

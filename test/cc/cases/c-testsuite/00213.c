@@ -1,4 +1,28 @@
 // expect: 0
+// output:
+//| timeout=2
+//| timeout=1
+//| boo
+//| yeah
+//| twice
+//| once
+//| twice
+//| SEtwice
+//| SEonce
+//| SEtwice
+//| twice2
+//| once2
+//| twice2
+//| twice3
+//| once3
+//| twice3
+//| caseok
+//| caseok2
+//| g=1
+//| check 1
+//| g=2
+//| check 2
+//| g=3
 /* This checks various ways of dead code inside if statements
    where there are non-obvious ways of how the code is actually
    not dead due to reachable by labels.  */

@@ -1,4 +1,6 @@
 // expect: 0
+// output:
+//| long long constant test ok.
 #include <stdio.h>
 
 int main()

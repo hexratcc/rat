@@ -1,4 +1,13 @@
 // expect: 0
+// output:
+//| a = 42
+//| bolshevic.a = 12
+//| bolshevic.b = 34
+//| bolshevic.c = 56
+//| tsar->a = 12
+//| tsar->b = 34
+//| tsar->c = 56
+//| bolshevic.b = 34
 #include <stdio.h>
 
 struct ziggy

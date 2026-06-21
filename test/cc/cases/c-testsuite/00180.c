@@ -1,4 +1,6 @@
 // expect: 0
+// output:
+//| bcdef
 #include <stdio.h>
 #include <string.h>
 

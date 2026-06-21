@@ -1,4 +1,6 @@
 // expect: 0
+// output:
+//| 12.340000, 56.780000
 #include <stdio.h>
 
 struct point

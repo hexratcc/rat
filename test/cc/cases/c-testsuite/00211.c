@@ -1,4 +1,6 @@
 // expect: 0
+// output:
+//| n+1 = 15
 extern int printf(const char *format, ...);
 
 #define ACPI_TYPE_INVALID       0x1E

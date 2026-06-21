@@ -1,4 +1,9 @@
 // expect: 0
+// output:
+//| 0 1 2 3 54 73 74 75
+//| 12
+//| 54
+//| enum to int: 1
 #include <stdio.h>
 
 enum fred

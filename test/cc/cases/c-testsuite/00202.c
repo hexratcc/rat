@@ -1,4 +1,7 @@
 // expect: 0
+// output:
+//| jim: 21, bob: 42
+//| jim: 63
 #include <stdio.h>
 
 #define P(A,B) A ## B ; bob

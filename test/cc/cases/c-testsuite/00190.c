@@ -1,4 +1,6 @@
 // expect: 0
+// output:
+//| yo
 #include <stdio.h>
 
 void fred(void)

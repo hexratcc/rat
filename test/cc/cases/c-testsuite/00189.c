@@ -1,4 +1,7 @@
 // expect: 0
+// output:
+//| yo 24
+//| 42
 #include <stdio.h>
 
 int fred(int p)

@@ -1,4 +1,7 @@
 // expect: 0
+// output:
+//| okay
+//| okay
 /* Check some way in where code suppression caused various
    miscompilations.  */
 extern int printf (const char *, ...);

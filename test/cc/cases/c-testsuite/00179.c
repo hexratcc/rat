@@ -1,4 +1,24 @@
 // expect: 0
+// output:
+//| hello
+//| gollo
+//| 1
+//| 1
+//| 1
+//| 5
+//| gollo!
+//| 1
+//| 1
+//| 1
+//| 1
+//| ollo!
+//| lo!
+//| 1
+//| grrrr!
+//| grgrr!
+//| 1
+//| 1
+//| 1
 #include <stdio.h>
 #include <string.h>
 

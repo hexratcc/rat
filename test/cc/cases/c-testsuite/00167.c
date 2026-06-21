@@ -1,4 +1,7 @@
 // expect: 0
+// output:
+//| a is true
+//| b is false
 #include <stdio.h>
 
 int main()

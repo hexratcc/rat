@@ -1,4 +1,9 @@
 // expect: 0
+// output:
+//| 1
+//| 4
+//| 8
+//| 4
 #include <stdio.h>
 
 int main()

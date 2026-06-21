@@ -1,4 +1,19 @@
 // expect: 0
+// output:
+//| begin
+//| timeout=2
+//| timeout=1
+//| timeout=2
+//| timeout=1
+//| timeout=2
+//| timeout=1
+//| timeout=2
+//| timeout=1
+//| timeout=2
+//| timeout=1
+//| timeout=2
+//| timeout=1
+//| end
 extern int printf(const char *format, ...);
 static void kb_wait_1(void)
 {

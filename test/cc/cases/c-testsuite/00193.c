@@ -1,4 +1,9 @@
 // expect: 0
+// output:
+//| 1
+//| 2
+//| out
+//| 3
 #include <stdio.h>
 
 void fred(int x)
