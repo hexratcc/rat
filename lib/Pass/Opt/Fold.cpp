@@ -320,10 +320,10 @@ namespace rat {
 			B32 res = false;
 			switch (op) {
 			case Opcode::Eq:
-				res = a == b;
+				res = maskW(a, w) == maskW(b, w);
 				break;
 			case Opcode::Ne:
-				res = a != b;
+				res = maskW(a, w) != maskW(b, w);
 				break;
 			case Opcode::Slt:
 				res = signExtend(a, w) < signExtend(b, w);

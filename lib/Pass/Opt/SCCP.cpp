@@ -113,6 +113,12 @@ namespace rat {
 
 			void visitFlow(Node* c) {
 				for (Node* u : c->getUsers()) {
+					if (CallNode* call = dyn_cast<CallNode>(u)) {
+						if (call->getControlInput() == c)
+							if (ProjNode* cp = call->projection(CallNode::controlProjIndex()))
+								markExec(cp);
+						continue;
+					}
 					if (!isControlFlow(u))
 						continue;
 					switch (u->getOpcode()) {
