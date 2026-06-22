@@ -935,7 +935,16 @@ namespace rat::cc {
 				return nullptr;
 			return makeUnary(t.offset, op, operand);
 		}
-		return parsePrimary();
+		TokKind k = peek().kind;
+		if (k == TokKind::PlusPlus || k == TokKind::MinusMinus) {
+			Token t = advance();
+			Expr* operand = parseUnary();
+			if (!operand)
+				return nullptr;
+			ExprOp pre = k == TokKind::PlusPlus ? ExprOp::PreInc : ExprOp::PreDec;
+			return makeUnary(t.offset, pre, operand);
+		}
+		return parsePostfix();
 	}
 
 	Expr* Parser::parseBinary(I32 minPrec) {
@@ -1004,6 +1013,1059 @@ namespace rat::cc {
 			e = comma;
 		}
 		return e;
+	}
+
+	Expr* Parser::parseInitializer() {
+		if (peek().kind == TokKind::LBrace) {
+			Token lb = advance();
+			Expr* e = makeExpr(ExprKind::InitList, lb.offset);
+			if (peek().kind != TokKind::RBrace) {
+				for (;;) {
+					Designator des;
+					I64 rangeEnd = -1; // GNU range designator [a ... b]
+					if (peek().kind == TokKind::Dot || peek().kind == TokKind::LBracket) {
+						Designator* cur = &des;
+						for (B32 first = true;; first = false) {
+							if (accept(TokKind::Dot)) {
+								Token id = peek();
+								if (id.kind != TokKind::Identifier) {
+									fail(id, "expected a field name after '.'");
+									return nullptr;
+								}
+								advance();
+								cur->isIndex = false;
+								cur->field = arena.make<String>(lex.text(id));
+							} else if (accept(TokKind::LBracket)) {
+								Expr* ix = parseAssignment();
+								I64 v = 0;
+								if (!ix || !evalIntConst(ix, v) || v < 0) {
+									fail(peek(), "array designator must be a non-negative "
+															 "integer constant");
+									return nullptr;
+								}
+								cur->isIndex = true;
+								cur->index = v;
+								if (first && accept(TokKind::Ellipsis)) {
+									Expr* hi = parseAssignment();
+									I64 hv = 0;
+									if (!hi || !evalIntConst(hi, hv) || hv < v) {
+										fail(peek(), "invalid range designator");
+										return nullptr;
+									}
+									rangeEnd = hv;
+								}
+								if (!expect(TokKind::RBracket, "']'"))
+									return nullptr;
+							} else {
+								break;
+							}
+							if (peek().kind == TokKind::Dot ||
+									peek().kind == TokKind::LBracket) {
+								Designator* nxt = arena.make<Designator>();
+								nxt->isSet = true;
+								cur->next = nxt;
+								cur = nxt;
+								continue;
+							}
+							break;
+						}
+						if (!expect(TokKind::Assign, "'=' after designator"))
+							return nullptr;
+						des.isSet = true;
+					}
+					Expr* el = parseInitializer();
+					if (!el)
+						return nullptr;
+					if (rangeEnd >= des.index) {
+						for (I64 k = des.index; k <= rangeEnd; ++k) {
+							Designator d2;
+							d2.isSet = true;
+							d2.isIndex = true;
+							d2.index = k;
+							e->args.push_back(el);
+							e->designators.push_back(d2);
+						}
+					} else {
+						e->args.push_back(el);
+						e->designators.push_back(des);
+					}
+					if (!accept(TokKind::Comma))
+						break;
+					if (peek().kind == TokKind::RBrace)
+						break;
+				}
+			}
+			if (!expect(TokKind::RBrace, "'}'"))
+				return nullptr;
+			return e;
+		}
+		return parseAssignment();
+	}
+
+	B32 Parser::evalIntConst(const Expr* e, I64& out) {
+		switch (e->kind) {
+		case ExprKind::IntLit:
+			out = e->intLit.value;
+			return true;
+		case ExprKind::Unary: {
+			I64 v;
+			if (!evalIntConst(e->unary.operand, v))
+				return false;
+			switch (e->unary.op) {
+			case ExprOp::Pos:
+				out = v;
+				return true;
+			case ExprOp::Neg:
+				out = -v;
+				return true;
+			case ExprOp::Not:
+				out = !v;
+				return true;
+			case ExprOp::BitNot:
+				out = ~v;
+				return true;
+			default:
+				fail(peek(), "non-constant operator in constant expression");
+				return false;
+			}
+		}
+		case ExprKind::Binary: {
+			I64 l, r;
+			if (!evalIntConst(e->binary.lhs, l) || !evalIntConst(e->binary.rhs, r))
+				return false;
+			switch (e->binary.op) {
+			case ExprOp::Add:
+				out = l + r;
+				return true;
+			case ExprOp::Sub:
+				out = l - r;
+				return true;
+			case ExprOp::Mul:
+				out = l * r;
+				return true;
+			case ExprOp::Div:
+				if (r == 0) {
+					fail(peek(), "division by zero in constant expression");
+					return false;
+				}
+				out = l / r;
+				return true;
+			case ExprOp::Rem:
+				if (r == 0) {
+					fail(peek(), "division by zero in constant expression");
+					return false;
+				}
+				out = l % r;
+				return true;
+			case ExprOp::Shl:
+				out = l << r;
+				return true;
+			case ExprOp::Shr:
+				out = l >> r;
+				return true;
+			case ExprOp::Lt:
+				out = l < r;
+				return true;
+			case ExprOp::Gt:
+				out = l > r;
+				return true;
+			case ExprOp::Le:
+				out = l <= r;
+				return true;
+			case ExprOp::Ge:
+				out = l >= r;
+				return true;
+			case ExprOp::Eq:
+				out = l == r;
+				return true;
+			case ExprOp::Ne:
+				out = l != r;
+				return true;
+			case ExprOp::BitAnd:
+				out = l & r;
+				return true;
+			case ExprOp::BitOr:
+				out = l | r;
+				return true;
+			case ExprOp::BitXor:
+				out = l ^ r;
+				return true;
+			case ExprOp::LogAnd:
+				out = l && r;
+				return true;
+			case ExprOp::LogOr:
+				out = l || r;
+				return true;
+			default:
+				fail(peek(), "non-constant operator in constant expression");
+				return false;
+			}
+		}
+		case ExprKind::Ternary: {
+			I64 c;
+			if (!evalIntConst(e->ternary.cond, c))
+				return false;
+			return evalIntConst(c ? e->ternary.whenTrue : e->ternary.whenFalse, out);
+		}
+		case ExprKind::Cast:
+			return evalIntConst(e->cast.operand, out);
+		case ExprKind::Sizeof:
+			if (e->sizeOf.operand) {
+				fail(peek(), "sizeof expression not allowed in constant expression");
+				return false;
+			}
+			if (isVlaType(e->sizeOf.type)) {
+				fail(peek(), "sizeof a variable-length array is not constant");
+				return false;
+			}
+			if (isStruct(e->sizeOf.type) &&
+					(e->sizeOf.type.strukt == nullptr ||
+					 !e->sizeOf.type.strukt->complete)) {
+				fail(peek(), "sizeof applied to an incomplete type");
+				return false;
+			}
+			out = (I64)typeSizeBytes(e->sizeOf.type);
+			return true;
+		default:
+			fail(peek(), "expected a constant expression");
+			return false;
+		}
+	}
+
+	B32 Parser::tryEvalIntConst(const Expr* e, I64& out) {
+		B32 savedFailed = failed;
+		String savedMsg = errMsg;
+		B32 ok = evalIntConst(e, out);
+		if (!ok) {
+			failed = savedFailed;
+			errMsg = savedMsg;
+		}
+		return ok;
+	}
+
+	namespace {
+		U32 alignUp(U32 value, U32 align) {
+			return align <= 1 ? value : (value + align - 1) / align * align;
+		}
+	} // namespace
+
+	StructType* Parser::complexStruct(CType realType) {
+		auto it = complexLayouts.find(realType.bits);
+		if (it != complexLayouts.end())
+			return it->second;
+		U32 elemBytes = (realType.bits + 7) / 8;
+		CType elem = realType;
+		elem.isComplex = false;
+		StructType* st = arena.make<StructType>();
+		st->size = 2 * elemBytes;
+		st->align = elemBytes;
+		st->isUnion = false;
+		st->complete = true;
+		Field re;
+		re.name = arena.make<String>("__real");
+		re.type = elem;
+		re.offset = 0;
+		Field im;
+		im.name = arena.make<String>("__imag");
+		im.type = elem;
+		im.offset = elemBytes;
+		st->fields.push_back(re);
+		st->fields.push_back(im);
+		complexLayouts[realType.bits] = st;
+		return st;
+	}
+
+	B32 Parser::parseStructBody(StructType* st, B32 isUnion) {
+		U32 offset = 0;
+		U32 align = 1;
+		U32 bitUnitOffset = 0;
+		U32 bitUnitBytes = 0;
+		U32 bitUnitUsed = 0;
+		while (peek().kind != TokKind::RBrace && peek().kind != TokKind::Eof) {
+			CType base;
+			if (!parseTypeSpec(base)) {
+				fail(peek(), "expected member type");
+				return false;
+			}
+			if (peek().kind == TokKind::Semicolon && isStruct(base)) {
+				advance();
+				const StructType* inner = base.strukt;
+				U32 mAlign = inner->align;
+				U32 mbase = isUnion ? 0 : alignUp(offset, mAlign);
+				B32 first = true;
+				for (const Field& sub : inner->fields) {
+					Field f = sub;
+					f.offset = isUnion ? sub.offset : mbase + sub.offset;
+					f.anonMember = true;
+					f.anonFirst = first;
+					f.anonUnion = inner->isUnion;
+					first = false;
+					st->fields.push_back(f);
+				}
+				U32 mEnd = mbase + inner->size;
+				if (isUnion) {
+					if (inner->size > offset)
+						offset = inner->size;
+				} else {
+					offset = mEnd;
+				}
+				if (mAlign > align)
+					align = mAlign;
+				bitUnitBytes = 0;
+				continue;
+			}
+			for (;;) {
+				CType ft = base;
+				parsePointers(ft);
+				Token nameTok;
+				B32 haveName = false;
+				B32 isArr = false;
+				B32 flexible = false;
+				U32 count = 0;
+				if (looksLikeFuncPtr()) {
+					CType fpt;
+					if (!parseFuncPtrDeclarator(ft, nameTok, fpt))
+						return false;
+					ft = fpt;
+					haveName = true;
+				} else {
+					if (peek().kind == TokKind::Identifier) {
+						nameTok = advance();
+						haveName = true;
+					}
+					if (peek().kind == TokKind::LBracket) {
+						Declarator d;
+						d.type = ft;
+						if (!parseArraySuffix(d))
+							return false;
+						ft = d.type;
+						isArr = true;
+						I64 n = 0;
+						if (d.arrayLen) {
+							if (!evalIntConst(d.arrayLen, n) || n < 0) {
+								fail(nameTok, "array member size must be a constant");
+								return false;
+							}
+						} else {
+							flexible = true; // type name[] with no bound
+						}
+						count = (U32)n; // 0 == flexible array member
+					}
+				}
+				// optional bitfield : width
+				if (accept(TokKind::Colon)) {
+					if (isArr || ft.ptr != 0 || ft.isFloat || ft.isComplex ||
+							ft.isVoid || isStruct(ft) || ft.func != nullptr) {
+						fail(nameTok, "bit-field has invalid type");
+						return false;
+					}
+					Expr* wE = parseConditional();
+					if (!wE)
+						return false;
+					I64 w = 0;
+					if (!evalIntConst(wE, w) || w < 0) {
+						fail(peek(), "bitfield width must be a non-negative constant");
+						return false;
+					}
+					U32 unitBytes = fieldByteSize(ft);
+					if (unitBytes == 0)
+						unitBytes = 4;
+					U32 falign = fieldAlign(ft);
+					if (w == 0 || bitUnitBytes != unitBytes ||
+							bitUnitUsed + (U32)w > unitBytes * 8) {
+						bitUnitOffset = isUnion ? 0 : alignUp(offset, falign);
+						bitUnitBytes = unitBytes;
+						bitUnitUsed = 0;
+						if (!isUnion)
+							offset = bitUnitOffset + unitBytes;
+						else if (unitBytes > offset)
+							offset = unitBytes;
+					}
+					if (w > 0 && haveName) {
+						Field f;
+						f.name = arena.make<String>(lex.text(nameTok));
+						f.type = ft;
+						f.isBitfield = true;
+						f.bitWidth = (U32)w;
+						f.bitOffset = bitUnitUsed;
+						f.offset = bitUnitOffset;
+						st->fields.push_back(f);
+					}
+					bitUnitUsed += (U32)w;
+					if (falign > align)
+						align = falign;
+					if (!accept(TokKind::Comma))
+						break;
+					continue;
+				}
+				bitUnitBytes = 0;
+				if (!haveName) {
+					fail(peek(), "expected member name");
+					return false;
+				}
+				if (isStruct(ft) && !ft.strukt->complete) {
+					fail(nameTok, "member has incomplete struct type");
+					return false;
+				}
+				if (flexible) {
+					if (isUnion) {
+						fail(nameTok, "flexible array member not allowed in union");
+						return false;
+					}
+					if (st->fields.empty()) {
+						fail(nameTok,
+								 "flexible array member in struct with no other members");
+						return false;
+					}
+					if (peek().kind == TokKind::Comma ||
+							!(peek().kind == TokKind::Semicolon &&
+								peek2().kind == TokKind::RBrace)) {
+						fail(nameTok, "flexible array member must be the last member");
+						return false;
+					}
+				}
+				U32 esize = fieldByteSize(ft);
+				U32 falign = fieldAlign(ft);
+				U32 fsize = isArr ? esize * count : esize;
+				Field f;
+				f.name = arena.make<String>(lex.text(nameTok));
+				f.type = ft;
+				f.isArray = isArr;
+				f.count = count;
+				f.offset = isUnion ? 0 : alignUp(offset, falign);
+				st->fields.push_back(f);
+				if (isUnion) {
+					if (fsize > offset)
+						offset = fsize;
+				} else {
+					offset = f.offset + fsize;
+				}
+				if (falign > align)
+					align = falign;
+				if (!accept(TokKind::Comma))
+					break;
+			}
+			if (!expect(TokKind::Semicolon, "';'"))
+				return false;
+		}
+		if (!expect(TokKind::RBrace, "'}'"))
+			return false;
+		st->align = align;
+		st->size = alignUp(offset, align);
+		st->complete = true;
+		return true;
+	}
+
+	B32 Parser::parseStructSpec(CType& out) {
+		B32 isUnion = peek().kind == TokKind::KwUnion;
+		advance(); // 'struct' or 'union'
+
+		const String* tag = nullptr;
+		if (peek().kind == TokKind::Identifier)
+			tag = arena.make<String>(lex.text(advance()));
+
+		StructType* st = nullptr;
+		if (tag) {
+			auto it = structTypes.find(*tag);
+			if (it != structTypes.end())
+				st = it->second;
+			else {
+				st = arena.make<StructType>();
+				st->tag = *tag;
+				st->isUnion = isUnion;
+				structTypes[*tag] = st;
+			}
+		}
+
+		if (peek().kind == TokKind::LBrace) {
+			advance();
+			if (!st)
+				st = arena.make<StructType>(); // anon aggregate
+			st->isUnion = isUnion;
+			if (!parseStructBody(st, isUnion))
+				return false;
+		}
+
+		if (!st) {
+			fail(peek(), "use of undeclared struct/union tag");
+			return false;
+		}
+		CType t;
+		t.strukt = st;
+		out = t;
+		return true;
+	}
+
+	B32 Parser::parseTypeofSpec(CType& out) {
+		advance(); // typeof / __typeof / __typeof__
+		if (!expect(TokKind::LParen, "'('"))
+			return false;
+		if (startsType(peek())) {
+			if (!parseTypeName(out))
+				return false;
+		} else {
+			Expr* e = parseExpression();
+			if (!e)
+				return false;
+			out = CType{};
+			out.typeofExpr = e;
+		}
+		return expect(TokKind::RParen, "')'");
+	}
+
+	B32 Parser::parseEnumSpec(CType& out) {
+		advance(); // enum
+		if (peek().kind == TokKind::Identifier)
+			advance();
+
+		B32 anyNegative = false;
+		if (peek().kind == TokKind::LBrace) {
+			advance();
+			I64 next = 0;
+			while (peek().kind != TokKind::RBrace && peek().kind != TokKind::Eof) {
+				if (peek().kind != TokKind::Identifier) {
+					fail(peek(), "expected enumerator name");
+					return false;
+				}
+				Token name = advance();
+				I64 value = next;
+				if (accept(TokKind::Assign)) {
+					Expr* init = parseConditional();
+					if (!init)
+						return false;
+					if (!evalIntConst(init, value))
+						return false;
+				}
+				if (value < -2147483648LL || value > 2147483647LL) {
+					fail(name, "enumerator value is not representable as int");
+					return false;
+				}
+				if (value < 0)
+					anyNegative = true;
+				enumConstants[lex.text(name)] = value;
+				next = value + 1;
+				if (!accept(TokKind::Comma))
+					break;
+			}
+			if (!expect(TokKind::RBrace, "'}'"))
+				return false;
+		}
+		out = ctInt();
+		if (!anyNegative)
+			out.isUnsigned = true;
+		return true;
+	}
+
+	B32 Parser::startsType(const Token& tok) {
+		if (isTypeStart(tok.kind))
+			return true;
+		return tok.kind == TokKind::Identifier &&
+					 typedefs.count(lex.text(tok)) != 0;
+	}
+
+	B32 Parser::parseTypedef() {
+		advance(); // typedef
+		CType base;
+		if (!parseTypeSpec(base)) {
+			fail(peek(), "expected type in typedef declaration");
+			return false;
+		}
+		if (peek().kind == TokKind::Semicolon) {
+			advance();
+			return true;
+		}
+		for (;;) {
+			Token nameTok;
+			B32 haveName = false;
+			CType t;
+			if (!parseDeclaratorType(base, nameTok, haveName, t))
+				return false;
+			if (!haveName) {
+				fail(peek(), "expected typedef name");
+				return false;
+			}
+			typedefs[lex.text(nameTok)] = t;
+			if (!accept(TokKind::Comma))
+				break;
+		}
+		return expect(TokKind::Semicolon, "';'");
+	}
+
+	void Parser::parsePointers(CType& t) {
+		for (;;) {
+			B32 sawConst = false;
+			while (isTypeQualifier(peek().kind)) {
+				if (peek().kind == TokKind::KwConst)
+					sawConst = true;
+				advance();
+			}
+			if (sawConst && t.ptr < 32)
+				t.quals |= (1u << t.ptr);
+			if (!accept(TokKind::Star))
+				break;
+			++t.ptr;
+		}
+	}
+
+	B32 Parser::parseTypeSpec(CType& out) {
+		B32 isStatic = false;
+		B32 isExtern = false;
+		B32 isInline = false;
+		B32 isConst = false;
+		I32 storageCount = 0;
+		sawStatic = false;
+		sawExtern = false;
+		sawInline = false;
+		while (isQualOrStorage(peek().kind)) {
+			TokKind sk = peek().kind;
+			if (sk == TokKind::KwStatic)
+				isStatic = true;
+			if (sk == TokKind::KwExtern)
+				isExtern = true;
+			if (sk == TokKind::KwInline)
+				isInline = true;
+			if (sk == TokKind::KwConst)
+				isConst = true;
+			if (sk == TokKind::KwStatic || sk == TokKind::KwExtern ||
+					sk == TokKind::KwAuto || sk == TokKind::KwRegister)
+				++storageCount;
+			advance();
+		}
+		if (storageCount > 1) {
+			fail(peek(), "more than one storage-class specifier");
+			return false;
+		}
+		if (peek().kind == TokKind::KwTypeof) {
+			B32 ok = parseTypeofSpec(out);
+			if (isConst)
+				out.quals |= 1u;
+			setStorage(isStatic, isExtern, isInline);
+			return ok;
+		}
+		if (peek().kind == TokKind::KwEnum) {
+			B32 ok = parseEnumSpec(out);
+			if (isConst)
+				out.quals |= 1u;
+			setStorage(isStatic, isExtern, isInline);
+			return ok;
+		}
+		if (peek().kind == TokKind::KwStruct || peek().kind == TokKind::KwUnion) {
+			B32 ok = parseStructSpec(out);
+			if (isConst)
+				out.quals |= 1u;
+			setStorage(isStatic, isExtern, isInline);
+			return ok;
+		}
+		if (peek().kind == TokKind::Identifier) {
+			auto it = typedefs.find(lex.text(peek()));
+			if (it != typedefs.end()) {
+				advance();
+				out = it->second;
+				if (isConst)
+					out.quals |= 1u;
+				setStorage(isStatic, isExtern, isInline);
+				return true;
+			}
+		}
+
+		B32 isVoid = false, isBool = false, isChar = false, isShort = false;
+		B32 isUnsigned = false, isSigned = false;
+		B32 isFloat = false, isDouble = false;
+		B32 isComplex = false;
+		I32 longCount = 0;
+		I32 count = 0;
+		for (;;) {
+			TokKind k = peek().kind;
+			if (k == TokKind::KwVoid)
+				isVoid = true;
+			else if (k == TokKind::KwBool)
+				isBool = true;
+			else if (k == TokKind::KwChar)
+				isChar = true;
+			else if (k == TokKind::KwShort)
+				isShort = true;
+			else if (k == TokKind::KwFloat)
+				isFloat = true;
+			else if (k == TokKind::KwDouble)
+				isDouble = true;
+			else if (k == TokKind::KwComplex || k == TokKind::KwImaginary)
+				isComplex = true;
+			else if (k == TokKind::KwLong)
+				++longCount;
+			else if (k == TokKind::KwUnsigned)
+				isUnsigned = true;
+			else if (k == TokKind::KwSigned)
+				isSigned = true;
+			else if (k == TokKind::KwInt)
+				; // base int
+			else if (isQualOrStorage(k)) {
+				if (k == TokKind::KwStatic)
+					isStatic = true;
+				if (k == TokKind::KwExtern)
+					isExtern = true;
+				if (k == TokKind::KwInline)
+					isInline = true;
+				if (k == TokKind::KwConst)
+					isConst = true;
+				if (k == TokKind::KwStatic || k == TokKind::KwExtern ||
+						k == TokKind::KwAuto || k == TokKind::KwRegister)
+					++storageCount;
+				advance();
+				continue;
+			} else
+				break;
+			advance();
+			++count;
+		}
+		if (count == 0)
+			return false;
+		if (storageCount > 1) {
+			fail(peek(), "more than one storage-class specifier");
+			return false;
+		}
+		CType t;
+		if (isVoid) {
+			t.isVoid = true;
+		} else if (isFloat || isDouble || isComplex) {
+			t.isFloat = true;
+			t.bits = isFloat ? 32 : (isDouble && longCount >= 1 ? 128 : 64);
+			t.isComplex = isComplex;
+			if (isComplex)
+				t.strukt = complexStruct(t);
+		} else if (isBool) {
+			t.bits = 1;
+			t.isUnsigned = true;
+		} else {
+			t.isUnsigned = isUnsigned;
+			if (isChar) {
+				t.bits = 8;
+				t.isPlainChar = !isUnsigned && !isSigned;
+			} else if (isShort)
+				t.bits = 16;
+			else if (longCount >= 2) {
+				t.bits = 64;
+				t.isLongLong = true;
+			} else if (longCount == 1)
+				t.bits = 64;
+			else
+				t.bits = 32;
+		}
+		if (isConst)
+			t.quals |= 1u;
+		out = t;
+		setStorage(isStatic, isExtern, isInline);
+		return true;
+	}
+
+	void Parser::skipArrayQualifiers() {
+		while (peek().kind == TokKind::KwStatic || isTypeQualifier(peek().kind))
+			advance();
+	}
+
+	CType Parser::wrapArrayDims(CType base, const List<Dim>& dims) {
+		for (U32 i = (U32)dims.size(); i-- > 0;) {
+			ArrayType* at = arena.make<ArrayType>();
+			at->elem = base;
+			at->count = dims[i].count;
+			at->countExpr = dims[i].expr;
+			CType arr;
+			arr.array = at;
+			base = arr;
+		}
+		return base;
+	}
+
+	B32 Parser::parseArraySuffix(Declarator& d) {
+		if (!check(TokKind::LBracket))
+			return true;
+		advance(); // [
+		d.isArray = true;
+		skipArrayQualifiers();
+		if (peek().kind == TokKind::Star && peek2().kind == TokKind::RBracket) {
+			advance(); // [*]
+		} else if (peek().kind != TokKind::RBracket) {
+			d.arrayLen = parseConditional(); // outermost bound
+			if (!d.arrayLen)
+				return false;
+		}
+		if (!expect(TokKind::RBracket, "']'"))
+			return false;
+		List<Dim> inner;
+		while (accept(TokKind::LBracket)) {
+			Expr* sz = parseConditional();
+			if (!sz)
+				return false;
+			if (!expect(TokKind::RBracket, "']'"))
+				return false;
+			I64 n = 0;
+			if (tryEvalIntConst(sz, n)) {
+				if (n <= 0) {
+					fail(peek(), "array dimension must be a positive integer constant");
+					return false;
+				}
+				inner.push_back(Dim{(U32)n, nullptr});
+			} else {
+				inner.push_back(Dim{0, sz});
+			}
+		}
+		d.type = wrapArrayDims(d.type, inner);
+		return true;
+	}
+
+	B32 Parser::parseParamArray(CType& t) {
+		Declarator d;
+		d.type = t;
+		if (!parseArraySuffix(d))
+			return false;
+		CType decayed = d.type;
+		++decayed.ptr;
+		t = decayed;
+		return true;
+	}
+
+	B32 Parser::looksLikeFuncPtr() {
+		return peek().kind == TokKind::LParen && peek2().kind == TokKind::Star;
+	}
+
+	void Parser::adjustParamType(CType& t, const Expr** vlaBound) {
+		if (t.func != nullptr && t.ptr == 0) {
+			t.ptr = 1;
+		} else if (t.array != nullptr && t.ptr == 0) {
+			if (vlaBound && t.array->countExpr)
+				*vlaBound = t.array->countExpr;
+			t = decay(t);
+		}
+	}
+
+	B32 Parser::parseParamTypeList(FuncType* ft) {
+		if (peek().kind == TokKind::RParen) {
+			advance();
+			ft->unprototyped = true;
+			return true;
+		}
+		if (peek().kind == TokKind::KwVoid && peek2().kind == TokKind::RParen) {
+			advance(); // void
+			advance(); // )
+			return true;
+		}
+		for (;;) {
+			if (peek().kind == TokKind::Ellipsis) {
+				advance();
+				ft->isVarArgs = true;
+				break;
+			}
+			CType pt;
+			if (!parseTypeSpec(pt)) {
+				fail(peek(), "expected parameter type");
+				return false;
+			}
+			parsePointers(pt);
+			const String* pname = nullptr;
+			Token nameTok;
+			B32 haveName = false;
+			CType fpt;
+			if (!parseDeclaratorType(pt, nameTok, haveName, fpt))
+				return false;
+			if (haveName)
+				pname = arena.make<String>(lex.text(nameTok));
+			pt = fpt;
+			adjustParamType(pt);
+			ft->params.push_back(pt);
+			ft->paramNames.push_back(pname);
+			if (!accept(TokKind::Comma))
+				break;
+		}
+		return expect(TokKind::RParen, "')'");
+	}
+
+	B32 Parser::parseFuncPtrDeclarator(CType ret, Token& nameOut,
+																		 CType& outType) {
+		B32 haveName = false;
+		return parseDeclaratorType(ret, nameOut, haveName, outType);
+	}
+
+	void Parser::bindDeclaratorType(Declarator& d, CType t, U32 offset) {
+		if (isArrayType(t)) {
+			d.isArray = true;
+			U32 count = t.array->count;
+			d.type = t.array->elem;
+			if (count > 0) {
+				Expr* len = makeExpr(ExprKind::IntLit, offset);
+				len->intLit = {(I64)count, false, false};
+				d.arrayLen = len;
+			}
+		} else {
+			d.type = t;
+		}
+	}
+
+	B32 Parser::looksLikeGroupingParen() {
+		if (peek().kind != TokKind::LParen)
+			return false;
+		const Token& n = peek2();
+		if (n.kind == TokKind::Star || n.kind == TokKind::LParen ||
+				n.kind == TokKind::LBracket)
+			return true;
+		if (n.kind == TokKind::Identifier)
+			return !startsType(n);
+		return false;
+	}
+
+	Parser::TypeBuilder Parser::parseDeclaratorSuffixes() {
+		List<TypeBuilder> sfx;
+		for (;;) {
+			if (peek().kind == TokKind::LBracket) {
+				advance(); // [
+				skipArrayQualifiers();
+				U32 count = 0;
+				Expr* countExpr = nullptr;
+				if (peek().kind == TokKind::Star && peek2().kind == TokKind::RBracket) {
+					advance(); // [*]
+				} else if (peek().kind != TokKind::RBracket) {
+					Expr* e = parseConditional();
+					if (!e)
+						return {};
+					I64 n = 0;
+					if (tryEvalIntConst(e, n) && n > 0)
+						count = (U32)n;
+					else
+						countExpr = e; // VLA
+				}
+				if (!expect(TokKind::RBracket, "']'"))
+					return {};
+				sfx.push_back([this, count, countExpr](CType b) {
+					ArrayType* at = arena.make<ArrayType>();
+					at->elem = b;
+					at->count = count;
+					at->countExpr = countExpr;
+					CType a;
+					a.array = at;
+					return a;
+				});
+			} else if (peek().kind == TokKind::LParen) {
+				advance(); // '('
+				FuncType* ft = arena.make<FuncType>();
+				if (!parseParamTypeList(ft))
+					return {};
+				sfx.push_back([ft](CType b) {
+					ft->ret = b;
+					CType t;
+					t.func = ft;
+					return t;
+				});
+			} else {
+				break;
+			}
+		}
+		return [sfx](CType base) {
+			CType b = base;
+			for (U32 i = (U32)sfx.size(); i-- > 0;)
+				b = sfx[i](b);
+			return b;
+		};
+	}
+
+	Parser::TypeBuilder Parser::parseDirectDeclarator(Token& nameOut,
+																										B32& haveName) {
+		TypeBuilder core;
+		if (looksLikeGroupingParen()) {
+			advance(); // (
+			core = parseDeclaratorBuilder(nameOut, haveName);
+			if (!expect(TokKind::RParen, "')'"))
+				return {};
+		} else if (peek().kind == TokKind::Identifier) {
+			nameOut = advance();
+			haveName = true;
+			core = [](CType b) { return b; };
+		} else {
+			// abstract decl
+			core = [](CType b) { return b; };
+		}
+		TypeBuilder suf = parseDeclaratorSuffixes();
+		if (failed)
+			return {};
+		return [core, suf](CType base) { return core(suf(base)); };
+	}
+
+	Parser::TypeBuilder Parser::parseDeclaratorBuilder(Token& nameOut,
+																										 B32& haveName) {
+		U32 stars = 0;
+		for (;;) {
+			while (isTypeQualifier(peek().kind))
+				advance();
+			if (!accept(TokKind::Star))
+				break;
+			++stars;
+		}
+		TypeBuilder inner = parseDirectDeclarator(nameOut, haveName);
+		if (failed)
+			return {};
+		return [stars, inner](CType base) {
+			CType b = base;
+			for (U32 i = 0; i < stars; ++i)
+				b = pointerTo(b);
+			return inner(b);
+		};
+	}
+
+	B32 Parser::parseDeclaratorType(CType base, Token& nameOut, B32& haveName,
+																	CType& out) {
+		haveName = false;
+		TypeBuilder b = parseDeclaratorBuilder(nameOut, haveName);
+		if (failed)
+			return false;
+		out = b(base);
+		return true;
+	}
+
+	B32 Parser::parseStaticAssert() {
+		Token kw = advance(); // _Static_assert
+		if (!expect(TokKind::LParen, "'('"))
+			return false;
+		Expr* cond = parseConditional();
+		if (!cond)
+			return false;
+		if (!expect(TokKind::Comma, "','"))
+			return false;
+		String msg;
+		if (peek().kind != TokKind::StringLiteral) {
+			fail(peek(), "expected a string literal in _Static_assert");
+			return false;
+		}
+		if (!parseStringLiteral(advance(), msg))
+			return false;
+		while (peek().kind == TokKind::StringLiteral) {
+			String more;
+			if (!parseStringLiteral(advance(), more))
+				return false;
+			msg += more;
+		}
+		if (!expect(TokKind::RParen, "')'"))
+			return false;
+		if (!expect(TokKind::Semicolon, "';'"))
+			return false;
+		I64 v = 0;
+		if (!evalIntConst(cond, v))
+			return false;
+		if (v == 0) {
+			fail(kw, "static assertion failed: " + msg);
+			return false;
+		}
+		return true;
+	}
+
+	B32 Parser::checkObjectComplete(const Declarator& d) {
+		if (d.isExtern)
+			return true;
+		CType ult = d.type;
+		while (ult.array != nullptr && ult.ptr == 0)
+			ult = ult.array->elem;
+		if (isStruct(ult) &&
+				(ult.strukt == nullptr || !ult.strukt->complete)) {
+			fail(peek(), "variable has incomplete type");
+			return false;
+		}
+		return true;
 	}
 
 	Stmt* Parser::parseDeclaration() {
