@@ -2070,25 +2070,90 @@ namespace rat::cc {
 
 	Stmt* Parser::parseDeclaration() {
 		Token start = peek();
-		if (!expect(TokKind::KwInt, "'int'"))
+		if (peek().kind == TokKind::KwStaticAssert) {
+			if (!parseStaticAssert())
+				return nullptr;
+			Stmt* s = arena.make<Stmt>();
+			s->kind = StmtKind::Empty;
+			s->offset = start.offset;
+			return s;
+		}
+		if (peek().kind == TokKind::KwTypedef) {
+			if (!parseTypedef())
+				return nullptr;
+			Stmt* s = arena.make<Stmt>();
+			s->kind = StmtKind::Empty;
+			s->offset = start.offset;
+			return s;
+		}
+		CType base;
+		if (!parseTypeSpec(base)) {
+			fail(peek(), "expected type specifier");
 			return nullptr;
+		}
+		B32 isStatic = sawStatic;
+		B32 isExtern = sawExtern;
 		Stmt* s = arena.make<Stmt>();
 		s->kind = StmtKind::Decl;
 		s->offset = start.offset;
+		if (peek().kind == TokKind::Semicolon) {
+			advance();
+			return s;
+		}
 		for (;;) {
-			if (peek().kind != TokKind::Identifier) {
-				fail(peek(), "expected declarator name");
-				return nullptr;
-			}
-			Token nameTok = advance();
+			CType t = base;
+			parsePointers(t);
 			Declarator d;
-			d.name = arena.make<String>(lex.text(nameTok));
-			d.offset = nameTok.offset;
+			d.isStatic = isStatic;
+			d.isExtern = isExtern;
+			if (looksLikeGroupingParen()) {
+				Token nameTok;
+				B32 haveName = false;
+				CType gt;
+				if (!parseDeclaratorType(t, nameTok, haveName, gt))
+					return nullptr;
+				if (!haveName) {
+					fail(peek(), "expected declarator name");
+					return nullptr;
+				}
+				d.name = arena.make<String>(lex.text(nameTok));
+				bindDeclaratorType(d, gt, nameTok.offset);
+				d.offset = nameTok.offset;
+			} else {
+				if (peek().kind != TokKind::Identifier) {
+					fail(peek(), "expected declarator name");
+					return nullptr;
+				}
+				Token nameTok = advance();
+				if (peek().kind == TokKind::LParen) {
+					B32 more = false;
+					FuncDef* proto = parseFunctionRest(t, nameTok, start, &more);
+					if (!proto)
+						return nullptr;
+					blockProtos.push_back(proto);
+					if (more)
+						continue;
+					return s;
+				}
+				d.name = arena.make<String>(lex.text(nameTok));
+				d.type = t;
+				d.offset = nameTok.offset;
+				if (!parseArraySuffix(d))
+					return nullptr;
+				if (!d.isArray)
+					bindDeclaratorType(d, t, nameTok.offset);
+			}
 			if (accept(TokKind::Assign)) {
-				d.init = parseAssignment();
+				if (isExtern) {
+					fail(start, "'extern' variable cannot have an initializer");
+					return nullptr;
+				}
+				d.init = parseInitializer();
 				if (!d.init)
 					return nullptr;
 			}
+			if (!checkObjectComplete(d))
+				return nullptr;
 			s->decls.push_back(d);
 			if (!accept(TokKind::Comma))
 				break;
@@ -2098,13 +2163,260 @@ namespace rat::cc {
 		return s;
 	}
 
+	Stmt* Parser::parseIf() {
+		Token kw = advance(); // if
+		if (!expect(TokKind::LParen, "'('"))
+			return nullptr;
+		Expr* cond = parseExpression();
+		if (!cond)
+			return nullptr;
+		if (!expect(TokKind::RParen, "')'"))
+			return nullptr;
+		Stmt* thenS = parseStatement();
+		if (!thenS)
+			return nullptr;
+		Stmt* elseS = nullptr;
+		if (accept(TokKind::KwElse)) {
+			elseS = parseStatement();
+			if (!elseS)
+				return nullptr;
+		}
+		Stmt* s = arena.make<Stmt>();
+		s->kind = StmtKind::If;
+		s->offset = kw.offset;
+		s->expr = cond;
+		s->thenBody = thenS;
+		s->elseBody = elseS;
+		return s;
+	}
+
+	Stmt* Parser::parseWhile() {
+		Token kw = advance(); // while
+		if (!expect(TokKind::LParen, "'('"))
+			return nullptr;
+		Expr* cond = parseExpression();
+		if (!cond)
+			return nullptr;
+		if (!expect(TokKind::RParen, "')'"))
+			return nullptr;
+		Stmt* body = parseStatement();
+		if (!body)
+			return nullptr;
+		Stmt* s = arena.make<Stmt>();
+		s->kind = StmtKind::While;
+		s->offset = kw.offset;
+		s->expr = cond;
+		s->thenBody = body;
+		return s;
+	}
+
+	Stmt* Parser::parseDoWhile() {
+		Token kw = advance(); // do
+		Stmt* body = parseStatement();
+		if (!body)
+			return nullptr;
+		if (!expect(TokKind::KwWhile, "'while'"))
+			return nullptr;
+		if (!expect(TokKind::LParen, "'('"))
+			return nullptr;
+		Expr* cond = parseExpression();
+		if (!cond)
+			return nullptr;
+		if (!expect(TokKind::RParen, "')'"))
+			return nullptr;
+		if (!expect(TokKind::Semicolon, "';'"))
+			return nullptr;
+		Stmt* s = arena.make<Stmt>();
+		s->kind = StmtKind::DoWhile;
+		s->offset = kw.offset;
+		s->expr = cond;
+		s->thenBody = body;
+		return s;
+	}
+
+	Stmt* Parser::parseFor() {
+		Token kw = advance(); // for
+		if (!expect(TokKind::LParen, "'('"))
+			return nullptr;
+
+		// init clause
+		Stmt* init = nullptr;
+		if (startsType(peek()) || peek().kind == TokKind::KwTypedef) {
+			init = parseDeclaration();
+			if (!init)
+				return nullptr;
+		} else if (peek().kind != TokKind::Semicolon) {
+			Token at = peek();
+			Expr* e = parseExpression();
+			if (!e)
+				return nullptr;
+			if (!expect(TokKind::Semicolon, "';'"))
+				return nullptr;
+			init = arena.make<Stmt>();
+			init->kind = StmtKind::Expr;
+			init->offset = at.offset;
+			init->expr = e;
+		} else {
+			advance(); // empty init
+		}
+
+		// condition
+		Expr* cond = nullptr;
+		if (peek().kind != TokKind::Semicolon) {
+			cond = parseExpression();
+			if (!cond)
+				return nullptr;
+		}
+		if (!expect(TokKind::Semicolon, "';'"))
+			return nullptr;
+
+		// post expression
+		Expr* post = nullptr;
+		if (peek().kind != TokKind::RParen) {
+			post = parseExpression();
+			if (!post)
+				return nullptr;
+		}
+		if (!expect(TokKind::RParen, "')'"))
+			return nullptr;
+
+		Stmt* body = parseStatement();
+		if (!body)
+			return nullptr;
+
+		Stmt* s = arena.make<Stmt>();
+		s->kind = StmtKind::For;
+		s->offset = kw.offset;
+		s->forInit = init;
+		s->expr = cond;
+		s->forPost = post;
+		s->thenBody = body;
+		return s;
+	}
+
+	Stmt* Parser::parseSwitch() {
+		Token kw = advance(); // switch
+		if (!expect(TokKind::LParen, "'('"))
+			return nullptr;
+		Expr* ctrl = parseExpression();
+		if (!ctrl)
+			return nullptr;
+		if (!expect(TokKind::RParen, "')'"))
+			return nullptr;
+		Stmt* body;
+		if (peek().kind == TokKind::LBrace) {
+			body = parseStatement();
+			if (!body)
+				return nullptr;
+		} else {
+			Stmt* block = arena.make<Stmt>();
+			block->kind = StmtKind::Compound;
+			block->offset = peek().offset;
+			while (peek().kind == TokKind::KwCase ||
+						 peek().kind == TokKind::KwDefault) {
+				Stmt* marker = parseStatement();
+				if (!marker)
+					return nullptr;
+				block->body.push_back(marker);
+			}
+			Stmt* inner = parseStatement();
+			if (!inner)
+				return nullptr;
+			block->body.push_back(inner);
+			body = block;
+		}
+		Stmt* s = arena.make<Stmt>();
+		s->kind = StmtKind::Switch;
+		s->offset = kw.offset;
+		s->expr = ctrl;
+		s->thenBody = body;
+		return s;
+	}
+
 	Stmt* Parser::parseStatement() {
 		const Token& tok = peek();
 		if (tok.kind == TokKind::LBrace)
 			return parseCompound();
 
-		if (tok.kind == TokKind::KwInt)
+		if (tok.kind == TokKind::Identifier && peek2().kind == TokKind::Colon) {
+			Token nameTok = advance();
+			advance(); // ':'
+			Stmt* sub = parseStatement();
+			if (!sub)
+				return nullptr;
+			Stmt* s = arena.make<Stmt>();
+			s->kind = StmtKind::Label;
+			s->offset = nameTok.offset;
+			s->label = arena.make<String>(lex.text(nameTok));
+			s->thenBody = sub;
+			return s;
+		}
+
+		if (tok.kind == TokKind::KwGoto) {
+			Token kw = advance();
+			if (!check(TokKind::Identifier)) {
+				fail(peek(), "expected a label name after 'goto'");
+				return nullptr;
+			}
+			Token nameTok = advance();
+			Stmt* s = arena.make<Stmt>();
+			s->kind = StmtKind::Goto;
+			s->offset = kw.offset;
+			s->label = arena.make<String>(lex.text(nameTok));
+			if (!expect(TokKind::Semicolon, "';'"))
+				return nullptr;
+			return s;
+		}
+
+		if (startsType(tok) || tok.kind == TokKind::KwTypedef ||
+				tok.kind == TokKind::KwStaticAssert)
 			return parseDeclaration();
+
+		if (tok.kind == TokKind::KwIf)
+			return parseIf();
+		if (tok.kind == TokKind::KwWhile)
+			return parseWhile();
+		if (tok.kind == TokKind::KwDo)
+			return parseDoWhile();
+		if (tok.kind == TokKind::KwFor)
+			return parseFor();
+		if (tok.kind == TokKind::KwSwitch)
+			return parseSwitch();
+
+		if (tok.kind == TokKind::KwCase) {
+			Token kw = advance();
+			Expr* value = parseConditional();
+			if (!value)
+				return nullptr;
+			if (!expect(TokKind::Colon, "':'"))
+				return nullptr;
+			Stmt* s = arena.make<Stmt>();
+			s->kind = StmtKind::Case;
+			s->offset = kw.offset;
+			s->expr = value;
+			return s;
+		}
+
+		if (tok.kind == TokKind::KwDefault) {
+			Token kw = advance();
+			if (!expect(TokKind::Colon, "':'"))
+				return nullptr;
+			Stmt* s = arena.make<Stmt>();
+			s->kind = StmtKind::Default;
+			s->offset = kw.offset;
+			return s;
+		}
+
+		if (tok.kind == TokKind::KwBreak || tok.kind == TokKind::KwContinue) {
+			Token kw = advance();
+			Stmt* s = arena.make<Stmt>();
+			s->kind =
+					kw.kind == TokKind::KwBreak ? StmtKind::Break : StmtKind::Continue;
+			s->offset = kw.offset;
+			if (!expect(TokKind::Semicolon, "';'"))
+				return nullptr;
+			return s;
+		}
 
 		if (tok.kind == TokKind::KwReturn) {
 			Token kw = advance();
@@ -2147,6 +2459,9 @@ namespace rat::cc {
 		Stmt* block = arena.make<Stmt>();
 		block->kind = StmtKind::Compound;
 		block->offset = open.offset;
+		Map<String, CType> savedTypedefs = typedefs;
+		Map<String, I64> savedEnumConstants = enumConstants;
+		Map<String, StructType*> savedStructTypes = structTypes;
 		while (!failed && peek().kind != TokKind::RBrace &&
 					 peek().kind != TokKind::Eof) {
 			Stmt* s = parseStatement();
@@ -2154,47 +2469,380 @@ namespace rat::cc {
 				return nullptr;
 			block->body.push_back(s);
 		}
+		typedefs = std::move(savedTypedefs);
+		enumConstants = std::move(savedEnumConstants);
+		structTypes = std::move(savedStructTypes);
 		if (!expect(TokKind::RBrace, "'}'"))
 			return nullptr;
 		return block;
 	}
 
-	FuncDef* Parser::parseFunction() {
-		Token start = peek();
-		if (!expect(TokKind::KwInt, "'int'"))
-			return nullptr;
-		if (peek().kind != TokKind::Identifier) {
-			fail(peek(), "expected function name");
-			return nullptr;
+	B32 Parser::checkParamNames(const FuncDef* fn) {
+		for (U32 i = 0; i < fn->params.size(); i++) {
+			if (!fn->params[i].name)
+				continue;
+			for (U32 j = 0; j < i; j++) {
+				if (fn->params[j].name &&
+						*fn->params[j].name == *fn->params[i].name) {
+					fail(peek(), "redefinition of parameter");
+					return false;
+				}
+			}
 		}
-		Token nameTok = advance();
+		return true;
+	}
+
+	FuncDef* Parser::parseFunctionRest(CType ret, const Token& nameTok,
+																		 const Token& start, B32* moreDeclarators) {
 		if (!expect(TokKind::LParen, "'('"))
-			return nullptr;
-		if (peek().kind == TokKind::KwVoid)
-			advance();
-		if (!expect(TokKind::RParen, "')'"))
 			return nullptr;
 
 		FuncDef* fn = arena.make<FuncDef>();
 		fn->name = lex.text(nameTok);
-		fn->retType = TypeSpec::Int;
+		fn->retType = ret;
 		fn->offset = start.offset;
+
+		if (peek().kind == TokKind::RParen) {
+			fn->unprototyped = true;
+		} else if (peek().kind == TokKind::KwVoid &&
+							 peek2().kind == TokKind::RParen) {
+			advance(); // (void)
+		} else if (peek().kind == TokKind::Identifier && !startsType(peek())) {
+			if (!parseOldStyleParams(fn))
+				return nullptr;
+			if (!checkParamNames(fn))
+				return nullptr;
+			curFuncName = fn->name;
+			fn->body = parseCompound();
+			curFuncName.clear();
+			return fn->body ? fn : nullptr;
+		} else if (peek().kind != TokKind::RParen) {
+			for (;;) {
+				if (peek().kind == TokKind::Ellipsis) {
+					if (fn->params.empty()) {
+						fail(peek(), "'...' must be preceded by a named parameter");
+						return nullptr;
+					}
+					advance();
+					fn->isVarArgs = true;
+					break;
+				}
+				Token pstart = peek();
+				CType pt;
+				if (!parseTypeSpec(pt)) {
+					fail(peek(), "expected parameter type");
+					return nullptr;
+				}
+				parsePointers(pt);
+				Param p;
+				p.offset = pstart.offset;
+				Token pnameTok;
+				B32 haveName = false;
+				CType fpt;
+				if (!parseDeclaratorType(pt, pnameTok, haveName, fpt))
+					return nullptr;
+				pt = fpt;
+				if (isVoidType(pt)) {
+					fail(pstart, "'void' must be the only unnamed parameter");
+					return nullptr;
+				}
+				adjustParamType(pt, &p.vlaBound);
+				p.type = pt;
+				if (haveName)
+					p.name = arena.make<String>(lex.text(pnameTok));
+				fn->params.push_back(p);
+				if (!accept(TokKind::Comma))
+					break;
+			}
+		}
+		if (!expect(TokKind::RParen, "')'"))
+			return nullptr;
+
+		if (accept(TokKind::Semicolon))
+			return fn;
+
+		if (moreDeclarators && peek().kind == TokKind::Comma) {
+			advance();
+			*moreDeclarators = true;
+			return fn;
+		}
+
+		if (!checkParamNames(fn))
+			return nullptr;
+		curFuncName = fn->name;
 		fn->body = parseCompound();
+		curFuncName.clear();
 		if (!fn->body)
 			return nullptr;
 		return fn;
 	}
 
+	B32 Parser::parseOldStyleParams(FuncDef* fn) {
+		for (;;) {
+			Token nameTok = peek();
+			if (nameTok.kind != TokKind::Identifier) {
+				fail(nameTok, "expected parameter name");
+				return false;
+			}
+			advance();
+			Param p;
+			p.name = arena.make<String>(lex.text(nameTok));
+			p.type = ctInt();
+			p.offset = nameTok.offset;
+			fn->params.push_back(p);
+			if (!accept(TokKind::Comma))
+				break;
+		}
+		if (!expect(TokKind::RParen, "')'"))
+			return false;
+		while (startsType(peek())) {
+			CType base;
+			if (!parseTypeSpec(base)) {
+				fail(peek(), "expected parameter type");
+				return false;
+			}
+			for (;;) {
+				CType t = base;
+				Token pnameTok;
+				B32 haveName = false;
+				CType decl;
+				if (!parseDeclaratorType(t, pnameTok, haveName, decl))
+					return false;
+				if (!haveName) {
+					fail(peek(), "expected parameter name");
+					return false;
+				}
+				adjustParamType(decl);
+				String name = lex.text(pnameTok);
+				B32 matched = false;
+				for (U32 i = 0; i < fn->params.size(); i++) {
+					if (fn->params[i].name && *fn->params[i].name == name) {
+						fn->params[i].type = decl;
+						matched = true;
+						break;
+					}
+				}
+				if (!matched) {
+					fail(pnameTok, "parameter named in declaration is not in the "
+												 "identifier list");
+					return false;
+				}
+				if (!accept(TokKind::Comma))
+					break;
+			}
+			if (!expect(TokKind::Semicolon, "';'"))
+				return false;
+		}
+		return true;
+	}
+
+	Stmt* Parser::parseGlobalRest(CType base, Declarator first,
+																const Token& start) {
+		Stmt* s = arena.make<Stmt>();
+		s->kind = StmtKind::Decl;
+		s->offset = start.offset;
+		Declarator d = first;
+		for (;;) {
+			CType raw = d.type;
+			if (!parseArraySuffix(d))
+				return nullptr;
+			if (!d.isArray)
+				bindDeclaratorType(d, raw, d.offset);
+			if (accept(TokKind::Assign)) {
+				d.init = parseInitializer();
+				if (!d.init)
+					return nullptr;
+			}
+			if (!checkObjectComplete(d))
+				return nullptr;
+			s->decls.push_back(d);
+			if (!accept(TokKind::Comma))
+				break;
+			CType t = base;
+			parsePointers(t);
+			Declarator prev = d;
+			d = Declarator{};
+			d.isExtern = prev.isExtern;
+			d.isStatic = prev.isStatic;
+			if (looksLikeGroupingParen()) {
+				Token nameTok;
+				B32 haveName = false;
+				CType gt;
+				if (!parseDeclaratorType(t, nameTok, haveName, gt))
+					return nullptr;
+				if (!haveName) {
+					fail(peek(), "expected declarator name");
+					return nullptr;
+				}
+				d.name = arena.make<String>(lex.text(nameTok));
+				bindDeclaratorType(d, gt, nameTok.offset);
+				d.offset = nameTok.offset;
+			} else {
+				if (peek().kind != TokKind::Identifier) {
+					fail(peek(), "expected declarator name");
+					return nullptr;
+				}
+				Token nameTok = advance();
+				d.name = arena.make<String>(lex.text(nameTok));
+				d.type = t;
+				d.offset = nameTok.offset;
+			}
+		}
+		if (!expect(TokKind::Semicolon, "';'"))
+			return nullptr;
+		return s;
+	}
+
+	B32 Parser::parseSharedDeclarators(CType base, TransUnit* unit,
+																		 const Token& start) {
+		for (;;) {
+			CType t = base;
+			parsePointers(t);
+			if (peek().kind != TokKind::Identifier) {
+				fail(peek(), "expected declarator name");
+				return false;
+			}
+			Token nameTok = advance();
+			if (peek().kind == TokKind::LParen) {
+				B32 more = false;
+				FuncDef* fn = parseFunctionRest(t, nameTok, start, &more);
+				if (!fn)
+					return false;
+				unit->functions.push_back(fn);
+				if (more)
+					continue;
+				return true;
+			}
+			Declarator d;
+			d.name = arena.make<String>(lex.text(nameTok));
+			d.type = t;
+			d.offset = nameTok.offset;
+			Stmt* g = parseGlobalRest(base, d, start);
+			if (!g)
+				return false;
+			unit->globals.push_back(g);
+			return true;
+		}
+	}
+
+	B32 Parser::registerFuncDef(FuncDef* fn) {
+		if (!fn->body)
+			return true;
+		auto it = funcDefs.find(fn->name);
+		if (it != funcDefs.end()) {
+			fail(peek(), "redefinition of function");
+			return false;
+		}
+		funcDefs.emplace(fn->name, fn);
+		return true;
+	}
+
 	TransUnit* Parser::parseUnit() {
 		TransUnit* unit = arena.make<TransUnit>();
 		while (!failed && peek().kind != TokKind::Eof) {
-			FuncDef* fn = parseFunction();
-			if (!fn)
+			Token start = peek();
+			if (peek().kind == TokKind::KwStaticAssert) {
+				if (!parseStaticAssert())
+					return nullptr;
+				continue;
+			}
+			if (peek().kind == TokKind::KwTypedef) {
+				if (!parseTypedef())
+					return nullptr;
+				continue;
+			}
+			CType base;
+			if (!parseTypeSpec(base)) {
+				fail(peek(), "expected type specifier");
 				return nullptr;
-			unit->functions.push_back(fn);
+			}
+			B32 gExtern = sawExtern;
+			B32 gExternInline = sawExtern && sawInline;
+			CType first = base;
+			parsePointers(first);
+			if (first.ptr == 0 && peek().kind == TokKind::Semicolon) {
+				advance();
+				continue;
+			}
+
+			if (looksLikeFuncPtr()) {
+				Token nameTok;
+				CType fpt;
+				if (!parseFuncPtrDeclarator(first, nameTok, fpt))
+					return nullptr;
+
+				if (fpt.func && fpt.ptr == 0) {
+					FuncDef* fn = arena.make<FuncDef>();
+					fn->name = lex.text(nameTok);
+					fn->retType = fpt.func->ret;
+					fn->isVarArgs = fpt.func->isVarArgs;
+					fn->offset = start.offset;
+					for (U32 i = 0; i < fpt.func->params.size(); ++i) {
+						Param p;
+						p.type = fpt.func->params[i];
+						if (i < fpt.func->paramNames.size())
+							p.name = fpt.func->paramNames[i];
+						fn->params.push_back(p);
+					}
+					if (accept(TokKind::Semicolon)) {
+						unit->functions.push_back(fn); // prototype
+						continue;
+					}
+					curFuncName = fn->name;
+					fn->body = parseCompound();
+					curFuncName.clear();
+					if (!fn->body)
+						return nullptr;
+					if (!registerFuncDef(fn))
+						return nullptr;
+					unit->functions.push_back(fn);
+					continue;
+				}
+				Declarator d;
+				d.isExtern = gExtern;
+				d.name = arena.make<String>(lex.text(nameTok));
+				bindDeclaratorType(d, fpt, nameTok.offset);
+				d.offset = nameTok.offset;
+				Stmt* g = parseGlobalRest(base, d, start);
+				if (!g)
+					return nullptr;
+				unit->globals.push_back(g);
+				continue;
+			}
+			if (peek().kind != TokKind::Identifier) {
+				fail(peek(), "expected name");
+				return nullptr;
+			}
+			Token nameTok = advance();
+			if (peek().kind == TokKind::LParen) {
+				B32 more = false;
+				FuncDef* fn = parseFunctionRest(first, nameTok, start, &more);
+				if (!fn)
+					return nullptr;
+				fn->isExternInline = gExternInline;
+				if (!registerFuncDef(fn))
+					return nullptr;
+				unit->functions.push_back(fn);
+				if (more) {
+					if (!parseSharedDeclarators(base, unit, start))
+						return nullptr;
+				}
+			} else {
+				Declarator d;
+				d.isExtern = gExtern;
+				d.name = arena.make<String>(lex.text(nameTok));
+				d.type = first;
+				d.offset = nameTok.offset;
+				Stmt* g = parseGlobalRest(base, d, start);
+				if (!g)
+					return nullptr;
+				unit->globals.push_back(g);
+			}
 		}
 		if (failed)
 			return nullptr;
+		for (FuncDef* proto : blockProtos)
+			unit->functions.push_back(proto);
 		return unit;
 	}
 } // namespace rat::cc
