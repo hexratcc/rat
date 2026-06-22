@@ -23,7 +23,8 @@ SRCS     := $(CORE) main.cpp Runner.cpp
 BIN      := $(ROOT)/bin/ratcc
 TESTBIN  := $(ROOT)/bin/ratcc-test
 
-CASES    := $(wildcard cases/*.c)
+CASES    := $(wildcard cases/custom/*.c) $(wildcard cases/c-testsuite/*.c) \
+            $(wildcard cases/gcc-torture/*.c) $(wildcard cases/c99/*.c)
 
 .PHONY: all test run format clean
 all: $(BIN) $(TESTBIN)
