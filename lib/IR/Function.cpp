@@ -1,6 +1,6 @@
 #include "IR/Function.h"
 
-#include "CodeGen/Target.h"
+#include "Target/Target.h"
 #include "IR/Module.h"
 
 namespace rat {

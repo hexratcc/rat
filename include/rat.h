@@ -4,7 +4,7 @@
 #include "IR/Module.h"
 
 #include "CodeGen/Schedule.h"
-#include "CodeGen/Target.h"
+#include "Target/Target.h"
 
 #include "Pass/PassManager.h"
 #include "Pass/PassRegistry.h"

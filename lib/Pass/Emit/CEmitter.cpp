@@ -1,7 +1,7 @@
 #include "Pass/Emit/CEmitter.h"
 
 #include "CodeGen/Schedule.h"
-#include "CodeGen/Target.h"
+#include "Target/Target.h"
 #include "IR/Function.h"
 #include "IR/Module.h"
 #include "IR/Node.h"

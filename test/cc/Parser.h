@@ -4,7 +4,7 @@
 #include "Ast.h"
 #include "Lexer.h"
 
-#include "CodeGen/Target.h"
+#include "Target/Target.h"
 
 #include <functional>
 

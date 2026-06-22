@@ -1,6 +1,6 @@
 #include "IR/Module.h"
 
-#include "CodeGen/Target.h"
+#include "Target/Target.h"
 
 namespace rat {
 	Global::Global(String name, Type* type, B32 isConst, List<U8> init,
