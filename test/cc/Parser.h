@@ -4,9 +4,13 @@
 #include "Ast.h"
 #include "Lexer.h"
 
+#include "CodeGen/Target.h"
+
+#include <functional>
+
 namespace rat::cc {
 	struct Parser {
-		Parser(Lexer& lexer, Arena& arena);
+		Parser(Lexer& lexer, Arena& arena, const TargetInfo& target);
 
 		TransUnit* parseUnit();
 
@@ -16,6 +20,7 @@ namespace rat::cc {
 	private:
 		// token cursor
 		const Token& peek() { return lex.peek(); }
+		const Token& peek2() { return lex.peek2(); }
 		Token advance() { return lex.next(); }
 		B32 check(TokKind kind) { return peek().kind == kind; }
 		B32 accept(TokKind kind);
@@ -47,6 +52,7 @@ namespace rat::cc {
 
 		Lexer& lex;
 		Arena& arena;
+		const TargetInfo& target;
 		B32 failed = false;
 		String errMsg;
 	};

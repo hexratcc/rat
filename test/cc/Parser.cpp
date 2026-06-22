@@ -1,5 +1,7 @@
 #include "Parser.h"
 
+#include "CharClass.h"
+
 namespace rat::cc {
 	namespace {
 		struct BinInfo {
@@ -110,7 +112,16 @@ namespace rat::cc {
 		}
 	} // namespace
 
-	Parser::Parser(Lexer& lexer, Arena& arena) : lex(lexer), arena(arena) {}
+	Parser::Parser(Lexer& lexer, Arena& arena, const TargetInfo& target)
+			: lex(lexer), arena(arena), target(target) {
+		ArrayType* vl = arena.make<ArrayType>();
+		vl->elem = CType{8, true, false, 0}; // unsigned char
+		vl->count = target.getPointerSizeInBytes() * 4;
+		CType vaList{8, true, false, 0};
+		vaList.array = vl;
+		typedefs["va_list"] = vaList;
+		typedefs["__builtin_va_list"] = vaList;
+	}
 
 	void Parser::fail(const Token& at, const String& msg) {
 		if (failed)
