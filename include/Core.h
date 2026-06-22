@@ -12,6 +12,11 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <cstring>
+#include <cctype>
+#include <cstdlib>
+#include <ctime>
+#include <deque>
 
 namespace rat {
 	using U8 = uint8_t;
