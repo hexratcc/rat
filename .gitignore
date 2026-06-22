@@ -4,3 +4,6 @@ build
 compile_commands.json
 *.idx
 *.out
+fred.txt
+*.o
+profile.perf
