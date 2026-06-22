@@ -206,14 +206,45 @@ namespace rat::cc {
 
 	enum class ExprKind : U8 {
 		IntLit,
+		FloatLit,
+		StrLit,
 		Ident,
+		Call,
+		Cast,
+		Sizeof,
 		Unary,
-		Binary, // also assignment (op in the assignment range)
+		Binary,
 		Ternary,
 		Comma,
+		Member,			 // s.field or p->field
+		InitList,		 // { a, b, c } brace initializer
+		CompoundLit, // (type){ ... } C99 compound literal
+		VaArg,			 // __builtin_va_arg(ap, type)
+		StmtExpr,		 // GNU statement expression ({ stmts; value; })
+		Generic,		 // C11 _Generic(ctrl, type: expr, ..., default: expr)
 	};
 
+	struct Expr;
+
+	struct GenericAssoc {
+		B32 isDefault = false;
+		CType type; 
+		Expr* result = nullptr;
+	};
+
+	struct Designator {
+		B32 isSet = false;
+		B32 isIndex = false;
+		I64 index = 0;
+		const String* field = nullptr;
+		const Designator* next = nullptr;
+	};
+
+	struct Stmt;
+
 	struct Expr {
+		Expr() {}
+
 		ExprKind kind = ExprKind::IntLit;
 		U32 offset = 0; // byte offset of the leading token (diagnostics)
 		union {
@@ -223,8 +254,31 @@ namespace rat::cc {
 				B32 isLong;
 			} intLit;
 			struct {
+				long double value;
+				B32 isFloat;
+				B32 isLongDouble;
+				B32 isImaginary;
+			} floatLit;
+			struct {
+				const String* bytes;
+				B32 isWide;
+				U32 charSize;
+			} str;
+			struct {
 				const String* name; // arena-owned identifier spelling
 			} ident;
+			struct {
+				const String* callee;
+				Expr* target;
+			} call;
+			struct {
+				CType type;
+				Expr* operand;
+			} cast;
+			struct {
+				CType type;
+				Expr* operand;
+			} sizeOf;
 			struct {
 				ExprOp op;
 				Expr* operand;
@@ -243,48 +297,143 @@ namespace rat::cc {
 				Expr* lhs;
 				Expr* rhs;
 			} comma;
+			struct {
+				Expr* base;
+				const String* name;
+				B32 arrow;
+			} member;
+			struct {
+				CType type;
+				Expr* init;
+				Expr* arrayLen;
+				B32 isArray;
+			} compound;
+			struct {
+				Expr* ap;
+				CType type;
+			} vaArg;
+			struct {
+				Stmt* body;
+			} stmtExpr;
+			struct {
+				Expr* control;
+			} generic;
 		};
+		List<Expr*> args;
+		List<Designator> designators;
+		List<GenericAssoc> assocs;
 	};
 
 	enum class StmtKind : U8 {
 		Compound,
 		Decl,
+		If,
+		While,
+		DoWhile,
+		For,
+		Switch,
+		Case,
+		Default,
+		Break,
+		Continue,
 		Return,
 		Expr,
 		Empty,
+		Label,
+		Goto,
 	};
 
 	struct Declarator {
 		const String* name = nullptr;
 		Expr* init = nullptr; // optional initializer
+		CType type = ctInt();
+		B32 isArray = false;
+		Expr* arrayLen = nullptr;
+		B32 isStatic = false;
+		B32 isExtern = false;
 		U32 offset = 0;
 	};
 
 	struct Stmt {
 		StmtKind kind = StmtKind::Empty;
 		U32 offset = 0;
-		Expr* expr = nullptr;     // Return (may be null), Expr
-		List<Stmt*> body;         // Compound only
-		List<Declarator> decls;   // Decl only
+		Expr* expr = nullptr;
+		List<Stmt*> body;
+		List<Declarator> decls;
+		Stmt* thenBody = nullptr;
+		Stmt* elseBody = nullptr;
+		Stmt* forInit = nullptr;
+		Expr* forPost = nullptr;
+		const String* label = nullptr;
 	};
 
-	enum class TypeSpec : U8 {
-		Int,
+	CType promote(CType t);
+	CType defaultArgPromote(CType t);
+	CType usualArithmetic(CType a, CType b);
+	String typeName(CType t);
+
+	struct Param {
+		const String* name = nullptr;
+		CType type = ctInt();
+		U32 offset = 0;
+		const Expr* vlaBound = nullptr;
 	};
 
 	struct FuncDef {
 		String name;
-		TypeSpec retType = TypeSpec::Int;
+		CType retType = ctInt();
+		List<Param> params;
+		B32 isVarArgs = false;
+		B32 unprototyped = false;
+		B32 isExternInline = false;
 		Stmt* body = nullptr; // compound statement
 		U32 offset = 0;
 	};
 
 	struct TransUnit {
 		List<FuncDef*> functions;
+		List<Stmt*> globals;
 	};
 
 	constexpr B32 isAssignOp(ExprOp op) {
 		return op >= ExprOp::Assign && op <= ExprOp::XorAssign;
+	}
+
+	constexpr B32 compoundBaseOp(ExprOp op, ExprOp& base) {
+		switch (op) {
+		case ExprOp::AddAssign:
+			base = ExprOp::Add;
+			return true;
+		case ExprOp::SubAssign:
+			base = ExprOp::Sub;
+			return true;
+		case ExprOp::MulAssign:
+			base = ExprOp::Mul;
+			return true;
+		case ExprOp::DivAssign:
+			base = ExprOp::Div;
+			return true;
+		case ExprOp::RemAssign:
+			base = ExprOp::Rem;
+			return true;
+		case ExprOp::ShlAssign:
+			base = ExprOp::Shl;
+			return true;
+		case ExprOp::ShrAssign:
+			base = ExprOp::Shr;
+			return true;
+		case ExprOp::AndAssign:
+			base = ExprOp::BitAnd;
+			return true;
+		case ExprOp::OrAssign:
+			base = ExprOp::BitOr;
+			return true;
+		case ExprOp::XorAssign:
+			base = ExprOp::BitXor;
+			return true;
+		default:
+			return false;
+		}
 	}
 
 	const char* exprOpName(ExprOp op);
