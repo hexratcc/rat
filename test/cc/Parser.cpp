@@ -92,6 +92,72 @@ namespace rat::cc {
 			}
 		}
 
+		void utf8Encode(String& out, U32 cp) {
+			if (cp < 0x80) {
+				out.push_back((char)cp);
+			} else if (cp < 0x800) {
+				out.push_back((char)(0xC0 | (cp >> 6)));
+				out.push_back((char)(0x80 | (cp & 0x3F)));
+			} else if (cp < 0x10000) {
+				out.push_back((char)(0xE0 | (cp >> 12)));
+				out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+				out.push_back((char)(0x80 | (cp & 0x3F)));
+			} else {
+				out.push_back((char)(0xF0 | (cp >> 18)));
+				out.push_back((char)(0x80 | ((cp >> 12) & 0x3F)));
+				out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
+				out.push_back((char)(0x80 | (cp & 0x3F)));
+			}
+		}
+
+		B32 isTypeQualifier(TokKind kind) {
+			switch (kind) {
+			case TokKind::KwConst:
+			case TokKind::KwVolatile:
+			case TokKind::KwRestrict:
+				return true;
+			default:
+				return false;
+			}
+		}
+
+		B32 isQualOrStorage(TokKind kind) {
+			switch (kind) {
+			case TokKind::KwStatic:
+			case TokKind::KwExtern:
+			case TokKind::KwRegister:
+			case TokKind::KwAuto:
+			case TokKind::KwInline:
+				return true;
+			default:
+				return isTypeQualifier(kind);
+			}
+		}
+
+		B32 isTypeStart(TokKind kind) {
+			switch (kind) {
+			case TokKind::KwVoid:
+			case TokKind::KwBool:
+			case TokKind::KwChar:
+			case TokKind::KwShort:
+			case TokKind::KwInt:
+			case TokKind::KwLong:
+			case TokKind::KwFloat:
+			case TokKind::KwDouble:
+			case TokKind::KwSigned:
+			case TokKind::KwUnsigned:
+			case TokKind::KwComplex:
+			case TokKind::KwImaginary:
+			case TokKind::KwEnum:
+			case TokKind::KwStruct:
+			case TokKind::KwUnion:
+			case TokKind::KwTypeof:
+				return true;
+			default:
+				return isQualOrStorage(kind);
+			}
+		}
+
 		B32 unaryOp(TokKind kind, ExprOp& op) {
 			switch (kind) {
 			case TokKind::Plus:
@@ -106,10 +172,52 @@ namespace rat::cc {
 			case TokKind::Tilde:
 				op = ExprOp::BitNot;
 				return true;
+			case TokKind::Amp:
+				op = ExprOp::Addr;
+				return true;
+			case TokKind::Star:
+				op = ExprOp::Deref;
+				return true;
+			case TokKind::KwReal:
+				op = ExprOp::Real;
+				return true;
+			case TokKind::KwImag:
+				op = ExprOp::Imag;
+				return true;
 			default:
 				return false;
 			}
 		}
+
+		String decodeUtf8ToUtf32LE(const String& bytes) {
+			String w;
+			U32 i = 0, n = (U32)bytes.size();
+			while (i < n) {
+				U8 b0 = (U8)bytes[i];
+				U32 cp = 0, extra = 0;
+				if (b0 < 0x80) {
+					cp = b0;
+				} else if ((b0 & 0xE0) == 0xC0) {
+					cp = b0 & 0x1F;
+					extra = 1;
+				} else if ((b0 & 0xF0) == 0xE0) {
+					cp = b0 & 0x0F;
+					extra = 2;
+				} else if ((b0 & 0xF8) == 0xF0) {
+					cp = b0 & 0x07;
+					extra = 3;
+				} else {
+					cp = b0;
+				}
+				++i;
+				for (U32 k = 0; k < extra && i < n; ++k, ++i)
+					cp = (cp << 6) | ((U8)bytes[i] & 0x3F);
+				for (U32 k = 0; k < 4; ++k)
+					w.push_back((char)(U8)(cp >> (8 * k)));
+			}
+			return w;
+		}
+
 	} // namespace
 
 	Parser::Parser(Lexer& lexer, Arena& arena, const TargetInfo& target)
@@ -213,31 +321,370 @@ namespace rat::cc {
 
 		U64 v = 0;
 		for (U32 i = start; i < end; ++i) {
-			char c = s[i];
-			I32 d;
-			if (c >= '0' && c <= '9')
-				d = c - '0';
-			else if (c >= 'a' && c <= 'f')
-				d = c - 'a' + 10;
-			else if (c >= 'A' && c <= 'F')
-				d = c - 'A' + 10;
-			else {
-				fail(tok, "invalid digit in integer constant");
-				return false;
-			}
-			if (d >= base) {
+			I32 d = hexVal(s[i]);
+			if (d < 0 || d >= base) {
 				fail(tok, "invalid digit in integer constant");
 				return false;
 			}
 			v = v * (U64)base + (U64)d;
 		}
 
+		B32 dec = (base == 10);
+		B32 fitsI32 = v <= 0x7fffffffULL;
+		B32 fitsU32 = v <= 0xffffffffULL;
+		B32 fitsI64 = v <= 0x7fffffffffffffffULL;
+		if (isUnsigned) {
+			// unsigned int, then unsigned long
+			isLong = isLong || !fitsU32;
+		} else if (isLong) {
+			// long, then unsigned long
+			if (!fitsI64)
+				isUnsigned = true;
+		} else if (dec) {
+			if (!fitsI32)
+				isLong = true;
+		} else {
+			// hex/octal: int, unsigned int, long, unsigned long
+			if (fitsI32) {
+				// int
+			} else if (fitsU32) {
+				isUnsigned = true; // unsigned int (32-bit)
+			} else if (fitsI64) {
+				isLong = true; // long
+			} else {
+				isLong = true;
+				isUnsigned = true; // unsigned long
+			}
+		}
+
 		value = (I64)v;
 		return true;
 	}
 
+	static U32 escapeMaxVal(char prefix) {
+		switch (prefix) {
+		case 'u':
+			return 0xFFFFu;
+		case 'L':
+		case 'U':
+			return 0xFFFFFFFFu;
+		default:
+			return 0xFFu;
+		}
+	}
+
+	B32 Parser::decodeEscape(const String& s, U32& i, U32 end, const Token& tok,
+													 U32 maxVal, U8& out) {
+		if (i >= end) {
+			fail(tok, "unterminated escape");
+			return false;
+		}
+		char e = s[i++];
+		if (simpleEscape(e, out))
+			return true;
+		switch (e) {
+		case '?':
+			out = '?';
+			return true;
+		case 'x': {
+			if (i >= end || !isHexDigit(s[i])) {
+				fail(tok, "expected hex digits in escape");
+				return false;
+			}
+			U32 hv = 0;
+			while (i < end && isHexDigit(s[i]))
+				hv = hv * 16 + (U32)hexVal(s[i++]);
+			if (hv > maxVal) {
+				fail(tok, "hex escape out of range");
+				return false;
+			}
+			out = (U8)hv;
+			return true;
+		}
+		default:
+			if (isOctalDigit(e)) {
+				// octal escape
+				U32 ov = (U32)(e - '0');
+				for (U32 k = 0; k < 2 && i < end && isOctalDigit(s[i]); ++k, ++i)
+					ov = ov * 8 + (U32)(s[i] - '0');
+				if (ov > maxVal) {
+					fail(tok, "octal escape out of range");
+					return false;
+				}
+				out = (U8)ov;
+			} else {
+				out = (U8)e; // unknown escape: take the character literally
+			}
+			return true;
+		}
+	}
+
+	B32 Parser::decodeUcn(const String& s, U32& i, U32 end, const Token& tok,
+												U32& cp) {
+		char kind = s[i++]; // 'u' or 'U'
+		U32 ndigits = (kind == 'u') ? 4 : 8;
+		if (i + ndigits > end) {
+			fail(tok, "incomplete universal character name");
+			return false;
+		}
+		U32 v = 0;
+		for (U32 k = 0; k < ndigits; ++k) {
+			if (!isHexDigit(s[i + k])) {
+				fail(tok, "universal character name requires hex digits");
+				return false;
+			}
+			v = v * 16 + (U32)hexVal(s[i + k]);
+		}
+		i += ndigits;
+		if ((v >= 0xD800 && v <= 0xDFFF) || v > 0x10FFFF) {
+			fail(tok, "invalid universal character name");
+			return false;
+		}
+		cp = v;
+		return true;
+	}
+
+	B32 Parser::parseCharLiteral(const Token& tok, I64& value) {
+		String s = lex.text(tok);
+		U32 maxVal = escapeMaxVal(s.size() ? s[0] : '\'');
+		// Skip any encoding prefix
+		U32 i = 0;
+		while (i < s.size() && s[i] != '\'')
+			++i;
+		++i;
+		U32 end = (U32)s.size();
+		if (end > 0 && s[end - 1] == '\'')
+			--end;
+
+		if (i >= end) {
+			fail(tok, "empty character constant");
+			return false;
+		}
+
+		I64 v = 0;
+		U32 count = 0;
+		while (i < end) {
+			I64 c;
+			if (s[i] == '\\') {
+				++i;
+				if (i < end && (s[i] == 'u' || s[i] == 'U')) {
+					U32 cp;
+					if (!decodeUcn(s, i, end, tok, cp))
+						return false;
+					c = (I64)cp;
+				} else {
+					U8 byte;
+					if (!decodeEscape(s, i, end, tok, maxVal, byte))
+						return false;
+					c = (I64)(I8)byte;
+				}
+			} else {
+				c = (U8)s[i++];
+			}
+			if (count == 0)
+				v = c;
+			else
+				v = (v << 8) | (c & 0xff);
+			++count;
+		}
+		value = v;
+		return true;
+	}
+
+	B32 Parser::parseStringLiteral(const Token& tok, String& out) {
+		String s = lex.text(tok);
+		U32 maxVal = (s.size() && s[0] == 'u' && s.size() > 1 && s[1] == '8')
+										 ? 0xFFu
+										 : escapeMaxVal(s.size() ? s[0] : '"');
+		U32 i = 0;
+		while (i < s.size() && s[i] != '"')
+			++i;
+		++i;
+		U32 end = (U32)s.size();
+		if (end > 0 && s[end - 1] == '"')
+			--end;
+		while (i < end) {
+			char c = s[i++];
+			if (c != '\\') {
+				out.push_back(c);
+				continue;
+			}
+			if (i < end && (s[i] == 'u' || s[i] == 'U')) {
+				U32 cp;
+				if (!decodeUcn(s, i, end, tok, cp))
+					return false;
+				utf8Encode(out, cp);
+				continue;
+			}
+			U8 byte;
+			if (!decodeEscape(s, i, end, tok, maxVal, byte))
+				return false;
+			out.push_back((char)byte);
+		}
+		return true;
+	}
+
+	Expr* Parser::parseBuiltinOffsetof(const Token& kw) {
+		if (!expect(TokKind::LParen, "'('"))
+			return nullptr;
+		CType ty;
+		if (!parseTypeSpec(ty)) {
+			fail(peek(), "expected a type in __builtin_offsetof");
+			return nullptr;
+		}
+		if (!expect(TokKind::Comma, "','"))
+			return nullptr;
+		// member-designator: identifier ('.' identifier | '[' const ']')*
+		if (peek().kind != TokKind::Identifier) {
+			fail(peek(), "expected a member name in __builtin_offsetof");
+			return nullptr;
+		}
+		I64 off = 0;
+		CType cur = ty;
+		B32 first = true;
+		for (;;) {
+			if (first || accept(TokKind::Dot)) {
+				first = false;
+				if (peek().kind != TokKind::Identifier) {
+					fail(peek(), "expected a member name in __builtin_offsetof");
+					return nullptr;
+				}
+				Token m = advance();
+				if (!isStruct(cur)) {
+					fail(m, "__builtin_offsetof of a member of a non-struct type");
+					return nullptr;
+				}
+				const Field* f = cur.strukt->find(lex.text(m));
+				if (!f) {
+					fail(m, "no such member in __builtin_offsetof");
+					return nullptr;
+				}
+				off += f->offset;
+				cur = f->type; // element type for array members
+			} else if (accept(TokKind::LBracket)) {
+				Expr* ix = parseConditional();
+				I64 v = 0;
+				if (!ix || !evalIntConst(ix, v)) {
+					fail(peek(), "array index in __builtin_offsetof must be constant");
+					return nullptr;
+				}
+				if (!expect(TokKind::RBracket, "']'"))
+					return nullptr;
+				off += v * (I64)typeSizeBytes(cur);
+			} else {
+				break;
+			}
+		}
+		if (!expect(TokKind::RParen, "')'"))
+			return nullptr;
+		return makeInt(kw, off, true, true);
+	}
+
+	B32 Parser::parseTypeName(CType& out) {
+		CType ty;
+		if (!parseTypeSpec(ty))
+			return false;
+		parsePointers(ty);
+		if (looksLikeFuncPtr()) { // abstract function-pointer/grouped type
+			Token ignored;
+			B32 hn = false;
+			CType ft;
+			if (!parseDeclaratorType(ty, ignored, hn, ft))
+				return false;
+			ty = ft;
+		} else if (check(TokKind::LBracket)) { // array type-name: T[N] or T[]
+			List<Dim> dims;
+			while (accept(TokKind::LBracket)) {
+				Dim d{0, nullptr};
+				if (peek().kind != TokKind::RBracket) {
+					Expr* len = parseConditional();
+					if (!len)
+						return false;
+					I64 v = 0;
+					if (tryEvalIntConst(len, v) && v > 0)
+						d.count = (U32)v;
+					else
+						d.expr = len; // VLA
+				}
+				if (!expect(TokKind::RBracket, "']'"))
+					return false;
+				dims.push_back(d);
+			}
+			ty = wrapArrayDims(ty, dims);
+		}
+		out = ty;
+		return true;
+	}
+
+	Expr* Parser::parseGeneric() {
+		Token kw = advance(); // _Generic
+		if (!expect(TokKind::LParen, "'('"))
+			return nullptr;
+		Expr* control = parseAssignment();
+		if (!control)
+			return nullptr;
+		Expr* e = makeExpr(ExprKind::Generic, kw.offset);
+		e->generic.control = control;
+		while (accept(TokKind::Comma)) {
+			GenericAssoc assoc;
+			if (peek().kind == TokKind::KwDefault) {
+				advance();
+				assoc.isDefault = true;
+			} else {
+				if (!parseTypeName(assoc.type))
+					return nullptr;
+			}
+			if (!expect(TokKind::Colon, "':'"))
+				return nullptr;
+			Expr* result = parseAssignment();
+			if (!result)
+				return nullptr;
+			assoc.result = result;
+			e->assocs.push_back(assoc);
+		}
+		if (!expect(TokKind::RParen, "')'"))
+			return nullptr;
+		return e;
+	}
+
 	Expr* Parser::parsePrimary() {
 		const Token& tok = peek();
+		if (tok.kind == TokKind::KwGeneric)
+			return parseGeneric();
+		if (tok.kind == TokKind::StringLiteral) {
+			Token first = advance();
+			String head = lex.text(first);
+			B32 wide = !head.empty() && head[0] == 'L';
+			String bytes;
+			if (!parseStringLiteral(first, bytes))
+				return nullptr;
+			while (peek().kind == TokKind::StringLiteral) {
+				String h2 = lex.text(peek());
+				if (!h2.empty() && h2[0] == 'L')
+					wide = true;
+				if (!parseStringLiteral(advance(), bytes))
+					return nullptr;
+			}
+			Expr* e = makeExpr(ExprKind::StrLit, first.offset);
+			if (wide) {
+				String w = decodeUtf8ToUtf32LE(bytes);
+				e->str.bytes = arena.make<String>(std::move(w));
+				e->str.isWide = true;
+				e->str.charSize = 4;
+			} else {
+				e->str.bytes = arena.make<String>(std::move(bytes));
+				e->str.isWide = false;
+				e->str.charSize = 1;
+			}
+			return e;
+		}
+		if (tok.kind == TokKind::CharConstant) {
+			Token lit = advance();
+			I64 value;
+			if (!parseCharLiteral(lit, value))
+				return nullptr;
+			return makeInt(lit, value, false, false);
+		}
 		if (tok.kind == TokKind::IntConstant) {
 			Token lit = advance();
 			I64 value;
@@ -246,12 +693,56 @@ namespace rat::cc {
 				return nullptr;
 			return makeInt(lit, value, isUnsigned, isLong);
 		}
+		if (tok.kind == TokKind::FloatConstant) {
+			Token lit = advance();
+			String text = lex.text(lit);
+			B32 isFloat = false, isLongDouble = false, isImaginary = false;
+			while (!text.empty()) {
+				char c = text.back();
+				if (c == 'f' || c == 'F')
+					isFloat = true;
+				else if (c == 'l' || c == 'L')
+					isLongDouble = true;
+				else if (c == 'i' || c == 'I' || c == 'j' || c == 'J')
+					isImaginary = true;
+				else
+					break;
+				text.pop_back();
+			}
+			long double value = std::stold(text);
+			Expr* e = makeExpr(ExprKind::FloatLit, lit.offset);
+			e->floatLit = {value, isFloat, isLongDouble, isImaginary};
+			return e;
+		}
 		if (tok.kind == TokKind::Identifier) {
 			Token id = advance();
+			// __func__
+			if (lex.text(id) == "__func__") {
+				Expr* e = makeExpr(ExprKind::StrLit, id.offset);
+				e->str.bytes = arena.make<String>(curFuncName);
+				return e;
+			}
+			// __builtin_offsetof(type, member)
+			if (lex.text(id) == "__builtin_offsetof")
+				return parseBuiltinOffsetof(id);
+			auto ec = enumConstants.find(lex.text(id));
+			if (ec != enumConstants.end())
+				return makeInt(id, ec->second, false, false);
 			return makeIdent(id);
 		}
 		if (tok.kind == TokKind::LParen) {
 			advance();
+			// GNU statement expression
+			if (peek().kind == TokKind::LBrace) {
+				Stmt* body = parseCompound();
+				if (!body)
+					return nullptr;
+				if (!expect(TokKind::RParen, "')'"))
+					return nullptr;
+				Expr* e = makeExpr(ExprKind::StmtExpr, tok.offset);
+				e->stmtExpr.body = body;
+				return e;
+			}
 			Expr* inner = parseExpression();
 			if (!inner)
 				return nullptr;
@@ -259,8 +750,8 @@ namespace rat::cc {
 				return nullptr;
 			return inner;
 		}
-		fail(tok, String("expected expression, found '") + tokKindName(tok.kind) +
-								 "'");
+		fail(tok,
+				 String("expected expression, found '") + tokKindName(tok.kind) + "'");
 		return nullptr;
 	}
 
