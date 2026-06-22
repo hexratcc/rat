@@ -430,26 +430,129 @@ B32 runCaseForked(const String& path, String& err) {
 	return false;
 }
 
-I32 main(I32 argc, char** argv) {
-	if (argc < 2) {
-		std::cerr << "usage: ratcc-test <case.c> [case.c ...]\n";
-		return 2;
+static void collectCases(const String& dir, List<String>& out) {
+	DIR* d = opendir(dir.c_str());
+	if (!d)
+		return;
+	List<String> subdirs;
+	List<String> files;
+	for (struct dirent* e; (e = readdir(d));) {
+		String name = e->d_name;
+		if (name == "." || name == "..")
+			continue;
+		String path = dir + "/" + name;
+		struct stat st;
+		if (stat(path.c_str(), &st) != 0)
+			continue;
+		if (S_ISDIR(st.st_mode))
+			subdirs.push_back(path);
+		else if (name.size() > 2 && name.compare(name.size() - 2, 2, ".c") == 0)
+			files.push_back(path);
 	}
+	closedir(d);
+	std::sort(files.begin(), files.end());
+	std::sort(subdirs.begin(), subdirs.end());
+	for (const String& f : files)
+		out.push_back(f);
+	for (const String& s : subdirs)
+		collectCases(s, out);
+}
 
-	U32 passed = 0;
-	U32 failed = 0;
+static String findCasesDir() {
+	const char* candidates[] = {"cases", "test/cc/cases"};
+	for (const char* c : candidates) {
+		struct stat st;
+		if (stat(c, &st) == 0 && S_ISDIR(st.st_mode))
+			return c;
+	}
+	return "";
+}
+
+I32 main(I32 argc, char** argv) {
+	U32 jobs = 1;
+	List<String> cases;
 	for (I32 i = 1; i < argc; ++i) {
-		String path = argv[i];
-		String err;
-		if (runCaseForked(path, err)) {
-			std::cout << "PASS  " << path << "\n";
-			++passed;
+		String arg = argv[i];
+		if (arg.rfind("-j", 0) == 0) {
+			String num = arg.substr(2);
+			if (num.empty() && i + 1 < argc && argv[i + 1][0] >= '0' &&
+					argv[i + 1][0] <= '9')
+				num = argv[++i];
+			if (!num.empty()) {
+				long n = std::strtol(num.c_str(), nullptr, 10);
+				if (n > 1)
+					jobs = (U32)n;
+			}
 		} else {
-			std::cout << "FAIL  " << path << ": " << err << "\n";
-			++failed;
+			cases.push_back(arg);
 		}
 	}
 
-	std::cout << "\n" << passed << " passed, " << failed << " failed\n";
-	return failed == 0 ? 0 : 1;
+	if (cases.empty()) {
+		String dir = findCasesDir();
+		if (dir.empty()) {
+			std::cerr << "ratcc-test: no case paths given and no cases/ "
+						 "directory found\n";
+			return 2;
+		}
+		collectCases(dir, cases);
+		if (cases.empty()) {
+			std::cerr << "ratcc-test: no .c cases found under " << dir << "\n";
+			return 2;
+		}
+	}
+
+	std::atomic<U32> passed{0};
+	std::atomic<U32> failed{0};
+
+	if (jobs <= 1) {
+		for (const String& path : cases) {
+			String err;
+			if (runCaseForked(path, err)) {
+				std::cout << "PASS  " << path << "\n";
+				++passed;
+			} else {
+				std::cout << "FAIL  " << path << ": " << err << "\n";
+				++failed;
+			}
+		}
+	} else {
+		(void)hostCC();
+		(void)hostPredefs();
+		(void)hostIncludeDirs();
+		(void)useX86Backend();
+
+		std::atomic<size_t> next{0};
+		std::mutex ioMtx;
+		auto worker = [&] {
+			for (;;) {
+				size_t i = next.fetch_add(1);
+				if (i >= cases.size())
+					break;
+				const String& path = cases[i];
+				String err;
+				B32 ok = runCaseForked(path, err);
+				std::lock_guard<std::mutex> lk(ioMtx);
+				if (ok) {
+					std::cout << "PASS  " << path << "\n";
+					++passed;
+				} else {
+					std::cout << "FAIL  " << path << ": " << err << "\n";
+					++failed;
+				}
+			}
+		};
+
+		if (jobs > cases.size())
+			jobs = (U32)cases.size();
+		List<std::thread> pool;
+		for (U32 t = 0; t < jobs; ++t)
+			pool.emplace_back(worker);
+		for (std::thread& t : pool)
+			t.join();
+	}
+
+	std::cout << "\n" << passed.load() << " passed, " << failed.load()
+						<< " failed\n";
+	return failed.load() == 0 ? 0 : 1;
 }

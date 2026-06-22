@@ -2,6 +2,7 @@
 #include "Emit.h"
 #include "Lexer.h"
 #include "Parser.h"
+#include "Preprocess.h"
 
 #include "rat.h"
 
@@ -37,7 +38,8 @@ namespace {
 	I32 dumpAst(const String& path, const String& source) {
 		Lexer lex(source.data(), (U32)source.size(), path);
 		Arena arena;
-		Parser parser(lex, arena);
+		Generic64 target;
+		Parser parser(lex, arena, target);
 		TransUnit* unit = parser.parseUnit();
 		if (!unit) {
 			std::cerr << parser.error() << "\n";
@@ -47,17 +49,19 @@ namespace {
 		return 0;
 	}
 
-	I32 emitIr(const String& path, const String& source, const String& passSpec) {
+	I32 lowerToModule(const String& path, const String& source,
+										const String& passSpec,
+										void (*sink)(const Module&, std::ostream&)) {
 		Lexer lex(source.data(), (U32)source.size(), path);
 		Arena arena;
-		Parser parser(lex, arena);
+		Generic64 target;
+		Parser parser(lex, arena, target);
 		TransUnit* unit = parser.parseUnit();
 		if (!unit) {
 			std::cerr << parser.error() << "\n";
 			return 1;
 		}
 
-		Generic64 target;
 		Module mod;
 		mod.setTarget(&target);
 		Emitter emitter(mod);
@@ -68,16 +72,16 @@ namespace {
 
 		if (!passSpec.empty()) {
 			PassManager pm;
-			std::ostringstream sink;
+			std::ostringstream diag;
 			String err;
-			if (!buildPipeline(pm, passSpec, sink, err)) {
+			if (!buildPipeline(pm, passSpec, diag, err)) {
 				std::cerr << "ratcc: " << err << "\n";
 				return 2;
 			}
 			pm.run(mod);
 		}
 
-		emitText(mod, std::cout);
+		sink(mod, std::cout);
 		return 0;
 	}
 } // namespace
@@ -86,6 +90,7 @@ I32 main(I32 argc, char** argv) {
 	String mode = "-dump-tokens";
 	String inputPath;
 	String passSpec;
+	PpOptions pp;
 
 	for (I32 i = 1; i < argc; ++i) {
 		String arg = argv[i];
@@ -93,6 +98,15 @@ I32 main(I32 argc, char** argv) {
 			mode = arg;
 		} else if (arg.rfind("-passes=", 0) == 0) {
 			passSpec = arg.substr(8);
+		} else if (arg.rfind("-I", 0) == 0) {
+			pp.includeDirs.push_back(arg.size() > 2 ? arg.substr(2)
+																							: (++i < argc ? argv[i] : ""));
+		} else if (arg.rfind("-D", 0) == 0) {
+			pp.defines.push_back(arg.size() > 2 ? arg.substr(2)
+																					: (++i < argc ? argv[i] : ""));
+		} else if (arg.rfind("-U", 0) == 0) {
+			pp.undefs.push_back(arg.size() > 2 ? arg.substr(2)
+																				 : (++i < argc ? argv[i] : ""));
 		} else if (!arg.empty() && arg[0] == '-') {
 			std::cerr << "ratcc: unknown option '" << arg << "'\n";
 			return 2;
@@ -123,12 +137,28 @@ I32 main(I32 argc, char** argv) {
 		}
 	}
 
+	String pped;
+	{
+		String ppErr;
+		if (!preprocess(inputPath, source, pp, pped, ppErr)) {
+			std::cerr << "ratcc: " << ppErr << "\n";
+			return 1;
+		}
+	}
+	source = pped;
+
+	if (mode == "-E") {
+		std::cout << source;
+		return 0;
+	}
 	if (mode == "-dump-tokens")
 		return dumpTokens(inputPath, source);
 	if (mode == "-dump-ast")
 		return dumpAst(inputPath, source);
 	if (mode == "-emit-ir")
-		return emitIr(inputPath, source, passSpec);
+		return lowerToModule(inputPath, source, passSpec, emitText);
+	if (mode == "-emit-c")
+		return lowerToModule(inputPath, source, passSpec, emitC);
 
 	std::cerr << "ratcc: nothing to do\n";
 	return 2;

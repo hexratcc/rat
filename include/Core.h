@@ -17,6 +17,15 @@
 #include <cstdlib>
 #include <ctime>
 #include <deque>
+#include <dirent.h>
+#include <poll.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <atomic>
+#include <mutex>
+#include <thread>
 
 namespace rat {
 	using U8 = uint8_t;
