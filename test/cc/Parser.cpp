@@ -755,7 +755,178 @@ namespace rat::cc {
 		return nullptr;
 	}
 
+	Expr* Parser::parsePostfix() {
+		Expr* e = parsePrimary();
+		if (!e)
+			return nullptr;
+		return parsePostfixTail(e);
+	}
+
+	Expr* Parser::parsePostfixTail(Expr* e) {
+		for (;;) {
+			TokKind k = peek().kind;
+			if (k == TokKind::LParen) {
+				// __builtin_va_arg(ap, type)
+				if (e->kind == ExprKind::Ident &&
+						*e->ident.name == "__builtin_va_arg") {
+					Token lp = advance(); // '('
+					Expr* ap = parseAssignment();
+					if (!ap)
+						return nullptr;
+					if (!expect(TokKind::Comma, "','"))
+						return nullptr;
+					CType ty;
+					if (!parseTypeSpec(ty)) {
+						fail(peek(), "expected a type in __builtin_va_arg");
+						return nullptr;
+					}
+					parsePointers(ty);
+					if (!expect(TokKind::RParen, "')'"))
+						return nullptr;
+					Expr* va = makeExpr(ExprKind::VaArg, lp.offset);
+					va->vaArg.ap = ap;
+					va->vaArg.type = ty;
+					e = va;
+					continue;
+				}
+				Token lp = advance();
+				Expr* callE = makeExpr(ExprKind::Call, lp.offset);
+				if (e->kind == ExprKind::Ident) {
+					// by-name call
+					callE->call.callee = e->ident.name;
+					callE->call.target = nullptr;
+				} else {
+					// indirect call
+					callE->call.callee = nullptr;
+					callE->call.target = e;
+				}
+				if (peek().kind != TokKind::RParen) {
+					for (;;) {
+						Expr* arg = parseAssignment();
+						if (!arg)
+							return nullptr;
+						callE->args.push_back(arg);
+						if (!accept(TokKind::Comma))
+							break;
+					}
+				}
+				if (!expect(TokKind::RParen, "')'"))
+					return nullptr;
+				e = callE;
+			} else if (k == TokKind::LBracket) {
+				Token lb = advance();
+				Expr* idx = parseExpression();
+				if (!idx)
+					return nullptr;
+				if (!expect(TokKind::RBracket, "']'"))
+					return nullptr;
+				Expr* sum = makeBinary(lb.offset, ExprOp::Add, e, idx);
+				e = makeUnary(lb.offset, ExprOp::Deref, sum);
+			} else if (k == TokKind::Dot || k == TokKind::Arrow) {
+				Token t = advance();
+				if (peek().kind != TokKind::Identifier) {
+					fail(peek(), "expected member name after '" +
+													 String(k == TokKind::Arrow ? "->" : ".") + "'");
+					return nullptr;
+				}
+				Token nameTok = advance();
+				Expr* m = makeExpr(ExprKind::Member, t.offset);
+				m->member.base = e;
+				m->member.name = arena.make<String>(lex.text(nameTok));
+				m->member.arrow = k == TokKind::Arrow;
+				e = m;
+			} else if (k == TokKind::PlusPlus || k == TokKind::MinusMinus) {
+				Token t = advance();
+				ExprOp op = k == TokKind::PlusPlus ? ExprOp::PostInc : ExprOp::PostDec;
+				e = makeUnary(t.offset, op, e);
+			} else {
+				break;
+			}
+		}
+		return e;
+	}
+
 	Expr* Parser::parseUnary() {
+		if (peek().kind == TokKind::KwSizeof) {
+			Token kw = advance(); // sizeof
+			Expr* e = makeExpr(ExprKind::Sizeof, kw.offset);
+			if (peek().kind == TokKind::LParen && startsType(peek2())) {
+				advance(); // (
+				CType ty;
+				if (!parseTypeName(ty)) // sizeof(typename)
+					return nullptr;
+				if (!expect(TokKind::RParen, "')'"))
+					return nullptr;
+				e->sizeOf.type = ty;
+				e->sizeOf.operand = nullptr;
+			} else {
+				Expr* operand = parseUnary();
+				if (!operand)
+					return nullptr;
+				e->sizeOf.operand = operand;
+			}
+			return e;
+		}
+		if (peek().kind == TokKind::LParen && startsType(peek2())) {
+			Token lp = advance(); // (
+			CType ty;
+			if (!parseTypeSpec(ty))
+				return nullptr;
+			parsePointers(ty);
+			if (looksLikeFuncPtr()) { // cast to a function-pointer/grouped type
+				Token ignored;
+				B32 hn = false;
+				CType ft;
+				if (!parseDeclaratorType(ty, ignored, hn, ft))
+					return nullptr;
+				ty = ft;
+				if (!expect(TokKind::RParen, "')'"))
+					return nullptr;
+				Expr* operand = parseUnary();
+				if (!operand)
+					return nullptr;
+				Expr* e = makeExpr(ExprKind::Cast, lp.offset);
+				e->cast.type = ty;
+				e->cast.operand = operand;
+				return e;
+			}
+			B32 isArr = false;
+			Expr* arrLen = nullptr;
+			if (accept(TokKind::LBracket)) { // array type-name: (T[]) or (T[N])
+				isArr = true;
+				if (peek().kind != TokKind::RBracket) {
+					arrLen = parseConditional();
+					if (!arrLen)
+						return nullptr;
+				}
+				if (!expect(TokKind::RBracket, "']'"))
+					return nullptr;
+			}
+			if (!expect(TokKind::RParen, "')'"))
+				return nullptr;
+			if (peek().kind == TokKind::LBrace) { // compound literal
+				Expr* init = parseInitializer();
+				if (!init)
+					return nullptr;
+				Expr* e = makeExpr(ExprKind::CompoundLit, lp.offset);
+				e->compound.type = ty;
+				e->compound.init = init;
+				e->compound.arrayLen = arrLen;
+				e->compound.isArray = isArr;
+				return parsePostfixTail(e); // allow [..], .x, etc. after the literal
+			}
+			if (isArr) {
+				fail(lp, "array types may not be used in a cast");
+				return nullptr;
+			}
+			Expr* operand = parseUnary();
+			if (!operand)
+				return nullptr;
+			Expr* e = makeExpr(ExprKind::Cast, lp.offset);
+			e->cast.type = ty;
+			e->cast.operand = operand;
+			return e;
+		}
 		ExprOp op;
 		if (unaryOp(peek().kind, op)) {
 			Token t = advance();
