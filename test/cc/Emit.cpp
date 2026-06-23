@@ -6,6 +6,57 @@
 namespace rat::cc {
 	Emitter::Emitter(Module& module) : mod(module) {}
 
+	U32 Emitter::byteSize(CType t) const {
+		return typeSize(t, mod.pointerBytes());
+	}
+
+	CType Emitter::ctSize() const {
+		return CType{mod.pointerBytes() * 8, true, false, 0};
+	}
+
+	CType Emitter::ctPtrDiff() const {
+		return CType{mod.pointerBytes() * 8, false, false, 0};
+	}
+
+	Node* Emitter::constSize(Function& fn, U64 value) {
+		return fn.constInt(irType(ctSize()), value);
+	}
+
+	Node* Emitter::allocBytes(Function& fn, U32 size) {
+		return fn.alloc(mod.getArray(mod.getInt(8), size));
+	}
+
+	Node* Emitter::emitArrayElemCount(Function& fn, CType t) {
+		Node* total = constSize(fn, 1);
+		CType cur = t;
+		while (isArrayType(cur)) {
+			Node* dim;
+			if (cur.array->countExpr) {
+				Value v = emitExpr(fn, cur.array->countExpr);
+				if (!v.node)
+					return nullptr;
+				dim = convert(fn, v.node, v.type, ctSize());
+			} else {
+				dim = constSize(fn, cur.array->count);
+			}
+			total = fn.mul(total, dim);
+			cur = cur.array->elem;
+		}
+		return total;
+	}
+
+	Node* Emitter::emitArrayByteSize(Function& fn, CType t) {
+		Node* count = emitArrayElemCount(fn, t);
+		if (!count)
+			return nullptr;
+		CType elem = t;
+		while (isArrayType(elem))
+			elem = elem.array->elem;
+		return fn.mul(count, constSize(fn, byteSize(elem)));
+	}
+
+	void Emitter::fail(const String& msg) {
+
 	void Emitter::fail(const String& msg) {
 		if (failed)
 			return;
