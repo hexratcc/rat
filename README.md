@@ -19,3 +19,4 @@ $ make test   # builds and runs tests
 - [**VerifyPass:**](./include/Pass/Verify.h) Edge consistency + per-opcode structural invariants
 - [**TextEmitterPass:**](./include/Pass/Emit/TextEmitter.h) Textual IR viz
 - [**GraphEmitterPass:**](./include/Pass/Emit/GraphEmitter.h) Graph IR viz
+- [**RenameSymbolPass:**](./include/Pass/Opt/RenameSymbolPass.h) Rename a given symbol
