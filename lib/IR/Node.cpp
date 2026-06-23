@@ -201,6 +201,7 @@ namespace rat {
 				indirect(indirect) {}
 
 	const String& CallNode::getCallee() const { return callee; }
+	void CallNode::setCallee(String name) { callee = std::move(name); }
 	Node* CallNode::getControl() const { return getInput(0); }
 	Node* CallNode::getMemory() const { return getInput(1); }
 	// indirect calls reserve one extra input (index 2) for the target pointer

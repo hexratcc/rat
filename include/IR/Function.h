@@ -17,6 +17,7 @@ namespace rat {
 		Module& getModule() const;
 		TypeContext& types() const;
 		const String& getName() const;
+		void setName(String n);
 
 		U32 getParamCount() const;
 		Type* getParamType(U32 index) const;

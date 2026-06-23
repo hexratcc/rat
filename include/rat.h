@@ -18,6 +18,7 @@
 #include "Pass/Opt/GVN.h"
 #include "Pass/Opt/Inline.h"
 #include "Pass/Opt/MemoryOpt.h"
+#include "Pass/Opt/RenameSymbol.h"
 #include "Pass/Opt/SCCP.h"
 #include "Pass/Opt/SimplifyCFG.h"
 

@@ -21,6 +21,7 @@ namespace rat {
 	Module& Function::getModule() const { return *mod; }
 	TypeContext& Function::types() const { return *mod; }
 	const String& Function::getName() const { return name; }
+	void Function::setName(String n) { name = std::move(n); }
 
 	U32 Function::getParamCount() const { return (U32)paramTypes.size(); }
 	Type* Function::getParamType(U32 index) const { return paramTypes[index]; }

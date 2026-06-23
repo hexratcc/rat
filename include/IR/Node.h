@@ -184,6 +184,7 @@ namespace rat {
 						 const List<Node*>& controlMemoryArgs, B32 indirect = false);
 
 		const String& getCallee() const;
+		void setCallee(String name);
 		Node* getControl() const;
 		Node* getMemory() const;
 		U32 getArgCount() const;
