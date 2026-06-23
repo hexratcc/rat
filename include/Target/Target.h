@@ -1,5 +1,5 @@
-#ifndef RAT_CODEGEN_TARGET_H
-#define RAT_CODEGEN_TARGET_H
+#ifndef RAT_TARGET_TARGET_H
+#define RAT_TARGET_TARGET_H
 
 #include "Core.h"
 
