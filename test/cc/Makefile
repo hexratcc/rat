@@ -1,6 +1,6 @@
 # make        build bin/ratcc and bin/ratcc-test
-# make test   build and run the value-golden test suite over cases/*.c
-# make run    tokenize cases/*.c (dump tokens) as a smoke test
+# make test   build and run the golden test suite over all cases
+# make run    tokenize each case (dump tokens) as a smoke test
 # make format run clang-format over the frontend sources
 # make clean  remove this frontend's build artifacts
 
@@ -13,8 +13,8 @@ DEPFLAGS := -MMD -MP
 LIB      := $(ROOT)/build/rat.a
 OBJDIR   := $(ROOT)/build/test/cc
 
-# Shared frontend translation units (everything except the two entry points).
-CORE     := Lexer.cpp Parser.cpp Ast.cpp Emit.cpp
+CORE     := Lexer.cpp Parser.cpp Ast.cpp Emit.cpp EmitComplex.cpp EmitConst.cpp EmitType.cpp EmitInit.cpp EmitGlobal.cpp \
+            Preprocess.cpp
 CORE_OBJS := $(patsubst %.cpp,$(OBJDIR)/%.o,$(CORE))
 
 HEADERS  := $(wildcard *.h)
@@ -45,7 +45,7 @@ $(BIN): $(CORE_OBJS) $(OBJDIR)/main.o $(LIB)
 
 $(TESTBIN): $(CORE_OBJS) $(OBJDIR)/Runner.o $(LIB)
 	@mkdir -p $(ROOT)/bin
-	$(CXX) $(CXXFLAGS) $(INC) $(CORE_OBJS) $(OBJDIR)/Runner.o $(LIB) -o $@
+	$(CXX) $(CXXFLAGS) $(INC) $(CORE_OBJS) $(OBJDIR)/Runner.o $(LIB) -pthread -o $@
 
 test: $(TESTBIN)
 	@$(TESTBIN) $(CASES)

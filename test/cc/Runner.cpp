@@ -4,6 +4,8 @@
 #include "Parser.h"
 #include "Preprocess.h"
 
+#include "Pass/Emit/X86Emitter.h"
+
 #include "rat.h"
 
 using namespace rat;
@@ -174,10 +176,7 @@ namespace {
 		return only ? dyn_cast<ConstantNode>(only->getValue()) : nullptr;
 	}
 
-	B32 runOracle(const Module& mod, I32& out, String& capturedOut, String& err) {
-		std::ostringstream body;
-		emitC(mod, body);
-
+	B32 runOracle(Module& mod, I32& out, String& capturedOut, String& err) {
 		std::ostringstream base;
 		base << tempDir() << "/ratcc_oracle_" << (long)getpid() << "_"
 				 << oracleCounter++;
@@ -186,9 +185,12 @@ namespace {
 		String rpath = base.str() + ".ret";
 
 		std::ostringstream src;
-		src << "#define main __ratcc_user_main\n";
-		src << body.str();
-		src << "\n#undef main\n";
+		{
+			PassManager pm;
+			pm.add<RenameSymbolPass>("main", "__ratcc_user_main");
+			pm.add<CEmitterPass>(src);
+			pm.run(mod);
+		}
 
 		String wpath = base.str() + ".wrap.c";
 		std::ostringstream wrap;
@@ -264,6 +266,101 @@ namespace {
 		return true;
 	}
 
+	B32 useX86Backend() {
+		static B32 on = [] {
+			const char* e = std::getenv("RATCC_X86");
+			return (B32)(e && *e && String(e) != "0");
+		}();
+		return on;
+	}
+
+	B32 runOracleX86(Module& mod, I32& out, String& capturedOut, String& err) {
+		std::ostringstream base;
+		base << tempDir() << "/ratcc_x86_" << (long)getpid() << "_"
+				 << oracleCounter++;
+		String opath = base.str() + ".o";
+		String wpath = base.str() + ".wrap.c";
+		String xpath = base.str() + ".out";
+		String rpath = base.str() + ".ret";
+
+		{
+			std::ofstream of(opath, std::ios::binary);
+			if (!of) {
+				err = "x86: cannot write temp object";
+				return false;
+			}
+			PassManager pm;
+			pm.add<RenameSymbolPass>("main", "__ratcc_user_main");
+			pm.add<X86EmitterPass>(of);
+			pm.run(mod);
+		}
+
+		std::ostringstream wrap;
+		wrap << "#include <stdio.h>\n";
+		wrap << "extern int __ratcc_user_main(void);\n";
+		wrap << "int main(void) {\n";
+		wrap << "  int __r = (int)__ratcc_user_main();\n";
+		wrap << "  FILE* __rf = fopen(\"" << rpath << "\", \"w\");\n";
+		wrap << "  if (__rf) { fprintf(__rf, \"%d\", __r); fclose(__rf); }\n";
+		wrap << "  return __r;\n";
+		wrap << "}\n";
+		{
+			std::ofstream wf(wpath);
+			if (!wf) {
+				err = "x86: cannot write wrapper source";
+				return false;
+			}
+			wf << wrap.str();
+		}
+
+		std::ostringstream cmd;
+		cmd << hostCC() << " -w -O0 -no-pie -o '" << xpath << "' '" << wpath << "' '"
+				<< opath << "' -lm";
+		I32 crc = std::system(cmd.str().c_str());
+		if (crc != 0) {
+			std::remove(opath.c_str());
+			std::remove(wpath.c_str());
+			err = "x86: link failed";
+			return false;
+		}
+
+		FILE* p = popen(xpath.c_str(), "r");
+		if (!p) {
+			std::remove(opath.c_str());
+			std::remove(wpath.c_str());
+			std::remove(xpath.c_str());
+			err = "x86: cannot execute program";
+			return false;
+		}
+		capturedOut.clear();
+		char buf[4096];
+		size_t n;
+		while ((n = fread(buf, 1, sizeof(buf), p)) > 0)
+			capturedOut.append(buf, n);
+		I32 status = pclose(p);
+
+		B32 gotRet = false;
+		{
+			std::ifstream rf(rpath);
+			if (rf) {
+				String rv;
+				std::getline(rf, rv);
+				if (!rv.empty()) {
+					out = (I32)std::strtol(rv.c_str(), nullptr, 10);
+					gotRet = true;
+				}
+			}
+		}
+		if (!gotRet)
+			out = WIFEXITED(status) ? (I32)WEXITSTATUS(status) : -1;
+
+		std::remove(opath.c_str());
+		std::remove(wpath.c_str());
+		std::remove(xpath.c_str());
+		std::remove(rpath.c_str());
+		return true;
+	}
+
 	B32 runCase(const String& path, String& err) {
 		std::ifstream f(path);
 		if (!f) {
@@ -329,6 +426,9 @@ namespace {
 				exp.hasOutput ? nullptr : returnConstant(*main);
 		if (result) {
 			got = (I32)result->getValue();
+		} else if (useX86Backend()) {
+			if (!runOracleX86(mod, got, capturedOut, err))
+				return false;
 		} else if (!runOracle(mod, got, capturedOut, err)) {
 			return false;
 		}

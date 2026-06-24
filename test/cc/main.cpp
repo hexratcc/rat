@@ -4,6 +4,8 @@
 #include "Parser.h"
 #include "Preprocess.h"
 
+#include "Pass/Emit/X86Emitter.h"
+
 #include "rat.h"
 
 using namespace rat;
@@ -94,7 +96,8 @@ I32 main(I32 argc, char** argv) {
 
 	for (I32 i = 1; i < argc; ++i) {
 		String arg = argv[i];
-		if (arg == "-dump-tokens" || arg == "-dump-ast" || arg == "-emit-ir") {
+		if (arg == "-dump-tokens" || arg == "-dump-ast" || arg == "-emit-ir" ||
+				arg == "-emit-c" || arg == "-emit-x86" || arg == "-E") {
 			mode = arg;
 		} else if (arg.rfind("-passes=", 0) == 0) {
 			passSpec = arg.substr(8);
@@ -159,6 +162,8 @@ I32 main(I32 argc, char** argv) {
 		return lowerToModule(inputPath, source, passSpec, emitText);
 	if (mode == "-emit-c")
 		return lowerToModule(inputPath, source, passSpec, emitC);
+	if (mode == "-emit-x86")
+		return lowerToModule(inputPath, source, passSpec, emitX86);
 
 	std::cerr << "ratcc: nothing to do\n";
 	return 2;

@@ -6,7 +6,7 @@
 // the runner parses @input, runs the named passes, then compares the emitted
 // IR against @expect
 
-#include "CodeGen/Target.h"
+#include "Target/Target.h"
 #include "IR/Module.h"
 #include "IR/TextParser.h"
 #include "Pass/Emit/TextEmitter.h"
