@@ -4,9 +4,6 @@
 #include "IR/Module.h"
 #include "IR/Node.h"
 
-#include <cstdint>
-#include <sstream>
-
 namespace rat {
 	namespace detail {
 		String nodeId(const Function& fn, const Node* n) {
@@ -65,7 +62,7 @@ namespace rat {
 			label = l.str();
 		}
 
-		const char* edgeStyle(const Node* producer) {
+		const C8* edgeStyle(const Node* producer) {
 			const Type* t = producer->getType();
 			if (t->isControl())
 				return "color=\"#cc0000\", penwidth=2"; // control spine
@@ -126,7 +123,7 @@ namespace rat {
 
 	GraphEmitterPass::GraphEmitterPass(std::ostream& os) : os(&os) {}
 
-	const char* GraphEmitterPass::name() const { return "graph-emitter"; }
+	const C8* GraphEmitterPass::name() const { return "graph-emitter"; }
 
 	B32 GraphEmitterPass::run(Module& module) {
 		emitDot(module, *os);

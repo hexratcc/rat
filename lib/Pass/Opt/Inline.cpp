@@ -200,7 +200,7 @@ namespace rat {
 		return count;
 	}
 
-	const char* InlinePass::name() const { return "inline"; }
+	const C8* InlinePass::name() const { return "inline"; }
 
 	B32 InlinePass::run(Module& module) { return inlineCalls(module) != 0; }
 } // namespace rat

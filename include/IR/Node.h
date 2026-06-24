@@ -17,7 +17,7 @@ namespace rat {
 		Node& operator=(const Node&) = delete;
 
 		Opcode getOpcode() const;
-		const char* getMnemonic() const;
+		const C8* getMnemonic() const;
 		Type* getType() const;
 		U32 getId() const;
 		Function& getFunction() const;

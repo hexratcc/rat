@@ -9,7 +9,7 @@ namespace rat {
 
 		virtual ~TargetInfo() = default;
 
-		virtual const char* getName() const = 0;
+		virtual const C8* getName() const = 0;
 		virtual U32 getPointerSizeInBits() const = 0;
 		virtual Endianness getEndianness() const = 0;
 		virtual U32 getNativeIntegerWidth() const = 0;
@@ -20,7 +20,7 @@ namespace rat {
 	};
 
 	struct Generic64 final : TargetInfo {
-		const char* getName() const override { return "generic64"; }
+		const C8* getName() const override { return "generic64"; }
 		U32 getPointerSizeInBits() const override { return 64; }
 		Endianness getEndianness() const override { return Endianness::Little; }
 		U32 getNativeIntegerWidth() const override { return 64; }

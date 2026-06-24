@@ -108,8 +108,8 @@ namespace rat {
 			tok.clear();
 			return true;
 		};
-		for (char ch : spec) {
-			if (ch == ',' || std::isspace((unsigned char)ch)) {
+		for (C8 ch : spec) {
+			if (ch == ',' || std::isspace((U8)ch)) {
 				if (!flush())
 					return false;
 			} else {

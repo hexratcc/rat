@@ -217,9 +217,9 @@ namespace rat {
 
 		List<U8> shstr;
 		shstr.push_back(0);
-		auto addShName = [&](const char* n) {
+		auto addShName = [&](const C8* n) {
 			U32 off = (U32)shstr.size();
-			for (const char* p = n; *p; ++p)
+			for (const C8* p = n; *p; ++p)
 				shstr.push_back((U8)*p);
 			shstr.push_back(0);
 			return off;
@@ -333,7 +333,7 @@ namespace rat {
 			 0); // 10 .shstrtab
 		sh(nNoteStack, SHT_PROGBITS, 0, 0, 0, 0, 0, 0, 1, 0); // 11 .note.GNU-stack
 
-		os.write(reinterpret_cast<const char*>(out.data()),
+		os.write(reinterpret_cast<const C8*>(out.data()),
 						 (std::streamsize)out.size());
 	}
 } // namespace rat

@@ -90,7 +90,7 @@ namespace rat {
 	};
 
 	struct OpcodeInfo {
-		const char* mnemonic;
+		const C8* mnemonic;
 		B32 isCFG;
 		B32 hasSideEffects;
 		B32 isCommutative;
@@ -102,7 +102,7 @@ namespace rat {
 
 	const OpcodeInfo& getOpcodeInfo(Opcode op);
 
-	const char* getOpcodeMnemonic(Opcode op);
+	const C8* getOpcodeMnemonic(Opcode op);
 
 	inline OpClass getOpClass(Opcode op) { return getOpcodeInfo(op).opClass; }
 

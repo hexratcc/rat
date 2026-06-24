@@ -14,7 +14,7 @@ namespace rat {
 	Node::~Node() = default;
 
 	Opcode Node::getOpcode() const { return op; }
-	const char* Node::getMnemonic() const { return getOpcodeMnemonic(op); }
+	const C8* Node::getMnemonic() const { return getOpcodeMnemonic(op); }
 	Type* Node::getType() const { return ty; }
 	U32 Node::getId() const { return id; }
 	Function& Node::getFunction() const { return *fn; }
@@ -80,7 +80,7 @@ namespace rat {
 
 	Node* Node::getControlInput() const {
 		// for Phi, input[0] is the controlling Region
-		I8 slot = getOpcodeInfo(op).controlInputIndex;
+		I32 slot = getOpcodeInfo(op).controlInputIndex;
 		return slot < 0 ? nullptr : getInput((U32)slot);
 	}
 

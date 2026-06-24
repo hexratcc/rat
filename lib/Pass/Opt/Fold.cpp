@@ -13,9 +13,6 @@
 #include "IR/Node.h"
 #include "IR/Type.h"
 
-#include <cstdint>
-#include <utility>
-
 namespace rat {
 	namespace detail {
 		I64 signExtend(I64 v, U32 w) {
@@ -440,7 +437,7 @@ namespace rat {
 		}
 	} // namespace detail
 
-	const char* FoldPass::name() const { return "fold"; }
+	const C8* FoldPass::name() const { return "fold"; }
 
 	U32 FoldPass::runOnFunction(Function& fn) { return foldFunction(fn); }
 } // namespace rat

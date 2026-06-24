@@ -66,7 +66,7 @@ namespace rat {
 		return detail::kOpcodeInfo[(U32)op];
 	}
 
-	const char* getOpcodeMnemonic(Opcode op) {
+	const C8* getOpcodeMnemonic(Opcode op) {
 		return getOpcodeInfo(op).mnemonic;
 	}
 } // namespace rat

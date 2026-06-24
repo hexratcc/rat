@@ -11,7 +11,7 @@ namespace rat {
 		String intCType(U32 width, B32 isSigned) {
 			if (width <= 1)
 				return "int"; // booleans
-			const char* s;
+			const C8* s;
 			if (width <= 8)
 				s = isSigned ? "int8_t" : "uint8_t";
 			else if (width <= 16)
@@ -99,20 +99,20 @@ namespace rat {
 
 			String floatLiteral(Node* n) {
 				I64 raw = cast<ConstantNode>(n)->getValue();
-				char buf[64];
+				C8 buf[64];
 				if (n->getType()->getFloatWidth() == 32) {
 					U32 u = (U32)(U64)raw;
-					float f;
+					F32 f;
 					std::memcpy(&f, &u, sizeof(f));
-					std::snprintf(buf, sizeof(buf), "%af", (double)f);
+					std::snprintf(buf, sizeof(buf), "%af", (F64)f);
 				} else if (n->getType()->getFloatWidth() == 128) {
 					U64 u = (U64)raw;
-					double d;
+					F64 d;
 					std::memcpy(&d, &u, sizeof(d));
 					std::snprintf(buf, sizeof(buf), "%aL", d);
 				} else {
 					U64 u = (U64)raw;
-					double d;
+					F64 d;
 					std::memcpy(&d, &u, sizeof(d));
 					std::snprintf(buf, sizeof(buf), "%a", d);
 				}
@@ -313,7 +313,7 @@ namespace rat {
 
 				// only label blocks that are jump targets
 				I32 nb = sched.numBlocks();
-				List<char> isTarget(nb, 0);
+				List<C8> isTarget(nb, 0);
 				for (I32 b = 0; b < nb; ++b) {
 					const Schedule::Block& blk = sched.block(b);
 					if (blk.term == TK::Branch) {
@@ -718,7 +718,7 @@ namespace rat {
 
 	CEmitterPass::CEmitterPass(std::ostream& os) : os(&os) {}
 
-	const char* CEmitterPass::name() const { return "c emit"; }
+	const C8* CEmitterPass::name() const { return "c emit"; }
 
 	B32 CEmitterPass::run(Module& module) {
 		emitC(module, *os);

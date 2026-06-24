@@ -5,8 +5,6 @@
 #include "IR/Node.h"
 #include "IR/Type.h"
 
-#include <sstream>
-
 namespace rat {
 	namespace detail {
 		String vref(const Node* n) {
@@ -422,7 +420,7 @@ namespace rat {
 
 	VerifyPass::VerifyPass(std::ostream& os) : os(&os) {}
 
-	const char* VerifyPass::name() const { return "verify"; }
+	const C8* VerifyPass::name() const { return "verify"; }
 
 	B32 VerifyPass::run(Module& module) {
 		verify(module, *os);

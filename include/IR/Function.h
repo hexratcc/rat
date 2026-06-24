@@ -5,8 +5,6 @@
 #include "IR/Node.h"
 #include "IR/Type.h"
 
-#include <functional>
-
 namespace rat {
 	struct Module;
 
@@ -50,7 +48,7 @@ namespace rat {
 
 		Node* constInt(Type* type, I64 value);
 		Node* constBool(B32 value);
-		Node* constFloat(Type* type, double value);
+		Node* constFloat(Type* type, F64 value);
 
 		Node* binary(Opcode op, Node* lhs, Node* rhs);
 		Node* add(Node* lhs, Node* rhs);

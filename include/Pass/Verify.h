@@ -4,8 +4,6 @@
 #include "Core.h"
 #include "Pass/Pass.h"
 
-#include <ostream>
-
 namespace rat {
 	struct Function;
 	struct Module;
@@ -18,7 +16,7 @@ namespace rat {
 	struct VerifyPass : Pass {
 		explicit VerifyPass(std::ostream& os);
 
-		const char* name() const override;
+		const C8* name() const override;
 		B32 run(Module& module) override;
 
 	private:

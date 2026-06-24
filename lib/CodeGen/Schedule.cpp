@@ -11,11 +11,6 @@
 #include "IR/Function.h"
 #include "IR/Node.h"
 
-#include <cassert>
-#include <functional>
-#include <queue>
-#include <unordered_set>
-
 namespace rat {
 
 	Schedule::Schedule(const Function& fn) : fn(fn) {
@@ -183,7 +178,7 @@ namespace rat {
 		I32 count = (I32)blocks.size();
 		post.assign(count, -1);
 		List<I32> order;
-		List<char> visited(count, 0);
+		List<C8> visited(count, 0);
 
 		std::function<void(I32)> dfs = [&](I32 b) {
 			visited[b] = 1;

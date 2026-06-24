@@ -256,7 +256,7 @@ namespace rat {
 		return solver.rewrite();
 	}
 
-	const char* SCCPPass::name() const { return "sccp"; }
+	const C8* SCCPPass::name() const { return "sccp"; }
 
 	U32 SCCPPass::runOnFunction(Function& fn) { return sccp(fn); }
 } // namespace rat

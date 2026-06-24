@@ -108,7 +108,7 @@ namespace rat {
 		return removed;
 	}
 
-	const char* MemoryOptPass::name() const { return "memoryopt"; }
+	const C8* MemoryOptPass::name() const { return "memoryopt"; }
 
 	U32 MemoryOptPass::runOnFunction(Function& fn) { return optimizeMemory(fn); }
 } // namespace rat

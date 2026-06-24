@@ -50,7 +50,7 @@ namespace rat {
 		return removed;
 	}
 
-	const char* GVNPass::name() const { return "gvn"; }
+	const C8* GVNPass::name() const { return "gvn"; }
 
 	U32 GVNPass::runOnFunction(Function& fn) { return gvn(fn); }
 } // namespace rat

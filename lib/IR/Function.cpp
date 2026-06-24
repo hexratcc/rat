@@ -86,10 +86,10 @@ namespace rat {
 	Node* Function::constBool(B32 value) {
 		return constInt(boolTy(), value ? 1 : 0);
 	}
-	Node* Function::constFloat(Type* type, double value) {
+	Node* Function::constFloat(Type* type, F64 value) {
 		I64 bits = 0;
 		if (type->getFloatWidth() == 32) {
-			float f = (float)value;
+			F32 f = (F32)value;
 			U32 u;
 			std::memcpy(&u, &f, sizeof(u));
 			bits = (I64)(U64)u;

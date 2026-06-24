@@ -6,9 +6,6 @@
 #include "IR/Opcode.h"
 #include "IR/Type.h"
 
-#include <cctype>
-#include <sstream>
-
 namespace rat {
 	namespace detail {
 		String stripAnsi(const String& s) {
@@ -45,7 +42,7 @@ namespace rat {
 		B32 allDigits(const String& s) {
 			if (s.empty())
 				return false;
-			for (char c : s)
+			for (C8 c : s)
 				if (!std::isdigit((U8)c))
 					return false;
 			return true;
@@ -72,7 +69,7 @@ namespace rat {
 			String t = trim(s);
 			if (t.size() < 2 || t.front() != '"' || t.back() != '"')
 				return false;
-			auto hexVal = [](char c, U8& v) -> B32 {
+			auto hexVal = [](C8 c, U8& v) -> B32 {
 				if (c >= '0' && c <= '9')
 					v = (U8)(c - '0');
 				else if (c >= 'a' && c <= 'f')
@@ -101,7 +98,7 @@ namespace rat {
 		}
 
 		Opcode opcodeForMnemonic(const String& m, B32& ok) {
-			for (I32 i = (I32)Opcode::Start; i <= (I32)Opcode::Alloc; ++i) {
+			for (U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Alloc; ++i) {
 				Opcode op = (Opcode)i;
 				if (m == getOpcodeMnemonic(op)) {
 					ok = true;
@@ -176,7 +173,7 @@ namespace rat {
 					}
 					String inner = t.substr(1, t.size() - 2);
 					List<Type*> elems;
-					I32 depth = 0;
+					U32 depth = 0;
 					String cur;
 					auto flush = [&]() -> B32 {
 						String e = trim(cur);
@@ -189,7 +186,7 @@ namespace rat {
 						elems.push_back(et);
 						return true;
 					};
-					for (char c : inner) {
+					for (C8 c : inner) {
 						if (c == '(')
 							++depth;
 						if (c == ')')
@@ -211,7 +208,7 @@ namespace rat {
 						return nullptr;
 					}
 					String inner = t.substr(1, t.size() - 2);
-					size_t x = inner.find(" x ");
+					U64 x = inner.find(" x ");
 					if (x == String::npos) {
 						fail("array type must be '[N x T]': " + t);
 						return nullptr;
@@ -241,8 +238,8 @@ namespace rat {
 			B32 parseGlobal(const String& line) {
 				B32 isConst = line.rfind("const ", 0) == 0;
 				String rest = trim(line.substr(isConst ? 6 : 4));
-				size_t colon = rest.find(" : ");
-				size_t eq = rest.find(" = ");
+				U64 colon = rest.find(" : ");
+				U64 eq = rest.find(" = ");
 				if (colon == String::npos || eq == String::npos || eq < colon)
 					return fail("malformed global (want NAME : TYPE = \"...\"): " + line);
 				String name = trim(rest.substr(0, colon));
@@ -261,10 +258,10 @@ namespace rat {
 			}
 
 			B32 parseFunction(const String& header, std::istream& in) {
-				size_t lp = header.find('(');
-				size_t rp = header.rfind(')');
-				size_t arrow = header.find("->");
-				size_t brace = header.rfind('{');
+				U64 lp = header.find('(');
+				U64 rp = header.rfind(')');
+				U64 arrow = header.find("->");
+				U64 brace = header.rfind('{');
 				if (lp == String::npos || rp == String::npos || rp < lp ||
 						arrow == String::npos || brace == String::npos)
 					return fail("malformed func header: " + header);
@@ -275,7 +272,7 @@ namespace rat {
 
 				List<Type*> params;
 				{
-					I32 depth = 0;
+					U32 depth = 0;
 					String cur;
 					auto flush = [&]() -> B32 {
 						String p = trim(cur);
@@ -288,7 +285,7 @@ namespace rat {
 						params.push_back(pt);
 						return true;
 					};
-					for (char c : paramsStr) {
+					for (C8 c : paramsStr) {
 						if (c == '(')
 							++depth;
 						if (c == ')')
@@ -337,7 +334,7 @@ namespace rat {
 			}
 
 			B32 parseNodeLine(const String& line, Rec& r) {
-				size_t eq = line.find(" = ");
+				U64 eq = line.find(" = ");
 				if (eq == String::npos)
 					return fail("expected ' = ' in: " + line);
 				String lhs = trim(line.substr(0, eq));
@@ -346,7 +343,7 @@ namespace rat {
 				r.id = (U32)std::stoul(lhs.substr(1));
 
 				String rest = line.substr(eq + 3);
-				size_t colon = rest.find(" : ");
+				U64 colon = rest.find(" : ");
 				if (colon == String::npos)
 					return fail("expected ' : ' in: " + line);
 				String mnem = trim(rest.substr(0, colon));
@@ -359,7 +356,7 @@ namespace rat {
 				String after = ltrim(rest.substr(colon + 3));
 				String typeStr, remainder;
 				if (!after.empty() && after.front() == '(') {
-					I32 depth = 0;
+					U32 depth = 0;
 					U32 i = 0;
 					for (; i < after.size(); ++i) {
 						if (after[i] == '(')
@@ -375,7 +372,7 @@ namespace rat {
 					typeStr = after.substr(0, i);
 					remainder = after.substr(i);
 				} else {
-					size_t sp = after.find(' ');
+					U64 sp = after.find(' ');
 					if (sp == String::npos) {
 						typeStr = after;
 						remainder = "";
@@ -426,8 +423,8 @@ namespace rat {
 					break;
 				}
 				case Opcode::Call: {
-					size_t q1 = remainder.find('"');
-					size_t q2 =
+					U64 q1 = remainder.find('"');
+					U64 q2 =
 							(q1 == String::npos) ? String::npos : remainder.find('"', q1 + 1);
 					if (q1 == String::npos || q2 == String::npos)
 						return fail("call is missing its quoted callee: " + line);
@@ -436,8 +433,8 @@ namespace rat {
 					break;
 				}
 				case Opcode::Global: {
-					size_t q1 = remainder.find('"');
-					size_t q2 =
+					U64 q1 = remainder.find('"');
+					U64 q2 =
 							(q1 == String::npos) ? String::npos : remainder.find('"', q1 + 1);
 					if (q1 == String::npos || q2 == String::npos)
 						return fail("global node is missing its quoted symbol: " + line);
@@ -459,7 +456,7 @@ namespace rat {
 					ss >> first;
 					if (first == "loop") {
 						r.loopHeader = true;
-						size_t pos = body.find("loop");
+						U64 pos = body.find("loop");
 						body = body.substr(pos + 4);
 					}
 					r.operands = parseVRefs(body);

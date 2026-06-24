@@ -2,30 +2,34 @@
 #define RAT_CORE_H
 
 #include <algorithm>
-#include <cstdint>
-#include <fstream>
-#include <iostream>
-#include <memory>
-#include <ostream>
-#include <sstream>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
-#include <cstring>
+#include <atomic>
+#include <cassert>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <deque>
 #include <dirent.h>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <memory>
+#include <mutex>
+#include <ostream>
 #include <poll.h>
+#include <queue>
 #include <signal.h>
+#include <sstream>
+#include <string>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <unistd.h>
-#include <atomic>
-#include <mutex>
 #include <thread>
+#include <unistd.h>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace rat {
 	using U8 = uint8_t;
@@ -38,6 +42,11 @@ namespace rat {
 	using I32 = int32_t;
 	using I64 = int64_t;
 
+	using F32 = float;
+	using F64 = double;
+
+	using C8 = char;
+
 	using B32 = uint32_t;
 
 	using String = std::string;
@@ -48,12 +57,12 @@ namespace rat {
 	template <typename Key> using Set = std::unordered_set<Key>;
 
 	namespace detail {
-		constexpr std::size_t kDefaultChunk = 4096;
+		constexpr U64 kDefaultChunk = 4096;
 
-		inline char* alignUp(char* p, std::size_t align) {
+		inline C8* alignUp(C8* p, U64 align) {
 			auto v = reinterpret_cast<std::uintptr_t>(p);
 			std::uintptr_t a = align;
-			return reinterpret_cast<char*>((v + (a - 1)) & ~(a - 1));
+			return reinterpret_cast<C8*>((v + (a - 1)) & ~(a - 1));
 		}
 	} // namespace detail
 
@@ -76,13 +85,13 @@ namespace rat {
 		}
 
 	private:
-		void* allocate(std::size_t size, std::size_t align) {
-			char* aligned = cur ? detail::alignUp(cur, align) : nullptr;
+		void* allocate(U64 size, U64 align) {
+			C8* aligned = cur ? detail::alignUp(cur, align) : nullptr;
 			if (!aligned || aligned + size > end) {
-				std::size_t chunkSize = size + align > detail::kDefaultChunk
-																		? size + align
-																		: detail::kDefaultChunk;
-				chunks.push_back(UniquePtr<char[]>(new char[chunkSize]));
+				U64 chunkSize = size + align > detail::kDefaultChunk
+															? size + align
+															: detail::kDefaultChunk;
+				chunks.push_back(UniquePtr<C8[]>(new C8[chunkSize]));
 				cur = chunks.back().get();
 				end = cur + chunkSize;
 				aligned = detail::alignUp(cur, align);
@@ -100,9 +109,9 @@ namespace rat {
 			void (*run)(void*);
 		};
 
-		List<UniquePtr<char[]>> chunks;
-		char* cur = nullptr;
-		char* end = nullptr;
+		List<UniquePtr<C8[]>> chunks;
+		C8* cur = nullptr;
+		C8* end = nullptr;
 		List<Dtor> dtors;
 	};
 } // namespace rat

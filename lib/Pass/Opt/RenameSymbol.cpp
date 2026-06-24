@@ -8,7 +8,7 @@ namespace rat {
 	RenameSymbolPass::RenameSymbolPass(String from, String to)
 			: from(std::move(from)), to(std::move(to)) {}
 
-	const char* RenameSymbolPass::name() const { return "rename-symbol"; }
+	const C8* RenameSymbolPass::name() const { return "rename-symbol"; }
 
 	B32 RenameSymbolPass::run(Module& module) {
 		if (from.empty() || from == to)

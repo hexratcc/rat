@@ -12,7 +12,7 @@ namespace rat {
 	struct X86EmitterPass : Pass {
 		explicit X86EmitterPass(std::ostream& os);
 
-		const char* name() const override;
+		const C8* name() const override;
 		B32 run(Module& module) override;
 
 	private:

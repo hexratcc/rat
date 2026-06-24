@@ -9,7 +9,7 @@ namespace rat {
 
 	enum class AliasResult { NoAlias, MayAlias, MustAlias };
 
-	const char* toString(AliasResult r);
+	const C8* toString(AliasResult r);
 
 	struct AliasAnalysis {
 		explicit AliasAnalysis(const Function& fn);

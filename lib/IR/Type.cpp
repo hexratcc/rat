@@ -1,7 +1,5 @@
 #include "IR/Type.h"
 
-#include <sstream>
-
 namespace rat {
 	Type::Type(Kind kind, U32 bits, List<Type*> elements)
 			: kind(kind), bits(bits), elements(std::move(elements)) {}

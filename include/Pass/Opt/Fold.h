@@ -20,7 +20,7 @@ namespace rat {
 	Node* simplify(Function& fn, Node* n);
 
 	struct FoldPass : FunctionPass {
-		const char* name() const override;
+		const C8* name() const override;
 		U32 runOnFunction(Function& fn) override;
 	};
 } // namespace rat

@@ -10,7 +10,7 @@ namespace rat {
 	U32 inlineCalls(Module& module);
 
 	struct InlinePass : Pass {
-		const char* name() const override;
+		const C8* name() const override;
 		B32 run(Module& module) override;
 	};
 } // namespace rat

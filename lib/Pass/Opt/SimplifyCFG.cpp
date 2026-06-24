@@ -13,8 +13,6 @@
 #include "IR/Node.h"
 #include "IR/Type.h"
 
-#include <unordered_set>
-
 namespace rat {
 	namespace detail {
 		B32 isControlNode(Node* n) {
@@ -129,7 +127,7 @@ namespace rat {
 		return changed;
 	}
 
-	const char* SimplifyCFGPass::name() const { return "simplifycfg"; }
+	const C8* SimplifyCFGPass::name() const { return "simplifycfg"; }
 
 	U32 SimplifyCFGPass::runOnFunction(Function& fn) { return simplifyCFG(fn); }
 } // namespace rat

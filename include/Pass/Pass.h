@@ -10,7 +10,7 @@ namespace rat {
 	struct Pass {
 		virtual ~Pass();
 
-		virtual const char* name() const = 0;
+		virtual const C8* name() const = 0;
 		virtual B32 run(Module& module) = 0;
 	};
 

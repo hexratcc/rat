@@ -13,10 +13,8 @@
 #include "IR/Node.h"
 #include "IR/Type.h"
 
-#include <algorithm>
-
 namespace rat {
-	const char* toString(AliasResult r) {
+	const C8* toString(AliasResult r) {
 		switch (r) {
 		case AliasResult::NoAlias:
 			return "NoAlias";

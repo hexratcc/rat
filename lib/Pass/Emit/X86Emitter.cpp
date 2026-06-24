@@ -985,7 +985,7 @@ namespace rat {
 
 	X86EmitterPass::X86EmitterPass(std::ostream& os) : os(&os) {}
 
-	const char* X86EmitterPass::name() const { return "x86-emitter"; }
+	const C8* X86EmitterPass::name() const { return "x86-emitter"; }
 
 	B32 X86EmitterPass::run(Module& module) {
 		emitX86(module, *os);

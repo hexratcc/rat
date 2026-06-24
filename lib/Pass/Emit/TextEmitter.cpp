@@ -6,9 +6,9 @@
 
 namespace rat {
 	namespace detail {
-		constexpr const char* Reset = "\033[0m";
-		constexpr const char* Green = "\033[32m";
-		constexpr const char* TempColors[] = {
+		constexpr const C8* Reset = "\033[0m";
+		constexpr const C8* Green = "\033[32m";
+		constexpr const C8* TempColors[] = {
 				"\033[31m", "\033[33m", "\033[34m", "\033[35m", "\033[36m",
 				"\033[91m", "\033[93m", "\033[94m", "\033[95m", "\033[96m",
 		};
@@ -19,11 +19,11 @@ namespace rat {
 		// raw bytes as a quoted string: printable ASCII verbatim, everything
 		// else (and " and \) as a \HH hex escape, so the form round-trips
 		String quoteBytes(const List<U8>& bytes) {
-			static const char* hex = "0123456789abcdef";
+			static const C8* hex = "0123456789abcdef";
 			String out = "\"";
 			for (U8 b : bytes) {
 				if (b >= 0x20 && b <= 0x7e && b != '"' && b != '\\') {
-					out.push_back((char)b);
+					out.push_back((C8)b);
 				} else {
 					out.push_back('\\');
 					out.push_back(hex[b >> 4]);
@@ -123,7 +123,7 @@ namespace rat {
 
 	TextEmitterPass::TextEmitterPass(std::ostream& os) : os(&os) {}
 
-	const char* TextEmitterPass::name() const { return "text-emitter"; }
+	const C8* TextEmitterPass::name() const { return "text-emitter"; }
 
 	B32 TextEmitterPass::run(Module& module) {
 		emitText(module, *os);
