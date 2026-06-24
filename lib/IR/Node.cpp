@@ -97,22 +97,17 @@ namespace rat {
 
 	U32 StartNode::getParamCount() const { return paramCount; }
 
-	StopNode::StopNode(Function& fn, Type* controlType)
-			: Node(fn, Opcode::Stop, controlType, {}) {}
+	StopNode::StopNode(Function& fn, Type* controlType) : Node(fn, Opcode::Stop, controlType, {}) {}
 
-	ReturnNode::ReturnNode(Function& fn, Type* controlType,
-												 const List<Node*>& inputs)
+	ReturnNode::ReturnNode(Function& fn, Type* controlType, const List<Node*>& inputs)
 			: Node(fn, Opcode::Return, controlType, inputs) {}
 
 	Node* ReturnNode::getControl() const { return getInput(0); }
 	Node* ReturnNode::getMemory() const { return getInput(1); }
 	B32 ReturnNode::hasValue() const { return getInputCount() > 2; }
-	Node* ReturnNode::getValue() const {
-		return hasValue() ? getInput(2) : nullptr;
-	}
+	Node* ReturnNode::getValue() const { return hasValue() ? getInput(2) : nullptr; }
 
-	RegionNode::RegionNode(Function& fn, Type* controlType,
-												 const List<Node*>& preds)
+	RegionNode::RegionNode(Function& fn, Type* controlType, const List<Node*>& preds)
 			: Node(fn, Opcode::Region, controlType, preds) {}
 
 	U32 RegionNode::getPredecessorCount() const { return getInputCount(); }
@@ -126,10 +121,8 @@ namespace rat {
 	Node* IfNode::getControl() const { return getInput(0); }
 	Node* IfNode::getPredicate() const { return getInput(1); }
 
-	ProjNode::ProjNode(Function& fn, Type* type, Node* tuple, U32 index,
-										 String label)
-			: Node(fn, Opcode::Proj, type, {tuple}), index(index),
-				label(std::move(label)) {}
+	ProjNode::ProjNode(Function& fn, Type* type, Node* tuple, U32 index, String label)
+			: Node(fn, Opcode::Proj, type, {tuple}), index(index), label(std::move(label)) {}
 
 	Node* ProjNode::getProducer() const { return getInput(0); }
 	U32 ProjNode::getIndex() const { return index; }
@@ -138,9 +131,7 @@ namespace rat {
 	PhiNode::PhiNode(Function& fn, Type* type, const List<Node*>& inputs)
 			: Node(fn, Opcode::Phi, type, inputs) {}
 
-	RegionNode* PhiNode::getRegion() const {
-		return cast<RegionNode>(getInput(0));
-	}
+	RegionNode* PhiNode::getRegion() const { return cast<RegionNode>(getInput(0)); }
 	U32 PhiNode::getValueCount() const { return getInputCount() - 1; }
 	Node* PhiNode::getValue(U32 index) const { return getInput(1 + index); }
 	void PhiNode::setValue(U32 index, Node* value) { setInput(1 + index, value); }
@@ -150,8 +141,7 @@ namespace rat {
 
 	I64 ConstantNode::getValue() const { return value; }
 
-	BinaryNode::BinaryNode(Function& fn, Opcode op, Type* type, Node* lhs,
-												 Node* rhs)
+	BinaryNode::BinaryNode(Function& fn, Opcode op, Type* type, Node* lhs, Node* rhs)
 			: Node(fn, op, type, {lhs, rhs}) {}
 
 	Node* BinaryNode::getLHS() const { return getInput(0); }
@@ -162,55 +152,45 @@ namespace rat {
 
 	Node* UnaryNode::getOperand() const { return getInput(0); }
 
-	CompareNode::CompareNode(Function& fn, Opcode op, Type* boolType, Node* lhs,
-													 Node* rhs)
+	CompareNode::CompareNode(Function& fn, Opcode op, Type* boolType, Node* lhs, Node* rhs)
 			: Node(fn, op, boolType, {lhs, rhs}) {}
 
 	Node* CompareNode::getLHS() const { return getInput(0); }
 	Node* CompareNode::getRHS() const { return getInput(1); }
 
-	ConvertNode::ConvertNode(Function& fn, Opcode op, Type* destType,
-													 Node* operand)
+	ConvertNode::ConvertNode(Function& fn, Opcode op, Type* destType, Node* operand)
 			: Node(fn, op, destType, {operand}) {}
 
 	Node* ConvertNode::getOperand() const { return getInput(0); }
 
-	LoadNode::LoadNode(Function& fn, Type* valueType, Node* control, Node* memory,
-										 Node* pointer)
+	LoadNode::LoadNode(Function& fn, Type* valueType, Node* control, Node* memory, Node* pointer)
 			: Node(fn, Opcode::Load, valueType, {control, memory, pointer}) {}
 
 	Node* LoadNode::getControl() const { return getInput(0); }
 	Node* LoadNode::getMemory() const { return getInput(1); }
 	Node* LoadNode::getPointer() const { return getInput(2); }
 
-	StoreNode::StoreNode(Function& fn, Type* memoryType, Node* control,
-											 Node* memory, Node* pointer, Node* value)
-			: Node(fn, Opcode::Store, memoryType, {control, memory, pointer, value}) {
-	}
+	StoreNode::StoreNode(Function& fn, Type* memoryType, Node* control, Node* memory, Node* pointer,
+											 Node* value)
+			: Node(fn, Opcode::Store, memoryType, {control, memory, pointer, value}) {}
 
 	Node* StoreNode::getControl() const { return getInput(0); }
 	Node* StoreNode::getMemory() const { return getInput(1); }
 	Node* StoreNode::getPointer() const { return getInput(2); }
 	Node* StoreNode::getValue() const { return getInput(3); }
 
-	CallNode::CallNode(Function& fn, Type* tupleType, String callee,
-										 B32 returnsValue, const List<Node*>& controlMemoryArgs,
-										 B32 indirect)
-			: Node(fn, Opcode::Call, tupleType, controlMemoryArgs),
-				callee(std::move(callee)), hasReturnValue(returnsValue),
-				indirect(indirect) {}
+	CallNode::CallNode(Function& fn, Type* tupleType, String callee, B32 returnsValue,
+										 const List<Node*>& controlMemoryArgs, B32 indirect)
+			: Node(fn, Opcode::Call, tupleType, controlMemoryArgs), callee(std::move(callee)),
+				hasReturnValue(returnsValue), indirect(indirect) {}
 
 	const String& CallNode::getCallee() const { return callee; }
 	void CallNode::setCallee(String name) { callee = std::move(name); }
 	Node* CallNode::getControl() const { return getInput(0); }
 	Node* CallNode::getMemory() const { return getInput(1); }
 	// indirect calls reserve one extra input (index 2) for the target pointer
-	U32 CallNode::getArgCount() const {
-		return getInputCount() - 2 - (indirect ? 1 : 0);
-	}
-	Node* CallNode::getArg(U32 index) const {
-		return getInput(2 + (indirect ? 1 : 0) + index);
-	}
+	U32 CallNode::getArgCount() const { return getInputCount() - 2 - (indirect ? 1 : 0); }
+	Node* CallNode::getArg(U32 index) const { return getInput(2 + (indirect ? 1 : 0) + index); }
 	B32 CallNode::returnsValue() const { return hasReturnValue; }
 	B32 CallNode::isIndirect() const { return indirect; }
 	Node* CallNode::getTarget() const { return indirect ? getInput(2) : nullptr; }
@@ -228,9 +208,7 @@ namespace rat {
 
 	Type* AllocNode::getAllocType() const { return allocType; }
 
-	Node* AllocNode::getSizeOperand() const {
-		return getInputCount() > 0 ? getInput(0) : nullptr;
-	}
+	Node* AllocNode::getSizeOperand() const { return getInputCount() > 0 ? getInput(0) : nullptr; }
 
 	Node* cloneShell(Function& into, const Node* n) {
 		Opcode op = n->getOpcode();
@@ -268,8 +246,7 @@ namespace rat {
 			return into.create<StoreNode>(t, nullptr, nullptr, nullptr, nullptr);
 		case Opcode::Call: {
 			const CallNode* c = cast<CallNode>(n);
-			return into.create<CallNode>(t, c->getCallee(), c->returnsValue(), nulls,
-																	 c->isIndirect());
+			return into.create<CallNode>(t, c->getCallee(), c->returnsValue(), nulls, c->isIndirect());
 		}
 		case Opcode::Global:
 			return into.create<GlobalNode>(t, cast<GlobalNode>(n)->getSymbol());
@@ -298,8 +275,8 @@ namespace rat {
 	}
 
 	String nodeSignature(const Node* n) {
-		String key = std::to_string((U32)n->getOpcode()) + "|" +
-								 std::to_string((uintptr_t)n->getType()) + "|";
+		String key =
+				std::to_string((U32)n->getOpcode()) + "|" + std::to_string((uintptr_t)n->getType()) + "|";
 
 		// immediate (non-edge) fields, by opcode
 		switch (n->getOpcode()) {
@@ -318,8 +295,7 @@ namespace rat {
 			key += "f" + cast<CallNode>(n)->getCallee();
 			break;
 		case Opcode::Alloc:
-			key +=
-					"a" + std::to_string((uintptr_t)cast<AllocNode>(n)->getAllocType());
+			key += "a" + std::to_string((uintptr_t)cast<AllocNode>(n)->getAllocType());
 			break;
 		default:
 			break;

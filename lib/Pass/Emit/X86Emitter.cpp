@@ -4,10 +4,10 @@
 #include "Target/X86Elf.h"
 
 #include "CodeGen/Schedule.h"
-#include "Target/Target.h"
 #include "IR/Function.h"
 #include "IR/Module.h"
 #include "IR/Node.h"
+#include "Target/Target.h"
 
 namespace rat {
 	namespace {
@@ -20,9 +20,7 @@ namespace rat {
 		const U32 kRegSaveBytes = kGpSaveBytes + kMaxXmmArgs * kXmmSlotBytes;
 
 		B32 isFloatTy(const Type* t) { return t && t->isFloat(); }
-		B32 isX87Ty(const Type* t) {
-			return t && t->isFloat() && t->getFloatWidth() == 128;
-		}
+		B32 isX87Ty(const Type* t) { return t && t->isFloat() && t->getFloatWidth() == 128; }
 
 		String libcName(const String& callee) {
 			if (callee.rfind("__builtin_", 0) == 0)
@@ -30,9 +28,7 @@ namespace rat {
 			return callee;
 		}
 
-		U32 intBits(const Type* t) {
-			return t && t->isInt() ? t->getIntWidth() : 64;
-		}
+		U32 intBits(const Type* t) { return t && t->isInt() ? t->getIntWidth() : 64; }
 
 		U64 signExtend(U64 v, U32 bits) {
 			if (bits == 0 || bits >= 64)
@@ -89,8 +85,7 @@ namespace rat {
 
 			List<Fix> fixes;
 
-			X86Emitter(const Function& f)
-					: fn(f), mod(f.getModule()), sched(f), a(code, relocs) {}
+			X86Emitter(const Function& f) : fn(f), mod(f.getModule()), sched(f), a(code, relocs) {}
 
 			I32 slotOf(const Node* n) {
 				auto it = slot.find(n);
@@ -134,8 +129,8 @@ namespace rat {
 										 p->getIndex() == CallNode::valueProjIndex())
 							producesValue = true; // call result
 					} else if (t && t->isData()) {
-						producesValue = isFloating(n) || op == Opcode::Constant ||
-														op == Opcode::Phi || op == Opcode::Global;
+						producesValue = isFloating(n) || op == Opcode::Constant || op == Opcode::Phi ||
+														op == Opcode::Global;
 					}
 					if (producesValue && !slot.count(n))
 						reserve(n, isX87Ty(t) ? 16 : 8);
@@ -211,9 +206,7 @@ namespace rat {
 			}
 
 			void storeInt(Node* n, Reg r) { a.storeMem(RBP, slotOf(n), r, 8); }
-			void storeFloat(Node* n, U32 x) {
-				a.storeXmm(x, RBP, slotOf(n), opWidth(n->getType()));
-			}
+			void storeFloat(Node* n, U32 x) { a.storeXmm(x, RBP, slotOf(n), opWidth(n->getType())); }
 
 			void fldX87(Node* n) {
 				if (ConstantNode* c = dyn_cast<ConstantNode>(n)) {
@@ -257,9 +250,7 @@ namespace rat {
 					a.testRR(RAX, RAX);
 					U32 skip = a.jccRel32(CC_E);
 					for (U32 i = 0; i < kMaxXmmArgs; ++i)
-						a.storeXmm(i, RBP,
-											 saveArea + (I32)kGpSaveBytes + (I32)(i * kXmmSlotBytes),
-											 8);
+						a.storeXmm(i, RBP, saveArea + (I32)kGpSaveBytes + (I32)(i * kXmmSlotBytes), 8);
 					a.patchRel32(skip, a.here());
 				}
 				StartNode* st = fn.getStart();
@@ -453,10 +444,18 @@ namespace rat {
 					fldX87(n->getLHS());
 					fldX87(n->getRHS());
 					switch (idx) {
-					case 0: a.faddp(); break;
-					case 1: a.fsubp(); break;
-					case 2: a.fmulp(); break;
-					case 3: a.fdivp(); break;
+					case 0:
+						a.faddp();
+						break;
+					case 1:
+						a.fsubp();
+						break;
+					case 2:
+						a.fmulp();
+						break;
+					case 3:
+						a.fdivp();
+						break;
 					}
 					fstpX87Slot(n);
 					return;
@@ -521,14 +520,17 @@ namespace rat {
 			}
 
 			void emitFloatCompare(CompareNode* n) {
-				struct FCmp { U8 cc; B32 swap; };
+				struct FCmp {
+					U8 cc;
+					B32 swap;
+				};
 				static const FCmp kFCmp[] = {
-					{CC_E, false},  // FEq
-					{CC_NE, false}, // FNe
-					{CC_A, true},   // FLt
-					{CC_AE, true},  // FLe
-					{CC_A, false},  // FGt
-					{CC_AE, false}, // FGe
+						{CC_E, false},	// FEq
+						{CC_NE, false}, // FNe
+						{CC_A, true},		// FLt
+						{CC_AE, true},	// FLe
+						{CC_A, false},	// FGt
+						{CC_AE, false}, // FGe
 				};
 				const FCmp& fc = kFCmp[(U32)n->getOpcode() - (U32)Opcode::FEq];
 				if (isX87Ty(n->getLHS()->getType())) {
@@ -539,7 +541,7 @@ namespace rat {
 						fldX87(n->getRHS()); // -> st(1)
 						fldX87(n->getLHS()); // -> st(0) (first)
 					}
-					a.fucomip(); // compare st(0):st(1), set EFLAGS, pop st(0)
+					a.fucomip();	// compare st(0):st(1), set EFLAGS, pop st(0)
 					a.fstpReg0(); // discard the remaining operand
 					storeBool(n, fc.cc);
 					return;
@@ -827,9 +829,7 @@ namespace rat {
 
 				Node* vp = c->projection(CallNode::valueProjIndex());
 				const Type* rt =
-						c->returnsValue()
-								? c->getType()->getTupleElement(CallNode::valueProjIndex())
-								: nullptr;
+						c->returnsValue() ? c->getType()->getTupleElement(CallNode::valueProjIndex()) : nullptr;
 				if (isX87Ty(rt)) {
 					if (vp && slot.count(vp))
 						fstpX87Slot(vp);
@@ -882,9 +882,7 @@ namespace rat {
 				}
 			}
 
-			void recordFix(U32 dispAt, I32 targetBlock) {
-				fixes.push_back({dispAt, targetBlock});
-			}
+			void recordFix(U32 dispAt, I32 targetBlock) { fixes.push_back({dispAt, targetBlock}); }
 
 			void jumpTo(I32 target, I32 fallthrough) {
 				if (target == fallthrough)
@@ -936,11 +934,9 @@ namespace rat {
 				size = 1;
 
 			B32 allZero = g->getRelocs().empty() &&
-										std::all_of(init.begin(), init.end(),
-																[](U8 v) { return v == 0; });
+										std::all_of(init.begin(), init.end(), [](U8 v) { return v == 0; });
 			ElfObject::Section sec =
-					allZero ? ElfObject::Bss
-									: (g->isConstant() ? ElfObject::Rodata : ElfObject::Data);
+					allZero ? ElfObject::Bss : (g->isConstant() ? ElfObject::Rodata : ElfObject::Data);
 			elf.align(sec, 8);
 
 			U32 off;
@@ -948,15 +944,13 @@ namespace rat {
 				off = elf.appendZero(sec, size);
 			} else {
 				List<U8> img(size, 0);
-				std::copy_n(init.begin(),
-										init.size() < size ? init.size() : size, img.begin());
+				std::copy_n(init.begin(), init.size() < size ? init.size() : size, img.begin());
 				off = elf.append(sec, img.data(), size);
 			}
 			elf.defineSymbol(g->getName(), sec, off, true, false);
 
 			for (const Reloc& r : g->getRelocs())
-				elf.addReloc(sec, off + r.offset, r.symbol, ElfReloc::Abs64,
-										 r.addend);
+				elf.addReloc(sec, off + r.offset, r.symbol, ElfReloc::Abs64, r.addend);
 		}
 	} // namespace
 
@@ -970,12 +964,10 @@ namespace rat {
 			X86Emitter em(*fn);
 			em.run();
 			elf.align(ElfObject::Text, 16);
-			U32 off = elf.append(ElfObject::Text, em.code.data(),
-													 (U32)em.code.size());
+			U32 off = elf.append(ElfObject::Text, em.code.data(), (U32)em.code.size());
 			elf.defineSymbol(fn->getName(), ElfObject::Text, off, true, true);
 			for (const AsmReloc& r : em.relocs)
-				elf.addReloc(ElfObject::Text, off + r.offset, r.symbol, r.kind,
-										 r.addend);
+				elf.addReloc(ElfObject::Text, off + r.offset, r.symbol, r.kind, r.addend);
 		}
 
 		elf.write(os);

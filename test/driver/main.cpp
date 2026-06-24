@@ -19,8 +19,7 @@ namespace {
 	void listPasses(std::ostream& os) {
 		os << "passes:\n";
 		for (const PassRegistry::Entry& e : passRegistry().entries())
-			os << "  " << e.name
-				 << std::string(14 > e.name.size() ? 14 - e.name.size() : 1, ' ')
+			os << "  " << e.name << std::string(14 > e.name.size() ? 14 - e.name.size() : 1, ' ')
 				 << e.description << "\n";
 	}
 
@@ -85,8 +84,7 @@ I32 main(I32 argc, char** argv) {
 	}
 
 	if (emitKind != "text" && emitKind != "c" && emitKind != "dot") {
-		std::cerr << "rat: unknown -emit value '" << emitKind
-							<< "' (expected text, c, or dot)\n";
+		std::cerr << "rat: unknown -emit value '" << emitKind << "' (expected text, c, or dot)\n";
 		return 2;
 	}
 

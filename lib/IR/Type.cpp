@@ -122,8 +122,7 @@ namespace rat {
 
 	Type* TypeContext::getArray(Type* element, U32 count) {
 		for (Type* existing : arrays) {
-			if (existing->getArrayElement() == element &&
-					existing->getArrayCount() == count)
+			if (existing->getArrayElement() == element && existing->getArrayCount() == count)
 				return existing;
 		}
 

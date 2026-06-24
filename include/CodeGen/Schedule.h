@@ -18,18 +18,18 @@ namespace rat {
 		struct Block {
 			Node* head = nullptr; // region, entry control proj, or if proj
 			TermKind term = TermKind::Return;
-			Node* termNode = nullptr; // the return or if node (null for a goto)
+			Node* termNode = nullptr;		// the return or if node (null for a goto)
 			I32 thenB = -1, elseB = -1; // branch successors
-			I32 gotoB = -1; // goto successor (a region block)
-			I32 gotoPredIdx = -1; // which predecessor slot of gotoB this edge is
-			List<I32> preds; // predecessor block indices
+			I32 gotoB = -1;							// goto successor (a region block)
+			I32 gotoPredIdx = -1;				// which predecessor slot of gotoB this edge is
+			List<I32> preds;						// predecessor block indices
 
-			I32 idom = -1; // immediate dominator (entry dominates itself)
-			I32 domDepth = 0; // depth in the dominator tree
+			I32 idom = -1;		 // immediate dominator (entry dominates itself)
+			I32 domDepth = 0;	 // depth in the dominator tree
 			I32 loopDepth = 0; // number of natural loops containing this block
 
 			List<PhiNode*> phis; // data phis merged at this block (region only)
-			List<Node*> nodes; // scheduled compute nodes, in emit order
+			List<Node*> nodes;	 // scheduled compute nodes, in emit order
 		};
 
 		explicit Schedule(const Function& fn);
@@ -56,7 +56,7 @@ namespace rat {
 		List<Block> blocks;
 		Map<const Node*, I32> headIndex; // head node -> block
 		Map<const Node*, I32> nodeBlock; // placed node -> block
-		List<I32> post; // postorder number per block
+		List<I32> post;									 // postorder number per block
 		List<I32> rpoOrder;
 		I32 entryBlock = -1;
 

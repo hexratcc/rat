@@ -15,8 +15,7 @@ namespace rat {
 	};
 
 	struct Global {
-		Global(String name, Type* type, B32 isConst, List<U8> init,
-					 List<Reloc> relocs = {});
+		Global(String name, Type* type, B32 isConst, List<U8> init, List<Reloc> relocs = {});
 
 		const String& getName() const;
 		Type* getType() const;
@@ -42,11 +41,10 @@ namespace rat {
 
 		U32 pointerBytes() const;
 
-		Function* createFunction(const String& name, const List<Type*>& params,
-														 Type* ret);
+		Function* createFunction(const String& name, const List<Type*>& params, Type* ret);
 
-		Global* createGlobal(const String& name, Type* type, B32 isConst,
-												 List<U8> init, List<Reloc> relocs = {});
+		Global* createGlobal(const String& name, Type* type, B32 isConst, List<U8> init,
+												 List<Reloc> relocs = {});
 		Global* createString(const String& name, const String& bytes);
 		Global* getGlobal(const String& name) const;
 

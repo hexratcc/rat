@@ -74,15 +74,12 @@ namespace rat {
 			return false;
 		}
 
-		Node* constBool(Function& fn, B32 b) {
-			return constant(fn, fn.types().getBool(), b ? 1 : 0);
-		}
+		Node* constBool(Function& fn, B32 b) { return constant(fn, fn.types().getBool(), b ? 1 : 0); }
 	} // namespace detail
 	using namespace detail;
 
 	Node* constant(Function& fn, Type* type, I64 value) {
-		return fn.create<ConstantNode>(type,
-																	 normalizeConst(value, type->getIntWidth()));
+		return fn.create<ConstantNode>(type, normalizeConst(value, type->getIntWidth()));
 	}
 
 	Node* foldBinary(Function& fn, Opcode op, Node* lhs, Node* rhs) {
@@ -154,8 +151,8 @@ namespace rat {
 		// normalize a lone constant to the RHS for commutative ops, so every rule
 		// below only has to look on one side
 		if (cl && !cr &&
-				(op == Opcode::Add || op == Opcode::Mul || op == Opcode::And ||
-				 op == Opcode::Or || op == Opcode::Xor)) {
+				(op == Opcode::Add || op == Opcode::Mul || op == Opcode::And || op == Opcode::Or ||
+				 op == Opcode::Xor)) {
 			std::swap(lhs, rhs);
 			std::swap(cl, cr);
 		}
@@ -282,8 +279,7 @@ namespace rat {
 					Node* x = in->getLHS();
 					I64 sum = a + b;
 					if (sum >= (I64)w)
-						return op == Opcode::AShr ? mkBin(Opcode::AShr, x, w - 1)
-																			: constant(fn, ty, 0);
+						return op == Opcode::AShr ? mkBin(Opcode::AShr, x, w - 1) : constant(fn, ty, 0);
 					return mkBin(op, x, sum);
 				}
 			}
@@ -416,8 +412,7 @@ namespace rat {
 				List<Node*> work;
 				for (Node* n : fn) {
 					Opcode op = n->getOpcode();
-					if (isBinaryOpcode(op) || isUnaryOpcode(op) || isCompareOpcode(op) ||
-							isConvertOpcode(op))
+					if (isBinaryOpcode(op) || isUnaryOpcode(op) || isCompareOpcode(op) || isConvertOpcode(op))
 						work.push_back(n);
 				}
 				for (Node* n : work) {

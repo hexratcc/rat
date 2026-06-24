@@ -15,9 +15,8 @@ namespace rat {
 	namespace detail {
 		B32 isPureValue(Node* n) {
 			Opcode op = n->getOpcode();
-			return op == Opcode::Constant || op == Opcode::Global ||
-						 isBinaryOpcode(op) || isUnaryOpcode(op) || isCompareOpcode(op) ||
-						 isConvertOpcode(op);
+			return op == Opcode::Constant || op == Opcode::Global || isBinaryOpcode(op) ||
+						 isUnaryOpcode(op) || isCompareOpcode(op) || isConvertOpcode(op);
 		}
 	} // namespace detail
 	using namespace detail;

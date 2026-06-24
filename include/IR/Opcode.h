@@ -106,18 +106,10 @@ namespace rat {
 
 	inline OpClass getOpClass(Opcode op) { return getOpcodeInfo(op).opClass; }
 
-	constexpr B32 isBinaryOpcode(Opcode op) {
-		return op >= Opcode::Add && op <= Opcode::FDiv;
-	}
-	constexpr B32 isUnaryOpcode(Opcode op) {
-		return op >= Opcode::Neg && op <= Opcode::FNeg;
-	}
-	constexpr B32 isCompareOpcode(Opcode op) {
-		return op >= Opcode::Eq && op <= Opcode::FGe;
-	}
-	constexpr B32 isConvertOpcode(Opcode op) {
-		return op >= Opcode::Trunc && op <= Opcode::FPTrunc;
-	}
+	constexpr B32 isBinaryOpcode(Opcode op) { return op >= Opcode::Add && op <= Opcode::FDiv; }
+	constexpr B32 isUnaryOpcode(Opcode op) { return op >= Opcode::Neg && op <= Opcode::FNeg; }
+	constexpr B32 isCompareOpcode(Opcode op) { return op >= Opcode::Eq && op <= Opcode::FGe; }
+	constexpr B32 isConvertOpcode(Opcode op) { return op >= Opcode::Trunc && op <= Opcode::FPTrunc; }
 	constexpr B32 isFloatOpcode(Opcode op) {
 		return (op >= Opcode::FAdd && op <= Opcode::FDiv) || op == Opcode::FNeg ||
 					 (op >= Opcode::FEq && op <= Opcode::FGe) ||

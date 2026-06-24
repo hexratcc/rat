@@ -113,13 +113,13 @@ namespace rat {
 			U32 id = 0;
 			Opcode op = Opcode::Start;
 			Type* ty = nullptr;
-			I64 cval = 0; // Constant
-			U32 projIndex = 0; // Proj
-			String projLabel; // Proj
-			String callee; // Call
-			String symbol; // Global
+			I64 cval = 0;							 // Constant
+			U32 projIndex = 0;				 // Proj
+			String projLabel;					 // Proj
+			String callee;						 // Call
+			String symbol;						 // Global
 			Type* allocType = nullptr; // Alloc
-			B32 loopHeader = false; // Region
+			B32 loopHeader = false;		 // Region
 			List<U32> operands;
 		};
 
@@ -262,8 +262,8 @@ namespace rat {
 				U64 rp = header.rfind(')');
 				U64 arrow = header.find("->");
 				U64 brace = header.rfind('{');
-				if (lp == String::npos || rp == String::npos || rp < lp ||
-						arrow == String::npos || brace == String::npos)
+				if (lp == String::npos || rp == String::npos || rp < lp || arrow == String::npos ||
+						brace == String::npos)
 					return fail("malformed func header: " + header);
 
 				String name = trim(header.substr(5, lp - 5));
@@ -424,8 +424,7 @@ namespace rat {
 				}
 				case Opcode::Call: {
 					U64 q1 = remainder.find('"');
-					U64 q2 =
-							(q1 == String::npos) ? String::npos : remainder.find('"', q1 + 1);
+					U64 q2 = (q1 == String::npos) ? String::npos : remainder.find('"', q1 + 1);
 					if (q1 == String::npos || q2 == String::npos)
 						return fail("call is missing its quoted callee: " + line);
 					r.callee = remainder.substr(q1 + 1, q2 - q1 - 1);
@@ -434,8 +433,7 @@ namespace rat {
 				}
 				case Opcode::Global: {
 					U64 q1 = remainder.find('"');
-					U64 q2 =
-							(q1 == String::npos) ? String::npos : remainder.find('"', q1 + 1);
+					U64 q2 = (q1 == String::npos) ? String::npos : remainder.find('"', q1 + 1);
 					if (q1 == String::npos || q2 == String::npos)
 						return fail("global node is missing its quoted symbol: " + line);
 					r.symbol = remainder.substr(q1 + 1, q2 - q1 - 1);
@@ -555,11 +553,11 @@ namespace rat {
 							Node* prod = need(r, 0);
 							if (!prod)
 								return false;
-							if (prod == fn->getStart() &&
-									r.projIndex == StartNode::controlProjIndex() && startCtrl)
+							if (prod == fn->getStart() && r.projIndex == StartNode::controlProjIndex() &&
+									startCtrl)
 								n = startCtrl;
-							else if (prod == fn->getStart() &&
-											 r.projIndex == StartNode::memoryProjIndex() && startMem)
+							else if (prod == fn->getStart() && r.projIndex == StartNode::memoryProjIndex() &&
+											 startMem)
 								n = startMem;
 							else
 								n = fn->create<ProjNode>(r.ty, prod, r.projIndex, r.projLabel);
@@ -624,8 +622,7 @@ namespace rat {
 						} else if (op == Opcode::Alloc) {
 							n = fn->create<AllocNode>(r.ty, r.allocType);
 						} else {
-							return fail(String("cannot construct opcode '") +
-													getOpcodeMnemonic(op) + "'");
+							return fail(String("cannot construct opcode '") + getOpcodeMnemonic(op) + "'");
 						}
 						byId[r.id] = n;
 						done[k] = true;
@@ -643,8 +640,7 @@ namespace rat {
 
 				// pass 2
 				for (const Rec& r : recs) {
-					if (r.op != Opcode::Region && r.op != Opcode::Phi &&
-							r.op != Opcode::Stop)
+					if (r.op != Opcode::Region && r.op != Opcode::Phi && r.op != Opcode::Stop)
 						continue;
 					Node* n = byId[r.id];
 					for (U32 i = 0; i < r.operands.size(); ++i) {

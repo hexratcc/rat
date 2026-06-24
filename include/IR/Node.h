@@ -104,8 +104,7 @@ namespace rat {
 	};
 
 	struct ProjNode : Node {
-		ProjNode(Function& fn, Type* type, Node* tuple, U32 index,
-						 String label = "");
+		ProjNode(Function& fn, Type* type, Node* tuple, U32 index, String label = "");
 
 		Node* getProducer() const;
 		U32 getIndex() const;
@@ -161,8 +160,7 @@ namespace rat {
 	};
 
 	struct LoadNode : Node {
-		LoadNode(Function& fn, Type* valueType, Node* control, Node* memory,
-						 Node* pointer);
+		LoadNode(Function& fn, Type* valueType, Node* control, Node* memory, Node* pointer);
 
 		Node* getControl() const;
 		Node* getMemory() const;
@@ -170,8 +168,8 @@ namespace rat {
 	};
 
 	struct StoreNode : Node {
-		StoreNode(Function& fn, Type* memoryType, Node* control, Node* memory,
-							Node* pointer, Node* value);
+		StoreNode(Function& fn, Type* memoryType, Node* control, Node* memory, Node* pointer,
+							Node* value);
 
 		Node* getControl() const;
 		Node* getMemory() const;
@@ -247,16 +245,10 @@ namespace rat {
 		// clang-format on
 	} // namespace detail
 
-	template <typename T> B32 isa(const Node* n) {
-		return n && detail::nodeIsa<T>(n);
-	}
+	template <typename T> B32 isa(const Node* n) { return n && detail::nodeIsa<T>(n); }
 	template <typename T> T* cast(Node* n) { return static_cast<T*>(n); }
-	template <typename T> const T* cast(const Node* n) {
-		return static_cast<const T*>(n);
-	}
-	template <typename T> T* dyn_cast(Node* n) {
-		return isa<T>(n) ? static_cast<T*>(n) : nullptr;
-	}
+	template <typename T> const T* cast(const Node* n) { return static_cast<const T*>(n); }
+	template <typename T> T* dyn_cast(Node* n) { return isa<T>(n) ? static_cast<T*>(n) : nullptr; }
 	template <typename T> const T* dyn_cast(const Node* n) {
 		return isa<T>(n) ? static_cast<const T*>(n) : nullptr;
 	}

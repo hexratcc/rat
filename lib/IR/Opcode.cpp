@@ -62,11 +62,7 @@ namespace rat {
 		// clang-format on
 	} // namespace detail
 
-	const OpcodeInfo& getOpcodeInfo(Opcode op) {
-		return detail::kOpcodeInfo[(U32)op];
-	}
+	const OpcodeInfo& getOpcodeInfo(Opcode op) { return detail::kOpcodeInfo[(U32)op]; }
 
-	const C8* getOpcodeMnemonic(Opcode op) {
-		return getOpcodeInfo(op).mnemonic;
-	}
+	const C8* getOpcodeMnemonic(Opcode op) { return getOpcodeInfo(op).mnemonic; }
 } // namespace rat

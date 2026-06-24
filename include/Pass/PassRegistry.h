@@ -28,8 +28,7 @@ namespace rat {
 	};
 
 	PassRegistry& passRegistry();
-	B32 buildPipeline(PassManager& pm, const String& spec, std::ostream& out,
-										String& err);
+	B32 buildPipeline(PassManager& pm, const String& spec, std::ostream& out, String& err);
 } // namespace rat
 
 #endif

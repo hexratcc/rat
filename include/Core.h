@@ -52,8 +52,7 @@ namespace rat {
 	using String = std::string;
 	template <typename Type> using List = std::vector<Type>;
 	template <typename Type> using UniquePtr = std::unique_ptr<Type>;
-	template <typename Key, typename Value>
-	using Map = std::unordered_map<Key, Value>;
+	template <typename Key, typename Value> using Map = std::unordered_map<Key, Value>;
 	template <typename Key> using Set = std::unordered_set<Key>;
 
 	namespace detail {
@@ -88,9 +87,7 @@ namespace rat {
 		void* allocate(U64 size, U64 align) {
 			C8* aligned = cur ? detail::alignUp(cur, align) : nullptr;
 			if (!aligned || aligned + size > end) {
-				U64 chunkSize = size + align > detail::kDefaultChunk
-															? size + align
-															: detail::kDefaultChunk;
+				U64 chunkSize = size + align > detail::kDefaultChunk ? size + align : detail::kDefaultChunk;
 				chunks.push_back(UniquePtr<C8[]>(new C8[chunkSize]));
 				cur = chunks.back().get();
 				end = cur + chunkSize;
@@ -100,9 +97,7 @@ namespace rat {
 			return aligned;
 		}
 
-		void registerDtor(void* obj, void (*dtor)(void*)) {
-			dtors.push_back({obj, dtor});
-		}
+		void registerDtor(void* obj, void (*dtor)(void*)) { dtors.push_back({obj, dtor}); }
 
 		struct Dtor {
 			void* obj;

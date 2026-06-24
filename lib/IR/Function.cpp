@@ -1,7 +1,7 @@
 #include "IR/Function.h"
 
-#include "Target/Target.h"
 #include "IR/Module.h"
+#include "Target/Target.h"
 
 namespace rat {
 	struct Function::Block {
@@ -9,7 +9,7 @@ namespace rat {
 		RegionNode* region = nullptr;
 		List<Node*> preds;
 		List<Block*> predBlocks; // source block per pred (parallel)
-		Node* ctrl = nullptr; // control anchor once active
+		Node* ctrl = nullptr;		 // control anchor once active
 		B32 sealed = false;
 		B32 active = false; // ctrl established
 		B32 loopHeader = false;
@@ -37,8 +37,7 @@ namespace rat {
 	Type* Function::memTy() const { return mod->getMemory(); }
 	Type* Function::ctrlTy() const { return mod->getControl(); }
 
-	Function::Function(Module& module, String name, const List<Type*>& params,
-										 Type* ret)
+	Function::Function(Module& module, String name, const List<Type*>& params, Type* ret)
 			: mod(&module), name(std::move(name)), paramTypes(params), retType(ret) {
 		TypeContext& tc = *mod;
 
@@ -74,18 +73,13 @@ namespace rat {
 		if (paramCache.size() <= index)
 			paramCache.resize(index + 1, nullptr);
 		if (!paramCache[index])
-			paramCache[index] =
-					proj(start, StartNode::paramProjIndex(index), paramTypes[index],
-							 "arg" + std::to_string(index));
+			paramCache[index] = proj(start, StartNode::paramProjIndex(index), paramTypes[index],
+															 "arg" + std::to_string(index));
 		return paramCache[index];
 	}
 
-	Node* Function::constInt(Type* type, I64 value) {
-		return create<ConstantNode>(type, value);
-	}
-	Node* Function::constBool(B32 value) {
-		return constInt(boolTy(), value ? 1 : 0);
-	}
+	Node* Function::constInt(Type* type, I64 value) { return create<ConstantNode>(type, value); }
+	Node* Function::constBool(B32 value) { return constInt(boolTy(), value ? 1 : 0); }
 	Node* Function::constFloat(Type* type, F64 value) {
 		I64 bits = 0;
 		if (type->getFloatWidth() == 32) {
@@ -104,45 +98,19 @@ namespace rat {
 	Node* Function::binary(Opcode op, Node* lhs, Node* rhs) {
 		return create<BinaryNode>(op, lhs->getType(), lhs, rhs);
 	}
-	Node* Function::add(Node* lhs, Node* rhs) {
-		return binary(Opcode::Add, lhs, rhs);
-	}
-	Node* Function::sub(Node* lhs, Node* rhs) {
-		return binary(Opcode::Sub, lhs, rhs);
-	}
-	Node* Function::mul(Node* lhs, Node* rhs) {
-		return binary(Opcode::Mul, lhs, rhs);
-	}
-	Node* Function::sdiv(Node* lhs, Node* rhs) {
-		return binary(Opcode::SDiv, lhs, rhs);
-	}
-	Node* Function::udiv(Node* lhs, Node* rhs) {
-		return binary(Opcode::UDiv, lhs, rhs);
-	}
-	Node* Function::srem(Node* lhs, Node* rhs) {
-		return binary(Opcode::SRem, lhs, rhs);
-	}
-	Node* Function::urem(Node* lhs, Node* rhs) {
-		return binary(Opcode::URem, lhs, rhs);
-	}
-	Node* Function::and_(Node* lhs, Node* rhs) {
-		return binary(Opcode::And, lhs, rhs);
-	}
-	Node* Function::or_(Node* lhs, Node* rhs) {
-		return binary(Opcode::Or, lhs, rhs);
-	}
-	Node* Function::xor_(Node* lhs, Node* rhs) {
-		return binary(Opcode::Xor, lhs, rhs);
-	}
-	Node* Function::shl(Node* lhs, Node* rhs) {
-		return binary(Opcode::Shl, lhs, rhs);
-	}
-	Node* Function::lshr(Node* lhs, Node* rhs) {
-		return binary(Opcode::LShr, lhs, rhs);
-	}
-	Node* Function::ashr(Node* lhs, Node* rhs) {
-		return binary(Opcode::AShr, lhs, rhs);
-	}
+	Node* Function::add(Node* lhs, Node* rhs) { return binary(Opcode::Add, lhs, rhs); }
+	Node* Function::sub(Node* lhs, Node* rhs) { return binary(Opcode::Sub, lhs, rhs); }
+	Node* Function::mul(Node* lhs, Node* rhs) { return binary(Opcode::Mul, lhs, rhs); }
+	Node* Function::sdiv(Node* lhs, Node* rhs) { return binary(Opcode::SDiv, lhs, rhs); }
+	Node* Function::udiv(Node* lhs, Node* rhs) { return binary(Opcode::UDiv, lhs, rhs); }
+	Node* Function::srem(Node* lhs, Node* rhs) { return binary(Opcode::SRem, lhs, rhs); }
+	Node* Function::urem(Node* lhs, Node* rhs) { return binary(Opcode::URem, lhs, rhs); }
+	Node* Function::and_(Node* lhs, Node* rhs) { return binary(Opcode::And, lhs, rhs); }
+	Node* Function::or_(Node* lhs, Node* rhs) { return binary(Opcode::Or, lhs, rhs); }
+	Node* Function::xor_(Node* lhs, Node* rhs) { return binary(Opcode::Xor, lhs, rhs); }
+	Node* Function::shl(Node* lhs, Node* rhs) { return binary(Opcode::Shl, lhs, rhs); }
+	Node* Function::lshr(Node* lhs, Node* rhs) { return binary(Opcode::LShr, lhs, rhs); }
+	Node* Function::ashr(Node* lhs, Node* rhs) { return binary(Opcode::AShr, lhs, rhs); }
 
 	Node* Function::unary(Opcode op, Node* operand) {
 		return create<UnaryNode>(op, operand->getType(), operand);
@@ -153,36 +121,16 @@ namespace rat {
 	Node* Function::compare(Opcode op, Node* lhs, Node* rhs) {
 		return create<CompareNode>(op, boolTy(), lhs, rhs);
 	}
-	Node* Function::eq(Node* lhs, Node* rhs) {
-		return compare(Opcode::Eq, lhs, rhs);
-	}
-	Node* Function::ne(Node* lhs, Node* rhs) {
-		return compare(Opcode::Ne, lhs, rhs);
-	}
-	Node* Function::slt(Node* lhs, Node* rhs) {
-		return compare(Opcode::Slt, lhs, rhs);
-	}
-	Node* Function::sle(Node* lhs, Node* rhs) {
-		return compare(Opcode::Sle, lhs, rhs);
-	}
-	Node* Function::sgt(Node* lhs, Node* rhs) {
-		return compare(Opcode::Slt, rhs, lhs);
-	}
-	Node* Function::sge(Node* lhs, Node* rhs) {
-		return compare(Opcode::Sle, rhs, lhs);
-	}
-	Node* Function::ult(Node* lhs, Node* rhs) {
-		return compare(Opcode::Ult, lhs, rhs);
-	}
-	Node* Function::ule(Node* lhs, Node* rhs) {
-		return compare(Opcode::Ule, lhs, rhs);
-	}
-	Node* Function::ugt(Node* lhs, Node* rhs) {
-		return compare(Opcode::Ult, rhs, lhs);
-	}
-	Node* Function::uge(Node* lhs, Node* rhs) {
-		return compare(Opcode::Ule, rhs, lhs);
-	}
+	Node* Function::eq(Node* lhs, Node* rhs) { return compare(Opcode::Eq, lhs, rhs); }
+	Node* Function::ne(Node* lhs, Node* rhs) { return compare(Opcode::Ne, lhs, rhs); }
+	Node* Function::slt(Node* lhs, Node* rhs) { return compare(Opcode::Slt, lhs, rhs); }
+	Node* Function::sle(Node* lhs, Node* rhs) { return compare(Opcode::Sle, lhs, rhs); }
+	Node* Function::sgt(Node* lhs, Node* rhs) { return compare(Opcode::Slt, rhs, lhs); }
+	Node* Function::sge(Node* lhs, Node* rhs) { return compare(Opcode::Sle, rhs, lhs); }
+	Node* Function::ult(Node* lhs, Node* rhs) { return compare(Opcode::Ult, lhs, rhs); }
+	Node* Function::ule(Node* lhs, Node* rhs) { return compare(Opcode::Ule, lhs, rhs); }
+	Node* Function::ugt(Node* lhs, Node* rhs) { return compare(Opcode::Ult, rhs, lhs); }
+	Node* Function::uge(Node* lhs, Node* rhs) { return compare(Opcode::Ule, rhs, lhs); }
 
 	Node* Function::convert(Opcode op, Node* operand, Type* destType) {
 		return create<ConvertNode>(op, destType, operand);
@@ -202,14 +150,11 @@ namespace rat {
 	}
 
 	void Function::store(Node* pointer, Node* value) {
-		Node* nm =
-				create<StoreNode>(memTy(), control(), readVar(memVar), pointer, value);
+		Node* nm = create<StoreNode>(memTy(), control(), readVar(memVar), pointer, value);
 		writeVar(memVar, nm);
 	}
 
-	Node* Function::global(const String& name) {
-		return create<GlobalNode>(ptrTy(), name);
-	}
+	Node* Function::global(const String& name) { return create<GlobalNode>(ptrTy(), name); }
 
 	Node* Function::alloc(Type* type) { return create<AllocNode>(ptrTy(), type); }
 
@@ -217,8 +162,7 @@ namespace rat {
 		return create<AllocNode>(ptrTy(), type, byteCount);
 	}
 
-	Node* Function::call(const String& callee, Type* retType,
-											 const List<Node*>& args) {
+	Node* Function::call(const String& callee, Type* retType, const List<Node*>& args) {
 		List<Type*> elems{ctrlTy(), memTy()};
 		if (retType)
 			elems.push_back(retType);
@@ -236,8 +180,7 @@ namespace rat {
 		return nullptr;
 	}
 
-	Node* Function::callIndirect(Node* target, Type* retType,
-															 const List<Node*>& args) {
+	Node* Function::callIndirect(Node* target, Type* retType, const List<Node*>& args) {
 		List<Type*> elems{ctrlTy(), memTy()};
 		if (retType)
 			elems.push_back(retType);
@@ -248,8 +191,7 @@ namespace rat {
 		for (Node* a : args)
 			ins.push_back(a);
 
-		CallNode* c = create<CallNode>(tupleTy, String(), retType != nullptr, ins,
-																	 true);
+		CallNode* c = create<CallNode>(tupleTy, String(), retType != nullptr, ins, true);
 		cur->ctrl = proj(c, CallNode::controlProjIndex(), ctrlTy(), "ctrl");
 		writeVar(memVar, proj(c, CallNode::memoryProjIndex(), memTy(), "mem"));
 		if (retType)
@@ -258,8 +200,7 @@ namespace rat {
 	}
 
 	IfNode* Function::iff(Node* predicate) {
-		return create<IfNode>(mod->getTuple({ctrlTy(), ctrlTy()}), control(),
-													predicate);
+		return create<IfNode>(mod->getTuple({ctrlTy(), ctrlTy()}), control(), predicate);
 	}
 	ProjNode* Function::proj(Node* tuple, U32 index, Type* type, String label) {
 		return create<ProjNode>(type, tuple, index, std::move(label));
@@ -267,8 +208,7 @@ namespace rat {
 	RegionNode* Function::region(const List<Node*>& preds) {
 		return create<RegionNode>(ctrlTy(), preds);
 	}
-	PhiNode* Function::phi(Type* type, RegionNode* region,
-												 const List<Node*>& values) {
+	PhiNode* Function::phi(Type* type, RegionNode* region, const List<Node*>& values) {
 		List<Node*> ins{region};
 		for (Node* v : values)
 			ins.push_back(v);
@@ -289,9 +229,7 @@ namespace rat {
 		return b;
 	}
 
-	Function::Block* Function::createBlock(String name) {
-		return makeBlock(std::move(name), false);
-	}
+	Function::Block* Function::createBlock(String name) { return makeBlock(std::move(name), false); }
 	Function::Block* Function::createLoopHeader(String name) {
 		return makeBlock(std::move(name), true);
 	}
@@ -439,9 +377,7 @@ namespace rat {
 	}
 	Node* Function::get(Var var) { return readVar(var); }
 	void Function::set(Var var, Node* value) { writeVar(var, value); }
-	const String& Function::localName(Var var) const {
-		return varInfos[var].name;
-	}
+	const String& Function::localName(Var var) const { return varInfos[var].name; }
 	U32 Function::numLocals() const { return (U32)varInfos.size(); }
 
 	void Function::loop(const std::function<void()>& bodyFn) {
@@ -466,17 +402,14 @@ namespace rat {
 	void Function::break_() { jmp(loopStack.back().exit); }
 	void Function::continue_() { jmp(loopStack.back().header); }
 	void Function::breakIf(Node* cond) { jumpif(cond, loopStack.back().exit); }
-	void Function::continueIf(Node* cond) {
-		jumpif(cond, loopStack.back().header);
-	}
+	void Function::continueIf(Node* cond) { jumpif(cond, loopStack.back().header); }
 
 	void Function::ret(Node* value) {
 		if (!cur->ctrl) {
 			cur->finished = true;
 			return;
 		}
-		Node* r = create<ReturnNode>(
-				ctrlTy(), List<Node*>{control(), readVar(memVar), value});
+		Node* r = create<ReturnNode>(ctrlTy(), List<Node*>{control(), readVar(memVar), value});
 		stop->addInput(r);
 		cur->finished = true;
 	}
@@ -486,8 +419,7 @@ namespace rat {
 			cur->finished = true;
 			return;
 		}
-		Node* r =
-				create<ReturnNode>(ctrlTy(), List<Node*>{control(), readVar(memVar)});
+		Node* r = create<ReturnNode>(ctrlTy(), List<Node*>{control(), readVar(memVar)});
 		stop->addInput(r);
 		cur->finished = true;
 	}
@@ -497,9 +429,7 @@ namespace rat {
 		++it;
 		return *this;
 	}
-	B32 Function::NodeIterator::operator!=(const NodeIterator& other) const {
-		return it != other.it;
-	}
+	B32 Function::NodeIterator::operator!=(const NodeIterator& other) const { return it != other.it; }
 
 	Function::NodeIterator Function::begin() const { return {nodes.begin()}; }
 	Function::NodeIterator Function::end() const { return {nodes.end()}; }
@@ -512,8 +442,8 @@ namespace rat {
 			changed = false;
 			for (auto it = nodes.begin(); it != nodes.end();) {
 				Node* n = *it;
-				B32 dead = !n->hasUsers() && !n->hasSideEffects() &&
-									 (includeControl || !n->isCFG()) && n != start && n != stop;
+				B32 dead = !n->hasUsers() && !n->hasSideEffects() && (includeControl || !n->isCFG()) &&
+									 n != start && n != stop;
 				if (dead) {
 					// drop outgoing edges so input user-lists stay correct
 					while (n->getInputCount() > 0)

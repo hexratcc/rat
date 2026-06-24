@@ -215,8 +215,7 @@ namespace rat {
 			blocks[b].idom = idom[b];
 
 		for (I32 b : rpoOrder)
-			blocks[b].domDepth =
-					(b == entryBlock) ? 0 : blocks[blocks[b].idom].domDepth + 1;
+			blocks[b].domDepth = (b == entryBlock) ? 0 : blocks[blocks[b].idom].domDepth + 1;
 	}
 
 	I32 Schedule::intersectWith(const List<I32>& idom, I32 a, I32 b) const {
@@ -279,13 +278,12 @@ namespace rat {
 		Opcode op = n->getOpcode();
 		if (op == Opcode::Alloc)
 			return cast<AllocNode>(n)->isVariableSized();
-		return op == Opcode::Load || isBinaryOpcode(op) || isUnaryOpcode(op) ||
-					 isCompareOpcode(op) || isConvertOpcode(op);
+		return op == Opcode::Load || isBinaryOpcode(op) || isUnaryOpcode(op) || isCompareOpcode(op) ||
+					 isConvertOpcode(op);
 	}
 
 	namespace detail {
-		I32 fixedDataBlock(const Schedule& s, Node* n,
-											 const Map<const Node*, I32>& early) {
+		I32 fixedDataBlock(const Schedule& s, Node* n, const Map<const Node*, I32>& early) {
 			if (Schedule::isFloating(n)) {
 				auto it = early.find(n);
 				return it == early.end() ? -1 : it->second;
@@ -487,11 +485,8 @@ namespace rat {
 			if (n->getOpcode() == Opcode::Store || n->getOpcode() == Opcode::Call)
 				addAntiDep(n);
 
-		auto laterId = [](const Node* a, const Node* b) {
-			return a->getId() > b->getId();
-		};
-		std::priority_queue<Node*, std::vector<Node*>, decltype(laterId)> ready(
-				laterId);
+		auto laterId = [](const Node* a, const Node* b) { return a->getId() > b->getId(); };
+		std::priority_queue<Node*, std::vector<Node*>, decltype(laterId)> ready(laterId);
 
 		for (Node* n : nodes) {
 			I32 d = 0;

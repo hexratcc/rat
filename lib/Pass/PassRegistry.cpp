@@ -28,8 +28,7 @@ namespace rat {
 		return nullptr;
 	}
 
-	UniquePtr<Pass> PassRegistry::create(const String& name,
-																			 std::ostream& out) const {
+	UniquePtr<Pass> PassRegistry::create(const String& name, std::ostream& out) const {
 		const Entry* e = find(name);
 		return e ? e->make(out) : nullptr;
 	}
@@ -37,49 +36,31 @@ namespace rat {
 	namespace {
 		void registerAllPasses(PassRegistry& r) {
 			r.add("fold", "constant folding and algebraic simplification",
-						[](std::ostream&) -> UniquePtr<Pass> {
-							return std::make_unique<FoldPass>();
-						});
+						[](std::ostream&) -> UniquePtr<Pass> { return std::make_unique<FoldPass>(); });
 			r.add("gvn", "global value numbering",
-						[](std::ostream&) -> UniquePtr<Pass> {
-							return std::make_unique<GVNPass>();
-						});
+						[](std::ostream&) -> UniquePtr<Pass> { return std::make_unique<GVNPass>(); });
 			r.add("sccp", "sparse conditional constant propagation",
-						[](std::ostream&) -> UniquePtr<Pass> {
-							return std::make_unique<SCCPPass>();
-						});
+						[](std::ostream&) -> UniquePtr<Pass> { return std::make_unique<SCCPPass>(); });
 			r.add("simplifycfg", "control-flow simplification",
-						[](std::ostream&) -> UniquePtr<Pass> {
-							return std::make_unique<SimplifyCFGPass>();
-						});
+						[](std::ostream&) -> UniquePtr<Pass> { return std::make_unique<SimplifyCFGPass>(); });
 			r.add("memoryopt", "load/store forwarding",
-						[](std::ostream&) -> UniquePtr<Pass> {
-							return std::make_unique<MemoryOptPass>();
-						});
+						[](std::ostream&) -> UniquePtr<Pass> { return std::make_unique<MemoryOptPass>(); });
 			r.add("inline", "function inlining",
-						[](std::ostream&) -> UniquePtr<Pass> {
-							return std::make_unique<InlinePass>();
-						});
+						[](std::ostream&) -> UniquePtr<Pass> { return std::make_unique<InlinePass>(); });
 			r.add("verify", "edge consistency + structural invariants",
-						[](std::ostream& os) -> UniquePtr<Pass> {
-							return std::make_unique<VerifyPass>(os);
-						});
-			r.add("text-emitter", "textual IR visualization",
-						[](std::ostream& os) -> UniquePtr<Pass> {
-							return std::make_unique<TextEmitterPass>(os);
-						});
+						[](std::ostream& os) -> UniquePtr<Pass> { return std::make_unique<VerifyPass>(os); });
+			r.add("text-emitter", "textual IR visualization", [](std::ostream& os) -> UniquePtr<Pass> {
+				return std::make_unique<TextEmitterPass>(os);
+			});
 			r.add("graph-emitter", "Graphviz DOT IR visualization",
 						[](std::ostream& os) -> UniquePtr<Pass> {
 							return std::make_unique<GraphEmitterPass>(os);
 						});
 			r.add("c-emitter", "C code generation",
-						[](std::ostream& os) -> UniquePtr<Pass> {
-							return std::make_unique<CEmitterPass>(os);
-						});
-			r.add("x86-emitter", "x86-64 ELF object code generation",
-						[](std::ostream& os) -> UniquePtr<Pass> {
-							return std::make_unique<X86EmitterPass>(os);
-						});
+						[](std::ostream& os) -> UniquePtr<Pass> { return std::make_unique<CEmitterPass>(os); });
+			r.add(
+					"x86-emitter", "x86-64 ELF object code generation",
+					[](std::ostream& os) -> UniquePtr<Pass> { return std::make_unique<X86EmitterPass>(os); });
 		}
 	} // namespace
 
@@ -92,8 +73,7 @@ namespace rat {
 		return reg;
 	}
 
-	B32 buildPipeline(PassManager& pm, const String& spec, std::ostream& out,
-										String& err) {
+	B32 buildPipeline(PassManager& pm, const String& spec, std::ostream& out, String& err) {
 		const PassRegistry& reg = passRegistry();
 		String tok;
 		auto flush = [&]() -> B32 {

@@ -6,12 +6,12 @@
 // the runner parses @input, runs the named passes, then compares the emitted
 // IR against @expect
 
-#include "Target/Target.h"
 #include "IR/Module.h"
 #include "IR/TextParser.h"
 #include "Pass/Emit/TextEmitter.h"
 #include "Pass/PassManager.h"
 #include "Pass/PassRegistry.h"
+#include "Target/Target.h"
 
 using namespace rat;
 
@@ -156,8 +156,7 @@ namespace detail {
 		mod.setTarget(&target);
 		std::ostringstream perr;
 		if (!parseText(tf.input, mod, perr)) {
-			std::cout << "[FAIL] " << label << ": input parse error\n    "
-								<< trim(perr.str()) << "\n";
+			std::cout << "[FAIL] " << label << ": input parse error\n    " << trim(perr.str()) << "\n";
 			return false;
 		}
 
@@ -178,13 +177,12 @@ namespace detail {
 
 		String actualCanon, expectCanon, cerr;
 		if (!canonical(emitToString(mod), actualCanon, cerr)) {
-			std::cout << "[FAIL] " << label << ": cannot re-parse actual output\n    "
-								<< trim(cerr) << "\n";
+			std::cout << "[FAIL] " << label << ": cannot re-parse actual output\n    " << trim(cerr)
+								<< "\n";
 			return false;
 		}
 		if (!canonical(tf.expect, expectCanon, cerr)) {
-			std::cout << "[FAIL] " << label << ": @expect parse error\n    "
-								<< trim(cerr) << "\n";
+			std::cout << "[FAIL] " << label << ": @expect parse error\n    " << trim(cerr) << "\n";
 			return false;
 		}
 

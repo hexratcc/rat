@@ -7,9 +7,7 @@
 
 namespace rat {
 	namespace detail {
-		String vref(const Node* n) {
-			return n ? ("v" + std::to_string(n->getId())) : String("<null>");
-		}
+		String vref(const Node* n) { return n ? ("v" + std::to_string(n->getId())) : String("<null>"); }
 
 		struct FunctionVerifier {
 			const Function& fn;
@@ -89,8 +87,8 @@ namespace rat {
 							break;
 						}
 					if (!found)
-						err(n, "broken reverse edge: input " + vref(in) +
-											 " does not list " + vref(n) + " as a user");
+						err(n, "broken reverse edge: input " + vref(in) + " does not list " + vref(n) +
+											 " as a user");
 				}
 				for (Node* u : n->getUsers()) {
 					if (!u) {
@@ -104,8 +102,7 @@ namespace rat {
 							break;
 						}
 					if (!found)
-						err(n, "broken forward edge: user " + vref(u) + " does not use " +
-											 vref(n));
+						err(n, "broken forward edge: user " + vref(u) + " does not use " + vref(n));
 				}
 			}
 
@@ -126,8 +123,7 @@ namespace rat {
 					}
 					U32 np = fn.getParamCount();
 					if (t->getTupleElementCount() != 2 + np)
-						err(n,
-								"Start tuple arity does not match (control, memory, params)");
+						err(n, "Start tuple arity does not match (control, memory, params)");
 					else {
 						if (!t->getTupleElement(0)->isControl())
 							err(n, "Start tuple element 0 must be control");
@@ -157,8 +153,7 @@ namespace rat {
 						if (!r->hasValue())
 							err(n, "Return in a value function carries no value");
 						else if (r->getValue()->getType() != fn.getReturnType())
-							err(n,
-									"Return value type does not match the function return type");
+							err(n, "Return value type does not match the function return type");
 					} else if (r->hasValue()) {
 						err(n, "Return in a void function carries a value");
 					}
@@ -176,8 +171,7 @@ namespace rat {
 						err(n, "Region type must be control");
 					for (U32 i = 0, e = r->getPredecessorCount(); i < e; ++i)
 						if (!isCtrl(r->getPredecessor(i)))
-							err(n, "Region predecessor " + std::to_string(i) +
-												 " is not control-typed");
+							err(n, "Region predecessor " + std::to_string(i) + " is not control-typed");
 					break;
 				}
 				case Opcode::If: {
@@ -188,14 +182,12 @@ namespace rat {
 							iff->getPredicate()->getType()->getIntWidth() != 1)
 						err(n, "If predicate must be i1");
 					if (!t->isTuple() || t->getTupleElementCount() != 2 ||
-							!t->getTupleElement(0)->isControl() ||
-							!t->getTupleElement(1)->isControl())
+							!t->getTupleElement(0)->isControl() || !t->getTupleElement(1)->isControl())
 						err(n, "If type must be (ctrl, ctrl)");
 					for (Node* u : n->getUsers())
 						if (u->getOpcode() == Opcode::Proj)
 							if (cast<ProjNode>(u)->getIndex() > 1)
-								err(u,
-										"projection index out of range for an If (must be 0 or 1)");
+								err(u, "projection index out of range for an If (must be 0 or 1)");
 					break;
 				}
 				case Opcode::Proj: {
@@ -203,13 +195,12 @@ namespace rat {
 					Node* prod = p->getProducer();
 					Opcode po = prod->getOpcode();
 					if (po != Opcode::Start && po != Opcode::If && po != Opcode::Call)
-						err(n, "Proj producer " + vref(prod) +
-											 " is not a multi-output node (Start/If/Call)");
+						err(n, "Proj producer " + vref(prod) + " is not a multi-output node (Start/If/Call)");
 					else if (!prod->getType()->isTuple())
 						err(n, "Proj producer is not tuple-typed");
 					else if (p->getIndex() >= prod->getType()->getTupleElementCount())
-						err(n, "Proj index " + std::to_string(p->getIndex()) +
-											 " is out of range for " + vref(prod));
+						err(n, "Proj index " + std::to_string(p->getIndex()) + " is out of range for " +
+											 vref(prod));
 					else if (prod->getType()->getTupleElement(p->getIndex()) != t)
 						err(n, "Proj type does not match the selected tuple element");
 					break;
@@ -223,16 +214,14 @@ namespace rat {
 					}
 					auto* r = cast<RegionNode>(reg);
 					if (phi->getValueCount() != r->getPredecessorCount())
-						err(n, "Phi has " + std::to_string(phi->getValueCount()) +
-											 " values but its region " + vref(r) + " has " +
-											 std::to_string(r->getPredecessorCount()) +
+						err(n, "Phi has " + std::to_string(phi->getValueCount()) + " values but its region " +
+											 vref(r) + " has " + std::to_string(r->getPredecessorCount()) +
 											 " predecessors");
 					if (!t->isData() && !t->isMemory())
 						err(n, "Phi type must be a data or memory type");
 					for (U32 i = 0, e = phi->getValueCount(); i < e; ++i)
 						if (phi->getValue(i)->getType() != t)
-							err(n, "Phi value " + std::to_string(i) +
-												 " has a type different from the phi");
+							err(n, "Phi value " + std::to_string(i) + " has a type different from the phi");
 					break;
 				}
 				case Opcode::Constant:
@@ -313,8 +302,7 @@ namespace rat {
 						const Type* rt = b->getRHS()->getType();
 						if (lt != t)
 							err(n, "binary result type differs from its left operand");
-						B32 shift =
-								op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr;
+						B32 shift = op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr;
 						if (lt->isPtr()) {
 							if (op != Opcode::Add && op != Opcode::Sub)
 								err(n, "pointer arithmetic supports only add/sub");
@@ -374,10 +362,9 @@ namespace rat {
 					return;
 				Node* stop = fn.getStop();
 				for (U32 i = 0, e = stop->getInputCount(); i < e; ++i)
-					if (stop->getInput(i) &&
-							stop->getInput(i)->getOpcode() != Opcode::Return)
-						err(stop, "Stop input " + std::to_string(i) + " (" +
-													vref(stop->getInput(i)) + ") is not a Return");
+					if (stop->getInput(i) && stop->getInput(i)->getOpcode() != Opcode::Return)
+						err(stop, "Stop input " + std::to_string(i) + " (" + vref(stop->getInput(i)) +
+													") is not a Return");
 				if (stop->getInputCount() == 0)
 					err(stop, "function never returns (Stop has no Return inputs)");
 			}

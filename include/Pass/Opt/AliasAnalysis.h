@@ -21,8 +21,8 @@ namespace rat {
 
 	private:
 		struct AddrInfo {
-			Node* base; // the underlying (non-decomposable) pointer
-			I64 constant; // constant byte offset from base
+			Node* base;						// the underlying (non-decomposable) pointer
+			I64 constant;					// constant byte offset from base
 			List<Node*> symbolic; // non-constant addends (sorted by id)
 		};
 

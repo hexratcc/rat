@@ -33,8 +33,7 @@ namespace rat {
 		while (BinaryNode* b = dyn_cast<BinaryNode>(info.base)) {
 			Opcode op = b->getOpcode();
 			B32 isAddSub = (op == Opcode::Add || op == Opcode::Sub);
-			if (!isAddSub || !b->getType()->isPtr() ||
-					!b->getLHS()->getType()->isPtr())
+			if (!isAddSub || !b->getType()->isPtr() || !b->getLHS()->getType()->isPtr())
 				break; // not pointer +/- integer arithmetic
 			Node* off = b->getRHS();
 			if (ConstantNode* co = dyn_cast<ConstantNode>(off)) {
@@ -47,9 +46,8 @@ namespace rat {
 			}
 			info.base = b->getLHS();
 		}
-		std::sort(
-				info.symbolic.begin(), info.symbolic.end(),
-				[](const Node* a, const Node* b) { return a->getId() < b->getId(); });
+		std::sort(info.symbolic.begin(), info.symbolic.end(),
+							[](const Node* a, const Node* b) { return a->getId() < b->getId(); });
 		return info;
 	}
 
@@ -67,9 +65,7 @@ namespace rat {
 	}
 
 	namespace detail {
-		B32 isIdentified(const Node* n) {
-			return isa<AllocNode>(n) || isa<GlobalNode>(n);
-		}
+		B32 isIdentified(const Node* n) { return isa<AllocNode>(n) || isa<GlobalNode>(n); }
 
 		B32 distinctObjects(const Node* a, const Node* b) {
 			if (!isIdentified(a) || !isIdentified(b))
@@ -77,21 +73,18 @@ namespace rat {
 
 			if (isa<AllocNode>(a) || isa<AllocNode>(b))
 				return a != b;
-			return cast<GlobalNode>(a)->getSymbol() !=
-						 cast<GlobalNode>(b)->getSymbol();
+			return cast<GlobalNode>(a)->getSymbol() != cast<GlobalNode>(b)->getSymbol();
 		}
 	} // namespace detail
 	using namespace detail;
 
-	AliasResult AliasAnalysis::alias(Node* addrA, U32 sizeA, Node* addrB,
-																	 U32 sizeB) const {
+	AliasResult AliasAnalysis::alias(Node* addrA, U32 sizeA, Node* addrB, U32 sizeB) const {
 		AddrInfo a = decompose(addrA);
 		AddrInfo b = decompose(addrB);
 
 		// different (or unknown) base objects
 		if (a.base != b.base)
-			return distinctObjects(a.base, b.base) ? AliasResult::NoAlias
-																						 : AliasResult::MayAlias;
+			return distinctObjects(a.base, b.base) ? AliasResult::NoAlias : AliasResult::MayAlias;
 
 		// same base, but the symbolic parts must match to compare offsets
 		if (a.symbolic.size() != b.symbolic.size())

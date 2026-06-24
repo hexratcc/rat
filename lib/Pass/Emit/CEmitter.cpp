@@ -1,10 +1,10 @@
 #include "Pass/Emit/CEmitter.h"
 
 #include "CodeGen/Schedule.h"
-#include "Target/Target.h"
 #include "IR/Function.h"
 #include "IR/Module.h"
 #include "IR/Node.h"
+#include "Target/Target.h"
 
 namespace rat {
 	namespace detail {
@@ -43,8 +43,8 @@ namespace rat {
 		}
 
 		void printSignature(const Function& fn, std::ostream& os) {
-			os << (fn.returnsValue() ? cType(fn.getReturnType()) : String("void"))
-				 << " " << fn.getName() << "(";
+			os << (fn.returnsValue() ? cType(fn.getReturnType()) : String("void")) << " " << fn.getName()
+				 << "(";
 			if (fn.getParamCount() == 0)
 				os << "void";
 			for (U32 i = 0, e = fn.getParamCount(); i < e; ++i) {
@@ -65,8 +65,7 @@ namespace rat {
 
 			using TK = Schedule::TermKind;
 
-			CEmitter(const Function& fn, std::ostream& os)
-					: fn(fn), os(os), sched(fn) {}
+			CEmitter(const Function& fn, std::ostream& os) : fn(fn), os(os), sched(fn) {}
 
 			void run() {
 				computeNeedTemp();
@@ -93,9 +92,7 @@ namespace rat {
 				}
 			}
 
-			String temp(const Node* n) const {
-				return "t" + std::to_string(n->getId());
-			}
+			String temp(const Node* n) const { return "t" + std::to_string(n->getId()); }
 
 			String floatLiteral(Node* n) {
 				I64 raw = cast<ConstantNode>(n)->getValue();
@@ -247,8 +244,7 @@ namespace rat {
 				if (n->getType()->isPtr())
 					return "((char *)(" + a + "))";
 				if (src->getType()->isPtr())
-					return "((" + intCType(n->getType()->getIntWidth(), true) + ")(" + a +
-								 "))";
+					return "((" + intCType(n->getType()->getIntWidth(), true) + ")(" + a + "))";
 				U32 dstW = n->getType()->getIntWidth();
 				U32 srcW = src->getType()->getIntWidth();
 				switch (n->getOpcode()) {
@@ -256,15 +252,13 @@ namespace rat {
 				case Opcode::SExt:
 					return "(" + intCType(dstW, true) + ")" + a;
 				case Opcode::ZExt:
-					return "(" + intCType(dstW, true) + ")(" + intCType(srcW, false) +
-								 ")" + a;
+					return "(" + intCType(dstW, true) + ")(" + intCType(srcW, false) + ")" + a;
 				case Opcode::SIToFP:
 				case Opcode::FPExt:
 				case Opcode::FPTrunc:
 					return "(" + cType(n->getType()) + ")" + a;
 				case Opcode::UIToFP:
-					return "(" + cType(n->getType()) + ")(" + intCType(srcW, false) +
-								 ")" + a;
+					return "(" + cType(n->getType()) + ")(" + intCType(srcW, false) + ")" + a;
 				case Opcode::FPToSI:
 					return "(" + intCType(dstW, true) + ")" + a;
 				case Opcode::FPToUI:
@@ -353,8 +347,8 @@ namespace rat {
 				case Opcode::Alloc: {
 					auto* a = cast<AllocNode>(n);
 					if (a->isVariableSized())
-						os << "  " << temp(a) << " = __builtin_alloca("
-							 << valueExpr(a->getSizeOperand()) << ");\n";
+						os << "  " << temp(a) << " = __builtin_alloca(" << valueExpr(a->getSizeOperand())
+							 << ");\n";
 					return;
 				}
 				default:
@@ -367,8 +361,7 @@ namespace rat {
 					rhs = convExpr(n);
 				else if (isUnaryOpcode(n->getOpcode())) {
 					auto* un = cast<UnaryNode>(n);
-					rhs = (n->getOpcode() == Opcode::Not ? "~" : "-") +
-								valueExpr(un->getOperand());
+					rhs = (n->getOpcode() == Opcode::Not ? "~" : "-") + valueExpr(un->getOperand());
 				} else
 					rhs = binExpr(n);
 				os << "  " << temp(n) << " = " << rhs << ";\n";
@@ -376,9 +369,8 @@ namespace rat {
 
 			static B32 isVoidBuiltin(const String& name) {
 				return name == "__sync_synchronize" || name == "__sync_lock_release" ||
-							 name == "__atomic_store" || name == "__atomic_store_n" ||
-							 name == "__atomic_load" || name == "__atomic_thread_fence" ||
-							 name == "__atomic_signal_fence";
+							 name == "__atomic_store" || name == "__atomic_store_n" || name == "__atomic_load" ||
+							 name == "__atomic_thread_fence" || name == "__atomic_signal_fence";
 			}
 
 			void emitCall(CallNode* c) {
@@ -391,8 +383,8 @@ namespace rat {
 				Node* valProj = c->projection(CallNode::valueProjIndex());
 
 				if (valProj && !c->isIndirect() && isVoidBuiltin(c->getCallee())) {
-					os << "  " << temp(valProj) << " = (" << c->getCallee() << "("
-						 << args.str() << "), 0);\n";
+					os << "  " << temp(valProj) << " = (" << c->getCallee() << "(" << args.str()
+						 << "), 0);\n";
 					return;
 				}
 
@@ -411,8 +403,8 @@ namespace rat {
 					if (c->getArgCount() == 0)
 						sig << "void";
 					sig << ")";
-					os << "((" << sig.str() << ")" << valueExpr(c->getTarget()) << ")("
-						 << args.str() << ");\n";
+					os << "((" << sig.str() << ")" << valueExpr(c->getTarget()) << ")(" << args.str()
+						 << ");\n";
 				} else if (emitVaIntrinsic(c, valProj)) {
 					return;
 				} else {
@@ -426,13 +418,11 @@ namespace rat {
 					return "*(__builtin_va_list *)(" + valueExpr(c->getArg(argIdx)) + ")";
 				};
 				if (callee == "__builtin_va_arg") {
-					os << "__builtin_va_arg(" << vaList(0) << ", "
-						 << cType(valProj->getType()) << ");\n";
+					os << "__builtin_va_arg(" << vaList(0) << ", " << cType(valProj->getType()) << ");\n";
 					return true;
 				}
 				if (callee == "__builtin_va_start") {
-					os << "__builtin_va_start(" << vaList(0) << ", "
-						 << valueExpr(c->getArg(1)) << ");\n";
+					os << "__builtin_va_start(" << vaList(0) << ", " << valueExpr(c->getArg(1)) << ");\n";
 					return true;
 				}
 				if (callee == "__builtin_va_end") {
@@ -464,9 +454,7 @@ namespace rat {
 							return true;
 					return false;
 				};
-				auto srcOf = [&](const Move& m) {
-					return m.srcNode ? valueExpr(m.srcNode) : m.srcExpr;
-				};
+				auto srcOf = [&](const Move& m) { return m.srcNode ? valueExpr(m.srcNode) : m.srcExpr; };
 
 				List<String> lines;
 				List<String> scratchDecls;
@@ -480,8 +468,8 @@ namespace rat {
 							++i;
 							continue;
 						}
-						lines.push_back(temp(m.dst) + " = (" + cType(m.dst->getType()) +
-														")(" + srcOf(m) + ");");
+						lines.push_back(temp(m.dst) + " = (" + cType(m.dst->getType()) + ")(" + srcOf(m) +
+														");");
 						pending.erase(pending.begin() + i);
 						progress = true;
 					}
@@ -528,8 +516,8 @@ namespace rat {
 				}
 				case TK::Branch: {
 					auto* iff = cast<IfNode>(blk.termNode);
-					os << "  if (" << valueExpr(iff->getPredicate()) << ") goto L"
-						 << blk.thenB << "; else goto L" << blk.elseB << ";\n";
+					os << "  if (" << valueExpr(iff->getPredicate()) << ") goto L" << blk.thenB
+						 << "; else goto L" << blk.elseB << ";\n";
 					return;
 				}
 				case TK::Goto:
@@ -544,13 +532,11 @@ namespace rat {
 
 	void emitC(const Function& fn, std::ostream& os) { CEmitter(fn, os).run(); }
 
-	static void emitRelocGlobal(const Global& g, U32 size, U32 ptrBytes,
-															std::ostream& os) {
+	static void emitRelocGlobal(const Global& g, U32 size, U32 ptrBytes, std::ostream& os) {
 		const List<U8>& init = g.getInit();
 		List<Reloc> rl = g.getRelocs();
-		std::sort(rl.begin(), rl.end(), [](const Reloc& a, const Reloc& b) {
-			return a.offset < b.offset;
-		});
+		std::sort(rl.begin(), rl.end(),
+							[](const Reloc& a, const Reloc& b) { return a.offset < b.offset; });
 		auto byteAt = [&](U32 i) -> U32 { return i < init.size() ? init[i] : 0u; };
 		String cst = g.isConstant() ? "const " : "";
 
@@ -558,8 +544,7 @@ namespace rat {
 		U32 pos = 0, fi = 0;
 		for (U32 i = 0; i < rl.size(); ++i) {
 			if (rl[i].offset > pos)
-				os << "\tunsigned char b" << fi++ << "[" << (rl[i].offset - pos)
-					 << "];\n";
+				os << "\tunsigned char b" << fi++ << "[" << (rl[i].offset - pos) << "];\n";
 			os << "\tvoid *p" << i << ";\n";
 			pos = rl[i].offset + ptrBytes;
 		}
@@ -604,10 +589,9 @@ namespace rat {
 		// verify ptr size
 		if (const TargetInfo* t = module.target()) {
 			os << "#include <limits.h>\n";
-			os << "_Static_assert(sizeof(void *) * CHAR_BIT == "
-				 << t->getPointerSizeInBits()
-				 << ",\n               \"Rat module built for target '" << t->getName()
-				 << "' (" << t->getPointerSizeInBits() << "-bit pointers)\");\n";
+			os << "_Static_assert(sizeof(void *) * CHAR_BIT == " << t->getPointerSizeInBits()
+				 << ",\n               \"Rat module built for target '" << t->getName() << "' ("
+				 << t->getPointerSizeInBits() << "-bit pointers)\");\n";
 		}
 		os << "\n";
 
@@ -617,8 +601,8 @@ namespace rat {
 		}
 
 		auto isCompilerBuiltin = [](const String& name) {
-			return name.rfind("__builtin_", 0) == 0 ||
-						 name.rfind("__atomic_", 0) == 0 || name.rfind("__sync_", 0) == 0;
+			return name.rfind("__builtin_", 0) == 0 || name.rfind("__atomic_", 0) == 0 ||
+						 name.rfind("__sync_", 0) == 0;
 		};
 		{
 			Set<String> defined;
@@ -646,9 +630,8 @@ namespace rat {
 				}
 			}
 			for (const String& name : order)
-				os << "extern "
-					 << (externs[name] ? cType(externs[name]) : String("void")) << " "
-					 << name << "();\n";
+				os << "extern " << (externs[name] ? cType(externs[name]) : String("void")) << " " << name
+					 << "();\n";
 		}
 
 		U32 ptrBytes = module.pointerBytes();
@@ -667,11 +650,9 @@ namespace rat {
 						os << "extern char " << r.symbol << "[];\n";
 			for (const Function* fn : module)
 				for (const Node* nc : *fn)
-					if (const GlobalNode* gn =
-									dyn_cast<GlobalNode>(const_cast<Node*>(nc))) {
+					if (const GlobalNode* gn = dyn_cast<GlobalNode>(const_cast<Node*>(nc))) {
 						const String& sym = gn->getSymbol();
-						if (!known.count(sym) && !isCompilerBuiltin(sym) &&
-								emitted.insert(sym).second)
+						if (!known.count(sym) && !isCompilerBuiltin(sym) && emitted.insert(sym).second)
 							os << "extern char " << sym << "[];\n";
 					}
 		}
@@ -688,8 +669,8 @@ namespace rat {
 				anyGlobal = true;
 				continue;
 			}
-			os << (g->isConstant() ? "const " : "") << "unsigned char "
-				 << g->getName() << "[" << size << "] = {";
+			os << (g->isConstant() ? "const " : "") << "unsigned char " << g->getName() << "[" << size
+				 << "] = {";
 			U32 last = 0;
 			for (U32 i = 0; i < size; ++i)
 				if (i < init.size() && init[i] != 0)

@@ -79,8 +79,7 @@ namespace rat {
 				ConstantNode* c = dyn_cast<ConstantNode>(pred);
 				if (!c)
 					continue;
-				U32 takenIdx = c->getValue() != 0 ? IfNode::thenProjIndex()
-																					: IfNode::elseProjIndex();
+				U32 takenIdx = c->getValue() != 0 ? IfNode::thenProjIndex() : IfNode::elseProjIndex();
 				Node* ctrl = iff->getControl();
 				if (ProjNode* taken = iff->projection(takenIdx))
 					taken->replaceAllUsesWith(ctrl);

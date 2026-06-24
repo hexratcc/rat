@@ -33,8 +33,7 @@ int main() {
 	// int fold(int x) { return (x + 2) + 3 + (4 * 5) - x * 8; }
 	rat::Function* fold = module.createFunction("fold", {i32}, i32);
 	rat::Node* x = fold->param(0);
-	rat::Node* t =
-			fold->add(fold->add(x, fold->constInt(i32, 2)), fold->constInt(i32, 3));
+	rat::Node* t = fold->add(fold->add(x, fold->constInt(i32, 2)), fold->constInt(i32, 3));
 	t = fold->add(t, fold->mul(fold->constInt(i32, 4), fold->constInt(i32, 5)));
 	t = fold->sub(t, fold->mul(x, fold->constInt(i32, 8)));
 	fold->ret(t);
@@ -107,9 +106,8 @@ int main() {
 	rat::Schedule sched(*fn);
 	for (int blockIdx : sched.rpo()) {
 		const rat::Schedule::Block& bl = sched.block(blockIdx);
-		std::cout << "; block " << blockIdx << " idom=" << bl.idom
-							<< " loopDepth=" << bl.loopDepth << " phis=" << bl.phis.size()
-							<< " nodes=" << bl.nodes.size() << "\n";
+		std::cout << "; block " << blockIdx << " idom=" << bl.idom << " loopDepth=" << bl.loopDepth
+							<< " phis=" << bl.phis.size() << " nodes=" << bl.nodes.size() << "\n";
 	}
 
 	std::cout << "\n/* --- c --- */\n";

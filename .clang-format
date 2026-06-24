@@ -1,5 +1,8 @@
 BasedOnStyle: LLVM
+ColumnLimit: 100
+ReflowComments: false
 PointerAlignment: Left
+ReferenceAlignment: Left
 UseTab: Always
 TabWidth: 2
 IndentWidth: 2

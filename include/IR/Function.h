@@ -174,7 +174,7 @@ namespace rat {
 		StartNode* start = nullptr;
 		StopNode* stop = nullptr;
 
-		List<Block*> blocks; // every block
+		List<Block*> blocks;	// every block
 		Block* cur = nullptr; // current insertion block
 
 		struct VarInfo {

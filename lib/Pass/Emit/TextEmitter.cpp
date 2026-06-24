@@ -38,8 +38,7 @@ namespace rat {
 			if (!node)
 				return "<null>";
 			U32 id = node->getId();
-			return TempColors[id % TempColorCount] + ("v" + std::to_string(id)) +
-						 Reset;
+			return TempColors[id % TempColorCount] + ("v" + std::to_string(id)) + Reset;
 		}
 
 		void printOperands(const Node* node, std::ostream& os) {
@@ -48,13 +47,11 @@ namespace rat {
 		}
 
 		void printNode(const Node* node, std::ostream& os) {
-			os << "  " << ref(node) << " = " << node->getMnemonic() << " : "
-				 << node->getType()->str();
+			os << "  " << ref(node) << " = " << node->getMnemonic() << " : " << node->getType()->str();
 
 			switch (node->getOpcode()) {
 			case Opcode::Constant:
-				os << comment("  " +
-											std::to_string(cast<ConstantNode>(node)->getValue()));
+				os << comment("  " + std::to_string(cast<ConstantNode>(node)->getValue()));
 				break;
 			case Opcode::Proj: {
 				const auto* proj = cast<ProjNode>(node);
@@ -93,8 +90,7 @@ namespace rat {
 				os << ", ";
 			os << fn.getParamType(i)->str();
 		}
-		os << ") -> " << (fn.returnsValue() ? fn.getReturnType()->str() : "void")
-			 << " {\n";
+		os << ") -> " << (fn.returnsValue() ? fn.getReturnType()->str() : "void") << " {\n";
 
 		for (const Node* node : fn) {
 			printNode(node, os);
@@ -107,8 +103,8 @@ namespace rat {
 	void emitText(const Module& module, std::ostream& os) {
 		B32 any = false;
 		for (const Global* g : module.globals()) {
-			os << (g->isConstant() ? "const " : "var ") << g->getName() << " : "
-				 << g->getType()->str() << " = " << quoteBytes(g->getInit()) << "\n";
+			os << (g->isConstant() ? "const " : "var ") << g->getName() << " : " << g->getType()->str()
+				 << " = " << quoteBytes(g->getInit()) << "\n";
 			any = true;
 		}
 

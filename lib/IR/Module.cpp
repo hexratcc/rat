@@ -3,10 +3,9 @@
 #include "Target/Target.h"
 
 namespace rat {
-	Global::Global(String name, Type* type, B32 isConst, List<U8> init,
-								 List<Reloc> relocs)
-			: name(std::move(name)), type(type), isConst(isConst),
-				init(std::move(init)), relocs(std::move(relocs)) {}
+	Global::Global(String name, Type* type, B32 isConst, List<U8> init, List<Reloc> relocs)
+			: name(std::move(name)), type(type), isConst(isConst), init(std::move(init)),
+				relocs(std::move(relocs)) {}
 
 	const String& Global::getName() const { return name; }
 	Type* Global::getType() const { return type; }
@@ -21,21 +20,17 @@ namespace rat {
 	const TargetInfo* Module::target() const { return tgt; }
 	void Module::setTarget(const TargetInfo* t) { tgt = t; }
 
-	U32 Module::pointerBytes() const {
-		return tgt ? tgt->getPointerSizeInBytes() : 0;
-	}
+	U32 Module::pointerBytes() const { return tgt ? tgt->getPointerSizeInBytes() : 0; }
 
-	Function* Module::createFunction(const String& name,
-																	 const List<Type*>& params, Type* ret) {
+	Function* Module::createFunction(const String& name, const List<Type*>& params, Type* ret) {
 		Function* fn = arena.make<Function>(*this, name, params, ret);
 		funcs.push_back(fn);
 		return fn;
 	}
 
-	Global* Module::createGlobal(const String& name, Type* type, B32 isConst,
-															 List<U8> init, List<Reloc> relocs) {
-		Global* g = arena.make<Global>(name, type, isConst, std::move(init),
-																	 std::move(relocs));
+	Global* Module::createGlobal(const String& name, Type* type, B32 isConst, List<U8> init,
+															 List<Reloc> relocs) {
+		Global* g = arena.make<Global>(name, type, isConst, std::move(init), std::move(relocs));
 		globs.push_back(g);
 		return g;
 	}
@@ -63,8 +58,7 @@ namespace rat {
 		return *this;
 	}
 
-	B32 Module::FunctionIterator::operator!=(
-			const FunctionIterator& other) const {
+	B32 Module::FunctionIterator::operator!=(const FunctionIterator& other) const {
 		return it != other.it;
 	}
 

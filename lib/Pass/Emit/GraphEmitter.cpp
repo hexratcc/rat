@@ -7,8 +7,8 @@
 namespace rat {
 	namespace detail {
 		String nodeId(const Function& fn, const Node* n) {
-			return "n" + std::to_string(reinterpret_cast<uintptr_t>(&fn) & 0xffffff) +
-						 "_" + std::to_string(n->getId());
+			return "n" + std::to_string(reinterpret_cast<uintptr_t>(&fn) & 0xffffff) + "_" +
+						 std::to_string(n->getId());
 		}
 
 		void styleOf(const Node* n, String& label, String& attrs) {
@@ -70,15 +70,14 @@ namespace rat {
 				return "color=\"#3c78d8\", style=dashed"; // memory thread
 			if (t->isTuple())
 				return "color=\"#999999\""; // tuple feeding a Proj
-			return "color=\"#000000\""; // data
+			return "color=\"#000000\"";		// data
 		}
 
 		void emitBody(const Function& fn, std::ostream& os) {
 			for (const Node* n : fn) {
 				String label, attrs;
 				styleOf(n, label, attrs);
-				os << "  " << nodeId(fn, n) << " [label=\"" << label << "\", " << attrs
-					 << "];\n";
+				os << "  " << nodeId(fn, n) << " [label=\"" << label << "\", " << attrs << "];\n";
 			}
 			os << "\n";
 			for (const Node* n : fn) {
@@ -86,8 +85,7 @@ namespace rat {
 					const Node* in = n->getInput(i);
 					if (!in)
 						continue;
-					os << "  " << nodeId(fn, in) << " -> " << nodeId(fn, n) << " ["
-						 << edgeStyle(in);
+					os << "  " << nodeId(fn, in) << " -> " << nodeId(fn, n) << " [" << edgeStyle(in);
 					if (n->getOpcode() == Opcode::Phi && i >= 1)
 						os << ", label=\"" << (i - 1) << "\"";
 					else if (n->getOpcode() == Opcode::Region)

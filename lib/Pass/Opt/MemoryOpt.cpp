@@ -18,11 +18,9 @@
 
 namespace rat {
 	namespace detail {
-		Node* effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr,
-											 U32 size) {
+		Node* effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size) {
 			while (StoreNode* s = dyn_cast<StoreNode>(mem)) {
-				if (aa.alias(addr, size, s->getPointer(), aa.accessSize(s)) ==
-						AliasResult::NoAlias) {
+				if (aa.alias(addr, size, s->getPointer(), aa.accessSize(s)) == AliasResult::NoAlias) {
 					mem = s->getMemory();
 					continue;
 				}
@@ -93,8 +91,7 @@ namespace rat {
 					continue;
 				if (effectiveDef(aa, b->getMemory(), b->getPointer(), szB) != defA)
 					continue;
-				if (aa.alias(a->getPointer(), szA, b->getPointer(), szB) !=
-						AliasResult::MustAlias)
+				if (aa.alias(a->getPointer(), szA, b->getPointer(), szB) != AliasResult::MustAlias)
 					continue;
 				if (dominates(a, b)) {
 					b->replaceAllUsesWith(a);

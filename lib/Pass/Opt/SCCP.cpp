@@ -45,9 +45,8 @@ namespace rat {
 
 			static B32 isValueNode(Node* n) {
 				Opcode op = n->getOpcode();
-				return op == Opcode::Constant || op == Opcode::Phi ||
-							 isBinaryOpcode(op) || isUnaryOpcode(op) || isCompareOpcode(op) ||
-							 isConvertOpcode(op);
+				return op == Opcode::Constant || op == Opcode::Phi || isBinaryOpcode(op) ||
+							 isUnaryOpcode(op) || isCompareOpcode(op) || isConvertOpcode(op);
 			}
 
 			static B32 isControlFlow(Node* n) {
