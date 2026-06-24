@@ -25,6 +25,7 @@ TESTBIN  := $(ROOT)/bin/ratcc-test
 
 CASES    := $(wildcard cases/custom/*.c) $(wildcard cases/c-testsuite/*.c) \
             $(wildcard cases/gcc-torture/*.c) $(wildcard cases/c99/*.c)
+RAT_CASES := $(wildcard $(ROOT)/test/cases/*.rat)
 
 .PHONY: all test run format clean
 all: $(BIN) $(TESTBIN)
@@ -48,7 +49,7 @@ $(TESTBIN): $(CORE_OBJS) $(OBJDIR)/Runner.o $(LIB)
 	$(CXX) $(CXXFLAGS) $(INC) $(CORE_OBJS) $(OBJDIR)/Runner.o $(LIB) -pthread -o $@
 
 test: $(TESTBIN)
-	@$(TESTBIN) $(TESTBIN_ARGS) $(CASES)
+	@$(TESTBIN) $(TESTBIN_ARGS) $(CASES) $(RAT_CASES)
 
 run: $(BIN)
 	@for c in $(CASES); do echo "== $$c =="; $(BIN) -dump-tokens $$c; done

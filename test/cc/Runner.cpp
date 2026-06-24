@@ -4,7 +4,7 @@
 #include "Parser.h"
 #include "Preprocess.h"
 
-#include "Pass/Emit/X86Emitter.h"
+#include "IR/TextParser.h"
 
 #include "rat.h"
 
@@ -45,8 +45,7 @@ namespace {
 
 	const String& hostPredefs() {
 		static String cache =
-				captureCmd(hostCC() + " -std=c11 -dM -E -xc /dev/null 2>/dev/null") +
-				"\n";
+				captureCmd(hostCC() + " -std=c11 -dM -E -xc /dev/null 2>/dev/null") + "\n";
 		return cache;
 	}
 
@@ -178,8 +177,7 @@ namespace {
 
 	B32 runOracle(Module& mod, I32& out, String& capturedOut, String& err) {
 		std::ostringstream base;
-		base << tempDir() << "/ratcc_oracle_" << (long)getpid() << "_"
-				 << oracleCounter++;
+		base << tempDir() << "/ratcc_oracle_" << (long)getpid() << "_" << oracleCounter++;
 		String cpath = base.str() + ".c";
 		String xpath = base.str() + ".out";
 		String rpath = base.str() + ".ret";
@@ -219,8 +217,8 @@ namespace {
 		}
 
 		std::ostringstream cmd;
-		cmd << hostCC() << " -std=c11 -w -O0 -o '" << xpath << "' '" << cpath
-				<< "' '" << wpath << "' -lm";
+		cmd << hostCC() << " -std=c11 -w -O0 -o '" << xpath << "' '" << cpath << "' '" << wpath
+				<< "' -lm";
 		I32 crc = std::system(cmd.str().c_str());
 		if (crc != 0) {
 			std::remove(cpath.c_str());
@@ -276,8 +274,7 @@ namespace {
 
 	B32 runOracleX86(Module& mod, I32& out, String& capturedOut, String& err) {
 		std::ostringstream base;
-		base << tempDir() << "/ratcc_x86_" << (long)getpid() << "_"
-				 << oracleCounter++;
+		base << tempDir() << "/ratcc_x86_" << (long)getpid() << "_" << oracleCounter++;
 		String opath = base.str() + ".o";
 		String wpath = base.str() + ".wrap.c";
 		String xpath = base.str() + ".out";
@@ -314,8 +311,8 @@ namespace {
 		}
 
 		std::ostringstream cmd;
-		cmd << hostCC() << " -w -O0 -no-pie -o '" << xpath << "' '" << wpath << "' '"
-				<< opath << "' -lm";
+		cmd << hostCC() << " -w -O0 -no-pie -o '" << xpath << "' '" << wpath << "' '" << opath
+				<< "' -lm";
 		I32 crc = std::system(cmd.str().c_str());
 		if (crc != 0) {
 			std::remove(opath.c_str());
@@ -422,8 +419,7 @@ namespace {
 
 		I32 got;
 		String capturedOut;
-		const ConstantNode* result =
-				exp.hasOutput ? nullptr : returnConstant(*main);
+		const ConstantNode* result = exp.hasOutput ? nullptr : returnConstant(*main);
 		if (result) {
 			got = (I32)result->getValue();
 		} else if (useX86Backend()) {
@@ -441,8 +437,179 @@ namespace {
 		}
 
 		if (exp.hasOutput && capturedOut != exp.output) {
-			err = "stdout mismatch:\n--- expected ---\n" + exp.output +
-						"\n--- got ---\n" + capturedOut + "\n---";
+			err = "stdout mismatch:\n--- expected ---\n" + exp.output + "\n--- got ---\n" + capturedOut +
+						"\n---";
+			return false;
+		}
+		return true;
+	}
+
+	String stripAnsi(const String& s) {
+		String out;
+		for (U32 i = 0; i < s.size();) {
+			if (s[i] == '\033' && i + 1 < s.size() && s[i + 1] == '[') {
+				i += 2;
+				while (i < s.size() && s[i] != 'm')
+					++i;
+				if (i < s.size())
+					++i;
+			} else {
+				out.push_back(s[i++]);
+			}
+		}
+		return out;
+	}
+
+	String ratTrim(const String& s) {
+		U32 b = 0, e = (U32)s.size();
+		while (b < e && std::isspace((U8)s[b]))
+			++b;
+		while (e > b && std::isspace((U8)s[e - 1]))
+			--e;
+		return s.substr(b, e - b);
+	}
+
+	List<String> normalizeLines(const String& text) {
+		List<String> out;
+		std::istringstream ss(stripAnsi(text));
+		String line;
+		while (std::getline(ss, line)) {
+			String t = ratTrim(line);
+			if (!t.empty())
+				out.push_back(t);
+		}
+		return out;
+	}
+
+	String emitToString(const Module& m) {
+		std::ostringstream os;
+		emitText(m, os);
+		return os.str();
+	}
+
+	B32 canonicalIR(const String& text, String& out, String& err) {
+		Generic64 target;
+		Module m;
+		m.setTarget(&target);
+		std::ostringstream es;
+		if (!parseText(text, m, es)) {
+			err = es.str();
+			return false;
+		}
+		out = emitToString(m);
+		return true;
+	}
+
+	struct RatTestFile {
+		String name;
+		List<String> passes;
+		String input;
+		String expect;
+	};
+
+	B32 parseRatTestFile(const String& text, RatTestFile& tf, String& err) {
+		std::istringstream ss(text);
+		String line;
+		I32 section = 0; // 0 none, 1 input, 2 expect
+		while (std::getline(ss, line)) {
+			String t = ratTrim(line);
+			if (t.rfind("@name", 0) == 0) {
+				tf.name = ratTrim(t.substr(5));
+				section = 0;
+			} else if (t.rfind("@passes", 0) == 0) {
+				std::istringstream ps(t.substr(7));
+				String p;
+				while (ps >> p)
+					tf.passes.push_back(p);
+				section = 0;
+			} else if (t == "@input") {
+				section = 1;
+			} else if (t == "@expect") {
+				section = 2;
+			} else if (!t.empty() && t[0] == '@') {
+				err = "unknown directive: " + t;
+				return false;
+			} else if (section == 1) {
+				tf.input += line + "\n";
+			} else if (section == 2) {
+				tf.expect += line + "\n";
+			}
+		}
+		if (tf.input.empty()) {
+			err = "missing @input section";
+			return false;
+		}
+		if (tf.expect.empty()) {
+			err = "missing @expect section";
+			return false;
+		}
+		return true;
+	}
+
+	String formatRatDiff(const List<String>& expect, const List<String>& actual) {
+		String s = "--- expected ---\n";
+		for (const String& l : expect)
+			s += "    " + l + "\n";
+		s += "--- actual ---\n";
+		for (const String& l : actual)
+			s += "    " + l + "\n";
+		return s;
+	}
+
+	B32 runRatCase(const String& path, String& err) {
+		std::ifstream f(path);
+		if (!f) {
+			err = "cannot read file";
+			return false;
+		}
+		String text;
+		if (!readAll(f, text)) {
+			err = "failed to read file";
+			return false;
+		}
+
+		RatTestFile tf;
+		if (!parseRatTestFile(text, tf, err))
+			return false;
+
+		Generic64 target;
+		Module mod;
+		mod.setTarget(&target);
+		std::ostringstream perr;
+		if (!parseText(tf.input, mod, perr)) {
+			err = "input parse error\n    " + ratTrim(perr.str());
+			return false;
+		}
+
+		std::ostringstream sink;
+		PassManager pm;
+		String spec;
+		for (const String& p : tf.passes) {
+			if (!spec.empty())
+				spec += ',';
+			spec += p;
+		}
+		String perr2;
+		if (!buildPipeline(pm, spec, sink, perr2)) {
+			err = perr2;
+			return false;
+		}
+		pm.run(mod);
+
+		String actualCanon, expectCanon, cerr;
+		if (!canonicalIR(emitToString(mod), actualCanon, cerr)) {
+			err = "cannot re-parse actual output\n    " + ratTrim(cerr);
+			return false;
+		}
+		if (!canonicalIR(tf.expect, expectCanon, cerr)) {
+			err = "@expect parse error\n    " + ratTrim(cerr);
+			return false;
+		}
+
+		List<String> a = normalizeLines(actualCanon);
+		List<String> e = normalizeLines(expectCanon);
+		if (a != e) {
+			err = formatRatDiff(e, a);
 			return false;
 		}
 		return true;
@@ -530,7 +697,18 @@ B32 runCaseForked(const String& path, String& err) {
 	return false;
 }
 
-static void collectCases(const String& dir, List<String>& out) {
+static B32 hasSuffix(const String& s, const char* suffix) {
+	String suf = suffix;
+	return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
+}
+
+static B32 runAnyCase(const String& path, String& err) {
+	if (hasSuffix(path, ".rat"))
+		return runRatCase(path, err);
+	return runCaseForked(path, err);
+}
+
+static void collectCases(const String& dir, const char* ext, List<String>& out) {
 	DIR* d = opendir(dir.c_str());
 	if (!d)
 		return;
@@ -546,7 +724,7 @@ static void collectCases(const String& dir, List<String>& out) {
 			continue;
 		if (S_ISDIR(st.st_mode))
 			subdirs.push_back(path);
-		else if (name.size() > 2 && name.compare(name.size() - 2, 2, ".c") == 0)
+		else if (hasSuffix(name, ext))
 			files.push_back(path);
 	}
 	closedir(d);
@@ -555,17 +733,26 @@ static void collectCases(const String& dir, List<String>& out) {
 	for (const String& f : files)
 		out.push_back(f);
 	for (const String& s : subdirs)
-		collectCases(s, out);
+		collectCases(s, ext, out);
+}
+
+static String findDir(const char* const* candidates, U32 count) {
+	for (U32 i = 0; i < count; ++i) {
+		struct stat st;
+		if (stat(candidates[i], &st) == 0 && S_ISDIR(st.st_mode))
+			return candidates[i];
+	}
+	return "";
 }
 
 static String findCasesDir() {
 	const char* candidates[] = {"cases", "test/cc/cases"};
-	for (const char* c : candidates) {
-		struct stat st;
-		if (stat(c, &st) == 0 && S_ISDIR(st.st_mode))
-			return c;
-	}
-	return "";
+	return findDir(candidates, 2);
+}
+
+static String findRatCasesDir() {
+	const char* candidates[] = {"../cases", "test/cases"};
+	return findDir(candidates, 2);
 }
 
 I32 main(I32 argc, char** argv) {
@@ -575,8 +762,7 @@ I32 main(I32 argc, char** argv) {
 		String arg = argv[i];
 		if (arg.rfind("-j", 0) == 0) {
 			String num = arg.substr(2);
-			if (num.empty() && i + 1 < argc && argv[i + 1][0] >= '0' &&
-					argv[i + 1][0] <= '9')
+			if (num.empty() && i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9')
 				num = argv[++i];
 			if (!num.empty()) {
 				long n = std::strtol(num.c_str(), nullptr, 10);
@@ -589,32 +775,40 @@ I32 main(I32 argc, char** argv) {
 	}
 
 	if (cases.empty()) {
-		String dir = findCasesDir();
-		if (dir.empty()) {
-			std::cerr << "ratcc-test: no case paths given and no cases/ "
-						 "directory found\n";
-			return 2;
-		}
-		collectCases(dir, cases);
+		String ccDir = findCasesDir();
+		if (!ccDir.empty())
+			collectCases(ccDir, ".c", cases);
+		String ratDir = findRatCasesDir();
+		if (!ratDir.empty())
+			collectCases(ratDir, ".rat", cases);
 		if (cases.empty()) {
-			std::cerr << "ratcc-test: no .c cases found under " << dir << "\n";
+			std::cerr << "ratcc-test: no case paths given and no cases/ "
+									 "directories found\n";
 			return 2;
 		}
 	}
 
 	std::atomic<U32> passed{0};
 	std::atomic<U32> failed{0};
+	std::mutex ioMtx;
+	List<String> failures;
+
+	auto record = [&](const String& path, B32 ok, const String& err) {
+		if (ok) {
+			std::cout << "PASS  " << path << "\n";
+			++passed;
+		} else {
+			std::cout << "FAIL  " << path << ": " << err << "\n";
+			++failed;
+			failures.push_back(path);
+		}
+	};
 
 	if (jobs <= 1) {
 		for (const String& path : cases) {
 			String err;
-			if (runCaseForked(path, err)) {
-				std::cout << "PASS  " << path << "\n";
-				++passed;
-			} else {
-				std::cout << "FAIL  " << path << ": " << err << "\n";
-				++failed;
-			}
+			B32 ok = runAnyCase(path, err);
+			record(path, ok, err);
 		}
 	} else {
 		(void)hostCC();
@@ -623,7 +817,6 @@ I32 main(I32 argc, char** argv) {
 		(void)useX86Backend();
 
 		std::atomic<size_t> next{0};
-		std::mutex ioMtx;
 		auto worker = [&] {
 			for (;;) {
 				size_t i = next.fetch_add(1);
@@ -631,15 +824,9 @@ I32 main(I32 argc, char** argv) {
 					break;
 				const String& path = cases[i];
 				String err;
-				B32 ok = runCaseForked(path, err);
+				B32 ok = runAnyCase(path, err);
 				std::lock_guard<std::mutex> lk(ioMtx);
-				if (ok) {
-					std::cout << "PASS  " << path << "\n";
-					++passed;
-				} else {
-					std::cout << "FAIL  " << path << ": " << err << "\n";
-					++failed;
-				}
+				record(path, ok, err);
 			}
 		};
 
@@ -652,7 +839,13 @@ I32 main(I32 argc, char** argv) {
 			t.join();
 	}
 
-	std::cout << "\n" << passed.load() << " passed, " << failed.load()
-						<< " failed\n";
+	if (!failures.empty()) {
+		std::sort(failures.begin(), failures.end());
+		std::cout << "\n=== failures ===\n";
+		for (const String& path : failures)
+			std::cout << "FAIL  " << path << "\n";
+	}
+
+	std::cout << "\n" << passed.load() << " passed, " << failed.load() << " failed\n";
 	return failed.load() == 0 ? 0 : 1;
 }

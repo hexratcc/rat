@@ -13,6 +13,7 @@
 #include "Pass/Emit/CEmitter.h"
 #include "Pass/Emit/GraphEmitter.h"
 #include "Pass/Emit/TextEmitter.h"
+#include "Pass/Emit/X86Emitter.h"
 
 #include "Pass/Opt/Fold.h"
 #include "Pass/Opt/GVN.h"

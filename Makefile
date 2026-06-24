@@ -16,10 +16,8 @@ LIB_SRCS := $(shell find lib -name '*.cpp' | sort)
 LIB_OBJS := $(patsubst %.cpp,build/%.o,$(LIB_SRCS))
 LIB      := build/rat.a
 
-SOURCES  := $(LIB_SRCS) test/tour/main.cpp test/runner/main.cpp test/driver/main.cpp
+SOURCES  := $(LIB_SRCS) test/tour/main.cpp test/driver/main.cpp
 HEADERS  := $(wildcard include/*.h include/IR/*.h include/Support/*.h include/Pass/*.h include/Pass/Emit/*.h include/Pass/Opt/*.h include/CodeGen/*.h)
-
-CASES := $(wildcard test/cases/*.rat)
 
 .PHONY: all run rat test compiledb format clean
 all: compiledb bin/tour bin/rat
@@ -47,12 +45,7 @@ bin/rat: test/driver/main.cpp $(LIB)
 
 rat: bin/rat
 
-bin/ratest: test/runner/main.cpp $(LIB)
-	@mkdir -p bin
-	$(CXX) $(CXXFLAGS) $(INC) $< $(LIB) -o $@
-
-test: bin/ratest
-	./bin/ratest $(CASES)
+test:
 	$(MAKE) -C test/cc test TESTBIN_ARGS="-j$$(nproc)"
 
 compiledb:
