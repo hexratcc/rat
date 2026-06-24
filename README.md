@@ -16,6 +16,7 @@ $ make test   # builds and runs tests
 - [**MemoryOptPass:**](./include/Pass/Opt/MemoryOpt.h) Load/store forwarding
 - [**InlinePass:**](./include/Pass/Opt/Inline.h) Function inlining
 - [**CEmitterPass:**](./include/Pass/Emit/CEmitter.h) Emit C code
+- [**X86EmitterPass:**](./include/Pass/Emit/X86EmitterPass.h) Emit x86 code
 - [**VerifyPass:**](./include/Pass/Verify.h) Edge consistency + per-opcode structural invariants
 - [**TextEmitterPass:**](./include/Pass/Emit/TextEmitter.h) Textual IR viz
 - [**GraphEmitterPass:**](./include/Pass/Emit/GraphEmitter.h) Graph IR viz
