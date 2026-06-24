@@ -19,19 +19,10 @@ namespace rat {
 		constexpr U32 kInlineNodeBudget = 64;
 		constexpr U32 kMaxInlinesPerFunction = 256;
 
-		Function* findFunction(Module& m, const String& name) {
-			for (Function* f : m)
-				if (f->getName() == name)
-					return f;
-			return nullptr;
-		}
-
 		U32 nodeCount(const Function& fn) {
 			U32 n = 0;
-			for (Node* it : fn) {
-				(void)it;
+			for ([[maybe_unused]] Node* it : fn)
 				++n;
-			}
 			return n;
 		}
 
@@ -176,7 +167,7 @@ namespace rat {
 					if (CallNode* c = dyn_cast<CallNode>(n))
 						calls.push_back(c);
 				for (CallNode* c : calls) {
-					Function* callee = findFunction(m, c->getCallee());
+					Function* callee = m.getFunction(c->getCallee());
 					if (!shouldInline(caller, c, callee))
 						continue;
 					if (inlineCallSite(caller, c, *callee)) {

@@ -6,19 +6,13 @@
 
 #include "Pass/Emit/X86Emitter.h"
 
+#include "Support/StringUtil.h"
 #include "rat.h"
 
 using namespace rat;
 using namespace rat::cc;
 
 namespace {
-	B32 readAll(std::istream& in, String& out) {
-		std::ostringstream ss;
-		ss << in.rdbuf();
-		out = ss.str();
-		return (B32)!in.bad();
-	}
-
 	I32 dumpTokens(const String& path, const String& source) {
 		Lexer lex(source.data(), (U32)source.size(), path);
 		for (;;) {

@@ -15,21 +15,6 @@
 
 namespace rat {
 	namespace detail {
-		B32 isControlNode(Node* n) {
-			switch (n->getOpcode()) {
-			case Opcode::Start:
-			case Opcode::Stop:
-			case Opcode::Return:
-			case Opcode::Region:
-			case Opcode::If:
-				return true;
-			case Opcode::Proj:
-				return n->getType()->isControl();
-			default:
-				return false;
-			}
-		}
-
 		Set<Node*> reachableControl(Function& fn) {
 			Set<Node*> seen;
 			seen.insert(fn.getStart());

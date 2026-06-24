@@ -1,6 +1,7 @@
 #include "rat.h"
 
 #include "IR/TextParser.h"
+#include "Support/StringUtil.h"
 
 using namespace rat;
 
@@ -21,13 +22,6 @@ namespace {
 		for (const PassRegistry::Entry& e : passRegistry().entries())
 			os << "  " << e.name << std::string(14 > e.name.size() ? 14 - e.name.size() : 1, ' ')
 				 << e.description << "\n";
-	}
-
-	B32 readAll(std::istream& in, String& out) {
-		std::ostringstream ss;
-		ss << in.rdbuf();
-		out = ss.str();
-		return (B32)!in.bad();
 	}
 
 	void emit(const String& kind, Module& module, std::ostream& os) {

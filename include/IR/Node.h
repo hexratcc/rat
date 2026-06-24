@@ -253,6 +253,21 @@ namespace rat {
 		return isa<T>(n) ? static_cast<const T*>(n) : nullptr;
 	}
 
+	inline B32 isControlNode(const Node* n) {
+		switch (n->getOpcode()) {
+		case Opcode::Start:
+		case Opcode::Stop:
+		case Opcode::Return:
+		case Opcode::Region:
+		case Opcode::If:
+			return true;
+		case Opcode::Proj:
+			return n->getType()->isControl();
+		default:
+			return false;
+		}
+	}
+
 	Node* cloneShell(Function& into, const Node* n);
 	String nodeSignature(const Node* n);
 } // namespace rat

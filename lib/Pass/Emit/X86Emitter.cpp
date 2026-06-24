@@ -19,6 +19,9 @@ namespace rat {
 		const U32 kXmmSlotBytes = 16;
 		const U32 kRegSaveBytes = kGpSaveBytes + kMaxXmmArgs * kXmmSlotBytes;
 
+		const U8 kSseOp[] = {0x58, 0x5c, 0x59, 0x5e}; // add sub mul div
+		const U8 kIntCc[] = {CC_E, CC_NE, CC_L, CC_LE, CC_B, CC_BE};
+
 		B32 isFloatTy(const Type* t) { return t && t->isFloat(); }
 		B32 isX87Ty(const Type* t) { return t && t->isFloat() && t->getFloatWidth() == 128; }
 
@@ -460,7 +463,6 @@ namespace rat {
 					fstpX87Slot(n);
 					return;
 				}
-				static const U8 kSseOp[] = {0x58, 0x5c, 0x59, 0x5e}; // add sub mul div
 				U32 w = opWidth(n->getType());
 				loadFloat(n->getLHS(), 0);
 				loadFloat(n->getRHS(), 1);
@@ -512,7 +514,6 @@ namespace rat {
 					emitFloatCompare(n);
 					return;
 				}
-				static const U8 kIntCc[] = {CC_E, CC_NE, CC_L, CC_LE, CC_B, CC_BE};
 				loadInt(n->getLHS(), RAX);
 				loadInt(n->getRHS(), RCX);
 				a.cmpRR(RAX, RCX);

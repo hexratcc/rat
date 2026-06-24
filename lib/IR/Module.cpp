@@ -28,6 +28,14 @@ namespace rat {
 		return fn;
 	}
 
+	Function* Module::getFunction(const String& name) const {
+		for (Function* fn : funcs) {
+			if (fn->getName() == name)
+				return fn;
+		}
+		return nullptr;
+	}
+
 	Global* Module::createGlobal(const String& name, Type* type, B32 isConst, List<U8> init,
 															 List<Reloc> relocs) {
 		Global* g = arena.make<Global>(name, type, isConst, std::move(init), std::move(relocs));

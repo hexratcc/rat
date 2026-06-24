@@ -49,21 +49,6 @@ namespace rat {
 							 isUnaryOpcode(op) || isCompareOpcode(op) || isConvertOpcode(op);
 			}
 
-			static B32 isControlFlow(Node* n) {
-				switch (n->getOpcode()) {
-				case Opcode::Start:
-				case Opcode::Stop:
-				case Opcode::Return:
-				case Opcode::Region:
-				case Opcode::If:
-					return true;
-				case Opcode::Proj:
-					return n->getType()->isControl();
-				default:
-					return false;
-				}
-			}
-
 			static Lat meet(Lat a, Lat b) {
 				if (a.kind == LatKind::Top)
 					return b;
@@ -118,7 +103,7 @@ namespace rat {
 								markExec(cp);
 						continue;
 					}
-					if (!isControlFlow(u))
+					if (!isControlNode(u))
 						continue;
 					switch (u->getOpcode()) {
 					case Opcode::Proj:

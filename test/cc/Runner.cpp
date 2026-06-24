@@ -5,6 +5,7 @@
 #include "Preprocess.h"
 
 #include "IR/TextParser.h"
+#include "Support/StringUtil.h"
 
 #include "rat.h"
 
@@ -87,13 +88,6 @@ namespace {
 		String output;
 	};
 
-	B32 readAll(std::istream& in, String& out) {
-		std::ostringstream ss;
-		ss << in.rdbuf();
-		out = ss.str();
-		return (B32)!in.bad();
-	}
-
 	String trim(const String& s) {
 		U32 b = 0, e = (U32)s.size();
 		while (b < e && (s[b] == ' ' || s[b] == '\t' || s[b] == '\r'))
@@ -153,13 +147,6 @@ namespace {
 			return false;
 		}
 		return true;
-	}
-
-	Function* findFunction(Module& mod, const String& name) {
-		for (Function* fn : mod)
-			if (fn->getName() == name)
-				return fn;
-		return nullptr;
 	}
 
 	const ConstantNode* returnConstant(const Function& fn) {
@@ -411,7 +398,7 @@ namespace {
 			pm.run(mod);
 		}
 
-		Function* main = findFunction(mod, "main");
+		Function* main = mod.getFunction("main");
 		if (!main) {
 			err = "no 'main' function";
 			return false;
@@ -442,22 +429,6 @@ namespace {
 			return false;
 		}
 		return true;
-	}
-
-	String stripAnsi(const String& s) {
-		String out;
-		for (U32 i = 0; i < s.size();) {
-			if (s[i] == '\033' && i + 1 < s.size() && s[i + 1] == '[') {
-				i += 2;
-				while (i < s.size() && s[i] != 'm')
-					++i;
-				if (i < s.size())
-					++i;
-			} else {
-				out.push_back(s[i++]);
-			}
-		}
-		return out;
 	}
 
 	String ratTrim(const String& s) {
