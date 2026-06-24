@@ -7,6 +7,7 @@
 #include "Pass/Emit/CEmitter.h"
 #include "Pass/Emit/GraphEmitter.h"
 #include "Pass/Emit/TextEmitter.h"
+#include "Pass/Emit/X86Emitter.h"
 
 #include "Pass/Opt/Fold.h"
 #include "Pass/Opt/GVN.h"
@@ -74,6 +75,10 @@ namespace rat {
 			r.add("c-emitter", "C code generation",
 						[](std::ostream& os) -> UniquePtr<Pass> {
 							return std::make_unique<CEmitterPass>(os);
+						});
+			r.add("x86-emitter", "x86-64 ELF object code generation",
+						[](std::ostream& os) -> UniquePtr<Pass> {
+							return std::make_unique<X86EmitterPass>(os);
 						});
 		}
 	} // namespace
