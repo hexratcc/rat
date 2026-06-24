@@ -48,7 +48,7 @@ $(TESTBIN): $(CORE_OBJS) $(OBJDIR)/Runner.o $(LIB)
 	$(CXX) $(CXXFLAGS) $(INC) $(CORE_OBJS) $(OBJDIR)/Runner.o $(LIB) -pthread -o $@
 
 test: $(TESTBIN)
-	@$(TESTBIN) $(CASES)
+	@$(TESTBIN) $(TESTBIN_ARGS) $(CASES)
 
 run: $(BIN)
 	@for c in $(CASES); do echo "== $$c =="; $(BIN) -dump-tokens $$c; done

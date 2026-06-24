@@ -53,6 +53,7 @@ bin/ratest: test/runner/main.cpp $(LIB)
 
 test: bin/ratest
 	./bin/ratest $(CASES)
+	$(MAKE) -C test/cc test TESTBIN_ARGS="-j$$(nproc)"
 
 compiledb:
 	@printf '[\n' > compile_commands.json
