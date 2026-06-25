@@ -232,6 +232,23 @@ namespace rat {
 
 	Node* AllocNode::getSizeOperand() const { return getInputCount() > 0 ? getInput(0) : nullptr; }
 
+	B32 AllocNode::isVariableSized() const { return getInputCount() > 0; }
+
+	B32 isControlNode(const Node* n) {
+		switch(n->getOpcode()) {
+		case Opcode::Start:
+		case Opcode::Stop:
+		case Opcode::Return:
+		case Opcode::Region:
+		case Opcode::If:
+			return true;
+		case Opcode::Proj:
+			return n->getType()->isControl();
+		default:
+			return false;
+		}
+	}
+
 	Node* cloneShell(Function& into, const Node* n) {
 		Opcode op = n->getOpcode();
 		Type* t = n->getType();

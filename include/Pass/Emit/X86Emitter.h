@@ -53,7 +53,6 @@ namespace rat {
 		static B32 isX87Ty(const Type* t);
 		static String libcName(const String& callee);
 		static U32 intBits(const Type* t);
-		static U64 signExtend(U64 v, U32 bits);
 		static U32 opWidth(const Type* t);
 	private:
 		struct FunctionEmitter {

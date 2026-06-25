@@ -38,7 +38,6 @@ namespace rat {
 		const C8* name() const override;
 		U32 runOnFunction(Function& fn) override;
 
-		static I64 signExtend(I64 v, U32 w);						 // sign-extend low w bits
 		static U64 maskW(I64 v, U32 w);									 // zero-extend low w bits
 		static B32 wouldSignedDivOverflow(I64 a, I64 b); // div by 0 or INT_MIN-1
 		static I64 normalizeConst(I64 v, U32 w);				 // canonical w-bit representative

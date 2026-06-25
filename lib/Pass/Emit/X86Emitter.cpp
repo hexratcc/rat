@@ -23,14 +23,6 @@ namespace rat {
 
 	U32 X86EmitterPass::intBits(const Type* t) { return t && t->isInt() ? t->getIntWidth() : 64; }
 
-	U64 X86EmitterPass::signExtend(U64 v, U32 bits) {
-		if(bits == 0 || bits >= 64)
-			return v;
-		U64 m = (U64)1 << (bits - 1);
-		v &= ((U64)1 << bits) - 1;
-		return (v ^ m) - m;
-	}
-
 	U32 X86EmitterPass::opWidth(const Type* t) {
 		if(!t)
 			return 8;
@@ -136,7 +128,7 @@ namespace rat {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
 			U64 v = (U64)c->getValue();
 			if(n->getType() && n->getType()->isInt())
-				v = signExtend(v, opWidth(n->getType()) * 8);
+				v = (U64)signExtend((I64)v, opWidth(n->getType()) * 8);
 			a.movRegImm64(r, v);
 			return;
 		}

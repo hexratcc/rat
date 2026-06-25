@@ -5,15 +5,6 @@
 #include "IR/Type.h"
 
 namespace rat {
-	I64 FoldPass::signExtend(I64 v, U32 w) {
-		if(w == 0 || w >= 64)
-			return v;
-		U64 mask = ((U64)1 << w) - 1;
-		U64 m = (U64)1 << (w - 1);
-		U64 x = (U64)v & mask;
-		return (I64)((x ^ m) - m);
-	}
-
 	U64 FoldPass::maskW(I64 v, U32 w) {
 		if(w >= 64)
 			return (U64)v;
@@ -102,16 +93,16 @@ namespace rat {
 			return nullptr;
 		case Opcode::AShr:
 			if(b >= 0 && b < (I64)w)
-				return k(FoldPass::signExtend(a, w) >> b);
+				return k(signExtend(a, w) >> b);
 			return nullptr;
 		case Opcode::SDiv: {
-			I64 sa = FoldPass::signExtend(a, w), sb = FoldPass::signExtend(b, w);
+			I64 sa = signExtend(a, w), sb = signExtend(b, w);
 			if(FoldPass::wouldSignedDivOverflow(sa, sb))
 				return nullptr;
 			return k(sa / sb);
 		}
 		case Opcode::SRem: {
-			I64 sa = FoldPass::signExtend(a, w), sb = FoldPass::signExtend(b, w);
+			I64 sa = signExtend(a, w), sb = signExtend(b, w);
 			if(FoldPass::wouldSignedDivOverflow(sa, sb))
 				return nullptr;
 			return k(sa % sb);
@@ -338,10 +329,10 @@ namespace rat {
 				res = FoldPass::maskW(a, w) != FoldPass::maskW(b, w);
 				break;
 			case Opcode::Slt:
-				res = FoldPass::signExtend(a, w) < FoldPass::signExtend(b, w);
+				res = signExtend(a, w) < signExtend(b, w);
 				break;
 			case Opcode::Sle:
-				res = FoldPass::signExtend(a, w) <= FoldPass::signExtend(b, w);
+				res = signExtend(a, w) <= signExtend(b, w);
 				break;
 			case Opcode::Ult:
 				res = FoldPass::maskW(a, w) < FoldPass::maskW(b, w);
@@ -387,7 +378,7 @@ namespace rat {
 			res = FoldPass::normalizeConst(x, dstW);
 			break;
 		case Opcode::SExt:
-			res = FoldPass::normalizeConst(FoldPass::signExtend(x, srcW), dstW);
+			res = FoldPass::normalizeConst(signExtend(x, srcW), dstW);
 			break;
 		case Opcode::ZExt:
 			res = FoldPass::normalizeConst((I64)FoldPass::maskW(x, srcW), dstW);

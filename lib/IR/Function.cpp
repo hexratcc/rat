@@ -362,7 +362,7 @@ namespace rat {
 
 		List<PhiNode*> phiUsers;
 		for(Node* u : phi->getUsers())
-			if(u != phi && u->getOpcode() == Opcode::Phi)
+			if(u != phi && isa<PhiNode>(u))
 				phiUsers.push_back(cast<PhiNode>(u));
 
 		replacePhiEverywhere(phi, same);

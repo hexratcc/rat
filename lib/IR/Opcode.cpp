@@ -2,7 +2,7 @@
 
 namespace rat {
 	namespace detail {
-		static const OpcodeInfo kOpcodeInfo[] = {
+		const OpcodeInfo kOpcodeInfo[] = {
 				// mnemonic    cfg  side  comm  ctrl  min  max  class
 				{"start", 1, 0, 0, -1, 0, 0, OpClass::None},
 				{"stop", 1, 1, 0, -1, 0, -1, OpClass::None},
@@ -59,10 +59,9 @@ namespace rat {
 				{"global", 0, 0, 0, -1, 0, 0, OpClass::None},
 				{"alloc", 0, 0, 0, -1, 0, 1, OpClass::None},
 		};
-		// clang-format on
 	} // namespace detail
 
 	const OpcodeInfo& getOpcodeInfo(Opcode op) { return detail::kOpcodeInfo[(U32)op]; }
-
 	const C8* getOpcodeMnemonic(Opcode op) { return getOpcodeInfo(op).mnemonic; }
+	OpClass getOpClass(Opcode op) { return getOpcodeInfo(op).opClass; }
 } // namespace rat

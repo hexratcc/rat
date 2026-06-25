@@ -214,7 +214,7 @@ namespace rat {
 
 		Type* getAllocType() const;
 		Node* getSizeOperand() const;
-		B32 isVariableSized() const { return getInputCount() > 0; }
+		B32 isVariableSized() const;
 	private:
 		Type* allocType;
 	};
@@ -258,21 +258,7 @@ namespace rat {
 		return out;
 	}
 
-	inline B32 isControlNode(const Node* n) {
-		switch(n->getOpcode()) {
-		case Opcode::Start:
-		case Opcode::Stop:
-		case Opcode::Return:
-		case Opcode::Region:
-		case Opcode::If:
-			return true;
-		case Opcode::Proj:
-			return n->getType()->isControl();
-		default:
-			return false;
-		}
-	}
-
+	B32 isControlNode(const Node* n);
 	Node* cloneShell(Function& into, const Node* n);
 	String nodeSignature(const Node* n);
 } // namespace rat

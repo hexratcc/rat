@@ -101,10 +101,8 @@ namespace rat {
 	};
 
 	const OpcodeInfo& getOpcodeInfo(Opcode op);
-
 	const C8* getOpcodeMnemonic(Opcode op);
-
-	inline OpClass getOpClass(Opcode op) { return getOpcodeInfo(op).opClass; }
+	OpClass getOpClass(Opcode op);
 
 	constexpr B32 isBinaryOpcode(Opcode op) { return op >= Opcode::Add && op <= Opcode::FDiv; }
 	constexpr B32 isUnaryOpcode(Opcode op) { return op >= Opcode::Neg && op <= Opcode::FNeg; }

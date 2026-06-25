@@ -55,6 +55,15 @@ namespace rat {
 	template <typename Key, typename Value> using Map = std::unordered_map<Key, Value>;
 	template <typename Key> using Set = std::unordered_set<Key>;
 
+	inline I64 signExtend(I64 v, U32 w) {
+		if(w == 0 || w >= 64)
+			return v;
+		U64 mask = ((U64)1 << w) - 1;
+		U64 m = (U64)1 << (w - 1);
+		U64 x = (U64)v & mask;
+		return (I64)((x ^ m) - m);
+	}
+
 	namespace detail {
 		constexpr U64 kDefaultChunk = 4096;
 
