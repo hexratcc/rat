@@ -45,9 +45,17 @@ namespace {
 		return 0;
 	}
 
+	void addEmitter(PassManager& pm, const String& emitKind, std::ostream& os) {
+		if (emitKind == "c")
+			pm.add<CEmitterPass>(os);
+		else if (emitKind == "x86")
+			pm.add<X86EmitterPass>(os);
+		else
+			pm.add<TextEmitterPass>(os);
+	}
+
 	I32 lowerToModule(const String& path, const String& source,
-										const String& passSpec,
-										void (*sink)(const Module&, std::ostream&)) {
+										const String& passSpec, const String& emitKind) {
 		Lexer lex(source.data(), (U32)source.size(), path);
 		Arena arena;
 		Generic64 target;
@@ -66,18 +74,17 @@ namespace {
 			return 1;
 		}
 
+		PassManager pm;
 		if (!passSpec.empty()) {
-			PassManager pm;
 			std::ostringstream diag;
 			String err;
 			if (!buildPipeline(pm, passSpec, diag, err)) {
 				std::cerr << "ratcc: " << err << "\n";
 				return 2;
 			}
-			pm.run(mod);
 		}
-
-		sink(mod, std::cout);
+		addEmitter(pm, emitKind, std::cout);
+		pm.run(mod);
 		return 0;
 	}
 } // namespace
@@ -153,11 +160,11 @@ I32 main(I32 argc, char** argv) {
 	if (mode == "-dump-ast")
 		return dumpAst(inputPath, source);
 	if (mode == "-emit-ir")
-		return lowerToModule(inputPath, source, passSpec, emitText);
+		return lowerToModule(inputPath, source, passSpec, "text");
 	if (mode == "-emit-c")
-		return lowerToModule(inputPath, source, passSpec, emitC);
+		return lowerToModule(inputPath, source, passSpec, "c");
 	if (mode == "-emit-x86")
-		return lowerToModule(inputPath, source, passSpec, emitX86);
+		return lowerToModule(inputPath, source, passSpec, "x86");
 
 	std::cerr << "ratcc: nothing to do\n";
 	return 2;

@@ -24,14 +24,13 @@ namespace {
 				 << e.description << "\n";
 	}
 
-	void emit(const String& kind, Module& module, std::ostream& os) {
+	void addEmitter(PassManager& pm, const String& kind, std::ostream& os) {
 		if (kind == "c")
-			emitC(module, os);
+			pm.add<CEmitterPass>(os);
 		else if (kind == "dot")
-			for (Function* fn : module)
-				emitDot(*fn, os);
+			pm.add<GraphEmitterPass>(os);
 		else
-			emitText(module, os);
+			pm.add<TextEmitterPass>(os);
 	}
 } // namespace
 
@@ -126,9 +125,8 @@ I32 main(I32 argc, char** argv) {
 	}
 	if (doVerify)
 		pm.add<VerifyPass>(std::cerr);
+	addEmitter(pm, emitKind, out);
 
 	pm.run(module, stats ? &std::cerr : nullptr);
-
-	emit(emitKind, module, out);
 	return 0;
 }

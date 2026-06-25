@@ -452,9 +452,11 @@ namespace {
 		return out;
 	}
 
-	String emitToString(const Module& m) {
+	String emitToString(Module& m) {
 		std::ostringstream os;
-		emitText(m, os);
+		PassManager pm;
+		pm.add<TextEmitterPass>(os);
+		pm.run(m);
 		return os.str();
 	}
 
