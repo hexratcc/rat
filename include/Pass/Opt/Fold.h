@@ -17,6 +17,7 @@
 namespace rat {
 	struct Function;
 	struct Node;
+	struct ConstantNode;
 	struct Type;
 
 	Node* constant(Function& fn, Type* type, I64 value);
@@ -25,6 +26,11 @@ namespace rat {
 	Node* foldUnary(Function& fn, Opcode op, Node* operand);
 	Node* foldCompare(Function& fn, Opcode op, Node* lhs, Node* rhs);
 	Node* foldConvert(Function& fn, Opcode op, Node* operand, Type* destType);
+	Node* foldBinaryConst(Function& fn, Opcode op, Type* ty, U32 w, I64 a, I64 b);
+	Node* foldBinaryIdentity(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs);
+	Node* foldBinaryReassoc(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, ConstantNode* cr);
+	Node* foldBinaryStrength(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs);
+	Node* foldShiftOfShift(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs);
 
 	Node* simplify(Function& fn, Node* n); // dispatch to the matching fold*
 

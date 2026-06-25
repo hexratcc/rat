@@ -73,85 +73,67 @@ namespace rat {
 	}
 
 	Node* constant(Function& fn, Type* type, I64 value) {
-		 // create a normalized constant
+		// create a normalized constant
 		return fn.create<ConstantNode>(type, FoldPass::normalizeConst(value, type->getIntWidth()));
 	}
 
-	Node* foldBinary(Function& fn, Opcode op, Node* lhs, Node* rhs) {
-		Type* ty = lhs->getType();
-		if (!ty->isInt())
+	Node* foldBinaryConst(Function& fn, Opcode op, Type* ty, U32 w, I64 a, I64 b) {
+		auto k = [&](I64 v) { return constant(fn, ty, v); };
+		switch (op) {
+		case Opcode::Add:
+			return k(a + b);
+		case Opcode::Sub:
+			return k(a - b);
+		case Opcode::Mul:
+			return k(a * b);
+		case Opcode::And:
+			return k(a & b);
+		case Opcode::Or:
+			return k(a | b);
+		case Opcode::Xor:
+			return k(a ^ b);
+		case Opcode::Shl:
+			if (b >= 0 && b < (I64)w)
+				return k((I64)((U64)a << b));
 			return nullptr;
-		U32 w = ty->getIntWidth();
-
-		ConstantNode* cl = dyn_cast<ConstantNode>(lhs);
-		ConstantNode* cr = dyn_cast<ConstantNode>(rhs);
-
-		if (cl && cr) {
-			I64 a = cl->getValue(), b = cr->getValue();
-			auto k = [&](I64 v) { return constant(fn, ty, v); };
-			switch (op) {
-			case Opcode::Add:
-				return k(a + b);
-			case Opcode::Sub:
-				return k(a - b);
-			case Opcode::Mul:
-				return k(a * b);
-			case Opcode::And:
-				return k(a & b);
-			case Opcode::Or:
-				return k(a | b);
-			case Opcode::Xor:
-				return k(a ^ b);
-			case Opcode::Shl:
-				if (b >= 0 && b < (I64)w)
-					return k((I64)((U64)a << b));
+		case Opcode::LShr:
+			if (b >= 0 && b < (I64)w)
+				return k((I64)(FoldPass::maskW(a, w) >> b));
+			return nullptr;
+		case Opcode::AShr:
+			if (b >= 0 && b < (I64)w)
+				return k(FoldPass::signExtend(a, w) >> b);
+			return nullptr;
+		case Opcode::SDiv: {
+			I64 sa = FoldPass::signExtend(a, w), sb = FoldPass::signExtend(b, w);
+			if (FoldPass::wouldSignedDivOverflow(sa, sb))
 				return nullptr;
-			case Opcode::LShr:
-				if (b >= 0 && b < (I64)w)
-					return k((I64)(FoldPass::maskW(a, w) >> b));
-				return nullptr;
-			case Opcode::AShr:
-				if (b >= 0 && b < (I64)w)
-					return k(FoldPass::signExtend(a, w) >> b);
-				return nullptr;
-			case Opcode::SDiv: {
-				I64 sa = FoldPass::signExtend(a, w), sb = FoldPass::signExtend(b, w);
-				if (FoldPass::wouldSignedDivOverflow(sa, sb))
-					return nullptr;
-				return k(sa / sb);
-			}
-			case Opcode::SRem: {
-				I64 sa = FoldPass::signExtend(a, w), sb = FoldPass::signExtend(b, w);
-				if (FoldPass::wouldSignedDivOverflow(sa, sb))
-					return nullptr;
-				return k(sa % sb);
-			}
-			case Opcode::UDiv: {
-				U64 ua = FoldPass::maskW(a, w), ub = FoldPass::maskW(b, w);
-				if (ub == 0)
-					return nullptr;
-				return k((I64)(ua / ub));
-			}
-			case Opcode::URem: {
-				U64 ua = FoldPass::maskW(a, w), ub = FoldPass::maskW(b, w);
-				if (ub == 0)
-					return nullptr;
-				return k((I64)(ua % ub));
-			}
-			default:
-				return nullptr;
-			}
+			return k(sa / sb);
 		}
-
-		// normalize a lone constant to the RHS for commutative ops, so every rule
-		// below only has to look on one side
-		if (cl && !cr &&
-				(op == Opcode::Add || op == Opcode::Mul || op == Opcode::And || op == Opcode::Or ||
-				 op == Opcode::Xor)) {
-			std::swap(lhs, rhs);
-			std::swap(cl, cr);
+		case Opcode::SRem: {
+			I64 sa = FoldPass::signExtend(a, w), sb = FoldPass::signExtend(b, w);
+			if (FoldPass::wouldSignedDivOverflow(sa, sb))
+				return nullptr;
+			return k(sa % sb);
 		}
+		case Opcode::UDiv: {
+			U64 ua = FoldPass::maskW(a, w), ub = FoldPass::maskW(b, w);
+			if (ub == 0)
+				return nullptr;
+			return k((I64)(ua / ub));
+		}
+		case Opcode::URem: {
+			U64 ua = FoldPass::maskW(a, w), ub = FoldPass::maskW(b, w);
+			if (ub == 0)
+				return nullptr;
+			return k((I64)(ua % ub));
+		}
+		default:
+			return nullptr;
+		}
+	}
 
+	Node* foldBinaryIdentity(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs) {
 		switch (op) {
 		case Opcode::Add:
 			if (FoldPass::isZeroConst(rhs))
@@ -210,12 +192,13 @@ namespace rat {
 		default:
 			break;
 		}
+		return nullptr;
+	}
 
+	Node* foldBinaryReassoc(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, ConstantNode* cr) {
 		auto mkBin = [&](Opcode o, Node* x, I64 c) {
 			return fn.create<BinaryNode>(o, ty, x, constant(fn, ty, c));
 		};
-
-		// reassociation: gather constants in +/-/* chains
 		if ((op == Opcode::Add || op == Opcode::Sub) && cr) {
 			I64 c2 = cr->getValue();
 			I32 outerSign = (op == Opcode::Add) ? 1 : -1;
@@ -243,8 +226,13 @@ namespace rat {
 				return mkBin(Opcode::Mul, base, k);
 			}
 		}
+		return nullptr;
+	}
 
-		// strength reduction
+	Node* foldBinaryStrength(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs) {
+		auto mkBin = [&](Opcode o, Node* x, I64 c) {
+			return fn.create<BinaryNode>(o, ty, x, constant(fn, ty, c));
+		};
 		switch (op) {
 		case Opcode::Mul:
 			if (I32 k = FoldPass::pow2Log(rhs, w); k > 0)
@@ -261,25 +249,61 @@ namespace rat {
 		default:
 			break;
 		}
+		return nullptr;
+	}
 
-		// shift-of-shift collapse
-		if (op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr) {
-			BinaryNode* in = dyn_cast<BinaryNode>(lhs);
-			ConstantNode* cb = dyn_cast<ConstantNode>(rhs);
-			if (in && in->getOpcode() == op && cb) {
-				ConstantNode* ca = dyn_cast<ConstantNode>(in->getRHS());
-				I64 a = ca ? ca->getValue() : -1;
-				I64 b = cb->getValue();
-				if (ca && a >= 0 && a < (I64)w && b >= 0 && b < (I64)w) {
-					Node* x = in->getLHS();
-					I64 sum = a + b;
-					if (sum >= (I64)w)
-						return op == Opcode::AShr ? mkBin(Opcode::AShr, x, w - 1) : constant(fn, ty, 0);
-					return mkBin(op, x, sum);
-				}
+	Node* foldShiftOfShift(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs) {
+		if (op != Opcode::Shl && op != Opcode::LShr && op != Opcode::AShr)
+			return nullptr;
+		auto mkBin = [&](Opcode o, Node* x, I64 c) {
+			return fn.create<BinaryNode>(o, ty, x, constant(fn, ty, c));
+		};
+		BinaryNode* in = dyn_cast<BinaryNode>(lhs);
+		ConstantNode* cb = dyn_cast<ConstantNode>(rhs);
+		if (in && in->getOpcode() == op && cb) {
+			ConstantNode* ca = dyn_cast<ConstantNode>(in->getRHS());
+			I64 a = ca ? ca->getValue() : -1;
+			I64 b = cb->getValue();
+			if (ca && a >= 0 && a < (I64)w && b >= 0 && b < (I64)w) {
+				Node* x = in->getLHS();
+				I64 sum = a + b;
+				if (sum >= (I64)w)
+					return op == Opcode::AShr ? mkBin(Opcode::AShr, x, w - 1) : constant(fn, ty, 0);
+				return mkBin(op, x, sum);
 			}
 		}
+		return nullptr;
+	}
 
+	Node* foldBinary(Function& fn, Opcode op, Node* lhs, Node* rhs) {
+		Type* ty = lhs->getType();
+		if (!ty->isInt())
+			return nullptr;
+		U32 w = ty->getIntWidth();
+
+		ConstantNode* cl = dyn_cast<ConstantNode>(lhs);
+		ConstantNode* cr = dyn_cast<ConstantNode>(rhs);
+
+		if (cl && cr)
+			return foldBinaryConst(fn, op, ty, w, cl->getValue(), cr->getValue());
+
+		// normalize a lone constant to the RHS for commutative ops, so every rule
+		// below only has to look on one side
+		if (cl && !cr &&
+				(op == Opcode::Add || op == Opcode::Mul || op == Opcode::And || op == Opcode::Or ||
+				 op == Opcode::Xor)) {
+			std::swap(lhs, rhs);
+			std::swap(cl, cr);
+		}
+
+		if (Node* r = foldBinaryIdentity(fn, op, ty, w, lhs, rhs))
+			return r;
+		if (Node* r = foldBinaryReassoc(fn, op, ty, w, lhs, cr))
+			return r;
+		if (Node* r = foldBinaryStrength(fn, op, ty, w, lhs, rhs))
+			return r;
+		if (Node* r = foldShiftOfShift(fn, op, ty, w, lhs, rhs))
+			return r;
 		return nullptr;
 	}
 
