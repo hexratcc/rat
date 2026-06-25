@@ -1,8 +1,10 @@
-# make        build bin/ratcc and bin/ratcc-test
-# make test   build and run the golden test suite over all cases
-# make run    tokenize each case (dump tokens) as a smoke test
-# make format run clang-format over the frontend sources
-# make clean  remove this frontend's build artifacts
+# make          build bin/ratcc and bin/ratcc-test
+# make test     build and run the golden test suite over all cases
+# make test-c   run the suite through the C backend
+# make test-x86 run the suite through the x86-64 backend
+# make run      tokenize each case (dump tokens) as a smoke test
+# make format   run clang-format over the frontend sources
+# make clean    remove this frontend's build artifacts
 
 ROOT     := ../..
 CXX      ?= g++
@@ -27,7 +29,7 @@ CASES    := $(wildcard cases/custom/*.c) $(wildcard cases/c-testsuite/*.c) \
             $(wildcard cases/gcc-torture/*.c) $(wildcard cases/c99/*.c)
 RAT_CASES := $(wildcard $(ROOT)/test/cases/*.rat)
 
-.PHONY: all test run format clean
+.PHONY: all test test-c test-x86 run format clean
 all: $(BIN) $(TESTBIN)
 
 $(OBJDIR)/%.o: %.cpp
@@ -50,6 +52,12 @@ $(TESTBIN): $(CORE_OBJS) $(OBJDIR)/Runner.o $(LIB)
 
 test: $(TESTBIN)
 	@$(TESTBIN) $(TESTBIN_ARGS) $(CASES) $(RAT_CASES)
+
+test-c: $(TESTBIN)
+	@RATCC_X86=0 $(TESTBIN) $(TESTBIN_ARGS) $(CASES) $(RAT_CASES)
+
+test-x86: $(TESTBIN)
+	@RATCC_X86=1 $(TESTBIN) $(TESTBIN_ARGS) $(CASES) $(RAT_CASES)
 
 run: $(BIN)
 	@for c in $(CASES); do echo "== $$c =="; $(BIN) -dump-tokens $$c; done

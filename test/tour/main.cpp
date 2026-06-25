@@ -111,9 +111,17 @@ int main() {
 	}
 
 	std::cout << "\n/* --- c --- */\n";
-	rat::emitC(module, std::cout);
+	{
+		rat::PassManager cpm;
+		cpm.add<rat::CEmitterPass>(std::cout);
+		cpm.run(module);
+	}
 
 	std::cout << "\n// --- graph ---\n";
-	rat::emitDot(*fn, std::cout);
+	{
+		rat::PassManager gpm;
+		gpm.add<rat::GraphEmitterPass>(std::cout);
+		gpm.run(module);
+	}
 	return 0;
 }
