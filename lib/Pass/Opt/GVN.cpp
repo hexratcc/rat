@@ -1,26 +1,17 @@
-// global value numbering: hash-cons congruent nodes so equal computations
-// share a single node
-//
-// references:
-// - B. Alpern, M. Wegman and F. K. Zadeck, "Detecting Equality of Variables
-//   in Programs", POPL, 1988
-// - C. Click, "Global Code Motion / Global Value Numbering", PLDI, 1995
-
 #include "Pass/Opt/GVN.h"
 
 #include "IR/Function.h"
 #include "IR/Node.h"
 
 namespace rat {
-	namespace detail {
-		B32 isPureValue(Node* n) {
-			Opcode op = n->getOpcode();
-			return op == Opcode::Constant || op == Opcode::Global || isArithmeticOpcode(op);
-		}
-	} // namespace detail
-	using namespace detail;
+	B32 GVNPass::isPureValue(Node* n) {
+		Opcode op = n->getOpcode();
+		return op == Opcode::Constant || op == Opcode::Global || isArithmeticOpcode(op);
+	}
 
-	U32 gvn(Function& fn) {
+	const C8* GVNPass::name() const { return "gvn"; }
+
+	U32 GVNPass::runOnFunction(Function& fn) {
 		U32 removed = 0;
 
 		B32 changed = true;
@@ -28,7 +19,7 @@ namespace rat {
 			changed = false;
 			Map<String, Node*> table;
 			for (Node* n : fn) {
-				if (!isPureValue(n) || !n->hasUsers())
+				if (!GVNPass::isPureValue(n) || !n->hasUsers())
 					continue;
 				String sig = nodeSignature(n);
 				auto it = table.find(sig);
@@ -47,8 +38,4 @@ namespace rat {
 			fn.eliminateDeadNodes();
 		return removed;
 	}
-
-	const C8* GVNPass::name() const { return "gvn"; }
-
-	U32 GVNPass::runOnFunction(Function& fn) { return gvn(fn); }
 } // namespace rat
