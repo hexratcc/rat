@@ -1,12 +1,3 @@
-// control-flow simplification: fold branches on constant predicates, collapse
-// single-predecessor regions and their phis, and prune unreachable control
-//
-// references:
-// - C. Click and M. Paleczny, "A Simple Graph-Based Intermediate
-//   Representation", ACM SIGPLAN Workshop on IRs, 1995
-// - C. Click, "Combining Analyses, Combining Optimizations", PhD thesis,
-//   Rice University, 1995
-
 #include "Pass/Opt/SimplifyCFG.h"
 
 #include "IR/Function.h"
@@ -14,38 +5,35 @@
 #include "IR/Type.h"
 
 namespace rat {
-	namespace detail {
-		Set<Node*> reachableControl(Function& fn) {
-			Set<Node*> seen;
-			seen.insert(fn.getStart());
-			List<Node*> work;
-			if(Node* e = fn.getStart()->projection(StartNode::controlProjIndex()))
-				work.push_back(e);
-			while(!work.empty()) {
-				Node* n = work.back();
-				work.pop_back();
-				if(!seen.insert(n).second)
-					continue;
-				for(Node* u : n->getUsers())
-					if(isControlNode(u))
-						work.push_back(u);
-			}
-			return seen;
+	Set<Node*> SimplifyCFGPass::reachableControl(Function& fn) {
+		Set<Node*> seen;
+		seen.insert(fn.getStart());
+		List<Node*> work;
+		if(Node* e = fn.getStart()->projection(StartNode::controlProjIndex()))
+			work.push_back(e);
+		while(!work.empty()) {
+			Node* n = work.back();
+			work.pop_back();
+			if(!seen.insert(n).second)
+				continue;
+			for(Node* u : n->getUsers())
+				if(isControlNode(u))
+					work.push_back(u);
 		}
+		return seen;
+	}
 
-		List<Node*> nodesOfOpcode(Function& fn, Opcode op) {
-			List<Node*> out;
-			for(Node* n : fn)
-				if(n->getOpcode() == op)
-					out.push_back(n);
-			return out;
-		}
+	List<Node*> SimplifyCFGPass::nodesOfOpcode(Function& fn, Opcode op) {
+		List<Node*> out;
+		for(Node* n : fn)
+			if(n->getOpcode() == op)
+				out.push_back(n);
+		return out;
+	}
 
-		List<PhiNode*> phisOn(RegionNode* r) { return usersOfType<PhiNode>(r); }
-	} // namespace detail
-	using namespace detail;
+	const C8* SimplifyCFGPass::name() const { return "simplifycfg"; }
 
-	U32 simplifyCFG(Function& fn) {
+	U32 SimplifyCFGPass::runOnFunction(Function& fn) {
 		U32 changed = 0;
 		B32 again = true;
 		while(again) {
@@ -75,7 +63,7 @@ namespace rat {
 				RegionNode* r = cast<RegionNode>(n);
 				if(!reach.count(r))
 					continue;
-				List<PhiNode*> phis = phisOn(r);
+				List<PhiNode*> phis = usersOfType<PhiNode>(r);
 				for(I32 i = (I32)r->getPredecessorCount() - 1; i >= 0; --i) {
 					if(reach.count(r->getPredecessor(i)))
 						continue;
@@ -92,7 +80,7 @@ namespace rat {
 				RegionNode* r = cast<RegionNode>(n);
 				if(!reach.count(r) || r->getPredecessorCount() != 1)
 					continue;
-				for(PhiNode* phi : phisOn(r))
+				for(PhiNode* phi : usersOfType<PhiNode>(r))
 					phi->replaceAllUsesWith(phi->getValue(0));
 				r->replaceAllUsesWith(r->getPredecessor(0));
 				++changed;
@@ -103,8 +91,4 @@ namespace rat {
 		}
 		return changed;
 	}
-
-	const C8* SimplifyCFGPass::name() const { return "simplifycfg"; }
-
-	U32 SimplifyCFGPass::runOnFunction(Function& fn) { return simplifyCFG(fn); }
 } // namespace rat
