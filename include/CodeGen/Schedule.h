@@ -1,3 +1,11 @@
+// global code motion: recover a CFG and place each floating node into a basic
+// block, hoisting out of loops where legal and otherwise sinking toward uses
+//
+// references:
+// - C. Click, "Global Code Motion / Global Value Numbering", PLDI, 1995
+// - T. Lengauer and R. E. Tarjan, "A Fast Algorithm for Finding Dominators
+//   in a Flowgraph", ACM TOPLAS, 1979
+
 #ifndef RAT_CODEGEN_SCHEDULE_H
 #define RAT_CODEGEN_SCHEDULE_H
 
@@ -51,14 +59,6 @@ namespace rat {
 
 		static B32 isFloating(const Node* n);
 	private:
-		const Function& fn;
-		List<Block> blocks;
-		Map<const Node*, I32> headIndex; // head node -> block
-		Map<const Node*, I32> nodeBlock; // placed node -> block
-		List<I32> post;									 // postorder number per block
-		List<I32> rpoOrder;
-		I32 entryBlock = -1;
-
 		void collectHeads();
 		void buildCFG();
 		void computeDominators();
@@ -69,11 +69,25 @@ namespace rat {
 
 		static B32 isHeadNode(const Node* n);
 		Node* headOf(Node* ctrl) const;
+
 		I32 intersectWith(const List<I32>& idom, I32 a, I32 b) const;
 		I32 lca(I32 a, I32 b) const;
+
 		I32 useBlock(Node* u, Node* n) const;
 		I32 predBlockForRegionInput(I32 regionBlock, U32 i) const;
 		List<Node*> topoOrder(List<Node*>& nodes) const;
+
+		I32 fixedDataBlock(Node* n, const Map<const Node*, I32>& early) const;
+		static Node* requireProj(Node* n, U32 index);
+		static Node* memoryInputOf(const Node* n);
+	private:
+		const Function& fn;
+		List<Block> blocks;
+		Map<const Node*, I32> headIndex; // head node -> block
+		Map<const Node*, I32> nodeBlock; // placed node -> block
+		List<I32> post;									 // postorder number per block
+		List<I32> rpoOrder;
+		I32 entryBlock = -1;
 	};
 } // namespace rat
 

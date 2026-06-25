@@ -1,18 +1,9 @@
-// global code motion: recover a CFG and place each floating node into a basic
-// block, hoisting out of loops where legal and otherwise sinking toward uses
-//
-// references:
-// - C. Click, "Global Code Motion / Global Value Numbering", PLDI, 1995
-// - T. Lengauer and R. E. Tarjan, "A Fast Algorithm for Finding Dominators
-//   in a Flowgraph", ACM TOPLAS, 1979
-
 #include "CodeGen/Schedule.h"
 
 #include "IR/Function.h"
 #include "IR/Node.h"
 
 namespace rat {
-
 	Schedule::Schedule(const Function& fn)
 	: fn(fn) {
 		collectHeads();
@@ -33,14 +24,20 @@ namespace rat {
 	I32 Schedule::idomOf(I32 b) const { return blocks[b].idom; }
 	I32 Schedule::loopDepthOf(I32 b) const { return blocks[b].loopDepth; }
 
+	Node* Schedule::requireProj(Node* n, U32 index) {
+		Node* p = n->projection(index);
+		assert(p && "expected projection is missing");
+		return p;
+	}
+
 	B32 Schedule::isHeadNode(const Node* n) {
-		if(n->getOpcode() == Opcode::Region)
+		if(isa<RegionNode>(n))
 			return true;
-		if(ProjNode* p = dyn_cast<ProjNode>(const_cast<Node*>(n))) {
+		if(const ProjNode* p = dyn_cast<ProjNode>(n)) {
 			Node* prod = p->getProducer();
-			if(prod->getOpcode() == Opcode::If)
+			if(isa<IfNode>(prod))
 				return true;
-			if(prod->getOpcode() == Opcode::Start && p->getIndex() == 0)
+			if(isa<StartNode>(prod) && p->getIndex() == 0)
 				return true;
 		}
 		return false;
@@ -53,7 +50,7 @@ namespace rat {
 				blocks.emplace_back();
 				blocks.back().head = n;
 				if(ProjNode* p = dyn_cast<ProjNode>(n))
-					if(p->getProducer()->getOpcode() == Opcode::Start)
+					if(isa<StartNode>(p->getProducer()))
 						entryBlock = headIndex[n];
 			}
 		}
@@ -74,15 +71,6 @@ namespace rat {
 			ctrl = c->getControlInput();
 		}
 	}
-
-	namespace detail {
-		Node* requireProj(Node* n, U32 index) {
-			Node* p = n->projection(index);
-			assert(p && "expected projection is missing");
-			return p;
-		}
-	} // namespace detail
-	using namespace detail;
 
 	void Schedule::buildCFG() {
 		for(I32 b = 0; b < (I32)blocks.size(); ++b) {
@@ -276,32 +264,29 @@ namespace rat {
 		return op == Opcode::Load || isArithmeticOpcode(op);
 	}
 
-	namespace detail {
-		I32 fixedDataBlock(const Schedule& s, Node* n, const Map<const Node*, I32>& early) {
-			if(Schedule::isFloating(n)) {
-				auto it = early.find(n);
-				return it == early.end() ? -1 : it->second;
-			}
-			switch(n->getOpcode()) {
-			case Opcode::Phi:
-				return s.blockOfHead(cast<PhiNode>(n)->getRegion());
-			case Opcode::Load:
-			case Opcode::Store:
-			case Opcode::Call:
-				return s.blockOf(n);
-			case Opcode::Proj: {
-				ProjNode* p = cast<ProjNode>(n);
-				Node* prod = p->getProducer();
-				if(prod->getOpcode() == Opcode::Call)
-					return s.blockOf(prod); // call value/control projection
-				return -1;
-			}
-			case Opcode::Constant:
-			default:
-				return -1; // no constraint
-			}
+	I32 Schedule::fixedDataBlock(Node* n, const Map<const Node*, I32>& early) const {
+		if(isFloating(n)) {
+			auto it = early.find(n);
+			return it == early.end() ? -1 : it->second;
 		}
-	} // namespace detail
+		switch(n->getOpcode()) {
+		case Opcode::Phi:
+			return blockOfHead(cast<PhiNode>(n)->getRegion());
+		case Opcode::Load:
+		case Opcode::Store:
+		case Opcode::Call:
+			return blockOf(n);
+		case Opcode::Proj: {
+			Node* prod = cast<ProjNode>(n)->getProducer();
+			if(isa<CallNode>(prod))
+				return blockOf(prod); // call value/control projection
+			return -1;
+		}
+		case Opcode::Constant:
+		default:
+			return -1; // no constraint
+		}
+	}
 
 	void Schedule::scheduleEarly(Map<const Node*, I32>& early) {
 		List<Node*> work;
@@ -318,12 +303,12 @@ namespace rat {
 			changed = false;
 			for(Node* n : work) {
 				I32 e = entryBlock;
-				U32 first = (n->getOpcode() == Opcode::Load) ? 1 : 0;
+				U32 first = isa<LoadNode>(n) ? 1 : 0;
 				for(U32 i = first, ie = n->getInputCount(); i < ie; ++i) {
 					Node* in = n->getInput(i);
 					if(!in)
 						continue;
-					I32 b = fixedDataBlock(*this, in, early);
+					I32 b = fixedDataBlock(in, early);
 					if(b >= 0 && blocks[b].domDepth > blocks[e].domDepth)
 						e = b;
 				}
@@ -352,7 +337,7 @@ namespace rat {
 		auto it = nodeBlock.find(u);
 		if(it != nodeBlock.end())
 			return it->second;
-		if(u->getOpcode() == Opcode::Return || u->getOpcode() == Opcode::If)
+		if(isa<ReturnNode>(u) || isa<IfNode>(u))
 			return headIndex.at(headOf(u->getControlInput()));
 		return -1;
 	}
@@ -376,7 +361,7 @@ namespace rat {
 			changed = false;
 			for(Node* n : work) {
 				I32 late;
-				if(n->getOpcode() == Opcode::Load) {
+				if(isa<LoadNode>(n)) {
 					// floating loads move up from where they were built but never
 					// below it: the home block is a sound late bound
 					late = headIndex.at(headOf(n->getControlInput()));
@@ -425,8 +410,7 @@ namespace rat {
 
 		List<List<Node*>> raw(blocks.size());
 		for(Node* n : fn) {
-			Opcode op = n->getOpcode();
-			B32 pinned = (op == Opcode::Store || op == Opcode::Call);
+			B32 pinned = isa<StoreNode>(n) || isa<CallNode>(n);
 			if(pinned || isFloating(n)) {
 				auto it = nodeBlock.find(n);
 				if(it != nodeBlock.end())
@@ -437,20 +421,15 @@ namespace rat {
 			blocks[b].nodes = topoOrder(raw[b]);
 	}
 
-	namespace detail {
-		Node* memoryInputOf(const Node* n) {
-			switch(n->getOpcode()) {
-			case Opcode::Load:
-				return cast<LoadNode>(n)->getMemory();
-			case Opcode::Store:
-				return cast<StoreNode>(n)->getMemory();
-			case Opcode::Call:
-				return cast<CallNode>(n)->getMemory();
-			default:
-				return nullptr;
-			}
-		}
-	} // namespace detail
+	Node* Schedule::memoryInputOf(const Node* n) {
+		if(const LoadNode* l = dyn_cast<LoadNode>(n))
+			return l->getMemory();
+		if(const StoreNode* s = dyn_cast<StoreNode>(n))
+			return s->getMemory();
+		if(const CallNode* c = dyn_cast<CallNode>(n))
+			return c->getMemory();
+		return nullptr;
+	}
 
 	List<Node*> Schedule::topoOrder(List<Node*>& nodes) const {
 		Set<const Node*> inBlock(nodes.begin(), nodes.end());
@@ -459,13 +438,13 @@ namespace rat {
 
 		Map<const Node*, List<Node*>> loadsByMem;
 		for(Node* n : nodes)
-			if(n->getOpcode() == Opcode::Load)
-				if(Node* m = detail::memoryInputOf(n))
+			if(isa<LoadNode>(n))
+				if(Node* m = memoryInputOf(n))
 					loadsByMem[m].push_back(n);
 
 		Map<const Node*, List<Node*>> extraSuccs;
 		auto addAntiDep = [&](Node* writer) {
-			Node* m = detail::memoryInputOf(writer);
+			Node* m = memoryInputOf(writer);
 			if(!m)
 				return;
 			auto it = loadsByMem.find(m);
@@ -476,7 +455,7 @@ namespace rat {
 					extraSuccs[ld].push_back(writer);
 		};
 		for(Node* n : nodes)
-			if(n->getOpcode() == Opcode::Store || n->getOpcode() == Opcode::Call)
+			if(isa<StoreNode>(n) || isa<CallNode>(n))
 				addAntiDep(n);
 
 		auto laterId = [](const Node* a, const Node* b) { return a->getId() > b->getId(); };
