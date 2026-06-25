@@ -1,3 +1,12 @@
+// peephole constant folding and algebraic simplification, applied as local
+// graph rewrites in the spirit of parse-time pessimistic peepholes
+//
+// references:
+// - C. Click and M. Paleczny, "A Simple Graph-Based Intermediate
+//   Representation", ACM SIGPLAN Workshop on IRs, 1995
+// - C. Click, "Combining Analyses, Combining Optimizations", PhD thesis,
+//   Rice University, 1995 (peephole rewriting on the sea-of-nodes graph)
+
 #ifndef RAT_PASS_OPT_FOLD_H
 #define RAT_PASS_OPT_FOLD_H
 
@@ -17,11 +26,25 @@ namespace rat {
 	Node* foldCompare(Function& fn, Opcode op, Node* lhs, Node* rhs);
 	Node* foldConvert(Function& fn, Opcode op, Node* operand, Type* destType);
 
-	Node* simplify(Function& fn, Node* n);
+	Node* simplify(Function& fn, Node* n); // dispatch to the matching fold*
 
 	struct FoldPass : FunctionPass {
 		const C8* name() const override;
 		U32 runOnFunction(Function& fn) override;
+
+		static I64 signExtend(I64 v, U32 w);						 // sign-extend low w bits
+		static U64 maskW(I64 v, U32 w);									 // zero-extend low w bits
+		static B32 wouldSignedDivOverflow(I64 a, I64 b); // div by 0 or INT_MIN-1
+		static I64 normalizeConst(I64 v, U32 w);				 // canonical w-bit representative
+
+		static B32 isConstWithValue(Node* n, I64 want);
+		static B32 isZeroConst(Node* n);
+		static B32 isOneConst(Node* n);
+		static B32 isAllOnesConst(Node* n, U32 w);
+		static I32 pow2Log(Node* n, U32 w);
+		static B32 matchVarConst(Node* n, Opcode want, Node*& base, I64& c);
+	private:
+		U32 foldFunction(Function& fn);
 	};
 } // namespace rat
 
