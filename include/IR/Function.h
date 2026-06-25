@@ -161,6 +161,9 @@ namespace rat {
 		void addEdge(Node* exitControl, Block* from, Block* to);
 		void activateOnSeal(Block* block);
 
+		Type* callTupleType(Type* retType);
+		Node* attachCallProjections(CallNode* c, Type* retType);
+
 		Module* mod;
 		String name;
 		List<Type*> paramTypes;

@@ -432,19 +432,38 @@ namespace rat {
 				return false;
 			}
 
-			void emitPhiCopies(I32 targetRegionB, I32 predIdx) {
-				struct Move {
-					PhiNode* dst;
-					Node* srcNode; // null once redirected to a scratch
-					String srcExpr;
-				};
-				List<Move> pending;
+			struct Move {
+				PhiNode* dst;
+				Node* srcNode;
+				String srcExpr;
+			};
+
+			List<Move> collectPhiMoves(I32 targetRegionB, I32 predIdx) {
+				List<Move> moves;
 				for (PhiNode* phi : sched.block(targetRegionB).phis) {
 					Node* v = phi->getValue(predIdx);
-					if (v == phi)
-						continue; // self-copy: no-op
-					pending.push_back({phi, v, String()});
+					if (v != phi)
+						moves.push_back({phi, v, String()});
 				}
+				return moves;
+			}
+
+			void writeMoveBlock(const List<String>& scratchDecls, const List<String>& lines) {
+				if (scratchDecls.empty()) {
+					for (const String& l : lines)
+						os << "  " << l << "\n";
+					return;
+				}
+				os << "  {\n";
+				for (const String& d : scratchDecls)
+					os << "    " << d << "\n";
+				for (const String& l : lines)
+					os << "    " << l << "\n";
+				os << "  }\n";
+			}
+
+			void emitPhiCopies(I32 targetRegionB, I32 predIdx) {
+				List<Move> pending = collectPhiMoves(targetRegionB, predIdx);
 				if (pending.empty())
 					return;
 
@@ -490,17 +509,7 @@ namespace rat {
 					}
 				}
 
-				if (scratchDecls.empty()) {
-					for (const String& l : lines)
-						os << "  " << l << "\n";
-				} else {
-					os << "  {\n";
-					for (const String& d : scratchDecls)
-						os << "    " << d << "\n";
-					for (const String& l : lines)
-						os << "    " << l << "\n";
-					os << "  }\n";
-				}
+				writeMoveBlock(scratchDecls, lines);
 			}
 
 			void emitTerminator(I32 b) {

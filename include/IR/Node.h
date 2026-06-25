@@ -33,6 +33,7 @@ namespace rat {
 		void addInput(Node* value);
 		void setInput(U32 index, Node* value);
 		void removeInput(U32 index);
+		void clearInputs();
 		void replaceInput(Node* old, Node* replacement);
 
 		void replaceAllUsesWith(Node* value);
@@ -251,6 +252,14 @@ namespace rat {
 	template <typename T> T* dyn_cast(Node* n) { return isa<T>(n) ? static_cast<T*>(n) : nullptr; }
 	template <typename T> const T* dyn_cast(const Node* n) {
 		return isa<T>(n) ? static_cast<const T*>(n) : nullptr;
+	}
+
+	template <typename T> List<T*> usersOfType(const Node* n) {
+		List<T*> out;
+		for (Node* u : n->getUsers())
+			if (T* t = dyn_cast<T>(u))
+				out.push_back(t);
+		return out;
 	}
 
 	inline B32 isControlNode(const Node* n) {

@@ -132,8 +132,8 @@ namespace rat {
 										 p->getIndex() == CallNode::valueProjIndex())
 							producesValue = true; // call result
 					} else if (t && t->isData()) {
-						producesValue = isFloating(n) || op == Opcode::Constant || op == Opcode::Phi ||
-														op == Opcode::Global;
+						producesValue = Schedule::isFloating(n) || op == Opcode::Constant ||
+														op == Opcode::Phi || op == Opcode::Global;
 					}
 					if (producesValue && !slot.count(n))
 						reserve(n, isX87Ty(t) ? 16 : 8);
@@ -168,8 +168,6 @@ namespace rat {
 				off = (off + 15) & ~15u;
 				saveArea = -(I32)off;
 			}
-
-			static B32 isFloating(const Node* n) { return Schedule::isFloating(n); }
 
 			void loadInt(Node* n, Reg r) {
 				if (ConstantNode* c = dyn_cast<ConstantNode>(n)) {
@@ -259,37 +257,41 @@ namespace rat {
 				StartNode* st = fn.getStart();
 				U32 intIdx = 0, xmmIdx = 0;
 				I32 stackOff = 16;
-				auto spillStackArg = [&](ProjNode* p) {
+				for (U32 i = 0; i < fn.getParamCount(); ++i)
+					emitParamLoad(st->projection(StartNode::paramProjIndex(i)), fn.getParamType(i), intIdx,
+												xmmIdx, stackOff);
+			}
+
+			B32 wantsSlot(ProjNode* p) const { return p && slot.count(p); }
+
+			void emitParamLoad(ProjNode* p, Type* t, U32& intIdx, U32& xmmIdx, I32& stackOff) {
+				auto spillStackArg = [&] {
 					a.load64(RAX, RBP, stackOff);
 					stackOff += 8;
-					if (p && slot.count(p))
+					if (wantsSlot(p))
 						a.storeMem(RBP, slotOf(p), RAX, 8);
 				};
-				for (U32 i = 0; i < fn.getParamCount(); ++i) {
-					ProjNode* p = st->projection(StartNode::paramProjIndex(i));
-					Type* t = fn.getParamType(i);
-					if (isX87Ty(t)) {
-						if (p && slot.count(p)) {
-							a.fldT(RBP, stackOff);
-							a.fstpT(RBP, slotOf(p));
-						}
-						stackOff += 16;
-					} else if (isFloatTy(t)) {
-						if (xmmIdx < kMaxXmmArgs) {
-							if (p && slot.count(p))
-								a.storeXmm(xmmIdx, RBP, slotOf(p), opWidth(t));
-							++xmmIdx;
-						} else {
-							spillStackArg(p);
-						}
+				if (isX87Ty(t)) {
+					if (wantsSlot(p)) {
+						a.fldT(RBP, stackOff);
+						a.fstpT(RBP, slotOf(p));
+					}
+					stackOff += 16;
+				} else if (isFloatTy(t)) {
+					if (xmmIdx < kMaxXmmArgs) {
+						if (wantsSlot(p))
+							a.storeXmm(xmmIdx, RBP, slotOf(p), opWidth(t));
+						++xmmIdx;
 					} else {
-						if (intIdx < kMaxIntArgs) {
-							if (p && slot.count(p))
-								a.storeMem(RBP, slotOf(p), kIntArgRegs[intIdx], 8);
-							++intIdx;
-						} else {
-							spillStackArg(p);
-						}
+						spillStackArg();
+					}
+				} else {
+					if (intIdx < kMaxIntArgs) {
+						if (wantsSlot(p))
+							a.storeMem(RBP, slotOf(p), kIntArgRegs[intIdx], 8);
+						++intIdx;
+					} else {
+						spillStackArg();
 					}
 				}
 			}

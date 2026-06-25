@@ -57,6 +57,11 @@ namespace rat {
 		inputs.erase(inputs.begin() + index);
 	}
 
+	void Node::clearInputs() {
+		while (getInputCount() > 0)
+			removeInput(getInputCount() - 1);
+	}
+
 	void Node::replaceInput(Node* old, Node* replacement) {
 		for (U32 i = 0, e = getInputCount(); i < e; ++i)
 			if (inputs[i] == old)

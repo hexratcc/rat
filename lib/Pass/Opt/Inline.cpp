@@ -38,23 +38,22 @@ namespace rat {
 			return p && p->getProducer() == callee.getStart();
 		}
 
+		Node* incomingForStartProj(CallNode* call, U32 startProjIdx) {
+			if (startProjIdx == StartNode::controlProjIndex())
+				return call->getControl();
+			if (startProjIdx == StartNode::memoryProjIndex())
+				return call->getMemory();
+			U32 a = startProjIdx - StartNode::paramProjIndex(0);
+			return a < call->getArgCount() ? call->getArg(a) : nullptr;
+		}
+
 		B32 inlineCallSite(Function& caller, CallNode* call, Function& callee) {
 			Map<Node*, Node*> map;
-			for (Node* u : callee.getStart()->getUsers()) {
-				ProjNode* p = dyn_cast<ProjNode>(u);
-				if (!p)
-					continue;
-				U32 idx = p->getIndex();
-				if (idx == StartNode::controlProjIndex())
-					map[p] = call->getControl();
-				else if (idx == StartNode::memoryProjIndex())
-					map[p] = call->getMemory();
-				else {
-					U32 a = idx - StartNode::paramProjIndex(0);
-					if (a >= call->getArgCount())
-						return false; // signature mismatch
-					map[p] = call->getArg(a);
-				}
+			for (ProjNode* p : usersOfType<ProjNode>(callee.getStart())) {
+				Node* incoming = incomingForStartProj(call, p->getIndex());
+				if (!incoming)
+					return false;
+				map[p] = incoming;
 			}
 
 			// shallow-clone every body node
@@ -124,12 +123,8 @@ namespace rat {
 
 			// redirect the call's projections onto the merged values, then drop the
 			// projections and the call itself
-			List<Node*> projs;
-			for (Node* u : call->getUsers())
-				if (isa<ProjNode>(u))
-					projs.push_back(u);
-			for (Node* pn : projs) {
-				U32 idx = cast<ProjNode>(pn)->getIndex();
+			for (ProjNode* pn : usersOfType<ProjNode>(call)) {
+				U32 idx = pn->getIndex();
 				Node* repl = nullptr;
 				if (idx == CallNode::controlProjIndex())
 					repl = mergedCtrl;

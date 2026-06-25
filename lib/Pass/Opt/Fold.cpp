@@ -28,6 +28,7 @@ namespace rat {
 				return (U64)v;
 			return (U64)v & (((U64)1 << w) - 1);
 		}
+		B32 wouldSignedDivOverflow(I64 a, I64 b) { return b == 0 || (a == INT64_MIN && b == -1); }
 		I64 normalizeConst(I64 v, U32 w) {
 			if (w == 1)
 				return v & 1;
@@ -121,13 +122,13 @@ namespace rat {
 				return nullptr;
 			case Opcode::SDiv: {
 				I64 sa = signExtend(a, w), sb = signExtend(b, w);
-				if (sb == 0 || (sa == INT64_MIN && sb == -1))
+				if (wouldSignedDivOverflow(sa, sb))
 					return nullptr;
 				return k(sa / sb);
 			}
 			case Opcode::SRem: {
 				I64 sa = signExtend(a, w), sb = signExtend(b, w);
-				if (sb == 0 || (sa == INT64_MIN && sb == -1))
+				if (wouldSignedDivOverflow(sa, sb))
 					return nullptr;
 				return k(sa % sb);
 			}
@@ -410,11 +411,9 @@ namespace rat {
 				// snapshot value nodes: simplify may append constants to the node
 				// list, which would invalidate a live iterator
 				List<Node*> work;
-				for (Node* n : fn) {
-					Opcode op = n->getOpcode();
-					if (isBinaryOpcode(op) || isUnaryOpcode(op) || isCompareOpcode(op) || isConvertOpcode(op))
+				for (Node* n : fn)
+					if (isArithmeticOpcode(n->getOpcode()))
 						work.push_back(n);
-				}
 				for (Node* n : work) {
 					if (!n->hasUsers())
 						continue;

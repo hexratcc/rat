@@ -162,17 +162,14 @@ namespace rat {
 		return create<AllocNode>(ptrTy(), type, byteCount);
 	}
 
-	Node* Function::call(const String& callee, Type* retType, const List<Node*>& args) {
+	Type* Function::callTupleType(Type* retType) {
 		List<Type*> elems{ctrlTy(), memTy()};
 		if (retType)
 			elems.push_back(retType);
-		Type* tupleTy = mod->getTuple(elems);
+		return mod->getTuple(elems);
+	}
 
-		List<Node*> ins{control(), readVar(memVar)};
-		for (Node* a : args)
-			ins.push_back(a);
-
-		CallNode* c = create<CallNode>(tupleTy, callee, retType != nullptr, ins);
+	Node* Function::attachCallProjections(CallNode* c, Type* retType) {
 		cur->ctrl = proj(c, CallNode::controlProjIndex(), ctrlTy(), "ctrl");
 		writeVar(memVar, proj(c, CallNode::memoryProjIndex(), memTy(), "mem"));
 		if (retType)
@@ -180,23 +177,24 @@ namespace rat {
 		return nullptr;
 	}
 
-	Node* Function::callIndirect(Node* target, Type* retType, const List<Node*>& args) {
-		List<Type*> elems{ctrlTy(), memTy()};
-		if (retType)
-			elems.push_back(retType);
-		Type* tupleTy = mod->getTuple(elems);
+	Node* Function::call(const String& callee, Type* retType, const List<Node*>& args) {
+		List<Node*> ins{control(), readVar(memVar)};
+		for (Node* a : args)
+			ins.push_back(a);
 
+		CallNode* c = create<CallNode>(callTupleType(retType), callee, retType != nullptr, ins);
+		return attachCallProjections(c, retType);
+	}
+
+	Node* Function::callIndirect(Node* target, Type* retType, const List<Node*>& args) {
 		// inputs: control, memory, target pointer, then the call arguments
 		List<Node*> ins{control(), readVar(memVar), target};
 		for (Node* a : args)
 			ins.push_back(a);
 
-		CallNode* c = create<CallNode>(tupleTy, String(), retType != nullptr, ins, true);
-		cur->ctrl = proj(c, CallNode::controlProjIndex(), ctrlTy(), "ctrl");
-		writeVar(memVar, proj(c, CallNode::memoryProjIndex(), memTy(), "mem"));
-		if (retType)
-			return proj(c, CallNode::valueProjIndex(), retType, "ret");
-		return nullptr;
+		CallNode* c =
+				create<CallNode>(callTupleType(retType), String(), retType != nullptr, ins, true);
+		return attachCallProjections(c, retType);
 	}
 
 	IfNode* Function::iff(Node* predicate) {
@@ -445,9 +443,7 @@ namespace rat {
 				B32 dead = !n->hasUsers() && !n->hasSideEffects() && (includeControl || !n->isCFG()) &&
 									 n != start && n != stop;
 				if (dead) {
-					// drop outgoing edges so input user-lists stay correct
-					while (n->getInputCount() > 0)
-						n->removeInput(n->getInputCount() - 1);
+					n->clearInputs();
 					it = nodes.erase(it);
 					++removed;
 					changed = true;
@@ -460,9 +456,7 @@ namespace rat {
 	}
 
 	void Function::removeNode(Node* n) {
-		// drop outgoing edges so input user-lists stay correct
-		while (n->getInputCount() > 0)
-			n->removeInput(n->getInputCount() - 1);
+		n->clearInputs();
 		for (auto it = nodes.begin(); it != nodes.end(); ++it)
 			if (*it == n) {
 				nodes.erase(it);

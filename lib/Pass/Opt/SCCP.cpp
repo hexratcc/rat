@@ -45,8 +45,7 @@ namespace rat {
 
 			static B32 isValueNode(Node* n) {
 				Opcode op = n->getOpcode();
-				return op == Opcode::Constant || op == Opcode::Phi || isBinaryOpcode(op) ||
-							 isUnaryOpcode(op) || isCompareOpcode(op) || isConvertOpcode(op);
+				return op == Opcode::Constant || op == Opcode::Phi || isArithmeticOpcode(op);
 			}
 
 			static Lat meet(Lat a, Lat b) {
@@ -74,9 +73,8 @@ namespace rat {
 			}
 
 			void pushPhis(RegionNode* r) {
-				for (Node* u : r->getUsers())
-					if (isa<PhiNode>(u))
-						ssaWork.push_back(u);
+				for (PhiNode* phi : usersOfType<PhiNode>(r))
+					ssaWork.push_back(phi);
 			}
 
 			void evalIf(IfNode* iff) {

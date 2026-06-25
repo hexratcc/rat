@@ -41,13 +41,7 @@ namespace rat {
 			return out;
 		}
 
-		List<PhiNode*> phisOn(RegionNode* r) {
-			List<PhiNode*> phis;
-			for (Node* u : r->getUsers())
-				if (PhiNode* p = dyn_cast<PhiNode>(u))
-					phis.push_back(p);
-			return phis;
-		}
+		List<PhiNode*> phisOn(RegionNode* r) { return usersOfType<PhiNode>(r); }
 	} // namespace detail
 	using namespace detail;
 
@@ -68,8 +62,7 @@ namespace rat {
 				Node* ctrl = iff->getControl();
 				if (ProjNode* taken = iff->projection(takenIdx))
 					taken->replaceAllUsesWith(ctrl);
-				while (iff->getInputCount() > 0)
-					iff->removeInput(iff->getInputCount() - 1);
+				iff->clearInputs();
 				++changed;
 				again = true;
 			}

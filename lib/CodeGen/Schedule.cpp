@@ -75,15 +75,9 @@ namespace rat {
 	}
 
 	namespace detail {
-		Node* controlProjOf(Node* call) {
-			Node* p = call->projection(CallNode::controlProjIndex());
-			assert(p && "call without a control projection");
-			return p;
-		}
-
-		Node* projOfIf(Node* iff, U32 index) {
-			Node* p = iff->projection(index);
-			assert(p && "if without expected projection");
+		Node* requireProj(Node* n, U32 index) {
+			Node* p = n->projection(index);
+			assert(p && "expected projection is missing");
 			return p;
 		}
 	} // namespace detail
@@ -132,7 +126,7 @@ namespace rat {
 				}
 
 				if (nextCall) {
-					cur = controlProjOf(nextCall);
+					cur = requireProj(nextCall, CallNode::controlProjIndex());
 					continue;
 				}
 
@@ -140,8 +134,8 @@ namespace rat {
 				if (ifTerm) {
 					t.term = TermKind::Branch;
 					t.termNode = ifTerm;
-					Node* thenP = projOfIf(ifTerm, IfNode::thenProjIndex());
-					Node* elseP = projOfIf(ifTerm, IfNode::elseProjIndex());
+					Node* thenP = requireProj(ifTerm, IfNode::thenProjIndex());
+					Node* elseP = requireProj(ifTerm, IfNode::elseProjIndex());
 					t.thenB = headIndex.at(thenP);
 					t.elseB = headIndex.at(elseP);
 					blocks[t.thenB].preds.push_back(b);
@@ -278,8 +272,7 @@ namespace rat {
 		Opcode op = n->getOpcode();
 		if (op == Opcode::Alloc)
 			return cast<AllocNode>(n)->isVariableSized();
-		return op == Opcode::Load || isBinaryOpcode(op) || isUnaryOpcode(op) || isCompareOpcode(op) ||
-					 isConvertOpcode(op);
+		return op == Opcode::Load || isArithmeticOpcode(op);
 	}
 
 	namespace detail {
