@@ -10,8 +10,8 @@ namespace rat::cc {
 		List<String> undefs;
 	};
 
-	B32 preprocess(const String& path, const String& source,
-								 const PpOptions& opts, String& out, String& err);
+	B32 preprocess(
+			const String& path, const String& source, const PpOptions& opts, String& out, String& err);
 } // namespace rat::cc
 
 #endif

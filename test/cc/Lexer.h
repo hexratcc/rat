@@ -112,8 +112,8 @@ namespace rat::cc {
 		TokKind kind = TokKind::Eof;
 		U32 offset = 0; // byte offset of the lexeme in the source buffer
 		U32 length = 0; // lexeme length in bytes
-		U32 line = 1;   // 1-based line of the first character
-		U32 col = 1;    // 1-based column of the first character
+		U32 line = 1;		// 1-based line of the first character
+		U32 col = 1;		// 1-based column of the first character
 	};
 
 	struct Lexer {
@@ -129,7 +129,6 @@ namespace rat::cc {
 		const char* source() const { return src; }
 		U32 sourceLength() const { return len; }
 		const String& error() const { return errMsg; }
-
 	private:
 		Token scan();
 		void skipTrivia();
@@ -141,8 +140,7 @@ namespace rat::cc {
 		Token lexFloatSuffix(Token tok);
 		Token lexChar(Token tok);
 		Token lexString(Token tok);
-		Token lexQuoted(Token tok, char quote, const char* unterminated,
-										TokKind kind);
+		Token lexQuoted(Token tok, char quote, const char* unterminated, TokKind kind);
 		Token lexPunct(Token tok);
 
 		Token finish(Token tok, TokKind kind);

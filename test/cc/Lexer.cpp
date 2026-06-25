@@ -59,15 +59,15 @@ namespace rat::cc {
 		B32 validIntSuffix(const char* s, U32 n) {
 			B32 haveU = false, haveL = false;
 			U32 i = 0;
-			while (i < n) {
+			while(i < n) {
 				char c = s[i];
-				if ((c == 'u' || c == 'U') && !haveU) {
+				if((c == 'u' || c == 'U') && !haveU) {
 					haveU = true;
 					++i;
-				} else if ((c == 'l' || c == 'L') && !haveL) {
+				} else if((c == 'l' || c == 'L') && !haveL) {
 					haveL = true;
 					// a long-long suffix must repeat the same letter
-					if (i + 1 < n && s[i + 1] == c)
+					if(i + 1 < n && s[i + 1] == c)
 						i += 2;
 					else
 						++i;
@@ -80,14 +80,14 @@ namespace rat::cc {
 
 		B32 validFloatSuffix(const char* s, U32 n) {
 			B32 size = false, imag = false;
-			for (U32 i = 0; i < n; ++i) {
+			for(U32 i = 0; i < n; ++i) {
 				char c = s[i];
-				if (c == 'f' || c == 'F' || c == 'l' || c == 'L') {
-					if (size)
+				if(c == 'f' || c == 'F' || c == 'l' || c == 'L') {
+					if(size)
 						return false;
 					size = true;
-				} else if (c == 'i' || c == 'I' || c == 'j' || c == 'J') {
-					if (imag)
+				} else if(c == 'i' || c == 'I' || c == 'j' || c == 'J') {
+					if(imag)
 						return false;
 					imag = true;
 				} else
@@ -97,12 +97,12 @@ namespace rat::cc {
 		}
 
 		TokKind keywordKind(const char* s, U32 n) {
-			for (const Keyword& kw : kKeywords) {
+			for(const Keyword& kw : kKeywords) {
 				const char* k = kw.text;
 				U32 i = 0;
-				for (; i < n && k[i] && k[i] == s[i]; ++i)
+				for(; i < n && k[i] && k[i] == s[i]; ++i)
 					;
-				if (i == n && k[i] == '\0')
+				if(i == n && k[i] == '\0')
 					return kw.kind;
 			}
 			return TokKind::Identifier;
@@ -110,10 +110,12 @@ namespace rat::cc {
 	} // namespace
 
 	Lexer::Lexer(const char* src, U32 len, String file)
-			: src(src), len(len), fileName(std::move(file)) {}
+	: src(src),
+		len(len),
+		fileName(std::move(file)) {}
 
 	void Lexer::bump() {
-		if (pos < len && src[pos] == '\n') {
+		if(pos < len && src[pos] == '\n') {
 			++line;
 			lineStart = pos + 1;
 		}
@@ -121,22 +123,21 @@ namespace rat::cc {
 	}
 
 	void Lexer::skipTrivia() {
-		for (;;) {
+		for(;;) {
 			char c = cur();
-			if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' ||
-					c == '\v') {
+			if(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v') {
 				bump();
-			} else if (c == '/' && at(pos + 1) == '/') {
+			} else if(c == '/' && at(pos + 1) == '/') {
 				bump();
 				bump();
-				while (pos < len && cur() != '\n')
+				while(pos < len && cur() != '\n')
 					bump();
-			} else if (c == '/' && at(pos + 1) == '*') {
+			} else if(c == '/' && at(pos + 1) == '*') {
 				bump();
 				bump();
-				while (pos < len && !(cur() == '*' && at(pos + 1) == '/'))
+				while(pos < len && !(cur() == '*' && at(pos + 1) == '/'))
 					bump();
-				if (pos < len) {
+				if(pos < len) {
 					bump(); // '*'
 					bump(); // '/'
 				}
@@ -154,7 +155,7 @@ namespace rat::cc {
 
 	Token Lexer::fail(Token tok, const String& msg) {
 		errMsg = msg;
-		if (pos == tok.offset && pos < len)
+		if(pos == tok.offset && pos < len)
 			bump(); // always make progress
 		tok.kind = TokKind::Error;
 		tok.length = pos - tok.offset;
@@ -169,55 +170,55 @@ namespace rat::cc {
 		tok.line = line;
 		tok.col = pos - lineStart + 1;
 
-		if (pos >= len)
+		if(pos >= len)
 			return finish(tok, TokKind::Eof);
 
 		char c = cur();
-		if (c == 'L' || c == 'u' || c == 'U') {
+		if(c == 'L' || c == 'u' || c == 'U') {
 			char n1 = at(pos + 1);
-			if (c == 'u' && n1 == '8' && at(pos + 2) == '"') {
+			if(c == 'u' && n1 == '8' && at(pos + 2) == '"') {
 				bump(); // 'u'
 				bump(); // '8'
 				return lexString(tok);
 			}
-			if (n1 == '\'') {
+			if(n1 == '\'') {
 				bump(); // prefix
 				return lexChar(tok);
 			}
-			if (n1 == '"') {
+			if(n1 == '"') {
 				bump(); // prefix
 				return lexString(tok);
 			}
 		}
-		if (isIdentStart(c) || isUcnStart(pos))
+		if(isIdentStart(c) || isUcnStart(pos))
 			return lexIdentifier(tok);
-		if (isDigit(c) || (c == '.' && isDigit(at(pos + 1))))
+		if(isDigit(c) || (c == '.' && isDigit(at(pos + 1))))
 			return lexNumber(tok);
-		if (c == '\'')
+		if(c == '\'')
 			return lexChar(tok);
-		if (c == '"')
+		if(c == '"')
 			return lexString(tok);
 		return lexPunct(tok);
 	}
 
 	B32 Lexer::isUcnStart(U32 p) const {
-		if (at(p) != '\\')
+		if(at(p) != '\\')
 			return false;
 		char n = at(p + 1);
 		return n == 'u' || n == 'U';
 	}
 
 	Token Lexer::lexIdentifier(Token tok) {
-		for (;;) {
-			if (isIdentCont(cur())) {
+		for(;;) {
+			if(isIdentCont(cur())) {
 				bump();
-			} else if (isUcnStart(pos)) {
+			} else if(isUcnStart(pos)) {
 				bump(); // backslash
 				char kind = cur();
 				bump(); // 'u' or 'U'
 				U32 ndigits = (kind == 'u') ? 4 : 8;
-				for (U32 k = 0; k < ndigits; ++k) {
-					if (!isHexDigit(cur()))
+				for(U32 k = 0; k < ndigits; ++k) {
+					if(!isHexDigit(cur()))
 						return fail(tok, "incomplete universal character name");
 					bump();
 				}
@@ -230,113 +231,110 @@ namespace rat::cc {
 	}
 
 	Token Lexer::lexNumber(Token tok) {
-		if (cur() == '0' && (at(pos + 1) == 'x' || at(pos + 1) == 'X')) {
+		if(cur() == '0' && (at(pos + 1) == 'x' || at(pos + 1) == 'X')) {
 			bump();
 			bump();
 			B32 anyDigits = false;
-			while (isHexDigit(cur())) {
+			while(isHexDigit(cur())) {
 				anyDigits = true;
 				bump();
 			}
 			B32 isFloat = false;
-			if (cur() == '.') {
+			if(cur() == '.') {
 				isFloat = true;
 				bump();
-				while (isHexDigit(cur())) {
+				while(isHexDigit(cur())) {
 					anyDigits = true;
 					bump();
 				}
 			}
-			if (!anyDigits)
+			if(!anyDigits)
 				return fail(tok, "expected hex digits after '0x'");
-			if (cur() == 'p' || cur() == 'P') {
+			if(cur() == 'p' || cur() == 'P') {
 				isFloat = true;
 				bump();
-				if (cur() == '+' || cur() == '-')
+				if(cur() == '+' || cur() == '-')
 					bump();
-				if (!isDigit(cur()))
+				if(!isDigit(cur()))
 					return fail(tok, "expected digits in binary exponent");
-				while (isDigit(cur()))
+				while(isDigit(cur()))
 					bump();
-			} else if (isFloat) {
+			} else if(isFloat) {
 				return fail(tok, "hexadecimal floating constant requires an exponent");
 			}
-			if (isFloat)
+			if(isFloat)
 				return lexFloatSuffix(tok);
 			return lexIntSuffix(tok);
 		}
 
 		B32 isFloat = false;
-		while (isDigit(cur()))
+		while(isDigit(cur()))
 			bump();
-		if (cur() == '.') {
+		if(cur() == '.') {
 			isFloat = true;
 			bump();
-			while (isDigit(cur()))
+			while(isDigit(cur()))
 				bump();
 		}
-		if (cur() == 'e' || cur() == 'E') {
+		if(cur() == 'e' || cur() == 'E') {
 			isFloat = true;
 			bump();
-			if (cur() == '+' || cur() == '-')
+			if(cur() == '+' || cur() == '-')
 				bump();
-			if (!isDigit(cur()))
+			if(!isDigit(cur()))
 				return fail(tok, "expected digits in exponent");
-			while (isDigit(cur()))
+			while(isDigit(cur()))
 				bump();
 		}
 
-		if (isFloat)
+		if(isFloat)
 			return lexFloatSuffix(tok);
 		return lexIntSuffix(tok);
 	}
 
 	Token Lexer::lexIntSuffix(Token tok) {
 		U32 sfxStart = pos;
-		while (isIdentCont(cur()))
+		while(isIdentCont(cur()))
 			bump();
-		if (!validIntSuffix(src + sfxStart, pos - sfxStart))
+		if(!validIntSuffix(src + sfxStart, pos - sfxStart))
 			return fail(tok, "invalid suffix on integer constant");
 		return finish(tok, TokKind::IntConstant);
 	}
 
 	Token Lexer::lexFloatSuffix(Token tok) {
 		U32 sfxStart = pos;
-		while (isIdentCont(cur()))
+		while(isIdentCont(cur()))
 			bump();
-		if (!validFloatSuffix(src + sfxStart, pos - sfxStart))
+		if(!validFloatSuffix(src + sfxStart, pos - sfxStart))
 			return fail(tok, "invalid suffix on floating constant");
 		return finish(tok, TokKind::FloatConstant);
 	}
 
-	Token Lexer::lexQuoted(Token tok, char quote, const char* unterminated,
-												 TokKind kind) {
+	Token Lexer::lexQuoted(Token tok, char quote, const char* unterminated, TokKind kind) {
 		bump(); // opening quote
-		while (pos < len && cur() != quote && cur() != '\n') {
-			if (cur() == '\\')
+		while(pos < len && cur() != quote && cur() != '\n') {
+			if(cur() == '\\')
 				bump(); // skip the escaped character as a pair
 			bump();
 		}
-		if (cur() != quote)
+		if(cur() != quote)
 			return fail(tok, unterminated);
 		bump(); // closing quote
 		return finish(tok, kind);
 	}
 
 	Token Lexer::lexChar(Token tok) {
-		return lexQuoted(tok, '\'', "unterminated character constant",
-										 TokKind::CharConstant);
+		return lexQuoted(tok, '\'', "unterminated character constant", TokKind::CharConstant);
 	}
 
 	Token Lexer::lexString(Token tok) {
-		return lexQuoted(tok, '"', "unterminated string literal",
-										 TokKind::StringLiteral);
+		return lexQuoted(tok, '"', "unterminated string literal", TokKind::StringLiteral);
 	}
 
 	Token Lexer::lexPunct(Token tok) {
 		char c = cur();
 
-		switch (c) {
+		switch(c) {
 		case '(':
 			bump();
 			return finish(tok, TokKind::LParen);
@@ -371,7 +369,7 @@ namespace rat::cc {
 			bump();
 			return finish(tok, TokKind::Colon);
 		case '.':
-			if (at(pos + 1) == '.' && at(pos + 2) == '.') {
+			if(at(pos + 1) == '.' && at(pos + 2) == '.') {
 				bump();
 				bump();
 				bump();
@@ -381,120 +379,120 @@ namespace rat::cc {
 			return finish(tok, TokKind::Dot);
 		case '+':
 			bump();
-			if (cur() == '+') {
+			if(cur() == '+') {
 				bump();
 				return finish(tok, TokKind::PlusPlus);
 			}
-			if (cur() == '=') {
+			if(cur() == '=') {
 				bump();
 				return finish(tok, TokKind::PlusEq);
 			}
 			return finish(tok, TokKind::Plus);
 		case '-':
 			bump();
-			if (cur() == '-') {
+			if(cur() == '-') {
 				bump();
 				return finish(tok, TokKind::MinusMinus);
 			}
-			if (cur() == '=') {
+			if(cur() == '=') {
 				bump();
 				return finish(tok, TokKind::MinusEq);
 			}
-			if (cur() == '>') {
+			if(cur() == '>') {
 				bump();
 				return finish(tok, TokKind::Arrow);
 			}
 			return finish(tok, TokKind::Minus);
 		case '*':
 			bump();
-			if (cur() == '=') {
+			if(cur() == '=') {
 				bump();
 				return finish(tok, TokKind::StarEq);
 			}
 			return finish(tok, TokKind::Star);
 		case '/':
 			bump();
-			if (cur() == '=') {
+			if(cur() == '=') {
 				bump();
 				return finish(tok, TokKind::SlashEq);
 			}
 			return finish(tok, TokKind::Slash);
 		case '%':
 			bump();
-			if (cur() == '=') {
+			if(cur() == '=') {
 				bump();
 				return finish(tok, TokKind::PercentEq);
 			}
 			return finish(tok, TokKind::Percent);
 		case '^':
 			bump();
-			if (cur() == '=') {
+			if(cur() == '=') {
 				bump();
 				return finish(tok, TokKind::CaretEq);
 			}
 			return finish(tok, TokKind::Caret);
 		case '!':
 			bump();
-			if (cur() == '=') {
+			if(cur() == '=') {
 				bump();
 				return finish(tok, TokKind::BangEq);
 			}
 			return finish(tok, TokKind::Bang);
 		case '=':
 			bump();
-			if (cur() == '=') {
+			if(cur() == '=') {
 				bump();
 				return finish(tok, TokKind::EqEq);
 			}
 			return finish(tok, TokKind::Assign);
 		case '&':
 			bump();
-			if (cur() == '&') {
+			if(cur() == '&') {
 				bump();
 				return finish(tok, TokKind::AmpAmp);
 			}
-			if (cur() == '=') {
+			if(cur() == '=') {
 				bump();
 				return finish(tok, TokKind::AmpEq);
 			}
 			return finish(tok, TokKind::Amp);
 		case '|':
 			bump();
-			if (cur() == '|') {
+			if(cur() == '|') {
 				bump();
 				return finish(tok, TokKind::PipePipe);
 			}
-			if (cur() == '=') {
+			if(cur() == '=') {
 				bump();
 				return finish(tok, TokKind::PipeEq);
 			}
 			return finish(tok, TokKind::Pipe);
 		case '<':
 			bump();
-			if (cur() == '<') {
+			if(cur() == '<') {
 				bump();
-				if (cur() == '=') {
+				if(cur() == '=') {
 					bump();
 					return finish(tok, TokKind::ShlEq);
 				}
 				return finish(tok, TokKind::Shl);
 			}
-			if (cur() == '=') {
+			if(cur() == '=') {
 				bump();
 				return finish(tok, TokKind::Le);
 			}
 			return finish(tok, TokKind::Lt);
 		case '>':
 			bump();
-			if (cur() == '>') {
+			if(cur() == '>') {
 				bump();
-				if (cur() == '=') {
+				if(cur() == '=') {
 					bump();
 					return finish(tok, TokKind::ShrEq);
 				}
 				return finish(tok, TokKind::Shr);
 			}
-			if (cur() == '=') {
+			if(cur() == '=') {
 				bump();
 				return finish(tok, TokKind::Ge);
 			}
@@ -505,9 +503,9 @@ namespace rat::cc {
 	}
 
 	Token Lexer::next() {
-		if (hasLookahead) {
+		if(hasLookahead) {
 			Token t = lookahead;
-			if (hasLookahead2) {
+			if(hasLookahead2) {
 				lookahead = lookahead2;
 				hasLookahead2 = false;
 			} else {
@@ -519,7 +517,7 @@ namespace rat::cc {
 	}
 
 	const Token& Lexer::peek() {
-		if (!hasLookahead) {
+		if(!hasLookahead) {
 			lookahead = scan();
 			hasLookahead = true;
 		}
@@ -528,19 +526,17 @@ namespace rat::cc {
 
 	const Token& Lexer::peek2() {
 		peek();
-		if (!hasLookahead2) {
+		if(!hasLookahead2) {
 			lookahead2 = scan();
 			hasLookahead2 = true;
 		}
 		return lookahead2;
 	}
 
-	String Lexer::text(const Token& tok) const {
-		return String(src + tok.offset, tok.length);
-	}
+	String Lexer::text(const Token& tok) const { return String(src + tok.offset, tok.length); }
 
 	const char* tokKindName(TokKind kind) {
-		switch (kind) {
+		switch(kind) {
 		case TokKind::Eof:
 			return "eof";
 		case TokKind::Error:

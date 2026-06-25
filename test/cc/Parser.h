@@ -16,7 +16,6 @@ namespace rat::cc {
 
 		B32 ok() const { return !failed; }
 		const String& error() const { return errMsg; }
-
 	private:
 		// token cursor
 		const Token& peek() { return lex.peek(); }
@@ -35,7 +34,8 @@ namespace rat::cc {
 			sawExtern = isExtern;
 			sawInline = isInline;
 		}
-		FuncDef* parseFunctionRest(CType ret, const Token& nameTok,
+		FuncDef* parseFunctionRest(CType ret,
+															 const Token& nameTok,
 															 const Token& start,
 															 B32* moreDeclarators = nullptr);
 		B32 parseOldStyleParams(FuncDef* fn);
@@ -53,8 +53,7 @@ namespace rat::cc {
 		B32 parseFuncPtrDeclarator(CType ret, Token& nameOut, CType& outType);
 		void bindDeclaratorType(Declarator& d, CType t, U32 offset);
 		using TypeBuilder = std::function<CType(CType)>;
-		B32 parseDeclaratorType(CType base, Token& nameOut, B32& haveName,
-														CType& out);
+		B32 parseDeclaratorType(CType base, Token& nameOut, B32& haveName, CType& out);
 		TypeBuilder parseDeclaratorBuilder(Token& nameOut, B32& haveName);
 		TypeBuilder parseDirectDeclarator(Token& nameOut, B32& haveName);
 		TypeBuilder parseDeclaratorSuffixes();
@@ -93,12 +92,10 @@ namespace rat::cc {
 		Expr* makeUnary(U32 offset, ExprOp op, Expr* operand);
 		Expr* makeBinary(U32 offset, ExprOp op, Expr* lhs, Expr* rhs);
 
-		B32 parseIntLiteral(const Token& tok, I64& value, B32& isUnsigned,
-												B32& isLong);
+		B32 parseIntLiteral(const Token& tok, I64& value, B32& isUnsigned, B32& isLong);
 		B32 parseCharLiteral(const Token& tok, I64& value);
 		B32 parseStringLiteral(const Token& tok, String& out);
-		B32 decodeEscape(const String& s, U32& i, U32 end, const Token& tok,
-										 U32 maxVal, U8& out);
+		B32 decodeEscape(const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U8& out);
 		B32 decodeUcn(const String& s, U32& i, U32 end, const Token& tok, U32& cp);
 		B32 parseTypeofSpec(CType& out);
 
@@ -116,15 +113,9 @@ namespace rat::cc {
 		// typedef support
 		B32 parseTypedef();
 		B32 startsType(const Token& tok);
-		U32 typeSizeBytes(CType t) const {
-			return typeSize(t, target.getPointerSizeInBytes());
-		}
-		U32 fieldByteSize(CType t) const {
-			return isAggregate(t) ? t.strukt->size : typeSizeBytes(t);
-		}
-		U32 fieldAlign(CType t) const {
-			return isAggregate(t) ? t.strukt->align : typeSizeBytes(t);
-		}
+		U32 typeSizeBytes(CType t) const { return typeSize(t, target.getPointerSizeInBytes()); }
+		U32 fieldByteSize(CType t) const { return isAggregate(t) ? t.strukt->size : typeSizeBytes(t); }
+		U32 fieldAlign(CType t) const { return isAggregate(t) ? t.strukt->align : typeSizeBytes(t); }
 
 		Lexer& lex;
 		Arena& arena;

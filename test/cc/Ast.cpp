@@ -2,15 +2,15 @@
 
 namespace rat::cc {
 	CType promote(CType t) {
-		if (t.isVoid)
+		if(t.isVoid)
 			return t;
-		if (t.bits < 32)
+		if(t.bits < 32)
 			return CType{32, false, false};
 		return t;
 	}
 
 	CType defaultArgPromote(CType t) {
-		if (t.isFloat && t.ptr == 0 && t.bits < 64) {
+		if(t.isFloat && t.ptr == 0 && t.bits < 64) {
 			CType r = t;
 			r.bits = 64;
 			return r;
@@ -19,7 +19,7 @@ namespace rat::cc {
 	}
 
 	CType usualArithmetic(CType a, CType b) {
-		if (isComplexType(a) || isComplexType(b)) {
+		if(isComplexType(a) || isComplexType(b)) {
 			CType ra = isComplexType(a) ? complexElem(a) : a;
 			CType rb = isComplexType(b) ? complexElem(b) : b;
 			CType r = usualArithmetic(ra, rb);
@@ -27,11 +27,11 @@ namespace rat::cc {
 			r.isFloat = true;
 			return r;
 		}
-		if (isFloating(a) || isFloating(b)) {
+		if(isFloating(a) || isFloating(b)) {
 			U32 bits = 64;
-			if (isFloating(a) && isFloating(b))
+			if(isFloating(a) && isFloating(b))
 				bits = a.bits > b.bits ? a.bits : b.bits;
-			else if (isFloating(a))
+			else if(isFloating(a))
 				bits = a.bits;
 			else
 				bits = b.bits;
@@ -42,68 +42,67 @@ namespace rat::cc {
 		}
 		a = promote(a);
 		b = promote(b);
-		if (a.bits == b.bits && a.isUnsigned == b.isUnsigned)
+		if(a.bits == b.bits && a.isUnsigned == b.isUnsigned)
 			return a;
-		if (a.isUnsigned == b.isUnsigned)
+		if(a.isUnsigned == b.isUnsigned)
 			return a.bits > b.bits ? a : b;
 		CType u = a.isUnsigned ? a : b;
 		CType s = a.isUnsigned ? b : a;
-		if (u.bits >= s.bits)
+		if(u.bits >= s.bits)
 			return u;
 		return s;
 	}
 
 	static void appendStars(String& s, U32 ptr) {
-		for (U32 i = 0; i < ptr; ++i)
+		for(U32 i = 0; i < ptr; ++i)
 			s += "*";
 	}
 
 	String typeName(CType t) {
-		if (t.func) {
+		if(t.func) {
 			String s = typeName(t.func->ret) + " (";
 			appendStars(s, t.ptr);
 			s += ")(";
-			for (U32 i = 0; i < t.func->params.size(); ++i) {
-				if (i)
+			for(U32 i = 0; i < t.func->params.size(); ++i) {
+				if(i)
 					s += ", ";
 				s += typeName(t.func->params[i]);
 			}
-			if (t.func->isVarArgs)
+			if(t.func->isVarArgs)
 				s += t.func->params.empty() ? "..." : ", ...";
-			else if (t.func->params.empty())
+			else if(t.func->params.empty())
 				s += "void";
 			s += ")";
 			return s;
 		}
-		if (t.array) {
-			String s =
-					typeName(t.array->elem) + "[" + std::to_string(t.array->count) + "]";
+		if(t.array) {
+			String s = typeName(t.array->elem) + "[" + std::to_string(t.array->count) + "]";
 			appendStars(s, t.ptr);
 			return s;
 		}
-		if (t.isComplex) {
+		if(t.isComplex) {
 			String s = (t.bits == 32 ? "float" : t.bits == 128 ? "long double" : "double");
 			s += " _Complex";
 			appendStars(s, t.ptr);
 			return s;
 		}
-		if (t.strukt) {
+		if(t.strukt) {
 			String s = (t.strukt->isUnion ? "union " : "struct ") + t.strukt->tag;
 			appendStars(s, t.ptr);
 			return s;
 		}
-		if (t.isVoid) {
+		if(t.isVoid) {
 			String s = "void";
 			appendStars(s, t.ptr);
 			return s;
 		}
-		if (t.isFloat) {
+		if(t.isFloat) {
 			String s = t.bits == 32 ? "float" : t.bits == 128 ? "long double" : "double";
 			appendStars(s, t.ptr);
 			return s;
 		}
 		String base;
-		switch (t.bits) {
+		switch(t.bits) {
 		case 1:
 			return "_Bool";
 		case 8:
@@ -125,7 +124,7 @@ namespace rat::cc {
 	}
 
 	const char* exprOpName(ExprOp op) {
-		switch (op) {
+		switch(op) {
 		case ExprOp::Pos:
 			return "+";
 		case ExprOp::Neg:
@@ -212,7 +211,7 @@ namespace rat::cc {
 
 	namespace {
 		void pad(std::ostream& os, U32 depth) {
-			for (U32 i = 0; i < depth; ++i)
+			for(U32 i = 0; i < depth; ++i)
 				os << "  ";
 		}
 
@@ -220,18 +219,17 @@ namespace rat::cc {
 
 		void dumpExpr(const Expr* e, U32 depth, std::ostream& os) {
 			pad(os, depth);
-			switch (e->kind) {
+			switch(e->kind) {
 			case ExprKind::IntLit:
 				os << "int " << e->intLit.value;
-				if (e->intLit.isUnsigned)
+				if(e->intLit.isUnsigned)
 					os << "u";
-				if (e->intLit.isLong)
+				if(e->intLit.isLong)
 					os << "l";
 				os << "\n";
 				return;
 			case ExprKind::FloatLit:
-				os << (e->floatLit.isFloat ? "float " : "double ") << e->floatLit.value
-					 << "\n";
+				os << (e->floatLit.isFloat ? "float " : "double ") << e->floatLit.value << "\n";
 				return;
 			case ExprKind::StrLit:
 				os << "str \"" << *e->str.bytes << "\"\n";
@@ -241,9 +239,9 @@ namespace rat::cc {
 				return;
 			case ExprKind::Call:
 				os << "call " << (e->call.callee ? *e->call.callee : "(*)") << "\n";
-				if (e->call.target)
+				if(e->call.target)
 					dumpExpr(e->call.target, depth + 1, os);
-				for (const Expr* arg : e->args)
+				for(const Expr* arg : e->args)
 					dumpExpr(arg, depth + 1, os);
 				return;
 			case ExprKind::Cast:
@@ -251,7 +249,7 @@ namespace rat::cc {
 				dumpExpr(e->cast.operand, depth + 1, os);
 				return;
 			case ExprKind::Sizeof:
-				if (e->sizeOf.operand) {
+				if(e->sizeOf.operand) {
 					os << "sizeof\n";
 					dumpExpr(e->sizeOf.operand, depth + 1, os);
 				} else {
@@ -263,8 +261,8 @@ namespace rat::cc {
 				dumpExpr(e->unary.operand, depth + 1, os);
 				return;
 			case ExprKind::Binary:
-				os << (isAssignOp(e->binary.op) ? "assign " : "binary ")
-					 << exprOpName(e->binary.op) << "\n";
+				os << (isAssignOp(e->binary.op) ? "assign " : "binary ") << exprOpName(e->binary.op)
+					 << "\n";
 				dumpExpr(e->binary.lhs, depth + 1, os);
 				dumpExpr(e->binary.rhs, depth + 1, os);
 				return;
@@ -280,18 +278,17 @@ namespace rat::cc {
 				dumpExpr(e->comma.rhs, depth + 1, os);
 				return;
 			case ExprKind::Member:
-				os << "member " << (e->member.arrow ? "->" : ".") << *e->member.name
-					 << "\n";
+				os << "member " << (e->member.arrow ? "->" : ".") << *e->member.name << "\n";
 				dumpExpr(e->member.base, depth + 1, os);
 				return;
 			case ExprKind::InitList:
 				os << "initlist\n";
-				for (const Expr* el : e->args)
+				for(const Expr* el : e->args)
 					dumpExpr(el, depth + 1, os);
 				return;
 			case ExprKind::CompoundLit:
-				os << "compound " << typeName(e->compound.type)
-					 << (e->compound.isArray ? "[]" : "") << "\n";
+				os << "compound " << typeName(e->compound.type) << (e->compound.isArray ? "[]" : "")
+					 << "\n";
 				dumpExpr(e->compound.init, depth + 1, os);
 				return;
 			case ExprKind::VaArg:
@@ -305,7 +302,7 @@ namespace rat::cc {
 			case ExprKind::Generic:
 				os << "_Generic\n";
 				dumpExpr(e->generic.control, depth + 1, os);
-				for (const GenericAssoc& a : e->assocs) {
+				for(const GenericAssoc& a : e->assocs) {
 					pad(os, depth + 1);
 					os << (a.isDefault ? "default" : typeName(a.type)) << ":\n";
 					dumpExpr(a.result, depth + 2, os);
@@ -316,18 +313,18 @@ namespace rat::cc {
 
 		void dumpStmt(const Stmt* s, U32 depth, std::ostream& os) {
 			pad(os, depth);
-			switch (s->kind) {
+			switch(s->kind) {
 			case StmtKind::Compound:
 				os << "block\n";
-				for (const Stmt* child : s->body)
+				for(const Stmt* child : s->body)
 					dumpStmt(child, depth + 1, os);
 				return;
 			case StmtKind::Decl:
 				os << "decl\n";
-				for (const Declarator& d : s->decls) {
+				for(const Declarator& d : s->decls) {
 					pad(os, depth + 1);
 					os << "var " << typeName(d.type) << " " << *d.name << "\n";
-					if (d.init)
+					if(d.init)
 						dumpExpr(d.init, depth + 2, os);
 				}
 				return;
@@ -335,7 +332,7 @@ namespace rat::cc {
 				os << "if\n";
 				dumpExpr(s->expr, depth + 1, os);
 				dumpStmt(s->thenBody, depth + 1, os);
-				if (s->elseBody)
+				if(s->elseBody)
 					dumpStmt(s->elseBody, depth + 1, os);
 				return;
 			case StmtKind::While:
@@ -350,11 +347,11 @@ namespace rat::cc {
 				return;
 			case StmtKind::For:
 				os << "for\n";
-				if (s->forInit)
+				if(s->forInit)
 					dumpStmt(s->forInit, depth + 1, os);
-				if (s->expr)
+				if(s->expr)
 					dumpExpr(s->expr, depth + 1, os);
-				if (s->forPost)
+				if(s->forPost)
 					dumpExpr(s->forPost, depth + 1, os);
 				dumpStmt(s->thenBody, depth + 1, os);
 				return;
@@ -378,7 +375,7 @@ namespace rat::cc {
 				return;
 			case StmtKind::Return:
 				os << "return\n";
-				if (s->expr)
+				if(s->expr)
 					dumpExpr(s->expr, depth + 1, os);
 				return;
 			case StmtKind::Expr:
@@ -400,17 +397,17 @@ namespace rat::cc {
 	} // namespace
 
 	void dumpAst(const TransUnit& unit, std::ostream& os) {
-		for (const Stmt* g : unit.globals)
+		for(const Stmt* g : unit.globals)
 			dumpStmt(g, 0, os);
-		for (const FuncDef* fn : unit.functions) {
+		for(const FuncDef* fn : unit.functions) {
 			os << "func " << fn->name << "(";
-			for (U32 i = 0; i < fn->params.size(); ++i) {
-				if (i)
+			for(U32 i = 0; i < fn->params.size(); ++i) {
+				if(i)
 					os << ", ";
 				os << typeName(fn->params[i].type) << " " << *fn->params[i].name;
 			}
 			os << ") -> " << typeName(fn->retType) << "\n";
-			if (fn->body)
+			if(fn->body)
 				dumpStmt(fn->body, 1, os);
 		}
 	}

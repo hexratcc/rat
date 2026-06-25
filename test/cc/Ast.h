@@ -87,9 +87,7 @@ namespace rat::cc {
 	constexpr CType ctInt() { return CType{32, false, false, 0}; }
 	constexpr B32 isPointer(CType t) { return t.ptr > 0; }
 	constexpr B32 isTopConst(CType t) { return (t.quals & (1u << t.ptr)) != 0; }
-	constexpr B32 isFloating(CType t) {
-		return t.isFloat && !t.isComplex && t.ptr == 0;
-	}
+	constexpr B32 isFloating(CType t) { return t.isFloat && !t.isComplex && t.ptr == 0; }
 	constexpr B32 isComplexType(CType t) { return t.isComplex && t.ptr == 0; }
 	constexpr CType complexElem(CType t) {
 		t.isComplex = false;
@@ -97,19 +95,12 @@ namespace rat::cc {
 		t.strukt = nullptr;
 		return t;
 	}
-	constexpr B32 isStruct(CType t) {
-		return t.strukt != nullptr && t.ptr == 0 && !t.isComplex;
-	}
-	constexpr B32 isCharType(CType t) {
-		return t.bits == 8 && t.ptr == 0 && !isStruct(t);
-	}
-	constexpr B32 isAggregate(CType t) {
-		return t.strukt != nullptr && t.ptr == 0;
-	}
+	constexpr B32 isStruct(CType t) { return t.strukt != nullptr && t.ptr == 0 && !t.isComplex; }
+	constexpr B32 isCharType(CType t) { return t.bits == 8 && t.ptr == 0 && !isStruct(t); }
+	constexpr B32 isAggregate(CType t) { return t.strukt != nullptr && t.ptr == 0; }
 	constexpr B32 isVoidType(CType t) { return t.isVoid && t.ptr == 0; }
 	constexpr B32 isInteger(CType t) {
-		return t.ptr == 0 && !t.isFloat && !t.isComplex && !t.isVoid &&
-					 t.strukt == nullptr;
+		return t.ptr == 0 && !t.isFloat && !t.isComplex && !t.isVoid && t.strukt == nullptr;
 	}
 
 	struct Field {
@@ -135,8 +126,8 @@ namespace rat::cc {
 		B32 complete = false;
 
 		const Field* find(const String& name) const {
-			for (const Field& f : fields)
-				if (f.name && *f.name == name)
+			for(const Field& f : fields)
+				if(f.name && *f.name == name)
 					return &f;
 			return nullptr;
 		}
@@ -152,8 +143,8 @@ namespace rat::cc {
 		return t.ptr == 0 && t.array != nullptr && t.array->countExpr != nullptr;
 	}
 	inline B32 hasVlaDim(CType t) {
-		for (CType c = t; c.ptr == 0 && c.array != nullptr; c = c.array->elem)
-			if (c.array->countExpr != nullptr)
+		for(CType c = t; c.ptr == 0 && c.array != nullptr; c = c.array->elem)
+			if(c.array->countExpr != nullptr)
 				return true;
 		return false;
 	}
@@ -167,9 +158,7 @@ namespace rat::cc {
 	};
 
 	constexpr B32 isFuncPtr(CType t) { return t.func != nullptr && t.ptr > 0; }
-	constexpr B32 isArrayType(CType t) {
-		return t.array != nullptr && t.ptr == 0;
-	}
+	constexpr B32 isArrayType(CType t) { return t.array != nullptr && t.ptr == 0; }
 	constexpr CType arrayElem(CType t) { return t.array->elem; }
 	constexpr CType decay(CType t) {
 		CType e = t.array->elem;
@@ -178,7 +167,7 @@ namespace rat::cc {
 	}
 	constexpr CType pointee(CType t) {
 		CType p = t;
-		if (p.ptr)
+		if(p.ptr)
 			--p.ptr;
 		return p;
 	}
@@ -189,17 +178,17 @@ namespace rat::cc {
 	}
 
 	constexpr U32 typeSize(CType t, U32 pointerBytes) {
-		if (t.ptr > 0)
+		if(t.ptr > 0)
 			return pointerBytes;
-		if (isArrayType(t))
+		if(isArrayType(t))
 			return t.array->count * typeSize(t.array->elem, pointerBytes);
-		if (t.strukt)
+		if(t.strukt)
 			return t.strukt->size;
-		if (t.isVoid)
+		if(t.isVoid)
 			return 1;
 		// C99 6.2.5p13: a complex type has the same representation as an array of
 		// two of its corresponding real type (real part first).
-		if (t.isComplex)
+		if(t.isComplex)
 			return 2 * ((t.bits + 7) / 8);
 		return (t.bits + 7) / 8;
 	}
@@ -228,7 +217,7 @@ namespace rat::cc {
 
 	struct GenericAssoc {
 		B32 isDefault = false;
-		CType type; 
+		CType type;
 		Expr* result = nullptr;
 	};
 
@@ -395,12 +384,10 @@ namespace rat::cc {
 		List<Stmt*> globals;
 	};
 
-	constexpr B32 isAssignOp(ExprOp op) {
-		return op >= ExprOp::Assign && op <= ExprOp::XorAssign;
-	}
+	constexpr B32 isAssignOp(ExprOp op) { return op >= ExprOp::Assign && op <= ExprOp::XorAssign; }
 
 	constexpr B32 compoundBaseOp(ExprOp op, ExprOp& base) {
-		switch (op) {
+		switch(op) {
 		case ExprOp::AddAssign:
 			base = ExprOp::Add;
 			return true;

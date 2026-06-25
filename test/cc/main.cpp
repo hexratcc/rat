@@ -15,14 +15,14 @@ using namespace rat::cc;
 namespace {
 	I32 dumpTokens(const String& path, const String& source) {
 		Lexer lex(source.data(), (U32)source.size(), path);
-		for (;;) {
+		for(;;) {
 			Token tok = lex.next();
 			std::cout << tok.line << ":" << tok.col << "\t" << tokKindName(tok.kind);
-			if (tok.kind == TokKind::Error) {
+			if(tok.kind == TokKind::Error) {
 				std::cout << "\t" << lex.error() << "\n";
 				return 1;
 			}
-			if (tok.kind == TokKind::Eof) {
+			if(tok.kind == TokKind::Eof) {
 				std::cout << "\n";
 				break;
 			}
@@ -37,7 +37,7 @@ namespace {
 		Generic64 target;
 		Parser parser(lex, arena, target);
 		TransUnit* unit = parser.parseUnit();
-		if (!unit) {
+		if(!unit) {
 			std::cerr << parser.error() << "\n";
 			return 1;
 		}
@@ -46,22 +46,24 @@ namespace {
 	}
 
 	void addEmitter(PassManager& pm, const String& emitKind, std::ostream& os) {
-		if (emitKind == "c")
+		if(emitKind == "c")
 			pm.add<CEmitterPass>(os);
-		else if (emitKind == "x86")
+		else if(emitKind == "x86")
 			pm.add<X86EmitterPass>(os);
 		else
 			pm.add<TextEmitterPass>(os);
 	}
 
-	I32 lowerToModule(const String& path, const String& source,
-										const String& passSpec, const String& emitKind) {
+	I32 lowerToModule(const String& path,
+										const String& source,
+										const String& passSpec,
+										const String& emitKind) {
 		Lexer lex(source.data(), (U32)source.size(), path);
 		Arena arena;
 		Generic64 target;
 		Parser parser(lex, arena, target);
 		TransUnit* unit = parser.parseUnit();
-		if (!unit) {
+		if(!unit) {
 			std::cerr << parser.error() << "\n";
 			return 1;
 		}
@@ -69,16 +71,16 @@ namespace {
 		Module mod;
 		mod.setTarget(&target);
 		Emitter emitter(mod);
-		if (!emitter.emit(*unit)) {
+		if(!emitter.emit(*unit)) {
 			std::cerr << path << ": " << emitter.error() << "\n";
 			return 1;
 		}
 
 		PassManager pm;
-		if (!passSpec.empty()) {
+		if(!passSpec.empty()) {
 			std::ostringstream diag;
 			String err;
-			if (!buildPipeline(pm, passSpec, diag, err)) {
+			if(!buildPipeline(pm, passSpec, diag, err)) {
 				std::cerr << "ratcc: " << err << "\n";
 				return 2;
 			}
@@ -95,26 +97,23 @@ I32 main(I32 argc, char** argv) {
 	String passSpec;
 	PpOptions pp;
 
-	for (I32 i = 1; i < argc; ++i) {
+	for(I32 i = 1; i < argc; ++i) {
 		String arg = argv[i];
-		if (arg == "-dump-tokens" || arg == "-dump-ast" || arg == "-emit-ir" ||
-				arg == "-emit-c" || arg == "-emit-x86" || arg == "-E") {
+		if(arg == "-dump-tokens" || arg == "-dump-ast" || arg == "-emit-ir" || arg == "-emit-c" ||
+			 arg == "-emit-x86" || arg == "-E") {
 			mode = arg;
-		} else if (arg.rfind("-passes=", 0) == 0) {
+		} else if(arg.rfind("-passes=", 0) == 0) {
 			passSpec = arg.substr(8);
-		} else if (arg.rfind("-I", 0) == 0) {
-			pp.includeDirs.push_back(arg.size() > 2 ? arg.substr(2)
-																							: (++i < argc ? argv[i] : ""));
-		} else if (arg.rfind("-D", 0) == 0) {
-			pp.defines.push_back(arg.size() > 2 ? arg.substr(2)
-																					: (++i < argc ? argv[i] : ""));
-		} else if (arg.rfind("-U", 0) == 0) {
-			pp.undefs.push_back(arg.size() > 2 ? arg.substr(2)
-																				 : (++i < argc ? argv[i] : ""));
-		} else if (!arg.empty() && arg[0] == '-') {
+		} else if(arg.rfind("-I", 0) == 0) {
+			pp.includeDirs.push_back(arg.size() > 2 ? arg.substr(2) : (++i < argc ? argv[i] : ""));
+		} else if(arg.rfind("-D", 0) == 0) {
+			pp.defines.push_back(arg.size() > 2 ? arg.substr(2) : (++i < argc ? argv[i] : ""));
+		} else if(arg.rfind("-U", 0) == 0) {
+			pp.undefs.push_back(arg.size() > 2 ? arg.substr(2) : (++i < argc ? argv[i] : ""));
+		} else if(!arg.empty() && arg[0] == '-') {
 			std::cerr << "ratcc: unknown option '" << arg << "'\n";
 			return 2;
-		} else if (inputPath.empty()) {
+		} else if(inputPath.empty()) {
 			inputPath = arg;
 		} else {
 			std::cerr << "ratcc: unexpected extra argument '" << arg << "'\n";
@@ -123,19 +122,19 @@ I32 main(I32 argc, char** argv) {
 	}
 
 	String source;
-	if (inputPath.empty()) {
-		if (!readAll(std::cin, source)) {
+	if(inputPath.empty()) {
+		if(!readAll(std::cin, source)) {
 			std::cerr << "ratcc: failed to read stdin\n";
 			return 1;
 		}
 		inputPath = "<stdin>";
 	} else {
 		std::ifstream f(inputPath);
-		if (!f) {
+		if(!f) {
 			std::cerr << "ratcc: cannot open '" << inputPath << "'\n";
 			return 1;
 		}
-		if (!readAll(f, source)) {
+		if(!readAll(f, source)) {
 			std::cerr << "ratcc: failed to read '" << inputPath << "'\n";
 			return 1;
 		}
@@ -144,26 +143,26 @@ I32 main(I32 argc, char** argv) {
 	String pped;
 	{
 		String ppErr;
-		if (!preprocess(inputPath, source, pp, pped, ppErr)) {
+		if(!preprocess(inputPath, source, pp, pped, ppErr)) {
 			std::cerr << "ratcc: " << ppErr << "\n";
 			return 1;
 		}
 	}
 	source = pped;
 
-	if (mode == "-E") {
+	if(mode == "-E") {
 		std::cout << source;
 		return 0;
 	}
-	if (mode == "-dump-tokens")
+	if(mode == "-dump-tokens")
 		return dumpTokens(inputPath, source);
-	if (mode == "-dump-ast")
+	if(mode == "-dump-ast")
 		return dumpAst(inputPath, source);
-	if (mode == "-emit-ir")
+	if(mode == "-emit-ir")
 		return lowerToModule(inputPath, source, passSpec, "text");
-	if (mode == "-emit-c")
+	if(mode == "-emit-c")
 		return lowerToModule(inputPath, source, passSpec, "c");
-	if (mode == "-emit-x86")
+	if(mode == "-emit-x86")
 		return lowerToModule(inputPath, source, passSpec, "x86");
 
 	std::cerr << "ratcc: nothing to do\n";
