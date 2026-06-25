@@ -1,7 +1,7 @@
 # make           build bin/tour and bin/rat
 # make run       build and run the tour example
 # make rat       build the bin/rat pipeline driver
-# make test      run tests (C backend)
+# make test      run tests (x86-64 backend)
 # make test-c    run tests through the C backend
 # make test-x86  run tests through the x86-64 backend
 # make compiledb generate compile_commands.json for editors

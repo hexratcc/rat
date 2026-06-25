@@ -254,7 +254,7 @@ namespace {
 	B32 useX86Backend() {
 		static B32 on = [] {
 			const char* e = std::getenv("RATCC_X86");
-			return (B32)(e && *e && String(e) != "0");
+			return (B32)(!e || !*e || String(e) != "0");
 		}();
 		return on;
 	}
