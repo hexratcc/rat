@@ -13,7 +13,8 @@
 
 namespace rat {
 
-	Schedule::Schedule(const Function& fn) : fn(fn) {
+	Schedule::Schedule(const Function& fn)
+	: fn(fn) {
 		collectHeads();
 		buildCFG();
 		computeDominators();

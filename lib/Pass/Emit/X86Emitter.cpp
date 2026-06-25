@@ -11,7 +11,9 @@
 
 namespace rat {
 	B32 X86EmitterPass::isFloatTy(const Type* t) { return t && t->isFloat(); }
-	B32 X86EmitterPass::isX87Ty(const Type* t) { return t && t->isFloat() && t->getFloatWidth() == 128; }
+	B32 X86EmitterPass::isX87Ty(const Type* t) {
+		return t && t->isFloat() && t->getFloatWidth() == 128;
+	}
 
 	String X86EmitterPass::libcName(const String& callee) {
 		if (callee.rfind("__builtin_", 0) == 0)
@@ -47,7 +49,10 @@ namespace rat {
 	}
 
 	X86EmitterPass::FunctionEmitter::FunctionEmitter(const Function& f)
-			: fn(f), mod(f.getModule()), sched(f), a(code, relocs) {}
+	: fn(f),
+		mod(f.getModule()),
+		sched(f),
+		a(code, relocs) {}
 
 	I32 X86EmitterPass::FunctionEmitter::slotOf(const Node* n) {
 		auto it = slot.find(n);
@@ -87,12 +92,11 @@ namespace rat {
 				Node* prod = p->getProducer();
 				if (prod->getOpcode() == Opcode::Start && p->getIndex() >= 2)
 					producesValue = true; // parameter
-				else if (prod->getOpcode() == Opcode::Call &&
-								 p->getIndex() == CallNode::valueProjIndex())
+				else if (prod->getOpcode() == Opcode::Call && p->getIndex() == CallNode::valueProjIndex())
 					producesValue = true; // call result
 			} else if (t && t->isData()) {
-				producesValue = Schedule::isFloating(n) || op == Opcode::Constant ||
-												op == Opcode::Phi || op == Opcode::Global;
+				producesValue = Schedule::isFloating(n) || op == Opcode::Constant || op == Opcode::Phi ||
+												op == Opcode::Global;
 			}
 			if (producesValue && !slot.count(n))
 				reserve(n, isX87Ty(t) ? 16 : 8);
@@ -165,7 +169,9 @@ namespace rat {
 		a.loadXmm(x, RBP, slotOf(n), w);
 	}
 
-	void X86EmitterPass::FunctionEmitter::storeInt(Node* n, Reg r) { a.storeMem(RBP, slotOf(n), r, 8); }
+	void X86EmitterPass::FunctionEmitter::storeInt(Node* n, Reg r) {
+		a.storeMem(RBP, slotOf(n), r, 8);
+	}
 	void X86EmitterPass::FunctionEmitter::storeFloat(Node* n, U32 x) {
 		a.storeXmm(x, RBP, slotOf(n), opWidth(n->getType()));
 	}
@@ -219,14 +225,17 @@ namespace rat {
 		U32 intIdx = 0, xmmIdx = 0;
 		I32 stackOff = 16;
 		for (U32 i = 0; i < fn.getParamCount(); ++i)
-			emitParamLoad(st->projection(StartNode::paramProjIndex(i)), fn.getParamType(i), intIdx,
-										xmmIdx, stackOff);
+			emitParamLoad(st->projection(StartNode::paramProjIndex(i)),
+										fn.getParamType(i),
+										intIdx,
+										xmmIdx,
+										stackOff);
 	}
 
 	B32 X86EmitterPass::FunctionEmitter::wantsSlot(ProjNode* p) const { return p && slot.count(p); }
 
-	void X86EmitterPass::FunctionEmitter::emitParamLoad(ProjNode* p, Type* t, U32& intIdx, U32& xmmIdx,
-																											I32& stackOff) {
+	void X86EmitterPass::FunctionEmitter::emitParamLoad(
+			ProjNode* p, Type* t, U32& intIdx, U32& xmmIdx, I32& stackOff) {
 		auto spillStackArg = [&] {
 			a.load64(RAX, RBP, stackOff);
 			stackOff += 8;
@@ -938,7 +947,8 @@ namespace rat {
 		elf.write(*os);
 	}
 
-	X86EmitterPass::X86EmitterPass(std::ostream& os) : os(&os) {}
+	X86EmitterPass::X86EmitterPass(std::ostream& os)
+	: os(&os) {}
 
 	const C8* X86EmitterPass::name() const { return "x86-emitter"; }
 

@@ -93,7 +93,7 @@ namespace rat {
 		B32 any = false;
 		for (const Global* g : module.globals()) {
 			*os << (g->isConstant() ? "const " : "var ") << g->getName() << " : " << g->getType()->str()
-				 << " = " << quoteBytes(g->getInit()) << "\n";
+					<< " = " << quoteBytes(g->getInit()) << "\n";
 			any = true;
 		}
 
@@ -106,7 +106,8 @@ namespace rat {
 		}
 	}
 
-	TextEmitterPass::TextEmitterPass(std::ostream& os) : os(&os) {}
+	TextEmitterPass::TextEmitterPass(std::ostream& os)
+	: os(&os) {}
 
 	const C8* TextEmitterPass::name() const { return "text-emitter"; }
 

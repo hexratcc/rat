@@ -38,7 +38,10 @@ namespace rat {
 	Type* Function::ctrlTy() const { return mod->getControl(); }
 
 	Function::Function(Module& module, String name, const List<Type*>& params, Type* ret)
-			: mod(&module), name(std::move(name)), paramTypes(params), retType(ret) {
+	: mod(&module),
+		name(std::move(name)),
+		paramTypes(params),
+		retType(ret) {
 		TypeContext& tc = *mod;
 
 		// build the start tuple
@@ -73,7 +76,9 @@ namespace rat {
 		if (paramCache.size() <= index)
 			paramCache.resize(index + 1, nullptr);
 		if (!paramCache[index])
-			paramCache[index] = proj(start, StartNode::paramProjIndex(index), paramTypes[index],
+			paramCache[index] = proj(start,
+															 StartNode::paramProjIndex(index),
+															 paramTypes[index],
 															 "arg" + std::to_string(index));
 		return paramCache[index];
 	}
@@ -192,8 +197,7 @@ namespace rat {
 		for (Node* a : args)
 			ins.push_back(a);
 
-		CallNode* c =
-				create<CallNode>(callTupleType(retType), String(), retType != nullptr, ins, true);
+		CallNode* c = create<CallNode>(callTupleType(retType), String(), retType != nullptr, ins, true);
 		return attachCallProjections(c, retType);
 	}
 

@@ -2,7 +2,9 @@
 
 namespace rat {
 	Type::Type(Kind kind, U32 bits, List<Type*> elements)
-			: kind(kind), bits(bits), elements(std::move(elements)) {}
+	: kind(kind),
+		bits(bits),
+		elements(std::move(elements)) {}
 
 	B32 Type::isControl() const { return kind == Control; }
 	B32 Type::isMemory() const { return kind == Memory; }

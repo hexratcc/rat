@@ -22,7 +22,6 @@ namespace rat {
 		B32 isConstant() const;
 		const List<U8>& getInit() const;
 		const List<Reloc>& getRelocs() const;
-
 	private:
 		String name;
 		Type* type;
@@ -44,8 +43,8 @@ namespace rat {
 		Function* createFunction(const String& name, const List<Type*>& params, Type* ret);
 		Function* getFunction(const String& name) const;
 
-		Global* createGlobal(const String& name, Type* type, B32 isConst, List<U8> init,
-												 List<Reloc> relocs = {});
+		Global* createGlobal(
+				const String& name, Type* type, B32 isConst, List<U8> init, List<Reloc> relocs = {});
 		Global* createString(const String& name, const String& bytes);
 		Global* getGlobal(const String& name) const;
 
@@ -62,7 +61,6 @@ namespace rat {
 		FunctionIterator begin() const;
 		FunctionIterator end() const;
 		B32 empty() const;
-
 	private:
 		String name;
 		const TargetInfo* tgt = nullptr;

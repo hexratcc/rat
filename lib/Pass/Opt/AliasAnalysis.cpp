@@ -18,7 +18,8 @@ namespace rat {
 		return "?";
 	}
 
-	AliasAnalysis::AliasAnalysis(const Function& fn) : fn(fn) {}
+	AliasAnalysis::AliasAnalysis(const Function& fn)
+	: fn(fn) {}
 
 	AliasAnalysis::Address AliasAnalysis::decompose(Node* addr) const {
 		Address info{addr, 0, {}};
@@ -38,8 +39,9 @@ namespace rat {
 			}
 			info.base = b->getLHS();
 		}
-		std::sort(info.symbolic.begin(), info.symbolic.end(),
-							[](const Node* a, const Node* b) { return a->getId() < b->getId(); });
+		std::sort(info.symbolic.begin(), info.symbolic.end(), [](const Node* a, const Node* b) {
+			return a->getId() < b->getId();
+		});
 		return info;
 	}
 

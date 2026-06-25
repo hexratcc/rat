@@ -50,7 +50,6 @@ namespace rat {
 		I32 loopDepthOf(I32 b) const;
 
 		static B32 isFloating(const Node* n);
-
 	private:
 		const Function& fn;
 		List<Block> blocks;

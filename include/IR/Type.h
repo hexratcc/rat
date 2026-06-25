@@ -30,7 +30,6 @@ namespace rat {
 
 		void print(std::ostream& os) const;
 		String str() const;
-
 	private:
 		Kind kind;
 		U32 bits;
@@ -48,10 +47,8 @@ namespace rat {
 		Type* getBool();
 		Type* getTuple(const List<Type*>& elements);
 		Type* getArray(Type* element, U32 count);
-
 	protected:
 		Arena arena;
-
 	private:
 		Type* control = nullptr;
 		Type* memory = nullptr;

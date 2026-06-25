@@ -143,7 +143,6 @@ namespace rat {
 		void removeNode(Node* n);
 
 		friend struct Node;
-
 	private:
 		U32 allocateId();
 

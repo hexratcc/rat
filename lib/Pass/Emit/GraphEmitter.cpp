@@ -7,7 +7,7 @@
 namespace rat {
 	String GraphEmitterPass::getNodeId(const Function& fn, const Node* n) {
 		return "n" + std::to_string(reinterpret_cast<uintptr_t>(&fn) & 0xffffff) + "_" +
-						std::to_string(n->getId());
+					 std::to_string(n->getId());
 	}
 
 	void GraphEmitterPass::getStyle(const Node* n, String& label, String& attrs) {
@@ -69,7 +69,7 @@ namespace rat {
 			return "color=\"#3c78d8\", style=dashed"; // memory thread
 		if (t->isTuple())
 			return "color=\"#999999\""; // tuple feeding a proj
-		return "color=\"#000000\""; // data
+		return "color=\"#000000\"";		// data
 	}
 
 	void GraphEmitterPass::emitFunctionBody(const Function& fn) {
@@ -108,7 +108,8 @@ namespace rat {
 		*os << "}\n";
 	}
 
-	GraphEmitterPass::GraphEmitterPass(std::ostream& os) : os(&os) {}
+	GraphEmitterPass::GraphEmitterPass(std::ostream& os)
+	: os(&os) {}
 
 	const C8* GraphEmitterPass::name() const { return "graph-emitter"; }
 

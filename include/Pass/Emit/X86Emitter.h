@@ -55,7 +55,6 @@ namespace rat {
 		static U32 intBits(const Type* t);
 		static U64 signExtend(U64 v, U32 bits);
 		static U32 opWidth(const Type* t);
-
 	private:
 		struct FunctionEmitter {
 			const Function& fn;
@@ -135,7 +134,6 @@ namespace rat {
 
 		void emitModule(const Module& module); // emit globals then functions
 		void emitGlobal(ElfObject& elf, const Module& mod, const Global* g); // lay out one global
-
 	private:
 		std::ostream* os;
 	};

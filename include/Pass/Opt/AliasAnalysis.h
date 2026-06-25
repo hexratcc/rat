@@ -26,7 +26,6 @@ namespace rat {
 		AliasResult alias(Node* accessA, Node* accessB) const;
 
 		U32 getAccessSize(const Node* access) const;
-
 	private:
 		struct Address {
 			Node* base;						// pointer

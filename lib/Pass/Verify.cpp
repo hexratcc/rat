@@ -16,7 +16,9 @@ namespace rat {
 			U32 startErrs;
 
 			FunctionVerifier(const Function& fn, List<String>& e)
-					: fn(fn), errs(e), startErrs((U32)e.size()) {}
+			: fn(fn),
+				errs(e),
+				startErrs((U32)e.size()) {}
 
 			B32 run() {
 				for (Node* n : fn)
@@ -76,8 +78,9 @@ namespace rat {
 						continue;
 					}
 					if (!inFn.count(in)) {
-						err(n, "input " + std::to_string(i) + " (" + vref(in) +
-											 ") is not a node of this function");
+						err(n,
+								"input " + std::to_string(i) + " (" + vref(in) +
+										") is not a node of this function");
 						continue;
 					}
 					B32 found = false;
@@ -87,8 +90,9 @@ namespace rat {
 							break;
 						}
 					if (!found)
-						err(n, "broken reverse edge: input " + vref(in) + " does not list " + vref(n) +
-											 " as a user");
+						err(n,
+								"broken reverse edge: input " + vref(in) + " does not list " + vref(n) +
+										" as a user");
 				}
 				for (Node* u : n->getUsers()) {
 					if (!u) {
@@ -131,8 +135,9 @@ namespace rat {
 							err(n, "Start tuple element 1 must be memory");
 						for (U32 i = 0; i < np; ++i)
 							if (t->getTupleElement(2 + i) != fn.getParamType(i))
-								err(n, "Start tuple param " + std::to_string(i) +
-													 " does not match the function signature");
+								err(n,
+										"Start tuple param " + std::to_string(i) +
+												" does not match the function signature");
 					}
 					break;
 				}
@@ -199,8 +204,9 @@ namespace rat {
 					else if (!prod->getType()->isTuple())
 						err(n, "Proj producer is not tuple-typed");
 					else if (p->getIndex() >= prod->getType()->getTupleElementCount())
-						err(n, "Proj index " + std::to_string(p->getIndex()) + " is out of range for " +
-											 vref(prod));
+						err(n,
+								"Proj index " + std::to_string(p->getIndex()) + " is out of range for " +
+										vref(prod));
 					else if (prod->getType()->getTupleElement(p->getIndex()) != t)
 						err(n, "Proj type does not match the selected tuple element");
 					break;
@@ -214,9 +220,9 @@ namespace rat {
 					}
 					auto* r = cast<RegionNode>(reg);
 					if (phi->getValueCount() != r->getPredecessorCount())
-						err(n, "Phi has " + std::to_string(phi->getValueCount()) + " values but its region " +
-											 vref(r) + " has " + std::to_string(r->getPredecessorCount()) +
-											 " predecessors");
+						err(n,
+								"Phi has " + std::to_string(phi->getValueCount()) + " values but its region " +
+										vref(r) + " has " + std::to_string(r->getPredecessorCount()) + " predecessors");
 					if (!t->isData() && !t->isMemory())
 						err(n, "Phi type must be a data or memory type");
 					for (U32 i = 0, e = phi->getValueCount(); i < e; ++i)
@@ -363,8 +369,9 @@ namespace rat {
 				Node* stop = fn.getStop();
 				for (U32 i = 0, e = stop->getInputCount(); i < e; ++i)
 					if (stop->getInput(i) && stop->getInput(i)->getOpcode() != Opcode::Return)
-						err(stop, "Stop input " + std::to_string(i) + " (" + vref(stop->getInput(i)) +
-													") is not a Return");
+						err(stop,
+								"Stop input " + std::to_string(i) + " (" + vref(stop->getInput(i)) +
+										") is not a Return");
 				if (stop->getInputCount() == 0)
 					err(stop, "function never returns (Stop has no Return inputs)");
 			}
@@ -405,7 +412,8 @@ namespace rat {
 		return ok;
 	}
 
-	VerifyPass::VerifyPass(std::ostream& os) : os(&os) {}
+	VerifyPass::VerifyPass(std::ostream& os)
+	: os(&os) {}
 
 	const C8* VerifyPass::name() const { return "verify"; }
 

@@ -117,8 +117,8 @@ namespace rat {
 		return idx;
 	}
 
-	void ElfObject::defineSymbol(const String& name, Section sec, U32 offset, B32 global,
-															 B32 isFunc) {
+	void
+	ElfObject::defineSymbol(const String& name, Section sec, U32 offset, B32 global, B32 isFunc) {
 		auto it = symByName.find(name);
 		if (it != symByName.end()) {
 			Sym& s = syms[it->second];
@@ -134,8 +134,8 @@ namespace rat {
 		symByName[name] = idx;
 	}
 
-	void ElfObject::addReloc(Section sec, U32 offset, const String& symbol, ElfReloc kind,
-													 I64 addend) {
+	void
+	ElfObject::addReloc(Section sec, U32 offset, const String& symbol, ElfReloc kind, I64 addend) {
 		relocs.push_back({sec, offset, symbolIndex(symbol), kind, addend});
 	}
 
@@ -293,8 +293,16 @@ namespace rat {
 		while (out.size() < offSh)
 			out.push_back(0);
 
-		auto sh = [&](U32 name, U32 type, U64 flags, U64 addr, U64 fileOff, U64 size, U32 link,
-									U32 info, U64 a, U64 entSize) {
+		auto sh = [&](U32 name,
+									U32 type,
+									U64 flags,
+									U64 addr,
+									U64 fileOff,
+									U64 size,
+									U32 link,
+									U32 info,
+									U64 a,
+									U64 entSize) {
 			put32(out, name);
 			put32(out, type);
 			put64(out, flags);
@@ -308,21 +316,60 @@ namespace rat {
 		};
 
 		sh(0, SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0); // 0 null
-		sh(nText, SHT_PROGBITS, SHF_ALLOC | SHF_EXECINSTR, 0, offText, text.size(), 0, 0, 16,
+		sh(nText,
+			 SHT_PROGBITS,
+			 SHF_ALLOC | SHF_EXECINSTR,
+			 0,
+			 offText,
+			 text.size(),
+			 0,
+			 0,
+			 16,
 			 0); // 1 .text
-		sh(nRelaText, SHT_RELA, SHF_INFO_LINK, 0, offRelaText, relaText.size(), shSymtab, shText, 8,
+		sh(nRelaText,
+			 SHT_RELA,
+			 SHF_INFO_LINK,
+			 0,
+			 offRelaText,
+			 relaText.size(),
+			 shSymtab,
+			 shText,
+			 8,
 			 kRelaEntSize); // 2 .rela.text
 		sh(nRodata, SHT_PROGBITS, SHF_ALLOC, 0, offRodata, rodata.size(), 0, 0, 16,
 			 0); // 3 .rodata
-		sh(nRelaRodata, SHT_RELA, SHF_INFO_LINK, 0, offRelaRodata, relaRodata.size(), shSymtab,
-			 shRodata, 8,
+		sh(nRelaRodata,
+			 SHT_RELA,
+			 SHF_INFO_LINK,
+			 0,
+			 offRelaRodata,
+			 relaRodata.size(),
+			 shSymtab,
+			 shRodata,
+			 8,
 			 kRelaEntSize); // 4 .rela.rodata
 		sh(nData, SHT_PROGBITS, SHF_ALLOC | SHF_WRITE, 0, offData, data.size(), 0, 0, 16, 0); // 5 .data
-		sh(nRelaData, SHT_RELA, SHF_INFO_LINK, 0, offRelaData, relaData.size(), shSymtab, shData, 8,
+		sh(nRelaData,
+			 SHT_RELA,
+			 SHF_INFO_LINK,
+			 0,
+			 offRelaData,
+			 relaData.size(),
+			 shSymtab,
+			 shData,
+			 8,
 			 kRelaEntSize); // 6 .rela.data
 		sh(nBss, SHT_NOBITS, SHF_ALLOC | SHF_WRITE, 0, 0, bssSize, 0, 0, 16,
 			 0); // 7 .bss
-		sh(nSymtab, SHT_SYMTAB, 0, 0, offSymtab, symtab.size(), shStrtab, firstGlobal, 8,
+		sh(nSymtab,
+			 SHT_SYMTAB,
+			 0,
+			 0,
+			 offSymtab,
+			 symtab.size(),
+			 shStrtab,
+			 firstGlobal,
+			 8,
 			 kSymEntSize); // 8 .symtab
 		sh(nStrtab, SHT_STRTAB, 0, 0, offStrtab, strtab.size(), 0, 0, 1,
 			 0); // 9 .strtab

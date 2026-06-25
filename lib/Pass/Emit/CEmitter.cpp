@@ -8,7 +8,9 @@
 
 namespace rat {
 	CEmitterPass::FunctionEmitter::FunctionEmitter(const Function& fn, std::ostream& os)
-			: fn(fn), os(os), sched(fn) {}
+	: fn(fn),
+		os(os),
+		sched(fn) {}
 
 	void CEmitterPass::FunctionEmitter::run() {
 		computeNeedTemp();
@@ -35,7 +37,9 @@ namespace rat {
 		}
 	}
 
-	String CEmitterPass::FunctionEmitter::temp(const Node* n) const { return "t" + std::to_string(n->getId()); }
+	String CEmitterPass::FunctionEmitter::temp(const Node* n) const {
+		return "t" + std::to_string(n->getId());
+	}
 
 	String CEmitterPass::FunctionEmitter::floatLiteral(Node* n) {
 		I64 raw = cast<ConstantNode>(n)->getValue();
@@ -290,8 +294,7 @@ namespace rat {
 		case Opcode::Alloc: {
 			auto* a = cast<AllocNode>(n);
 			if (a->isVariableSized())
-				os << "  " << temp(a) << " = __builtin_alloca(" << valueExpr(a->getSizeOperand())
-					 << ");\n";
+				os << "  " << temp(a) << " = __builtin_alloca(" << valueExpr(a->getSizeOperand()) << ");\n";
 			return;
 		}
 		default:
@@ -373,7 +376,8 @@ namespace rat {
 		return false;
 	}
 
-	List<CEmitterPass::FunctionEmitter::Move> CEmitterPass::FunctionEmitter::collectPhiMoves(I32 targetRegionB, I32 predIdx) {
+	List<CEmitterPass::FunctionEmitter::Move>
+	CEmitterPass::FunctionEmitter::collectPhiMoves(I32 targetRegionB, I32 predIdx) {
 		List<Move> moves;
 		for (PhiNode* phi : sched.block(targetRegionB).phis) {
 			Node* v = phi->getValue(predIdx);
@@ -383,7 +387,8 @@ namespace rat {
 		return moves;
 	}
 
-	void CEmitterPass::FunctionEmitter::writeMoveBlock(const List<String>& scratchDecls, const List<String>& lines) {
+	void CEmitterPass::FunctionEmitter::writeMoveBlock(const List<String>& scratchDecls,
+																										 const List<String>& lines) {
 		if (scratchDecls.empty()) {
 			for (const String& l : lines)
 				os << "  " << l << "\n";
@@ -506,7 +511,7 @@ namespace rat {
 
 	B32 CEmitterPass::isCompilerBuiltin(const String& name) {
 		return name.rfind("__builtin_", 0) == 0 || name.rfind("__atomic_", 0) == 0 ||
-						name.rfind("__sync_", 0) == 0;
+					 name.rfind("__sync_", 0) == 0;
 	}
 
 	void CEmitterPass::emitSignature(const Function& fn) { emitSignatureInto(fn, *os); }
@@ -582,7 +587,8 @@ namespace rat {
 		Set<String> emitted;
 		for (const Global* g : module.globals())
 			for (const Reloc& r : g->getRelocs())
-				if (!known.count(r.symbol) && !isCompilerBuiltin(r.symbol) && emitted.insert(r.symbol).second)
+				if (!known.count(r.symbol) && !isCompilerBuiltin(r.symbol) &&
+						emitted.insert(r.symbol).second)
 					*os << "extern char " << r.symbol << "[];\n";
 		for (const Function* fn : module)
 			for (const Node* nc : *fn)
@@ -597,8 +603,8 @@ namespace rat {
 	void CEmitterPass::emitRelocGlobal(const Global& g, U32 size, U32 ptrBytes) {
 		const List<U8>& init = g.getInit();
 		List<Reloc> rl = g.getRelocs();
-		std::sort(rl.begin(), rl.end(),
-							[](const Reloc& a, const Reloc& b) { return a.offset < b.offset; });
+		std::sort(
+				rl.begin(), rl.end(), [](const Reloc& a, const Reloc& b) { return a.offset < b.offset; });
 		auto byteAt = [&](U32 i) -> U32 { return i < init.size() ? init[i] : 0u; };
 		String cst = g.isConstant() ? "const " : "";
 
@@ -696,7 +702,8 @@ namespace rat {
 		}
 	}
 
-	CEmitterPass::CEmitterPass(std::ostream& os) : os(&os) {}
+	CEmitterPass::CEmitterPass(std::ostream& os)
+	: os(&os) {}
 
 	const C8* CEmitterPass::name() const { return "c emit"; }
 

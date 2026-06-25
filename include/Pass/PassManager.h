@@ -17,7 +17,6 @@ namespace rat {
 
 		Pass* add(UniquePtr<Pass> pass);
 		B32 run(Module& module, std::ostream* log = nullptr);
-
 	private:
 		List<UniquePtr<Pass>> passes;
 	};

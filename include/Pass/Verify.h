@@ -18,7 +18,6 @@ namespace rat {
 
 		const C8* name() const override;
 		B32 run(Module& module) override;
-
 	private:
 		std::ostream* os;
 	};

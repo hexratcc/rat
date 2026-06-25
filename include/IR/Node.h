@@ -45,7 +45,6 @@ namespace rat {
 		Node* getControlInput() const;
 
 		ProjNode* projection(U32 index) const;
-
 	protected:
 		void removeUser(Node* user);
 
@@ -64,7 +63,6 @@ namespace rat {
 		static constexpr U32 memoryProjIndex() { return 1; }
 		static constexpr U32 paramProjIndex(U32 index) { return 2 + index; }
 		U32 getParamCount() const;
-
 	private:
 		U32 paramCount;
 	};
@@ -90,7 +88,6 @@ namespace rat {
 
 		B32 isLoopHeader() const;
 		void setLoopHeader(B32 value = true);
-
 	private:
 		B32 loopHeader = false;
 	};
@@ -110,7 +107,6 @@ namespace rat {
 		Node* getProducer() const;
 		U32 getIndex() const;
 		const String& getLabel() const;
-
 	private:
 		U32 index;
 		String label;
@@ -129,7 +125,6 @@ namespace rat {
 		ConstantNode(Function& fn, Type* type, I64 value);
 
 		I64 getValue() const;
-
 	private:
 		I64 value;
 	};
@@ -169,8 +164,8 @@ namespace rat {
 	};
 
 	struct StoreNode : Node {
-		StoreNode(Function& fn, Type* memoryType, Node* control, Node* memory, Node* pointer,
-							Node* value);
+		StoreNode(
+				Function& fn, Type* memoryType, Node* control, Node* memory, Node* pointer, Node* value);
 
 		Node* getControl() const;
 		Node* getMemory() const;
@@ -179,8 +174,12 @@ namespace rat {
 	};
 
 	struct CallNode : Node {
-		CallNode(Function& fn, Type* tupleType, String callee, B32 returnsValue,
-						 const List<Node*>& controlMemoryArgs, B32 indirect = false);
+		CallNode(Function& fn,
+						 Type* tupleType,
+						 String callee,
+						 B32 returnsValue,
+						 const List<Node*>& controlMemoryArgs,
+						 B32 indirect = false);
 
 		const String& getCallee() const;
 		void setCallee(String name);
@@ -195,7 +194,6 @@ namespace rat {
 		static constexpr U32 controlProjIndex() { return 0; }
 		static constexpr U32 memoryProjIndex() { return 1; }
 		static constexpr U32 valueProjIndex() { return 2; }
-
 	private:
 		String callee;
 		B32 hasReturnValue;
@@ -206,7 +204,6 @@ namespace rat {
 		GlobalNode(Function& fn, Type* ptrType, String symbol);
 
 		const String& getSymbol() const;
-
 	private:
 		String symbol;
 	};
@@ -218,7 +215,6 @@ namespace rat {
 		Type* getAllocType() const;
 		Node* getSizeOperand() const;
 		B32 isVariableSized() const { return getInputCount() > 0; }
-
 	private:
 		Type* allocType;
 	};

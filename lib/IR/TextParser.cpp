@@ -113,7 +113,9 @@ namespace rat {
 			U32 lineNo = 0;
 			B32 failed = false;
 
-			Parser(Module& mod, std::ostream& err) : mod(mod), err(err) {}
+			Parser(Module& mod, std::ostream& err)
+			: mod(mod),
+				err(err) {}
 
 			B32 fail(const String& msg) {
 				err << "parse error (line " << lineNo << "): " << msg << "\n";

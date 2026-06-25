@@ -1,10 +1,29 @@
 BasedOnStyle: LLVM
 ColumnLimit: 100
-ReflowComments: false
-PointerAlignment: Left
-ReferenceAlignment: Left
+
+# indent
 UseTab: Always
 TabWidth: 2
 IndentWidth: 2
+
+# comments
+ReflowComments: false
+
+# type*, type&
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# namespaces
 NamespaceIndentation: All
 FixNamespaceComments: true
+
+# access modifiers
+EmptyLineBeforeAccessModifier: Never
+
+# args
+BinPackArguments: false
+BinPackParameters: false
+
+# constructor initializers
+PackConstructorInitializers: Never
+ConstructorInitializerIndentWidth: 0

@@ -1,8 +1,8 @@
 #ifndef RAT_PASS_EMIT_CEMITTER_H
 #define RAT_PASS_EMIT_CEMITTER_H
 
-#include "Core.h"
 #include "CodeGen/Schedule.h"
+#include "Core.h"
 #include "Pass/Pass.h"
 
 namespace rat {
@@ -74,7 +74,6 @@ namespace rat {
 		void emitRelocGlobal(const Global& g, U32 size, U32 ptrBytes);
 		void emitFunction(const Function& fn);
 		void emitSignature(const Function& fn);
-
 	private:
 		std::ostream* os;
 	};

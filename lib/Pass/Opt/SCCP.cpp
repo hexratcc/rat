@@ -41,7 +41,8 @@ namespace rat {
 			List<Node*> flowWork;		// executable control nodes to propagate
 			List<Node*> ssaWork;		// value / If nodes to re-evaluate
 
-			SCCPSolver(Function& fn) : fn(fn) {}
+			SCCPSolver(Function& fn)
+			: fn(fn) {}
 
 			static B32 isValueNode(Node* n) {
 				Opcode op = n->getOpcode();

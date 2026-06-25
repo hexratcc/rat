@@ -22,7 +22,6 @@ namespace rat {
 		UniquePtr<Pass> create(const String& name, std::ostream& out) const;
 
 		const List<Entry>& entries() const { return items; }
-
 	private:
 		List<Entry> items;
 	};

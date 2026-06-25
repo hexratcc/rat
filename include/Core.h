@@ -82,7 +82,6 @@ namespace rat {
 				registerDtor(obj, [](void* p) { static_cast<T*>(p)->~T(); });
 			return obj;
 		}
-
 	private:
 		void* allocate(U64 size, U64 align) {
 			C8* aligned = cur ? detail::alignUp(cur, align) : nullptr;
