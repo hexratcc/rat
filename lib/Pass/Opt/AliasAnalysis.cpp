@@ -1,11 +1,3 @@
-// alias analysis: decide whether two memory accesses may, must, or never
-// refer to overlapping storage, used to drive MemoryOpt
-//
-// references:
-// - F. Chow, S. Chan, S.-M. Liu, R. Lo and M. Streich, "Effective
-//   Representation of Aliases and Indirect Memory Operations in SSA Form",
-//   Compiler Construction (CC), 1996
-
 #include "Pass/Opt/AliasAnalysis.h"
 
 #include "IR/Function.h"
@@ -28,8 +20,8 @@ namespace rat {
 
 	AliasAnalysis::AliasAnalysis(const Function& fn) : fn(fn) {}
 
-	AliasAnalysis::AddrInfo AliasAnalysis::decompose(Node* addr) const {
-		AddrInfo info{addr, 0, {}};
+	AliasAnalysis::Address AliasAnalysis::decompose(Node* addr) const {
+		Address info{addr, 0, {}};
 		while (BinaryNode* b = dyn_cast<BinaryNode>(info.base)) {
 			Opcode op = b->getOpcode();
 			B32 isAddSub = (op == Opcode::Add || op == Opcode::Sub);
@@ -51,7 +43,8 @@ namespace rat {
 		return info;
 	}
 
-	U32 AliasAnalysis::accessSize(const Node* access) const {
+	U32 AliasAnalysis::getAccessSize(
+			const Node* access) const { // byte size of a load/store (0 otherwise)
 		Node* n = const_cast<Node*>(access);
 		Type* t = nullptr;
 		if (n->getOpcode() == Opcode::Load)
@@ -64,25 +57,23 @@ namespace rat {
 		return t->byteSize(fn.getModule().pointerBytes());
 	}
 
-	namespace detail {
-		B32 isIdentified(const Node* n) { return isa<AllocNode>(n) || isa<GlobalNode>(n); }
+	B32 AliasAnalysis::isIdentified(const Node* n) { return isa<AllocNode>(n) || isa<GlobalNode>(n); }
 
-		B32 distinctObjects(const Node* a, const Node* b) {
-			if (!isIdentified(a) || !isIdentified(b))
-				return false;
-
-			if (isa<AllocNode>(a) || isa<AllocNode>(b))
-				return a != b;
-			return cast<GlobalNode>(a)->getSymbol() != cast<GlobalNode>(b)->getSymbol();
-		}
-	} // namespace detail
-	using namespace detail;
+	B32 AliasAnalysis::distinctObjects(const Node* a, const Node* b) {
+		// a and b are provably different
+		if (!isIdentified(a) || !isIdentified(b))
+			return false;
+		if (isa<AllocNode>(a) || isa<AllocNode>(b))
+			return a != b;
+		return cast<GlobalNode>(a)->getSymbol() != cast<GlobalNode>(b)->getSymbol();
+	}
 
 	AliasResult AliasAnalysis::alias(Node* addrA, U32 sizeA, Node* addrB, U32 sizeB) const {
-		AddrInfo a = decompose(addrA);
-		AddrInfo b = decompose(addrB);
+		// alias query between two addresses with known access sizes (0 = unknown)
+		Address a = decompose(addrA);
+		Address b = decompose(addrB);
 
-		// different (or unknown) base objects
+		// different base objects
 		if (a.base != b.base)
 			return distinctObjects(a.base, b.base) ? AliasResult::NoAlias : AliasResult::MayAlias;
 
@@ -101,13 +92,14 @@ namespace rat {
 		if (sizeA == 0 || sizeB == 0)
 			return AliasResult::MayAlias; // unknown size: cannot prove disjoint
 
-		// disjoint iff a starts at/after b's end, or b starts at/after a's end
+		// disjoint if a starts at/after b's end, or b starts at/after a's end
 		if (delta >= (I64)sizeB || -delta >= (I64)sizeA)
 			return AliasResult::NoAlias;
 		return AliasResult::MayAlias;
 	}
 
 	AliasResult AliasAnalysis::alias(Node* accessA, Node* accessB) const {
+		// alias query between two Load/Store accesses (sizes derived from them)
 		auto addrOf = [](Node* n) -> Node* {
 			if (n->getOpcode() == Opcode::Load)
 				return cast<LoadNode>(n)->getPointer();
@@ -119,6 +111,6 @@ namespace rat {
 		Node* pb = addrOf(accessB);
 		if (!pa || !pb)
 			return AliasResult::MayAlias;
-		return alias(pa, accessSize(accessA), pb, accessSize(accessB));
+		return alias(pa, getAccessSize(accessA), pb, getAccessSize(accessB));
 	}
 } // namespace rat

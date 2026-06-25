@@ -1,3 +1,11 @@
+// alias analysis: decide whether two memory accesses may, must, or never
+// refer to overlapping storage, used to drive MemoryOpt
+//
+// references:
+// - F. Chow, S. Chan, S.-M. Liu, R. Lo and M. Streich, "Effective
+//   Representation of Aliases and Indirect Memory Operations in SSA Form",
+//   Compiler Construction (CC), 1996
+
 #ifndef RAT_PASS_OPT_ALIASANALYSIS_H
 #define RAT_PASS_OPT_ALIASANALYSIS_H
 
@@ -17,17 +25,21 @@ namespace rat {
 		AliasResult alias(Node* addrA, U32 sizeA, Node* addrB, U32 sizeB) const;
 		AliasResult alias(Node* accessA, Node* accessB) const;
 
-		U32 accessSize(const Node* access) const;
+		U32 getAccessSize(const Node* access) const;
 
 	private:
-		struct AddrInfo {
-			Node* base;						// the underlying (non-decomposable) pointer
-			I64 constant;					// constant byte offset from base
-			List<Node*> symbolic; // non-constant addends (sorted by id)
+		struct Address {
+			Node* base;						// pointer
+			I64 constant;					// base offset
+			List<Node*> symbolic; // non-constant addends
 		};
 
+		Address decompose(Node* addr) const;
+
+		static B32 isIdentified(const Node* n);
+		static B32 distinctObjects(const Node* a, const Node* b);
+	private:
 		const Function& fn;
-		AddrInfo decompose(Node* addr) const;
 	};
 } // namespace rat
 

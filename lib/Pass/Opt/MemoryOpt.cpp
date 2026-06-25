@@ -20,7 +20,7 @@ namespace rat {
 	namespace detail {
 		Node* effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size) {
 			while (StoreNode* s = dyn_cast<StoreNode>(mem)) {
-				if (aa.alias(addr, size, s->getPointer(), aa.accessSize(s)) == AliasResult::NoAlias) {
+				if (aa.alias(addr, size, s->getPointer(), aa.getAccessSize(s)) == AliasResult::NoAlias) {
 					mem = s->getMemory();
 					continue;
 				}
@@ -45,14 +45,14 @@ namespace rat {
 		for (LoadNode* l : loads) {
 			if (!l->hasUsers())
 				continue;
-			U32 sz = aa.accessSize(l);
+			U32 sz = aa.getAccessSize(l);
 			Node* def = effectiveDef(aa, l->getMemory(), l->getPointer(), sz);
 			StoreNode* s = dyn_cast<StoreNode>(def);
 			if (!s)
 				continue;
-			if (aa.alias(l->getPointer(), sz, s->getPointer(), aa.accessSize(s)) ==
+			if (aa.alias(l->getPointer(), sz, s->getPointer(), aa.getAccessSize(s)) ==
 							AliasResult::MustAlias &&
-					aa.accessSize(s) == sz && s->getValue()->getType() == l->getType()) {
+					aa.getAccessSize(s) == sz && s->getValue()->getType() == l->getType()) {
 				l->replaceAllUsesWith(s->getValue());
 				++removed;
 			}
@@ -78,7 +78,7 @@ namespace rat {
 			LoadNode* a = live[i];
 			if (!a->hasUsers())
 				continue;
-			U32 szA = aa.accessSize(a);
+			U32 szA = aa.getAccessSize(a);
 			Node* defA = effectiveDef(aa, a->getMemory(), a->getPointer(), szA);
 			for (U32 j = 0; j < (U32)live.size(); ++j) {
 				if (i == j)
@@ -86,7 +86,7 @@ namespace rat {
 				LoadNode* b = live[j];
 				if (!b->hasUsers() || b->getType() != a->getType())
 					continue;
-				U32 szB = aa.accessSize(b);
+				U32 szB = aa.getAccessSize(b);
 				if (szB != szA)
 					continue;
 				if (effectiveDef(aa, b->getMemory(), b->getPointer(), szB) != defA)
