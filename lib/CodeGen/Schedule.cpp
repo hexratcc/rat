@@ -34,26 +34,26 @@ namespace rat {
 	I32 Schedule::loopDepthOf(I32 b) const { return blocks[b].loopDepth; }
 
 	B32 Schedule::isHeadNode(const Node* n) {
-		if (n->getOpcode() == Opcode::Region)
+		if(n->getOpcode() == Opcode::Region)
 			return true;
-		if (ProjNode* p = dyn_cast<ProjNode>(const_cast<Node*>(n))) {
+		if(ProjNode* p = dyn_cast<ProjNode>(const_cast<Node*>(n))) {
 			Node* prod = p->getProducer();
-			if (prod->getOpcode() == Opcode::If)
+			if(prod->getOpcode() == Opcode::If)
 				return true;
-			if (prod->getOpcode() == Opcode::Start && p->getIndex() == 0)
+			if(prod->getOpcode() == Opcode::Start && p->getIndex() == 0)
 				return true;
 		}
 		return false;
 	}
 
 	void Schedule::collectHeads() {
-		for (Node* n : fn) {
-			if (isHeadNode(n)) {
+		for(Node* n : fn) {
+			if(isHeadNode(n)) {
 				headIndex[n] = (I32)blocks.size();
 				blocks.emplace_back();
 				blocks.back().head = n;
-				if (ProjNode* p = dyn_cast<ProjNode>(n))
-					if (p->getProducer()->getOpcode() == Opcode::Start)
+				if(ProjNode* p = dyn_cast<ProjNode>(n))
+					if(p->getProducer()->getOpcode() == Opcode::Start)
 						entryBlock = headIndex[n];
 			}
 		}
@@ -66,8 +66,8 @@ namespace rat {
 	}
 
 	Node* Schedule::headOf(Node* ctrl) const {
-		while (true) {
-			if (isHeadNode(ctrl))
+		while(true) {
+			if(isHeadNode(ctrl))
 				return ctrl;
 			ProjNode* p = cast<ProjNode>(ctrl);
 			CallNode* c = cast<CallNode>(p->getProducer());
@@ -85,38 +85,38 @@ namespace rat {
 	using namespace detail;
 
 	void Schedule::buildCFG() {
-		for (I32 b = 0; b < (I32)blocks.size(); ++b) {
+		for(I32 b = 0; b < (I32)blocks.size(); ++b) {
 			Node* cur = blocks[b].head;
-			while (true) {
+			while(true) {
 				Node* nextCall = nullptr;
 				Node* ifTerm = nullptr;
 				Node* retTerm = nullptr;
 				Node* gotoRegion = nullptr;
 				I32 gotoIdx = -1;
 
-				for (Node* u : cur->getUsers()) {
-					switch (u->getOpcode()) {
+				for(Node* u : cur->getUsers()) {
+					switch(u->getOpcode()) {
 					case Opcode::Store:
-						if (u->getControlInput() == cur)
+						if(u->getControlInput() == cur)
 							nodeBlock[u] = b;
 						break;
 					case Opcode::Call:
-						if (u->getControlInput() == cur) {
+						if(u->getControlInput() == cur) {
 							nodeBlock[u] = b;
 							nextCall = u;
 						}
 						break;
 					case Opcode::If:
-						if (u->getControlInput() == cur)
+						if(u->getControlInput() == cur)
 							ifTerm = u;
 						break;
 					case Opcode::Return:
-						if (u->getControlInput() == cur)
+						if(u->getControlInput() == cur)
 							retTerm = u;
 						break;
 					case Opcode::Region:
-						for (U32 k = 0, e = u->getInputCount(); k < e; ++k)
-							if (u->getInput(k) == cur) {
+						for(U32 k = 0, e = u->getInputCount(); k < e; ++k)
+							if(u->getInput(k) == cur) {
 								gotoRegion = u;
 								gotoIdx = (I32)k;
 							}
@@ -126,13 +126,13 @@ namespace rat {
 					}
 				}
 
-				if (nextCall) {
+				if(nextCall) {
 					cur = requireProj(nextCall, CallNode::controlProjIndex());
 					continue;
 				}
 
 				Block& t = blocks[b];
-				if (ifTerm) {
+				if(ifTerm) {
 					t.term = TermKind::Branch;
 					t.termNode = ifTerm;
 					Node* thenP = requireProj(ifTerm, IfNode::thenProjIndex());
@@ -141,7 +141,7 @@ namespace rat {
 					t.elseB = headIndex.at(elseP);
 					blocks[t.thenB].preds.push_back(b);
 					blocks[t.elseB].preds.push_back(b);
-				} else if (retTerm) {
+				} else if(retTerm) {
 					t.term = TermKind::Return;
 					t.termNode = retTerm;
 				} else {
@@ -158,7 +158,7 @@ namespace rat {
 
 	List<I32> Schedule::successors(I32 b) const {
 		const Block& t = blocks[b];
-		switch (t.term) {
+		switch(t.term) {
 		case TermKind::Branch:
 			return {t.thenB, t.elseB};
 		case TermKind::Goto:
@@ -177,8 +177,8 @@ namespace rat {
 
 		std::function<void(I32)> dfs = [&](I32 b) {
 			visited[b] = 1;
-			for (I32 s : successors(b))
-				if (!visited[s])
+			for(I32 s : successors(b))
+				if(!visited[s])
 					dfs(s);
 			post[b] = (I32)order.size();
 			order.push_back(b);
@@ -189,56 +189,56 @@ namespace rat {
 		List<I32> idom(count, -1);
 		idom[entryBlock] = entryBlock;
 		B32 changed = true;
-		while (changed) {
+		while(changed) {
 			changed = false;
-			for (I32 b : rpoOrder) {
-				if (b == entryBlock)
+			for(I32 b : rpoOrder) {
+				if(b == entryBlock)
 					continue;
 				I32 newIdom = -1;
-				for (I32 p : blocks[b].preds) {
-					if (idom[p] == -1)
+				for(I32 p : blocks[b].preds) {
+					if(idom[p] == -1)
 						continue;
 					newIdom = (newIdom == -1) ? p : intersectWith(idom, p, newIdom);
 				}
-				if (newIdom != -1 && idom[b] != newIdom) {
+				if(newIdom != -1 && idom[b] != newIdom) {
 					idom[b] = newIdom;
 					changed = true;
 				}
 			}
 		}
-		for (I32 b = 0; b < count; ++b)
+		for(I32 b = 0; b < count; ++b)
 			blocks[b].idom = idom[b];
 
-		for (I32 b : rpoOrder)
+		for(I32 b : rpoOrder)
 			blocks[b].domDepth = (b == entryBlock) ? 0 : blocks[blocks[b].idom].domDepth + 1;
 	}
 
 	I32 Schedule::intersectWith(const List<I32>& idom, I32 a, I32 b) const {
-		while (a != b) {
-			while (post[a] < post[b])
+		while(a != b) {
+			while(post[a] < post[b])
 				a = idom[a];
-			while (post[b] < post[a])
+			while(post[b] < post[a])
 				b = idom[b];
 		}
 		return a;
 	}
 
 	B32 Schedule::dominates(I32 a, I32 b) const {
-		while (blocks[b].domDepth > blocks[a].domDepth)
+		while(blocks[b].domDepth > blocks[a].domDepth)
 			b = blocks[b].idom;
 		return a == b;
 	}
 
 	I32 Schedule::lca(I32 a, I32 b) const {
-		if (a < 0)
+		if(a < 0)
 			return b;
-		if (b < 0)
+		if(b < 0)
 			return a;
-		while (blocks[a].domDepth > blocks[b].domDepth)
+		while(blocks[a].domDepth > blocks[b].domDepth)
 			a = blocks[a].idom;
-		while (blocks[b].domDepth > blocks[a].domDepth)
+		while(blocks[b].domDepth > blocks[a].domDepth)
 			b = blocks[b].idom;
-		while (a != b) {
+		while(a != b) {
 			a = blocks[a].idom;
 			b = blocks[b].idom;
 		}
@@ -247,42 +247,42 @@ namespace rat {
 
 	void Schedule::computeLoops() {
 		Map<I32, Set<I32>> loops;
-		for (I32 b = 0; b < (I32)blocks.size(); ++b)
-			for (I32 s : successors(b))
-				if (dominates(s, b)) { // b -> s is a back-edge; s is a loop header
+		for(I32 b = 0; b < (I32)blocks.size(); ++b)
+			for(I32 s : successors(b))
+				if(dominates(s, b)) { // b -> s is a back-edge; s is a loop header
 					Set<I32>& body = loops[s];
 					body.insert(s); // header bounds the backward walk
 					List<I32> stack;
-					if (body.insert(b).second)
+					if(body.insert(b).second)
 						stack.push_back(b);
-					while (!stack.empty()) {
+					while(!stack.empty()) {
 						I32 x = stack.back();
 						stack.pop_back();
-						for (I32 p : blocks[x].preds)
-							if (body.insert(p).second) // stops at the header
+						for(I32 p : blocks[x].preds)
+							if(body.insert(p).second) // stops at the header
 								stack.push_back(p);
 					}
 				}
 
-		for (auto& kv : loops)
-			for (I32 m : kv.second)
+		for(auto& kv : loops)
+			for(I32 m : kv.second)
 				++blocks[m].loopDepth;
 	}
 
 	B32 Schedule::isFloating(const Node* n) {
 		Opcode op = n->getOpcode();
-		if (op == Opcode::Alloc)
+		if(op == Opcode::Alloc)
 			return cast<AllocNode>(n)->isVariableSized();
 		return op == Opcode::Load || isArithmeticOpcode(op);
 	}
 
 	namespace detail {
 		I32 fixedDataBlock(const Schedule& s, Node* n, const Map<const Node*, I32>& early) {
-			if (Schedule::isFloating(n)) {
+			if(Schedule::isFloating(n)) {
 				auto it = early.find(n);
 				return it == early.end() ? -1 : it->second;
 			}
-			switch (n->getOpcode()) {
+			switch(n->getOpcode()) {
 			case Opcode::Phi:
 				return s.blockOfHead(cast<PhiNode>(n)->getRegion());
 			case Opcode::Load:
@@ -292,7 +292,7 @@ namespace rat {
 			case Opcode::Proj: {
 				ProjNode* p = cast<ProjNode>(n);
 				Node* prod = p->getProducer();
-				if (prod->getOpcode() == Opcode::Call)
+				if(prod->getOpcode() == Opcode::Call)
 					return s.blockOf(prod); // call value/control projection
 				return -1;
 			}
@@ -305,29 +305,29 @@ namespace rat {
 
 	void Schedule::scheduleEarly(Map<const Node*, I32>& early) {
 		List<Node*> work;
-		for (Node* n : fn)
-			if (isFloating(n))
+		for(Node* n : fn)
+			if(isFloating(n))
 				work.push_back(n);
 
-		for (Node* n : work)
+		for(Node* n : work)
 			early[n] = entryBlock;
 
 		// deepest input block, to fixpoint (a floating input may not be settled)
 		B32 changed = true;
-		while (changed) {
+		while(changed) {
 			changed = false;
-			for (Node* n : work) {
+			for(Node* n : work) {
 				I32 e = entryBlock;
 				U32 first = (n->getOpcode() == Opcode::Load) ? 1 : 0;
-				for (U32 i = first, ie = n->getInputCount(); i < ie; ++i) {
+				for(U32 i = first, ie = n->getInputCount(); i < ie; ++i) {
 					Node* in = n->getInput(i);
-					if (!in)
+					if(!in)
 						continue;
 					I32 b = fixedDataBlock(*this, in, early);
-					if (b >= 0 && blocks[b].domDepth > blocks[e].domDepth)
+					if(b >= 0 && blocks[b].domDepth > blocks[e].domDepth)
 						e = b;
 				}
-				if (early[n] != e) {
+				if(early[n] != e) {
 					early[n] = e;
 					changed = true;
 				}
@@ -336,23 +336,23 @@ namespace rat {
 	}
 
 	I32 Schedule::useBlock(Node* u, Node* n) const {
-		if (PhiNode* phi = dyn_cast<PhiNode>(u)) {
+		if(PhiNode* phi = dyn_cast<PhiNode>(u)) {
 			I32 rb = headIndex.at(phi->getRegion());
 			I32 acc = -1;
-			for (U32 i = 0, e = phi->getValueCount(); i < e; ++i)
-				if (phi->getValue(i) == n)
+			for(U32 i = 0, e = phi->getValueCount(); i < e; ++i)
+				if(phi->getValue(i) == n)
 					acc = lca(acc, predBlockForRegionInput(rb, i));
 			return acc < 0 ? rb : acc;
 		}
-		if (isFloating(u)) {
+		if(isFloating(u)) {
 			auto it = nodeBlock.find(u);
 			return it == nodeBlock.end() ? -1 : it->second;
 		}
 		// pinned user (store/load/call/return/if): its own block
 		auto it = nodeBlock.find(u);
-		if (it != nodeBlock.end())
+		if(it != nodeBlock.end())
 			return it->second;
-		if (u->getOpcode() == Opcode::Return || u->getOpcode() == Opcode::If)
+		if(u->getOpcode() == Opcode::Return || u->getOpcode() == Opcode::If)
 			return headIndex.at(headOf(u->getControlInput()));
 		return -1;
 	}
@@ -365,26 +365,26 @@ namespace rat {
 
 	void Schedule::scheduleLate(const Map<const Node*, I32>& early) {
 		List<Node*> work;
-		for (Node* n : fn)
-			if (isFloating(n))
+		for(Node* n : fn)
+			if(isFloating(n))
 				work.push_back(n);
 
 		// late = LCA of use blocks; then hoist to the shallowest loop depth on the
 		// dominator path between early and late. Iterated to a fixpoint
 		B32 changed = true;
-		while (changed) {
+		while(changed) {
 			changed = false;
-			for (Node* n : work) {
+			for(Node* n : work) {
 				I32 late;
-				if (n->getOpcode() == Opcode::Load) {
+				if(n->getOpcode() == Opcode::Load) {
 					// floating loads move up from where they were built but never
 					// below it: the home block is a sound late bound
 					late = headIndex.at(headOf(n->getControlInput()));
 				} else {
 					late = -1;
-					for (Node* u : n->getUsers())
+					for(Node* u : n->getUsers())
 						late = lca(late, useBlock(u, n));
-					if (late < 0)
+					if(late < 0)
 						continue; // no placed use yet
 				}
 
@@ -392,19 +392,19 @@ namespace rat {
 				// walk from late up toward early, remembering the block with the
 				// smallest loop depth (ties keep the deepest = latest, found first)
 				I32 cur = late, pick = late;
-				while (true) {
-					if (blocks[cur].loopDepth < blocks[pick].loopDepth)
+				while(true) {
+					if(blocks[cur].loopDepth < blocks[pick].loopDepth)
 						pick = cur;
-					if (cur == e || cur == entryBlock)
+					if(cur == e || cur == entryBlock)
 						break;
 					I32 next = blocks[cur].idom;
-					if (next == cur)
+					if(next == cur)
 						break;
 					cur = next;
 				}
 
 				auto it = nodeBlock.find(n);
-				if (it == nodeBlock.end() || it->second != pick) {
+				if(it == nodeBlock.end() || it->second != pick) {
 					nodeBlock[n] = pick;
 					changed = true;
 				}
@@ -418,28 +418,28 @@ namespace rat {
 	}
 
 	void Schedule::buildBlockLists() {
-		for (Node* n : fn)
-			if (PhiNode* phi = dyn_cast<PhiNode>(n))
-				if (phi->getType()->isData())
+		for(Node* n : fn)
+			if(PhiNode* phi = dyn_cast<PhiNode>(n))
+				if(phi->getType()->isData())
 					blocks[headIndex.at(phi->getRegion())].phis.push_back(phi);
 
 		List<List<Node*>> raw(blocks.size());
-		for (Node* n : fn) {
+		for(Node* n : fn) {
 			Opcode op = n->getOpcode();
 			B32 pinned = (op == Opcode::Store || op == Opcode::Call);
-			if (pinned || isFloating(n)) {
+			if(pinned || isFloating(n)) {
 				auto it = nodeBlock.find(n);
-				if (it != nodeBlock.end())
+				if(it != nodeBlock.end())
 					raw[it->second].push_back(n);
 			}
 		}
-		for (I32 b = 0; b < (I32)blocks.size(); ++b)
+		for(I32 b = 0; b < (I32)blocks.size(); ++b)
 			blocks[b].nodes = topoOrder(raw[b]);
 	}
 
 	namespace detail {
 		Node* memoryInputOf(const Node* n) {
-			switch (n->getOpcode()) {
+			switch(n->getOpcode()) {
 			case Opcode::Load:
 				return cast<LoadNode>(n)->getMemory();
 			case Opcode::Store:
@@ -458,60 +458,60 @@ namespace rat {
 		inDeg.reserve(nodes.size() * 2);
 
 		Map<const Node*, List<Node*>> loadsByMem;
-		for (Node* n : nodes)
-			if (n->getOpcode() == Opcode::Load)
-				if (Node* m = detail::memoryInputOf(n))
+		for(Node* n : nodes)
+			if(n->getOpcode() == Opcode::Load)
+				if(Node* m = detail::memoryInputOf(n))
 					loadsByMem[m].push_back(n);
 
 		Map<const Node*, List<Node*>> extraSuccs;
 		auto addAntiDep = [&](Node* writer) {
 			Node* m = detail::memoryInputOf(writer);
-			if (!m)
+			if(!m)
 				return;
 			auto it = loadsByMem.find(m);
-			if (it == loadsByMem.end())
+			if(it == loadsByMem.end())
 				return;
-			for (Node* ld : it->second)
-				if (ld != writer)
+			for(Node* ld : it->second)
+				if(ld != writer)
 					extraSuccs[ld].push_back(writer);
 		};
-		for (Node* n : nodes)
-			if (n->getOpcode() == Opcode::Store || n->getOpcode() == Opcode::Call)
+		for(Node* n : nodes)
+			if(n->getOpcode() == Opcode::Store || n->getOpcode() == Opcode::Call)
 				addAntiDep(n);
 
 		auto laterId = [](const Node* a, const Node* b) { return a->getId() > b->getId(); };
 		std::priority_queue<Node*, std::vector<Node*>, decltype(laterId)> ready(laterId);
 
-		for (Node* n : nodes) {
+		for(Node* n : nodes) {
 			I32 d = 0;
-			for (U32 i = 0, e = n->getInputCount(); i < e; ++i) {
+			for(U32 i = 0, e = n->getInputCount(); i < e; ++i) {
 				Node* in = n->getInput(i);
-				if (in && inBlock.count(in))
+				if(in && inBlock.count(in))
 					++d;
 			}
 			inDeg[n] = d;
 		}
-		for (auto& kv : extraSuccs)
-			for (Node* succ : kv.second)
+		for(auto& kv : extraSuccs)
+			for(Node* succ : kv.second)
 				++inDeg[succ];
 
-		for (Node* n : nodes)
-			if (inDeg[n] == 0)
+		for(Node* n : nodes)
+			if(inDeg[n] == 0)
 				ready.push(n);
 
 		List<Node*> out;
 		out.reserve(nodes.size());
-		while (!ready.empty()) {
+		while(!ready.empty()) {
 			Node* n = ready.top();
 			ready.pop();
 			out.push_back(n);
-			for (Node* u : n->getUsers())
-				if (inBlock.count(u) && --inDeg[u] == 0)
+			for(Node* u : n->getUsers())
+				if(inBlock.count(u) && --inDeg[u] == 0)
 					ready.push(u);
 			auto se = extraSuccs.find(n);
-			if (se != extraSuccs.end())
-				for (Node* succ : se->second)
-					if (--inDeg[succ] == 0)
+			if(se != extraSuccs.end())
+				for(Node* succ : se->second)
+					if(--inDeg[succ] == 0)
 						ready.push(succ);
 		}
 		assert(out.size() == nodes.size() && "cycle in intra-block schedule");

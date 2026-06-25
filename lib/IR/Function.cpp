@@ -48,7 +48,7 @@ namespace rat {
 		List<Type*> startElems;
 		startElems.push_back(tc.getControl());
 		startElems.push_back(tc.getMemory());
-		for (Type* p : paramTypes)
+		for(Type* p : paramTypes)
 			startElems.push_back(p);
 
 		start = create<StartNode>(tc.getTuple(startElems), getParamCount());
@@ -73,9 +73,9 @@ namespace rat {
 	B32 Function::blockFinished() const { return cur && cur->finished; }
 
 	Node* Function::param(U32 index) {
-		if (paramCache.size() <= index)
+		if(paramCache.size() <= index)
 			paramCache.resize(index + 1, nullptr);
-		if (!paramCache[index])
+		if(!paramCache[index])
 			paramCache[index] = proj(start,
 															 StartNode::paramProjIndex(index),
 															 paramTypes[index],
@@ -87,7 +87,7 @@ namespace rat {
 	Node* Function::constBool(B32 value) { return constInt(boolTy(), value ? 1 : 0); }
 	Node* Function::constFloat(Type* type, F64 value) {
 		I64 bits = 0;
-		if (type->getFloatWidth() == 32) {
+		if(type->getFloatWidth() == 32) {
 			F32 f = (F32)value;
 			U32 u;
 			std::memcpy(&u, &f, sizeof(u));
@@ -169,7 +169,7 @@ namespace rat {
 
 	Type* Function::callTupleType(Type* retType) {
 		List<Type*> elems{ctrlTy(), memTy()};
-		if (retType)
+		if(retType)
 			elems.push_back(retType);
 		return mod->getTuple(elems);
 	}
@@ -177,14 +177,14 @@ namespace rat {
 	Node* Function::attachCallProjections(CallNode* c, Type* retType) {
 		cur->ctrl = proj(c, CallNode::controlProjIndex(), ctrlTy(), "ctrl");
 		writeVar(memVar, proj(c, CallNode::memoryProjIndex(), memTy(), "mem"));
-		if (retType)
+		if(retType)
 			return proj(c, CallNode::valueProjIndex(), retType, "ret");
 		return nullptr;
 	}
 
 	Node* Function::call(const String& callee, Type* retType, const List<Node*>& args) {
 		List<Node*> ins{control(), readVar(memVar)};
-		for (Node* a : args)
+		for(Node* a : args)
 			ins.push_back(a);
 
 		CallNode* c = create<CallNode>(callTupleType(retType), callee, retType != nullptr, ins);
@@ -194,7 +194,7 @@ namespace rat {
 	Node* Function::callIndirect(Node* target, Type* retType, const List<Node*>& args) {
 		// inputs: control, memory, target pointer, then the call arguments
 		List<Node*> ins{control(), readVar(memVar), target};
-		for (Node* a : args)
+		for(Node* a : args)
 			ins.push_back(a);
 
 		CallNode* c = create<CallNode>(callTupleType(retType), String(), retType != nullptr, ins, true);
@@ -212,7 +212,7 @@ namespace rat {
 	}
 	PhiNode* Function::phi(Type* type, RegionNode* region, const List<Node*>& values) {
 		List<Node*> ins{region};
-		for (Node* v : values)
+		for(Node* v : values)
 			ins.push_back(v);
 		return create<PhiNode>(type, ins);
 	}
@@ -222,7 +222,7 @@ namespace rat {
 		b->name = std::move(name);
 		b->loopHeader = loopHeader;
 		blocks.push_back(b);
-		if (loopHeader) {
+		if(loopHeader) {
 			b->region = create<RegionNode>(ctrlTy(), List<Node*>{});
 			b->region->setLoopHeader();
 			b->ctrl = b->region;
@@ -239,18 +239,18 @@ namespace rat {
 	void Function::addEdge(Node* exitControl, Block* from, Block* to) {
 		to->preds.push_back(exitControl);
 		to->predBlocks.push_back(from);
-		if (to->region)
+		if(to->region)
 			to->region->addInput(exitControl);
 	}
 
 	void Function::activateOnSeal(Block* block) {
-		if (block->active)
+		if(block->active)
 			return; // loop headers and the entry are already active
-		if (block->preds.size() >= 2) {
+		if(block->preds.size() >= 2) {
 			block->region = create<RegionNode>(ctrlTy(), block->preds);
 			block->ctrl = block->region;
 			block->active = true;
-		} else if (block->preds.size() == 1) {
+		} else if(block->preds.size() == 1) {
 			block->ctrl = block->preds[0]; // single predecessor needs no region
 			block->active = true;
 		}
@@ -259,7 +259,7 @@ namespace rat {
 
 	void Function::seal(Block* block) {
 		activateOnSeal(block);
-		for (auto& kv : block->incompletePhis)
+		for(auto& kv : block->incompletePhis)
 			addPhiOperands(kv.first, kv.second, block);
 		block->incompletePhis.clear();
 		block->sealed = true;
@@ -268,7 +268,7 @@ namespace rat {
 	void Function::setInsertBlock(Block* block) { cur = block; }
 
 	void Function::jmp(Block* target) {
-		if (!cur->ctrl) {
+		if(!cur->ctrl) {
 			cur->finished = true;
 			return;
 		}
@@ -277,7 +277,7 @@ namespace rat {
 	}
 
 	void Function::jumpif(Node* cond, Block* target) {
-		if (!cur->ctrl) {
+		if(!cur->ctrl) {
 			Block* fall = createBlock("ft");
 			cur->finished = true;
 			seal(fall);
@@ -306,7 +306,7 @@ namespace rat {
 
 	Node* Function::readVariable(Var var, Block* block) {
 		auto it = block->defs.find(var);
-		if (it != block->defs.end())
+		if(it != block->defs.end())
 			return it->second;
 		return readVariableRecursive(var, block);
 	}
@@ -317,12 +317,12 @@ namespace rat {
 
 	Node* Function::readVariableRecursive(Var var, Block* block) {
 		Node* val = nullptr;
-		if (!block->sealed) {
+		if(!block->sealed) {
 			// unsealed (loop header): an incomplete phi, completed at seal()
 			PhiNode* p = newIncompletePhi(var, block);
 			block->incompletePhis[var] = p;
 			val = p;
-		} else if (block->preds.size() == 1) {
+		} else if(block->preds.size() == 1) {
 			val = readVariable(var, block->predBlocks[0]);
 		} else {
 			PhiNode* p = newIncompletePhi(var, block);
@@ -334,40 +334,40 @@ namespace rat {
 	}
 
 	Node* Function::addPhiOperands(Var var, PhiNode* phi, Block* block) {
-		for (Block* p : block->predBlocks)
+		for(Block* p : block->predBlocks)
 			phi->addInput(readVariable(var, p)); // aligns with region inputs by order
 		return tryRemoveTrivialPhi(phi);
 	}
 
 	void Function::replacePhiEverywhere(PhiNode* phi, Node* with) {
 		phi->replaceAllUsesWith(with);
-		for (Block* b : blocks)
-			for (auto& kv : b->defs)
-				if (kv.second == phi)
+		for(Block* b : blocks)
+			for(auto& kv : b->defs)
+				if(kv.second == phi)
 					kv.second = with;
 	}
 
 	Node* Function::tryRemoveTrivialPhi(PhiNode* phi) {
 		Node* same = nullptr;
-		for (U32 i = 0, e = phi->getValueCount(); i < e; ++i) {
+		for(U32 i = 0, e = phi->getValueCount(); i < e; ++i) {
 			Node* op = phi->getValue(i);
-			if (op == phi || op == same)
+			if(op == phi || op == same)
 				continue;
-			if (same)
+			if(same)
 				return phi; // two distinct operands -> not trivial
 			same = op;
 		}
-		if (!same)
+		if(!same)
 			return phi; // no real operand yet; leave it
 
 		List<PhiNode*> phiUsers;
-		for (Node* u : phi->getUsers())
-			if (u != phi && u->getOpcode() == Opcode::Phi)
+		for(Node* u : phi->getUsers())
+			if(u != phi && u->getOpcode() == Opcode::Phi)
 				phiUsers.push_back(cast<PhiNode>(u));
 
 		replacePhiEverywhere(phi, same);
 
-		for (PhiNode* pu : phiUsers)
+		for(PhiNode* pu : phiUsers)
 			tryRemoveTrivialPhi(pu);
 		return same;
 	}
@@ -389,15 +389,15 @@ namespace rat {
 		jmp(h);
 		loopStack.push_back({h, x});
 		setInsertBlock(h);
-		if (bodyFn)
+		if(bodyFn)
 			bodyFn();
-		if (!blockFinished())
+		if(!blockFinished())
 			jmp(h);
 		loopStack.pop_back();
 
 		seal(h);
 		seal(x);
-		if (x->active)
+		if(x->active)
 			setInsertBlock(x);
 	}
 
@@ -407,7 +407,7 @@ namespace rat {
 	void Function::continueIf(Node* cond) { jumpif(cond, loopStack.back().header); }
 
 	void Function::ret(Node* value) {
-		if (!cur->ctrl) {
+		if(!cur->ctrl) {
 			cur->finished = true;
 			return;
 		}
@@ -417,7 +417,7 @@ namespace rat {
 	}
 
 	void Function::retVoid() {
-		if (!cur->ctrl) {
+		if(!cur->ctrl) {
 			cur->finished = true;
 			return;
 		}
@@ -438,8 +438,8 @@ namespace rat {
 	U32 Function::size() const { return (U32)nodes.size(); }
 
 	B32 Function::hasReturn() const {
-		for (Node* n : *this)
-			if (n->getOpcode() == Opcode::Return)
+		for(Node* n : *this)
+			if(n->getOpcode() == Opcode::Return)
 				return true;
 		return false;
 	}
@@ -447,13 +447,13 @@ namespace rat {
 	U32 Function::eliminateDeadNodes(B32 includeControl) {
 		U32 removed = 0;
 		B32 changed = true;
-		while (changed) {
+		while(changed) {
 			changed = false;
-			for (auto it = nodes.begin(); it != nodes.end();) {
+			for(auto it = nodes.begin(); it != nodes.end();) {
 				Node* n = *it;
 				B32 dead = !n->hasUsers() && !n->hasSideEffects() && (includeControl || !n->isCFG()) &&
 									 n != start && n != stop;
-				if (dead) {
+				if(dead) {
 					n->clearInputs();
 					it = nodes.erase(it);
 					++removed;
@@ -468,8 +468,8 @@ namespace rat {
 
 	void Function::removeNode(Node* n) {
 		n->clearInputs();
-		for (auto it = nodes.begin(); it != nodes.end(); ++it)
-			if (*it == n) {
+		for(auto it = nodes.begin(); it != nodes.end(); ++it)
+			if(*it == n) {
 				nodes.erase(it);
 				break;
 			}

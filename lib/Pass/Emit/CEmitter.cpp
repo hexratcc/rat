@@ -18,20 +18,20 @@ namespace rat {
 	}
 
 	B32 CEmitterPass::FunctionEmitter::producesTemp(const Node* n) {
-		if (n->getOpcode() == Opcode::Alloc)
+		if(n->getOpcode() == Opcode::Alloc)
 			return false;
 		return Schedule::isFloating(n) || n->getOpcode() == Opcode::Load;
 	}
 
 	void CEmitterPass::FunctionEmitter::computeNeedTemp() {
-		for (I32 b = 0; b < sched.numBlocks(); ++b) {
-			for (PhiNode* phi : sched.block(b).phis)
+		for(I32 b = 0; b < sched.numBlocks(); ++b) {
+			for(PhiNode* phi : sched.block(b).phis)
 				needTemp.insert(phi); // data phis only
-			for (Node* n : sched.block(b).nodes) {
-				if (producesTemp(n))
+			for(Node* n : sched.block(b).nodes) {
+				if(producesTemp(n))
 					needTemp.insert(n);
-				if (n->getOpcode() == Opcode::Call)
-					if (ProjNode* p = n->projection(CallNode::valueProjIndex()))
+				if(n->getOpcode() == Opcode::Call)
+					if(ProjNode* p = n->projection(CallNode::valueProjIndex()))
 						needTemp.insert(p);
 			}
 		}
@@ -44,12 +44,12 @@ namespace rat {
 	String CEmitterPass::FunctionEmitter::floatLiteral(Node* n) {
 		I64 raw = cast<ConstantNode>(n)->getValue();
 		C8 buf[64];
-		if (n->getType()->getFloatWidth() == 32) {
+		if(n->getType()->getFloatWidth() == 32) {
 			U32 u = (U32)(U64)raw;
 			F32 f;
 			std::memcpy(&f, &u, sizeof(f));
 			std::snprintf(buf, sizeof(buf), "%af", (F64)f);
-		} else if (n->getType()->getFloatWidth() == 128) {
+		} else if(n->getType()->getFloatWidth() == 128) {
 			U64 u = (U64)raw;
 			F64 d;
 			std::memcpy(&d, &u, sizeof(d));
@@ -64,10 +64,10 @@ namespace rat {
 	}
 
 	String CEmitterPass::FunctionEmitter::valueExpr(Node* n) {
-		if (n->getOpcode() == Opcode::Constant) {
-			if (n->getType()->isFloat())
+		if(n->getOpcode() == Opcode::Constant) {
+			if(n->getType()->isFloat())
 				return floatLiteral(n);
-			if (n->getType()->isPtr()) {
+			if(n->getType()->isPtr()) {
 				std::ostringstream oss;
 				oss << "((char *)" << cast<ConstantNode>(n)->getValue() << "LL)";
 				return oss.str();
@@ -75,7 +75,7 @@ namespace rat {
 			U32 width = n->getType()->getIntWidth();
 			I64 raw = cast<ConstantNode>(n)->getValue();
 			I64 v = raw;
-			if (width > 1 && width < 64) {
+			if(width > 1 && width < 64) {
 				U64 mask = ((U64)1 << width) - 1;
 				U64 bits = (U64)raw & mask;
 				U64 sign = (U64)1 << (width - 1);
@@ -83,19 +83,19 @@ namespace rat {
 			}
 			std::ostringstream oss;
 			oss << v;
-			if (width > 32)
+			if(width > 32)
 				oss << "LL";
 			return oss.str();
 		}
-		if (const ProjNode* p = dyn_cast<ProjNode>(n)) {
+		if(const ProjNode* p = dyn_cast<ProjNode>(n)) {
 			Node* prod = p->getProducer();
-			if (prod->getOpcode() == Opcode::Start && p->getIndex() >= 2)
+			if(prod->getOpcode() == Opcode::Start && p->getIndex() >= 2)
 				return "arg" + std::to_string(p->getIndex() - 2);
 			return temp(n);
 		}
-		if (GlobalNode* g = dyn_cast<GlobalNode>(n))
+		if(GlobalNode* g = dyn_cast<GlobalNode>(n))
 			return "((char *)&" + g->getSymbol() + ")";
-		if (isa<AllocNode>(n))
+		if(isa<AllocNode>(n))
 			return "((char *)" + temp(n) + ")";
 		return temp(n);
 	}
@@ -107,7 +107,7 @@ namespace rat {
 		String b = valueExpr(bin->getRHS());
 		String u = "(" + intCType(width, false) + ")";
 		String s = "(" + intCType(width, true) + ")";
-		switch (n->getOpcode()) {
+		switch(n->getOpcode()) {
 		case Opcode::Add:
 			return a + " + " + b;
 		case Opcode::Sub:
@@ -154,7 +154,7 @@ namespace rat {
 		String a = valueExpr(cmp->getLHS());
 		String b = valueExpr(cmp->getRHS());
 		String u = "(" + intCType(width, false) + ")";
-		switch (n->getOpcode()) {
+		switch(n->getOpcode()) {
 		case Opcode::Eq:
 			return a + " == " + b;
 		case Opcode::Ne:
@@ -188,13 +188,13 @@ namespace rat {
 		auto* cv = cast<ConvertNode>(n);
 		Node* src = cv->getOperand();
 		String a = valueExpr(src);
-		if (n->getType()->isPtr())
+		if(n->getType()->isPtr())
 			return "((char *)(" + a + "))";
-		if (src->getType()->isPtr())
+		if(src->getType()->isPtr())
 			return "((" + intCType(n->getType()->getIntWidth(), true) + ")(" + a + "))";
 		U32 dstW = n->getType()->getIntWidth();
 		U32 srcW = src->getType()->getIntWidth();
-		switch (n->getOpcode()) {
+		switch(n->getOpcode()) {
 		case Opcode::Trunc:
 		case Opcode::SExt:
 			return "(" + intCType(dstW, true) + ")" + a;
@@ -225,9 +225,9 @@ namespace rat {
 		CEmitterPass::emitSignatureInto(fn, os);
 		os << " {\n";
 
-		for (const Node* nc : fn) {
+		for(const Node* nc : fn) {
 			Node* n = const_cast<Node*>(nc);
-			if (!needTemp.count(n))
+			if(!needTemp.count(n))
 				continue;
 			os << "  " << cType(n->getType()) << " " << temp(n) << ";\n";
 		}
@@ -235,13 +235,13 @@ namespace rat {
 		// stack allocations become local byte buffers
 		U32 ptrBytes = fn.getModule().pointerBytes();
 		B32 anyAlloc = false;
-		for (const Node* nc : fn) {
-			if (AllocNode* a = dyn_cast<AllocNode>(const_cast<Node*>(nc))) {
-				if (a->isVariableSized()) {
+		for(const Node* nc : fn) {
+			if(AllocNode* a = dyn_cast<AllocNode>(const_cast<Node*>(nc))) {
+				if(a->isVariableSized()) {
 					os << "  unsigned char *" << temp(a) << ";\n";
 				} else {
 					U32 size = a->getAllocType()->byteSize(ptrBytes);
-					if (size == 0)
+					if(size == 0)
 						size = 1;
 					os << "  unsigned char " << temp(a) << "[" << size << "];\n";
 				}
@@ -249,26 +249,26 @@ namespace rat {
 			}
 		}
 
-		if (!needTemp.empty() || anyAlloc)
+		if(!needTemp.empty() || anyAlloc)
 			os << "\n";
 
 		// only label blocks that are jump targets
 		I32 nb = sched.numBlocks();
 		List<C8> isTarget(nb, 0);
-		for (I32 b = 0; b < nb; ++b) {
+		for(I32 b = 0; b < nb; ++b) {
 			const Schedule::Block& blk = sched.block(b);
-			if (blk.term == TK::Branch) {
+			if(blk.term == TK::Branch) {
 				isTarget[blk.thenB] = 1;
 				isTarget[blk.elseB] = 1;
-			} else if (blk.term == TK::Goto) {
+			} else if(blk.term == TK::Goto) {
 				isTarget[blk.gotoB] = 1;
 			}
 		}
 
-		for (I32 b : sched.rpo()) {
-			if (isTarget[b])
+		for(I32 b : sched.rpo()) {
+			if(isTarget[b])
 				os << "L" << b << ":;\n";
-			for (Node* n : sched.block(b).nodes)
+			for(Node* n : sched.block(b).nodes)
 				emitStatement(n);
 			emitTerminator(b);
 		}
@@ -277,7 +277,7 @@ namespace rat {
 	}
 
 	void CEmitterPass::FunctionEmitter::emitStatement(Node* n) {
-		switch (n->getOpcode()) {
+		switch(n->getOpcode()) {
 		case Opcode::Store: {
 			auto* s = cast<StoreNode>(n);
 			String ptrTy = cType(s->getValue()->getType(), true) + " *";
@@ -293,7 +293,7 @@ namespace rat {
 			return;
 		case Opcode::Alloc: {
 			auto* a = cast<AllocNode>(n);
-			if (a->isVariableSized())
+			if(a->isVariableSized())
 				os << "  " << temp(a) << " = __builtin_alloca(" << valueExpr(a->getSizeOperand()) << ");\n";
 			return;
 		}
@@ -301,11 +301,11 @@ namespace rat {
 			break;
 		}
 		String rhs;
-		if (isCompareOpcode(n->getOpcode()))
+		if(isCompareOpcode(n->getOpcode()))
 			rhs = cmpExpr(n);
-		else if (isConvertOpcode(n->getOpcode()))
+		else if(isConvertOpcode(n->getOpcode()))
 			rhs = convExpr(n);
-		else if (isUnaryOpcode(n->getOpcode())) {
+		else if(isUnaryOpcode(n->getOpcode())) {
 			auto* un = cast<UnaryNode>(n);
 			rhs = (n->getOpcode() == Opcode::Not ? "~" : "-") + valueExpr(un->getOperand());
 		} else
@@ -321,35 +321,35 @@ namespace rat {
 
 	void CEmitterPass::FunctionEmitter::emitCall(CallNode* c) {
 		std::ostringstream args;
-		for (U32 i = 0, e = c->getArgCount(); i < e; ++i) {
-			if (i)
+		for(U32 i = 0, e = c->getArgCount(); i < e; ++i) {
+			if(i)
 				args << ", ";
 			args << valueExpr(c->getArg(i));
 		}
 		Node* valProj = c->projection(CallNode::valueProjIndex());
 
-		if (valProj && !c->isIndirect() && isVoidBuiltin(c->getCallee())) {
+		if(valProj && !c->isIndirect() && isVoidBuiltin(c->getCallee())) {
 			os << "  " << temp(valProj) << " = (" << c->getCallee() << "(" << args.str() << "), 0);\n";
 			return;
 		}
 
 		os << "  ";
-		if (valProj)
+		if(valProj)
 			os << temp(valProj) << " = ";
-		if (c->isIndirect()) {
+		if(c->isIndirect()) {
 			String ret = valProj ? cType(valProj->getType()) : String("void");
 			std::ostringstream sig;
 			sig << ret << " (*)(";
-			for (U32 i = 0, e = c->getArgCount(); i < e; ++i) {
-				if (i)
+			for(U32 i = 0, e = c->getArgCount(); i < e; ++i) {
+				if(i)
 					sig << ", ";
 				sig << cType(c->getArg(i)->getType());
 			}
-			if (c->getArgCount() == 0)
+			if(c->getArgCount() == 0)
 				sig << "void";
 			sig << ")";
 			os << "((" << sig.str() << ")" << valueExpr(c->getTarget()) << ")(" << args.str() << ");\n";
-		} else if (emitVaIntrinsic(c, valProj)) {
+		} else if(emitVaIntrinsic(c, valProj)) {
 			return;
 		} else {
 			os << c->getCallee() << "(" << args.str() << ");\n";
@@ -361,15 +361,15 @@ namespace rat {
 		auto vaList = [&](U32 argIdx) {
 			return "*(__builtin_va_list *)(" + valueExpr(c->getArg(argIdx)) + ")";
 		};
-		if (callee == "__builtin_va_arg") {
+		if(callee == "__builtin_va_arg") {
 			os << "__builtin_va_arg(" << vaList(0) << ", " << cType(valProj->getType()) << ");\n";
 			return true;
 		}
-		if (callee == "__builtin_va_start") {
+		if(callee == "__builtin_va_start") {
 			os << "__builtin_va_start(" << vaList(0) << ", " << valueExpr(c->getArg(1)) << ");\n";
 			return true;
 		}
-		if (callee == "__builtin_va_end") {
+		if(callee == "__builtin_va_end") {
 			os << "__builtin_va_end(" << vaList(0) << ");\n";
 			return true;
 		}
@@ -379,9 +379,9 @@ namespace rat {
 	List<CEmitterPass::FunctionEmitter::Move>
 	CEmitterPass::FunctionEmitter::collectPhiMoves(I32 targetRegionB, I32 predIdx) {
 		List<Move> moves;
-		for (PhiNode* phi : sched.block(targetRegionB).phis) {
+		for(PhiNode* phi : sched.block(targetRegionB).phis) {
 			Node* v = phi->getValue(predIdx);
-			if (v != phi)
+			if(v != phi)
 				moves.push_back({phi, v, String()});
 		}
 		return moves;
@@ -389,27 +389,27 @@ namespace rat {
 
 	void CEmitterPass::FunctionEmitter::writeMoveBlock(const List<String>& scratchDecls,
 																										 const List<String>& lines) {
-		if (scratchDecls.empty()) {
-			for (const String& l : lines)
+		if(scratchDecls.empty()) {
+			for(const String& l : lines)
 				os << "  " << l << "\n";
 			return;
 		}
 		os << "  {\n";
-		for (const String& d : scratchDecls)
+		for(const String& d : scratchDecls)
 			os << "    " << d << "\n";
-		for (const String& l : lines)
+		for(const String& l : lines)
 			os << "    " << l << "\n";
 		os << "  }\n";
 	}
 
 	void CEmitterPass::FunctionEmitter::emitPhiCopies(I32 targetRegionB, I32 predIdx) {
 		List<Move> pending = collectPhiMoves(targetRegionB, predIdx);
-		if (pending.empty())
+		if(pending.empty())
 			return;
 
 		auto readsDest = [&](Node* dst, const Move* self) {
-			for (const Move& m : pending)
-				if (&m != self && m.srcNode == dst)
+			for(const Move& m : pending)
+				if(&m != self && m.srcNode == dst)
 					return true;
 			return false;
 		};
@@ -419,11 +419,11 @@ namespace rat {
 		List<String> scratchDecls;
 		U32 scratchN = 0;
 
-		while (!pending.empty()) {
+		while(!pending.empty()) {
 			B32 progress = false;
-			for (U32 i = 0; i < (U32)pending.size();) {
+			for(U32 i = 0; i < (U32)pending.size();) {
 				Move& m = pending[i];
-				if (readsDest(m.dst, &m)) {
+				if(readsDest(m.dst, &m)) {
 					++i;
 					continue;
 				}
@@ -431,17 +431,17 @@ namespace rat {
 				pending.erase(pending.begin() + i);
 				progress = true;
 			}
-			if (pending.empty())
+			if(pending.empty())
 				break;
-			if (!progress) {
+			if(!progress) {
 				// break a cycle
 				Move& c = pending.front();
 				String nm = "__pc" + std::to_string(scratchN++);
 				scratchDecls.push_back(cType(c.dst->getType()) + " " + nm + ";");
 				lines.push_back(nm + " = " + temp(c.dst) + ";");
 				Node* cycleDst = c.dst;
-				for (Move& m : pending)
-					if (m.srcNode == cycleDst) {
+				for(Move& m : pending)
+					if(m.srcNode == cycleDst) {
 						m.srcNode = nullptr;
 						m.srcExpr = nm;
 					}
@@ -453,10 +453,10 @@ namespace rat {
 
 	void CEmitterPass::FunctionEmitter::emitTerminator(I32 b) {
 		const Schedule::Block& blk = sched.block(b);
-		switch (blk.term) {
+		switch(blk.term) {
 		case TK::Return: {
 			auto* r = cast<ReturnNode>(blk.termNode);
-			if (r->hasValue())
+			if(r->hasValue())
 				os << "  return " << valueExpr(r->getValue()) << ";\n";
 			else
 				os << "  return;\n";
@@ -476,14 +476,14 @@ namespace rat {
 	}
 
 	String CEmitterPass::intCType(U32 width, B32 isSigned) {
-		if (width <= 1)
+		if(width <= 1)
 			return "int"; // booleans
 		const C8* s;
-		if (width <= 8)
+		if(width <= 8)
 			s = isSigned ? "int8_t" : "uint8_t";
-		else if (width <= 16)
+		else if(width <= 16)
 			s = isSigned ? "int16_t" : "uint16_t";
-		else if (width <= 32)
+		else if(width <= 32)
 			s = isSigned ? "int32_t" : "uint32_t";
 		else
 			s = isSigned ? "int64_t" : "uint64_t";
@@ -492,10 +492,10 @@ namespace rat {
 	}
 
 	String CEmitterPass::cType(const Type* t, B32 isSigned) {
-		if (t->isInt())
+		if(t->isInt())
 			return intCType(t->getIntWidth(), isSigned);
-		if (t->isFloat()) {
-			switch (t->getFloatWidth()) {
+		if(t->isFloat()) {
+			switch(t->getFloatWidth()) {
 			case 32:
 				return "float";
 			case 128:
@@ -504,7 +504,7 @@ namespace rat {
 				return "double";
 			}
 		}
-		if (t->isPtr())
+		if(t->isPtr())
 			return "char *"; // byte-addressed; typed accesses cast
 		return "void";
 	}
@@ -519,14 +519,14 @@ namespace rat {
 	void CEmitterPass::emitSignatureInto(const Function& fn, std::ostream& os) {
 		os << (fn.returnsValue() ? cType(fn.getReturnType()) : String("void")) << " " << fn.getName()
 			 << "(";
-		if (fn.getParamCount() == 0)
+		if(fn.getParamCount() == 0)
 			os << "void";
-		for (U32 i = 0, e = fn.getParamCount(); i < e; ++i) {
-			if (i)
+		for(U32 i = 0, e = fn.getParamCount(); i < e; ++i) {
+			if(i)
 				os << ", ";
 			os << cType(fn.getParamType(i)) << " arg" << i;
 		}
-		if (fn.isVariadic())
+		if(fn.isVariadic())
 			os << ", ...";
 		os << ")";
 	}
@@ -534,7 +534,7 @@ namespace rat {
 	void CEmitterPass::emitPrologue(const Module& module) {
 		*os << "#include <stdint.h>\n";
 		// verify ptr size
-		if (const TargetInfo* t = module.target()) {
+		if(const TargetInfo* t = module.target()) {
 			*os << "#include <limits.h>\n";
 			*os << "_Static_assert(sizeof(void *) * CHAR_BIT == " << t->getPointerSizeInBits()
 					<< ",\n               \"Rat module built for target '" << t->getName() << "' ("
@@ -544,7 +544,7 @@ namespace rat {
 	}
 
 	void CEmitterPass::emitForwardDecls(const Module& module) {
-		for (const Function* fn : module) {
+		for(const Function* fn : module) {
 			emitSignature(*fn);
 			*os << ";\n";
 		}
@@ -552,49 +552,49 @@ namespace rat {
 
 	void CEmitterPass::emitExternDecls(const Module& module) {
 		Set<String> defined;
-		for (const Function* fn : module)
+		for(const Function* fn : module)
 			defined.insert(fn->getName());
 		Map<String, const Type*> externs; // name -> return type (null = void)
 		List<String> order;
-		for (const Function* fn : module) {
-			for (const Node* nc : *fn) {
+		for(const Function* fn : module) {
+			for(const Node* nc : *fn) {
 				CallNode* c = dyn_cast<CallNode>(const_cast<Node*>(nc));
-				if (!c || c->isIndirect())
+				if(!c || c->isIndirect())
 					continue;
 				const String& name = c->getCallee();
-				if (defined.count(name) || isCompilerBuiltin(name))
+				if(defined.count(name) || isCompilerBuiltin(name))
 					continue;
 				Node* vp = c->projection(CallNode::valueProjIndex());
 				const Type* rt = vp ? vp->getType() : nullptr;
 				auto it = externs.find(name);
-				if (it == externs.end()) {
+				if(it == externs.end()) {
 					externs.emplace(name, rt);
 					order.push_back(name);
-				} else if (!it->second && rt) {
+				} else if(!it->second && rt) {
 					it->second = rt; // a value-returning use overrides a void one
 				}
 			}
 		}
-		for (const String& name : order)
+		for(const String& name : order)
 			*os << "extern " << (externs[name] ? cType(externs[name]) : String("void")) << " " << name
 					<< "();\n";
 
 		Set<String> known;
-		for (const Function* fn : module)
+		for(const Function* fn : module)
 			known.insert(fn->getName());
-		for (const Global* g : module.globals())
+		for(const Global* g : module.globals())
 			known.insert(g->getName());
 		Set<String> emitted;
-		for (const Global* g : module.globals())
-			for (const Reloc& r : g->getRelocs())
-				if (!known.count(r.symbol) && !isCompilerBuiltin(r.symbol) &&
-						emitted.insert(r.symbol).second)
+		for(const Global* g : module.globals())
+			for(const Reloc& r : g->getRelocs())
+				if(!known.count(r.symbol) && !isCompilerBuiltin(r.symbol) &&
+					 emitted.insert(r.symbol).second)
 					*os << "extern char " << r.symbol << "[];\n";
-		for (const Function* fn : module)
-			for (const Node* nc : *fn)
-				if (const GlobalNode* gn = dyn_cast<GlobalNode>(const_cast<Node*>(nc))) {
+		for(const Function* fn : module)
+			for(const Node* nc : *fn)
+				if(const GlobalNode* gn = dyn_cast<GlobalNode>(const_cast<Node*>(nc))) {
 					const String& sym = gn->getSymbol();
-					if (!known.count(sym) && !isCompilerBuiltin(sym) && emitted.insert(sym).second)
+					if(!known.count(sym) && !isCompilerBuiltin(sym) && emitted.insert(sym).second)
 						*os << "extern char " << sym << "[];\n";
 				}
 		*os << "\n";
@@ -610,44 +610,44 @@ namespace rat {
 
 		*os << cst << "struct __attribute__((packed)) {\n";
 		U32 pos = 0, fi = 0;
-		for (U32 i = 0; i < rl.size(); ++i) {
-			if (rl[i].offset > pos)
+		for(U32 i = 0; i < rl.size(); ++i) {
+			if(rl[i].offset > pos)
 				*os << "\tunsigned char b" << fi++ << "[" << (rl[i].offset - pos) << "];\n";
 			*os << "\tvoid *p" << i << ";\n";
 			pos = rl[i].offset + ptrBytes;
 		}
-		if (size > pos)
+		if(size > pos)
 			*os << "\tunsigned char b" << fi++ << "[" << (size - pos) << "];\n";
 
 		*os << "} " << g.getName() << " = {\n";
 		pos = 0;
 		B32 first = true;
 		auto comma = [&]() {
-			if (!first)
+			if(!first)
 				*os << ",\n";
 			first = false;
 		};
 		auto byteRun = [&](U32 from, U32 to) {
 			comma();
 			*os << "\t{";
-			for (U32 b = from; b < to; ++b) {
-				if (b != from)
+			for(U32 b = from; b < to; ++b) {
+				if(b != from)
 					*os << ", ";
 				*os << byteAt(b);
 			}
 			*os << "}";
 		};
-		for (U32 i = 0; i < rl.size(); ++i) {
-			if (rl[i].offset > pos)
+		for(U32 i = 0; i < rl.size(); ++i) {
+			if(rl[i].offset > pos)
 				byteRun(pos, rl[i].offset);
 			comma();
 			*os << "\t(void *)((char *)&" << rl[i].symbol;
-			if (rl[i].addend)
+			if(rl[i].addend)
 				*os << " + (" << rl[i].addend << ")";
 			*os << ")";
 			pos = rl[i].offset + ptrBytes;
 		}
-		if (size > pos)
+		if(size > pos)
 			byteRun(pos, size);
 		*os << "\n};\n";
 	}
@@ -655,12 +655,12 @@ namespace rat {
 	void CEmitterPass::emitGlobals(const Module& module) {
 		U32 ptrBytes = module.pointerBytes();
 		B32 anyGlobal = false;
-		for (const Global* g : module.globals()) {
+		for(const Global* g : module.globals()) {
 			U32 size = g->getType()->byteSize(ptrBytes);
-			if (size == 0)
+			if(size == 0)
 				size = (U32)g->getInit().size();
 			const List<U8>& init = g->getInit();
-			if (!g->getRelocs().empty()) {
+			if(!g->getRelocs().empty()) {
 				emitRelocGlobal(*g, size, ptrBytes);
 				anyGlobal = true;
 				continue;
@@ -668,20 +668,20 @@ namespace rat {
 			*os << (g->isConstant() ? "const " : "") << "unsigned char " << g->getName() << "[" << size
 					<< "] = {";
 			U32 last = 0;
-			for (U32 i = 0; i < size; ++i)
-				if (i < init.size() && init[i] != 0)
+			for(U32 i = 0; i < size; ++i)
+				if(i < init.size() && init[i] != 0)
 					last = i + 1;
-			if (last == 0)
+			if(last == 0)
 				last = 1; // at least one element to keep the brace list valid
-			for (U32 i = 0; i < last; ++i) {
-				if (i)
+			for(U32 i = 0; i < last; ++i) {
+				if(i)
 					*os << ", ";
 				*os << (U32)(i < init.size() ? init[i] : 0);
 			}
 			*os << "};\n";
 			anyGlobal = true;
 		}
-		if (anyGlobal)
+		if(anyGlobal)
 			*os << "\n";
 	}
 
@@ -694,8 +694,8 @@ namespace rat {
 		emitGlobals(module);
 
 		B32 first = true;
-		for (const Function* fn : module) {
-			if (!first)
+		for(const Function* fn : module) {
+			if(!first)
 				*os << "\n";
 			first = false;
 			emitFunction(*fn);

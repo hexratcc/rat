@@ -19,15 +19,15 @@ namespace {
 
 	void listPasses(std::ostream& os) {
 		os << "passes:\n";
-		for (const PassRegistry::Entry& e : passRegistry().entries())
+		for(const PassRegistry::Entry& e : passRegistry().entries())
 			os << "  " << e.name << std::string(14 > e.name.size() ? 14 - e.name.size() : 1, ' ')
 				 << e.description << "\n";
 	}
 
 	void addEmitter(PassManager& pm, const String& kind, std::ostream& os) {
-		if (kind == "c")
+		if(kind == "c")
 			pm.add<CEmitterPass>(os);
-		else if (kind == "dot")
+		else if(kind == "dot")
 			pm.add<GraphEmitterPass>(os);
 		else
 			pm.add<TextEmitterPass>(os);
@@ -42,33 +42,33 @@ I32 main(I32 argc, char** argv) {
 	B32 stats = false;
 	B32 doVerify = false;
 
-	for (I32 i = 1; i < argc; ++i) {
+	for(I32 i = 1; i < argc; ++i) {
 		String arg = argv[i];
-		if (arg == "-h" || arg == "--help") {
+		if(arg == "-h" || arg == "--help") {
 			usage(std::cout, argv[0]);
 			return 0;
-		} else if (arg == "-list-passes") {
+		} else if(arg == "-list-passes") {
 			listPasses(std::cout);
 			return 0;
-		} else if (arg == "-stats") {
+		} else if(arg == "-stats") {
 			stats = true;
-		} else if (arg == "-verify") {
+		} else if(arg == "-verify") {
 			doVerify = true;
-		} else if (arg.rfind("-passes=", 0) == 0) {
+		} else if(arg.rfind("-passes=", 0) == 0) {
 			passSpec = arg.substr(8);
-		} else if (arg.rfind("-emit=", 0) == 0) {
+		} else if(arg.rfind("-emit=", 0) == 0) {
 			emitKind = arg.substr(6);
-		} else if (arg == "-o") {
-			if (++i >= argc) {
+		} else if(arg == "-o") {
+			if(++i >= argc) {
 				std::cerr << "rat: -o requires a file argument\n";
 				return 2;
 			}
 			outputPath = argv[i];
-		} else if (!arg.empty() && arg[0] == '-') {
+		} else if(!arg.empty() && arg[0] == '-') {
 			std::cerr << "rat: unknown option '" << arg << "'\n";
 			usage(std::cerr, argv[0]);
 			return 2;
-		} else if (inputPath.empty()) {
+		} else if(inputPath.empty()) {
 			inputPath = arg;
 		} else {
 			std::cerr << "rat: unexpected extra argument '" << arg << "'\n";
@@ -76,24 +76,24 @@ I32 main(I32 argc, char** argv) {
 		}
 	}
 
-	if (emitKind != "text" && emitKind != "c" && emitKind != "dot") {
+	if(emitKind != "text" && emitKind != "c" && emitKind != "dot") {
 		std::cerr << "rat: unknown -emit value '" << emitKind << "' (expected text, c, or dot)\n";
 		return 2;
 	}
 
 	String source;
-	if (inputPath.empty()) {
-		if (!readAll(std::cin, source)) {
+	if(inputPath.empty()) {
+		if(!readAll(std::cin, source)) {
 			std::cerr << "rat: failed to read stdin\n";
 			return 1;
 		}
 	} else {
 		std::ifstream f(inputPath);
-		if (!f) {
+		if(!f) {
 			std::cerr << "rat: cannot open '" << inputPath << "'\n";
 			return 1;
 		}
-		if (!readAll(f, source)) {
+		if(!readAll(f, source)) {
 			std::cerr << "rat: failed to read '" << inputPath << "'\n";
 			return 1;
 		}
@@ -102,15 +102,15 @@ I32 main(I32 argc, char** argv) {
 	Generic64 target;
 	Module module;
 	module.setTarget(&target);
-	if (!parseText(source, module, std::cerr)) {
+	if(!parseText(source, module, std::cerr)) {
 		std::cerr << "rat: parse error\n";
 		return 1;
 	}
 
 	std::ofstream outFile;
-	if (!outputPath.empty()) {
+	if(!outputPath.empty()) {
 		outFile.open(outputPath);
-		if (!outFile) {
+		if(!outFile) {
 			std::cerr << "rat: cannot open '" << outputPath << "' for writing\n";
 			return 1;
 		}
@@ -119,11 +119,11 @@ I32 main(I32 argc, char** argv) {
 
 	PassManager pm;
 	String err;
-	if (!buildPipeline(pm, passSpec, out, err)) {
+	if(!buildPipeline(pm, passSpec, out, err)) {
 		std::cerr << "rat: " << err << "\n";
 		return 2;
 	}
-	if (doVerify)
+	if(doVerify)
 		pm.add<VerifyPass>(std::cerr);
 	addEmitter(pm, emitKind, out);
 

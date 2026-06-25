@@ -11,9 +11,9 @@ namespace rat {
 
 	B32 PassManager::run(Module& module, std::ostream* log) {
 		B32 changed = false;
-		for (auto& pass : passes) {
+		for(auto& pass : passes) {
 			B32 c = pass->run(module);
-			if (log)
+			if(log)
 				*log << "; " << pass->name() << (c ? " : changed\n" : " : unchanged\n");
 			changed = changed || c;
 		}

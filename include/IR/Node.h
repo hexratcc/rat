@@ -252,14 +252,14 @@ namespace rat {
 
 	template <typename T> List<T*> usersOfType(const Node* n) {
 		List<T*> out;
-		for (Node* u : n->getUsers())
-			if (T* t = dyn_cast<T>(u))
+		for(Node* u : n->getUsers())
+			if(T* t = dyn_cast<T>(u))
 				out.push_back(t);
 		return out;
 	}
 
 	inline B32 isControlNode(const Node* n) {
-		switch (n->getOpcode()) {
+		switch(n->getOpcode()) {
 		case Opcode::Start:
 		case Opcode::Stop:
 		case Opcode::Return:

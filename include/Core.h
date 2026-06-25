@@ -68,7 +68,7 @@ namespace rat {
 	struct Arena {
 		Arena() = default;
 		~Arena() {
-			for (auto it = dtors.rbegin(); it != dtors.rend(); ++it)
+			for(auto it = dtors.rbegin(); it != dtors.rend(); ++it)
 				it->run(it->obj);
 		}
 
@@ -78,14 +78,14 @@ namespace rat {
 		template <typename T, typename... Args> T* make(Args&&... args) {
 			void* mem = allocate(sizeof(T), alignof(T));
 			T* obj = ::new (mem) T(std::forward<Args>(args)...);
-			if constexpr (!std::is_trivially_destructible_v<T>)
+			if constexpr(!std::is_trivially_destructible_v<T>)
 				registerDtor(obj, [](void* p) { static_cast<T*>(p)->~T(); });
 			return obj;
 		}
 	private:
 		void* allocate(U64 size, U64 align) {
 			C8* aligned = cur ? detail::alignUp(cur, align) : nullptr;
-			if (!aligned || aligned + size > end) {
+			if(!aligned || aligned + size > end) {
 				U64 chunkSize = size + align > detail::kDefaultChunk ? size + align : detail::kDefaultChunk;
 				chunks.push_back(UniquePtr<C8[]>(new C8[chunkSize]));
 				cur = chunks.back().get();

@@ -19,15 +19,15 @@ namespace rat {
 			Set<Node*> seen;
 			seen.insert(fn.getStart());
 			List<Node*> work;
-			if (Node* e = fn.getStart()->projection(StartNode::controlProjIndex()))
+			if(Node* e = fn.getStart()->projection(StartNode::controlProjIndex()))
 				work.push_back(e);
-			while (!work.empty()) {
+			while(!work.empty()) {
 				Node* n = work.back();
 				work.pop_back();
-				if (!seen.insert(n).second)
+				if(!seen.insert(n).second)
 					continue;
-				for (Node* u : n->getUsers())
-					if (isControlNode(u))
+				for(Node* u : n->getUsers())
+					if(isControlNode(u))
 						work.push_back(u);
 			}
 			return seen;
@@ -35,8 +35,8 @@ namespace rat {
 
 		List<Node*> nodesOfOpcode(Function& fn, Opcode op) {
 			List<Node*> out;
-			for (Node* n : fn)
-				if (n->getOpcode() == op)
+			for(Node* n : fn)
+				if(n->getOpcode() == op)
 					out.push_back(n);
 			return out;
 		}
@@ -48,19 +48,19 @@ namespace rat {
 	U32 simplifyCFG(Function& fn) {
 		U32 changed = 0;
 		B32 again = true;
-		while (again) {
+		while(again) {
 			again = false;
 
 			// constant branch folding
-			for (Node* n : nodesOfOpcode(fn, Opcode::If)) {
+			for(Node* n : nodesOfOpcode(fn, Opcode::If)) {
 				IfNode* iff = cast<IfNode>(n);
 				Node* pred = iff->getPredicate();
 				ConstantNode* c = dyn_cast<ConstantNode>(pred);
-				if (!c)
+				if(!c)
 					continue;
 				U32 takenIdx = c->getValue() != 0 ? IfNode::thenProjIndex() : IfNode::elseProjIndex();
 				Node* ctrl = iff->getControl();
-				if (ProjNode* taken = iff->projection(takenIdx))
+				if(ProjNode* taken = iff->projection(takenIdx))
 					taken->replaceAllUsesWith(ctrl);
 				iff->clearInputs();
 				++changed;
@@ -71,15 +71,15 @@ namespace rat {
 			auto regions = nodesOfOpcode(fn, Opcode::Region);
 
 			// drop region predecessors whose control is no longer reachable
-			for (Node* n : regions) {
+			for(Node* n : regions) {
 				RegionNode* r = cast<RegionNode>(n);
-				if (!reach.count(r))
+				if(!reach.count(r))
 					continue;
 				List<PhiNode*> phis = phisOn(r);
-				for (I32 i = (I32)r->getPredecessorCount() - 1; i >= 0; --i) {
-					if (reach.count(r->getPredecessor(i)))
+				for(I32 i = (I32)r->getPredecessorCount() - 1; i >= 0; --i) {
+					if(reach.count(r->getPredecessor(i)))
 						continue;
-					for (PhiNode* phi : phis)
+					for(PhiNode* phi : phis)
 						phi->removeInput(1 + i);
 					r->removeInput(i);
 					++changed;
@@ -88,11 +88,11 @@ namespace rat {
 			}
 
 			// collapse single predecessor regions
-			for (Node* n : regions) {
+			for(Node* n : regions) {
 				RegionNode* r = cast<RegionNode>(n);
-				if (!reach.count(r) || r->getPredecessorCount() != 1)
+				if(!reach.count(r) || r->getPredecessorCount() != 1)
 					continue;
-				for (PhiNode* phi : phisOn(r))
+				for(PhiNode* phi : phisOn(r))
 					phi->replaceAllUsesWith(phi->getValue(0));
 				r->replaceAllUsesWith(r->getPredecessor(0));
 				++changed;

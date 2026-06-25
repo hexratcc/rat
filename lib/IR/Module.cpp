@@ -33,8 +33,8 @@ namespace rat {
 	}
 
 	Function* Module::getFunction(const String& name) const {
-		for (Function* fn : funcs) {
-			if (fn->getName() == name)
+		for(Function* fn : funcs) {
+			if(fn->getName() == name)
 				return fn;
 		}
 		return nullptr;
@@ -54,8 +54,8 @@ namespace rat {
 	}
 
 	Global* Module::getGlobal(const String& name) const {
-		for (Global* g : globs) {
-			if (g->getName() == name)
+		for(Global* g : globs) {
+			if(g->getName() == name)
 				return g;
 		}
 		return nullptr;

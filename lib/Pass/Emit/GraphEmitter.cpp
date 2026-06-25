@@ -13,7 +13,7 @@ namespace rat {
 	void GraphEmitterPass::getStyle(const Node* n, String& label, String& attrs) {
 		std::ostringstream l;
 		l << "v" << n->getId() << " " << n->getMnemonic();
-		switch (n->getOpcode()) {
+		switch(n->getOpcode()) {
 		case Opcode::Constant:
 			l << " " << cast<ConstantNode>(n)->getValue();
 			attrs = "shape=note, style=filled, fillcolor=\"#fff2cc\"";
@@ -21,7 +21,7 @@ namespace rat {
 		case Opcode::Proj: {
 			const auto* p = cast<ProjNode>(n);
 			l << " #" << p->getIndex();
-			if (!p->getLabel().empty())
+			if(!p->getLabel().empty())
 				l << " " << p->getLabel();
 			attrs = "shape=ellipse, style=filled, fillcolor=\"#eeeeee\"";
 			break;
@@ -35,7 +35,7 @@ namespace rat {
 			attrs = "shape=box, style=\"filled,bold\", fillcolor=\"#f4cccc\"";
 			break;
 		case Opcode::Region:
-			if (cast<RegionNode>(n)->isLoopHeader())
+			if(cast<RegionNode>(n)->isLoopHeader())
 				attrs = "shape=box, style=\"filled,bold\", fillcolor=\"#9fc5e8\"";
 			else
 				attrs = "shape=box, style=filled, fillcolor=\"#cfe2f3\"";
@@ -63,31 +63,31 @@ namespace rat {
 
 	const C8* GraphEmitterPass::getEdgeStyle(const Node* producer) {
 		const Type* t = producer->getType();
-		if (t->isControl())
+		if(t->isControl())
 			return "color=\"#cc0000\", penwidth=2"; // control spine
-		if (t->isMemory())
+		if(t->isMemory())
 			return "color=\"#3c78d8\", style=dashed"; // memory thread
-		if (t->isTuple())
+		if(t->isTuple())
 			return "color=\"#999999\""; // tuple feeding a proj
 		return "color=\"#000000\"";		// data
 	}
 
 	void GraphEmitterPass::emitFunctionBody(const Function& fn) {
-		for (const Node* n : fn) {
+		for(const Node* n : fn) {
 			String label, attrs;
 			getStyle(n, label, attrs);
 			*os << "  " << getNodeId(fn, n) << " [label=\"" << label << "\", " << attrs << "];\n";
 		}
 		*os << "\n";
-		for (const Node* n : fn) {
-			for (U32 i = 0, e = n->getInputCount(); i < e; ++i) {
+		for(const Node* n : fn) {
+			for(U32 i = 0, e = n->getInputCount(); i < e; ++i) {
 				const Node* in = n->getInput(i);
-				if (!in)
+				if(!in)
 					continue;
 				*os << "  " << getNodeId(fn, in) << " -> " << getNodeId(fn, n) << " [" << getEdgeStyle(in);
-				if (n->getOpcode() == Opcode::Phi && i >= 1)
+				if(n->getOpcode() == Opcode::Phi && i >= 1)
 					*os << ", label=\"" << (i - 1) << "\"";
-				else if (n->getOpcode() == Opcode::Region)
+				else if(n->getOpcode() == Opcode::Region)
 					*os << ", label=\"" << i << "\"";
 				*os << "];\n";
 			}
@@ -99,7 +99,7 @@ namespace rat {
 		*os << "  rankdir=TB;\n  node [fontname=\"monospace\", fontsize=10];\n";
 		*os << "  edge [fontname=\"monospace\", fontsize=9];\n\n";
 		U32 c = 0;
-		for (const Function* fn : module) {
+		for(const Function* fn : module) {
 			*os << "  subgraph cluster_" << c++ << " {\n";
 			*os << "    label=\"" << fn->getName() << "\"; color=\"#cccccc\";\n";
 			emitFunctionBody(*fn);

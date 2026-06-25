@@ -39,11 +39,11 @@ namespace rat {
 			b.push_back((U8)(v >> 8));
 		}
 		void put32(List<U8>& b, U32 v) {
-			for (U32 i = 0; i < 4; ++i)
+			for(U32 i = 0; i < 4; ++i)
 				b.push_back((U8)(v >> (i * 8)));
 		}
 		void put64(List<U8>& b, U64 v) {
-			for (U32 i = 0; i < 8; ++i)
+			for(U32 i = 0; i < 8; ++i)
 				b.push_back((U8)(v >> (i * 8)));
 		}
 	} // namespace
@@ -51,7 +51,7 @@ namespace rat {
 	ElfObject::ElfObject() { syms.push_back({"", Text, 0, true, false, false}); }
 
 	List<U8>& ElfObject::bytesOf(Section sec) {
-		switch (sec) {
+		switch(sec) {
 		case Text:
 			return text;
 		case Rodata:
@@ -65,7 +65,7 @@ namespace rat {
 	}
 
 	U32 ElfObject::sectionSize(Section sec) const {
-		switch (sec) {
+		switch(sec) {
 		case Text:
 			return (U32)text.size();
 		case Rodata:
@@ -79,7 +79,7 @@ namespace rat {
 	}
 
 	U32 ElfObject::append(Section sec, const U8* bytes, U32 len) {
-		if (sec == Bss)
+		if(sec == Bss)
 			return appendZero(sec, len);
 		List<U8>& b = bytesOf(sec);
 		U32 off = (U32)b.size();
@@ -88,7 +88,7 @@ namespace rat {
 	}
 
 	U32 ElfObject::appendZero(Section sec, U32 len) {
-		if (sec == Bss) {
+		if(sec == Bss) {
 			U32 off = bssSize;
 			bssSize += len;
 			return off;
@@ -102,14 +102,14 @@ namespace rat {
 	U32 ElfObject::align(Section sec, U32 a) {
 		U32 sz = sectionSize(sec);
 		U32 pad = (a - (sz % a)) % a;
-		if (pad)
+		if(pad)
 			appendZero(sec, pad);
 		return sectionSize(sec);
 	}
 
 	U32 ElfObject::symbolIndex(const String& name) {
 		auto it = symByName.find(name);
-		if (it != symByName.end())
+		if(it != symByName.end())
 			return it->second;
 		U32 idx = (U32)syms.size();
 		syms.push_back({name, Text, 0, false, true, false});
@@ -120,7 +120,7 @@ namespace rat {
 	void
 	ElfObject::defineSymbol(const String& name, Section sec, U32 offset, B32 global, B32 isFunc) {
 		auto it = symByName.find(name);
-		if (it != symByName.end()) {
+		if(it != symByName.end()) {
 			Sym& s = syms[it->second];
 			s.sec = sec;
 			s.offset = offset;
@@ -142,22 +142,22 @@ namespace rat {
 	void ElfObject::write(std::ostream& os) {
 		List<U32> order;
 		order.push_back(0);
-		for (U32 i = 1; i < syms.size(); ++i)
-			if (!syms[i].global)
+		for(U32 i = 1; i < syms.size(); ++i)
+			if(!syms[i].global)
 				order.push_back(i);
 		U32 firstGlobal = (U32)order.size();
-		for (U32 i = 1; i < syms.size(); ++i)
-			if (syms[i].global)
+		for(U32 i = 1; i < syms.size(); ++i)
+			if(syms[i].global)
 				order.push_back(i);
 
 		List<U32> remap(syms.size(), 0);
-		for (U32 i = 0; i < order.size(); ++i)
+		for(U32 i = 0; i < order.size(); ++i)
 			remap[order[i]] = i;
 
 		List<U8> strtab;
 		strtab.push_back(0);
 		List<U32> nameOff(syms.size(), 0);
-		for (U32 i = 1; i < syms.size(); ++i) {
+		for(U32 i = 1; i < syms.size(); ++i) {
 			nameOff[i] = (U32)strtab.size();
 			const String& n = syms[i].name;
 			strtab.insert(strtab.end(), n.begin(), n.end());
@@ -167,7 +167,7 @@ namespace rat {
 		const U32 shText = 1, shRodata = 3, shData = 5, shBss = 7, shSymtab = 8, shStrtab = 9,
 							shShstrtab = 10;
 		auto secShIndex = [&](Section s) -> U32 {
-			switch (s) {
+			switch(s) {
 			case Text:
 				return shText;
 			case Rodata:
@@ -181,7 +181,7 @@ namespace rat {
 		};
 
 		List<U8> symtab;
-		for (U32 i = 0; i < order.size(); ++i) {
+		for(U32 i = 0; i < order.size(); ++i) {
 			U32 oi = order[i];
 			const Sym& s = syms[oi];
 			bool placed = i != 0 && s.defined;
@@ -199,8 +199,8 @@ namespace rat {
 
 		auto buildRela = [&](Section target) {
 			List<U8> out;
-			for (const Rel& r : relocs) {
-				if (r.sec != target)
+			for(const Rel& r : relocs) {
+				if(r.sec != target)
 					continue;
 				U64 info = ((U64)remap[r.symIndex] << 32) | (U64)(U32)r.kind;
 				put64(out, r.offset);			 // r_offset
@@ -217,7 +217,7 @@ namespace rat {
 		shstr.push_back(0);
 		auto addShName = [&](const C8* n) {
 			U32 off = (U32)shstr.size();
-			for (const C8* p = n; *p; ++p)
+			for(const C8* p = n; *p; ++p)
 				shstr.push_back((U8)*p);
 			shstr.push_back(0);
 			return off;
@@ -254,13 +254,13 @@ namespace rat {
 		U64 offSh = (off + 7) & ~7ull; // section header table
 
 		List<U8> out;
-		for (U8 c : kElfMag)
+		for(U8 c : kElfMag)
 			put8(out, c);
 		put8(out, ELFCLASS64);
 		put8(out, ELFDATA2LSB);
 		put8(out, EV_CURRENT);
 		put8(out, 0); // System V
-		for (U32 i = 0; i < 8; ++i)
+		for(U32 i = 0; i < 8; ++i)
 			put8(out, 0); // ABIVERSION + padding
 		put16(out, ET_REL);
 		put16(out, EM_X86_64);
@@ -277,7 +277,7 @@ namespace rat {
 		put16(out, (U16)shShstrtab); // e_shstrndx
 
 		auto emitAt = [&](U64 target, const List<U8>& blob) {
-			while (out.size() < target)
+			while(out.size() < target)
 				out.push_back(0);
 			out.insert(out.end(), blob.begin(), blob.end());
 		};
@@ -290,7 +290,7 @@ namespace rat {
 		emitAt(offRelaRodata, relaRodata);
 		emitAt(offRelaData, relaData);
 		emitAt(offShstr, shstr);
-		while (out.size() < offSh)
+		while(out.size() < offSh)
 			out.push_back(0);
 
 		auto sh = [&](U32 name,

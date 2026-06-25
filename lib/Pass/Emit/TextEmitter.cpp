@@ -12,8 +12,8 @@ namespace rat {
 		// else (and " and \) as a \HH hex escape, so the form round-trips
 		static const C8* hex = "0123456789abcdef";
 		String out = "\"";
-		for (U8 b : bytes) {
-			if (b >= 0x20 && b <= 0x7e && b != '"' && b != '\\') {
+		for(U8 b : bytes) {
+			if(b >= 0x20 && b <= 0x7e && b != '"' && b != '\\') {
 				out.push_back((C8)b);
 			} else {
 				out.push_back('\\');
@@ -26,28 +26,28 @@ namespace rat {
 	}
 
 	String TextEmitterPass::ref(const Node* node) {
-		if (!node)
+		if(!node)
 			return "<null>";
 		U32 id = node->getId();
 		return TempColors[id % TempColorCount] + ("v" + std::to_string(id)) + Reset;
 	}
 
 	void TextEmitterPass::emitOperands(const Node* node) {
-		for (U32 i = 0; i < node->getInputCount(); ++i)
+		for(U32 i = 0; i < node->getInputCount(); ++i)
 			*os << (i ? ", " : " ") << ref(node->getInput(i));
 	}
 
 	void TextEmitterPass::emitNode(const Node* node) {
 		*os << "  " << ref(node) << " = " << node->getMnemonic() << " : " << node->getType()->str();
 
-		switch (node->getOpcode()) {
+		switch(node->getOpcode()) {
 		case Opcode::Constant:
 			*os << comment("  " + std::to_string(cast<ConstantNode>(node)->getValue()));
 			break;
 		case Opcode::Proj: {
 			const auto* proj = cast<ProjNode>(node);
 			*os << comment("  #" + std::to_string(proj->getIndex()));
-			if (!proj->getLabel().empty())
+			if(!proj->getLabel().empty())
 				*os << comment(" \"" + proj->getLabel() + "\"");
 			*os << comment(" of ") << ref(proj->getProducer());
 			return;
@@ -62,7 +62,7 @@ namespace rat {
 			*os << comment("  " + cast<AllocNode>(node)->getAllocType()->str());
 			break;
 		case Opcode::Region:
-			if (cast<RegionNode>(node)->isLoopHeader())
+			if(cast<RegionNode>(node)->isLoopHeader())
 				*os << comment("  loop");
 			break;
 		default:
@@ -74,14 +74,14 @@ namespace rat {
 
 	void TextEmitterPass::emitFunction(const Function& fn) {
 		*os << "func " << fn.getName() << "(";
-		for (U32 i = 0; i < fn.getParamCount(); ++i) {
-			if (i)
+		for(U32 i = 0; i < fn.getParamCount(); ++i) {
+			if(i)
 				*os << ", ";
 			*os << fn.getParamType(i)->str();
 		}
 		*os << ") -> " << (fn.returnsValue() ? fn.getReturnType()->str() : "void") << " {\n";
 
-		for (const Node* node : fn) {
+		for(const Node* node : fn) {
 			emitNode(node);
 			*os << "\n";
 		}
@@ -91,15 +91,15 @@ namespace rat {
 
 	void TextEmitterPass::emitModule(const Module& module) {
 		B32 any = false;
-		for (const Global* g : module.globals()) {
+		for(const Global* g : module.globals()) {
 			*os << (g->isConstant() ? "const " : "var ") << g->getName() << " : " << g->getType()->str()
 					<< " = " << quoteBytes(g->getInit()) << "\n";
 			any = true;
 		}
 
 		B32 first = true;
-		for (const Function* fn : module) {
-			if (!first || any)
+		for(const Function* fn : module) {
+			if(!first || any)
 				*os << "\n";
 			first = false;
 			emitFunction(*fn);

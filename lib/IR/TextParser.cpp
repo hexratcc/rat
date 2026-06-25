@@ -11,23 +11,23 @@ namespace rat {
 	namespace detail {
 		String ltrim(const String& s) {
 			U32 i = 0;
-			while (i < s.size() && std::isspace((U8)s[i]))
+			while(i < s.size() && std::isspace((U8)s[i]))
 				++i;
 			return s.substr(i);
 		}
 		String rtrim(const String& s) {
 			U32 e = (U32)s.size();
-			while (e > 0 && std::isspace((U8)s[e - 1]))
+			while(e > 0 && std::isspace((U8)s[e - 1]))
 				--e;
 			return s.substr(0, e);
 		}
 		String trim(const String& s) { return rtrim(ltrim(s)); }
 
 		B32 allDigits(const String& s) {
-			if (s.empty())
+			if(s.empty())
 				return false;
-			for (C8 c : s)
-				if (!std::isdigit((U8)c))
+			for(C8 c : s)
+				if(!std::isdigit((U8)c))
 					return false;
 			return true;
 		}
@@ -35,10 +35,10 @@ namespace rat {
 		List<U32> parseVRefs(const String& s) {
 			List<U32> out;
 			U32 i = 0;
-			while (i < s.size()) {
-				if (s[i] == 'v' && i + 1 < s.size() && std::isdigit((U8)s[i + 1])) {
+			while(i < s.size()) {
+				if(s[i] == 'v' && i + 1 < s.size() && std::isdigit((U8)s[i + 1])) {
 					U32 j = i + 1;
-					while (j < s.size() && std::isdigit((U8)s[j]))
+					while(j < s.size() && std::isdigit((U8)s[j]))
 						++j;
 					out.push_back((U32)std::stoul(s.substr(i + 1, j - i - 1)));
 					i = j;
@@ -51,25 +51,25 @@ namespace rat {
 
 		B32 unquoteBytes(const String& s, List<U8>& out) {
 			String t = trim(s);
-			if (t.size() < 2 || t.front() != '"' || t.back() != '"')
+			if(t.size() < 2 || t.front() != '"' || t.back() != '"')
 				return false;
 			auto hexVal = [](C8 c, U8& v) -> B32 {
-				if (c >= '0' && c <= '9')
+				if(c >= '0' && c <= '9')
 					v = (U8)(c - '0');
-				else if (c >= 'a' && c <= 'f')
+				else if(c >= 'a' && c <= 'f')
 					v = (U8)(c - 'a' + 10);
-				else if (c >= 'A' && c <= 'F')
+				else if(c >= 'A' && c <= 'F')
 					v = (U8)(c - 'A' + 10);
 				else
 					return false;
 				return true;
 			};
-			for (U32 i = 1; i + 1 < t.size();) {
-				if (t[i] == '\\') {
-					if (i + 3 >= t.size())
+			for(U32 i = 1; i + 1 < t.size();) {
+				if(t[i] == '\\') {
+					if(i + 3 >= t.size())
 						return false;
 					U8 hi, lo;
-					if (!hexVal(t[i + 1], hi) || !hexVal(t[i + 2], lo))
+					if(!hexVal(t[i + 1], hi) || !hexVal(t[i + 2], lo))
 						return false;
 					out.push_back((U8)((hi << 4) | lo));
 					i += 3;
@@ -82,9 +82,9 @@ namespace rat {
 		}
 
 		Opcode opcodeForMnemonic(const String& m, B32& ok) {
-			for (U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Alloc; ++i) {
+			for(U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Alloc; ++i) {
 				Opcode op = (Opcode)i;
-				if (m == getOpcodeMnemonic(op)) {
+				if(m == getOpcodeMnemonic(op)) {
 					ok = true;
 					return op;
 				}
@@ -128,16 +128,16 @@ namespace rat {
 
 			B32 parse(std::istream& in) {
 				String line;
-				while (std::getline(in, line)) {
+				while(std::getline(in, line)) {
 					++lineNo;
 					String t = trim(stripAnsi(line));
-					if (skip(t))
+					if(skip(t))
 						continue;
-					if (t.rfind("func ", 0) == 0) {
-						if (!parseFunction(t, in))
+					if(t.rfind("func ", 0) == 0) {
+						if(!parseFunction(t, in))
 							return false;
-					} else if (t.rfind("const ", 0) == 0 || t.rfind("var ", 0) == 0) {
-						if (!parseGlobal(t))
+					} else if(t.rfind("const ", 0) == 0 || t.rfind("var ", 0) == 0) {
+						if(!parseGlobal(t))
 							return false;
 					} else {
 						return fail("expected a 'func', 'const' or 'var', got: " + t);
@@ -148,12 +148,12 @@ namespace rat {
 
 			Type* parseType(const String& s) {
 				String t = trim(s);
-				if (t.empty()) {
+				if(t.empty()) {
 					fail("empty type");
 					return nullptr;
 				}
-				if (t.front() == '(') {
-					if (t.back() != ')') {
+				if(t.front() == '(') {
+					if(t.back() != ')') {
 						fail("unbalanced tuple type: " + t);
 						return nullptr;
 					}
@@ -164,58 +164,58 @@ namespace rat {
 					auto flush = [&]() -> B32 {
 						String e = trim(cur);
 						cur.clear();
-						if (e.empty())
+						if(e.empty())
 							return true;
 						Type* et = parseType(e);
-						if (!et)
+						if(!et)
 							return false;
 						elems.push_back(et);
 						return true;
 					};
-					for (C8 c : inner) {
-						if (c == '(')
+					for(C8 c : inner) {
+						if(c == '(')
 							++depth;
-						if (c == ')')
+						if(c == ')')
 							--depth;
-						if (c == ',' && depth == 0) {
-							if (!flush())
+						if(c == ',' && depth == 0) {
+							if(!flush())
 								return nullptr;
 						} else {
 							cur.push_back(c);
 						}
 					}
-					if (!flush())
+					if(!flush())
 						return nullptr;
 					return mod.getTuple(elems);
 				}
-				if (t.front() == '[') {
-					if (t.back() != ']') {
+				if(t.front() == '[') {
+					if(t.back() != ']') {
 						fail("unbalanced array type: " + t);
 						return nullptr;
 					}
 					String inner = t.substr(1, t.size() - 2);
 					U64 x = inner.find(" x ");
-					if (x == String::npos) {
+					if(x == String::npos) {
 						fail("array type must be '[N x T]': " + t);
 						return nullptr;
 					}
 					String countStr = trim(inner.substr(0, x));
-					if (!allDigits(countStr)) {
+					if(!allDigits(countStr)) {
 						fail("bad array count in: " + t);
 						return nullptr;
 					}
 					Type* elem = parseType(inner.substr(x + 3));
-					if (!elem)
+					if(!elem)
 						return nullptr;
 					return mod.getArray(elem, (U32)std::stoul(countStr));
 				}
-				if (t == "ctrl")
+				if(t == "ctrl")
 					return mod.getControl();
-				if (t == "mem")
+				if(t == "mem")
 					return mod.getMemory();
-				if (t == "ptr")
+				if(t == "ptr")
 					return mod.getPtr();
-				if (t.size() >= 2 && t[0] == 'i' && allDigits(t.substr(1)))
+				if(t.size() >= 2 && t[0] == 'i' && allDigits(t.substr(1)))
 					return mod.getInt((U32)std::stoul(t.substr(1)));
 				fail("unknown type '" + t + "'");
 				return nullptr;
@@ -226,18 +226,18 @@ namespace rat {
 				String rest = trim(line.substr(isConst ? 6 : 4));
 				U64 colon = rest.find(" : ");
 				U64 eq = rest.find(" = ");
-				if (colon == String::npos || eq == String::npos || eq < colon)
+				if(colon == String::npos || eq == String::npos || eq < colon)
 					return fail("malformed global (want NAME : TYPE = \"...\"): " + line);
 				String name = trim(rest.substr(0, colon));
 				String typeStr = trim(rest.substr(colon + 3, eq - (colon + 3)));
 				String initStr = trim(rest.substr(eq + 3));
-				if (name.empty())
+				if(name.empty())
 					return fail("global has no name: " + line);
 				Type* ty = parseType(typeStr);
-				if (!ty)
+				if(!ty)
 					return false;
 				List<U8> init;
-				if (!unquoteBytes(initStr, init))
+				if(!unquoteBytes(initStr, init))
 					return fail("malformed global initializer: " + initStr);
 				mod.createGlobal(name, ty, isConst, std::move(init));
 				return true;
@@ -248,8 +248,8 @@ namespace rat {
 				U64 rp = header.rfind(')');
 				U64 arrow = header.find("->");
 				U64 brace = header.rfind('{');
-				if (lp == String::npos || rp == String::npos || rp < lp || arrow == String::npos ||
-						brace == String::npos)
+				if(lp == String::npos || rp == String::npos || rp < lp || arrow == String::npos ||
+					 brace == String::npos)
 					return fail("malformed func header: " + header);
 
 				String name = trim(header.substr(5, lp - 5));
@@ -263,34 +263,34 @@ namespace rat {
 					auto flush = [&]() -> B32 {
 						String p = trim(cur);
 						cur.clear();
-						if (p.empty())
+						if(p.empty())
 							return true;
 						Type* pt = parseType(p);
-						if (!pt)
+						if(!pt)
 							return false;
 						params.push_back(pt);
 						return true;
 					};
-					for (C8 c : paramsStr) {
-						if (c == '(')
+					for(C8 c : paramsStr) {
+						if(c == '(')
 							++depth;
-						if (c == ')')
+						if(c == ')')
 							--depth;
-						if (c == ',' && depth == 0) {
-							if (!flush())
+						if(c == ',' && depth == 0) {
+							if(!flush())
 								return false;
 						} else {
 							cur.push_back(c);
 						}
 					}
-					if (!flush())
+					if(!flush())
 						return false;
 				}
 
 				Type* ret = nullptr;
-				if (retStr != "void") {
+				if(retStr != "void") {
 					ret = parseType(retStr);
-					if (!ret)
+					if(!ret)
 						return false;
 				}
 
@@ -299,21 +299,21 @@ namespace rat {
 				List<Rec> recs;
 				String line;
 				B32 closed = false;
-				while (std::getline(in, line)) {
+				while(std::getline(in, line)) {
 					++lineNo;
 					String t = trim(stripAnsi(line));
-					if (t == "}") {
+					if(t == "}") {
 						closed = true;
 						break;
 					}
-					if (skip(t))
+					if(skip(t))
 						continue;
 					Rec r;
-					if (!parseNodeLine(t, r))
+					if(!parseNodeLine(t, r))
 						return false;
 					recs.push_back(std::move(r));
 				}
-				if (!closed)
+				if(!closed)
 					return fail("missing '}' to close function " + name);
 
 				return build(fn, recs);
@@ -321,35 +321,35 @@ namespace rat {
 
 			B32 parseNodeLine(const String& line, Rec& r) {
 				U64 eq = line.find(" = ");
-				if (eq == String::npos)
+				if(eq == String::npos)
 					return fail("expected ' = ' in: " + line);
 				String lhs = trim(line.substr(0, eq));
-				if (lhs.empty() || lhs[0] != 'v' || !allDigits(lhs.substr(1)))
+				if(lhs.empty() || lhs[0] != 'v' || !allDigits(lhs.substr(1)))
 					return fail("bad result name '" + lhs + "'");
 				r.id = (U32)std::stoul(lhs.substr(1));
 
 				String rest = line.substr(eq + 3);
 				U64 colon = rest.find(" : ");
-				if (colon == String::npos)
+				if(colon == String::npos)
 					return fail("expected ' : ' in: " + line);
 				String mnem = trim(rest.substr(0, colon));
 				B32 ok = false;
 				r.op = opcodeForMnemonic(mnem, ok);
-				if (!ok)
+				if(!ok)
 					return fail("unknown mnemonic '" + mnem + "'");
 
 				// split the type (possibly a parenthesized tuple) from the remainder
 				String after = ltrim(rest.substr(colon + 3));
 				String typeStr, remainder;
-				if (!after.empty() && after.front() == '(') {
+				if(!after.empty() && after.front() == '(') {
 					U32 depth = 0;
 					U32 i = 0;
-					for (; i < after.size(); ++i) {
-						if (after[i] == '(')
+					for(; i < after.size(); ++i) {
+						if(after[i] == '(')
 							++depth;
-						else if (after[i] == ')') {
+						else if(after[i] == ')') {
 							--depth;
-							if (depth == 0) {
+							if(depth == 0) {
 								++i;
 								break;
 							}
@@ -359,7 +359,7 @@ namespace rat {
 					remainder = after.substr(i);
 				} else {
 					U64 sp = after.find(' ');
-					if (sp == String::npos) {
+					if(sp == String::npos) {
 						typeStr = after;
 						remainder = "";
 					} else {
@@ -368,18 +368,18 @@ namespace rat {
 					}
 				}
 				r.ty = parseType(typeStr);
-				if (!r.ty)
+				if(!r.ty)
 					return false;
 
 				remainder = trim(remainder);
 
-				switch (r.op) {
+				switch(r.op) {
 				case Opcode::Constant: {
-					if (remainder.empty())
+					if(remainder.empty())
 						return fail("constant is missing its value: " + line);
 					try {
 						r.cval = (I64)std::stoll(remainder);
-					} catch (...) {
+					} catch(...) {
 						return fail("bad constant value '" + remainder + "'");
 					}
 					break;
@@ -388,22 +388,22 @@ namespace rat {
 					std::istringstream ss(remainder);
 					String tok;
 					List<String> toks;
-					while (ss >> tok)
+					while(ss >> tok)
 						toks.push_back(tok);
-					if (toks.empty() || toks[0].empty() || toks[0][0] != '#')
+					if(toks.empty() || toks[0].empty() || toks[0][0] != '#')
 						return fail("malformed proj (expected #index): " + line);
-					if (!allDigits(toks[0].substr(1)))
+					if(!allDigits(toks[0].substr(1)))
 						return fail("bad proj index '" + toks[0] + "'");
 					r.projIndex = (U32)std::stoul(toks[0].substr(1));
 					U32 k = 1;
-					if (k < toks.size() && !toks[k].empty() && toks[k].front() == '"') {
+					if(k < toks.size() && !toks[k].empty() && toks[k].front() == '"') {
 						String l = toks[k];
-						if (l.size() >= 2 && l.back() == '"')
+						if(l.size() >= 2 && l.back() == '"')
 							r.projLabel = l.substr(1, l.size() - 2);
 						++k;
 					}
 					List<U32> refs = parseVRefs(remainder);
-					if (refs.size() != 1)
+					if(refs.size() != 1)
 						return fail("proj must reference exactly one producer: " + line);
 					r.operands = refs;
 					break;
@@ -411,7 +411,7 @@ namespace rat {
 				case Opcode::Call: {
 					U64 q1 = remainder.find('"');
 					U64 q2 = (q1 == String::npos) ? String::npos : remainder.find('"', q1 + 1);
-					if (q1 == String::npos || q2 == String::npos)
+					if(q1 == String::npos || q2 == String::npos)
 						return fail("call is missing its quoted callee: " + line);
 					r.callee = remainder.substr(q1 + 1, q2 - q1 - 1);
 					r.operands = parseVRefs(remainder.substr(q2 + 1));
@@ -420,16 +420,16 @@ namespace rat {
 				case Opcode::Global: {
 					U64 q1 = remainder.find('"');
 					U64 q2 = (q1 == String::npos) ? String::npos : remainder.find('"', q1 + 1);
-					if (q1 == String::npos || q2 == String::npos)
+					if(q1 == String::npos || q2 == String::npos)
 						return fail("global node is missing its quoted symbol: " + line);
 					r.symbol = remainder.substr(q1 + 1, q2 - q1 - 1);
 					break;
 				}
 				case Opcode::Alloc: {
-					if (remainder.empty())
+					if(remainder.empty())
 						return fail("alloc node is missing its type: " + line);
 					r.allocType = parseType(remainder);
-					if (!r.allocType)
+					if(!r.allocType)
 						return false;
 					break;
 				}
@@ -438,7 +438,7 @@ namespace rat {
 					std::istringstream ss(body);
 					String first;
 					ss >> first;
-					if (first == "loop") {
+					if(first == "loop") {
 						r.loopHeader = true;
 						U64 pos = body.find("loop");
 						body = body.substr(pos + 4);
@@ -459,31 +459,31 @@ namespace rat {
 				// pass 1
 				Node* startCtrl = nullptr;
 				Node* startMem = nullptr;
-				for (Node* u : fn->getStart()->getUsers()) {
-					if (u->getOpcode() != Opcode::Proj)
+				for(Node* u : fn->getStart()->getUsers()) {
+					if(u->getOpcode() != Opcode::Proj)
 						continue;
 					U32 idx = cast<ProjNode>(u)->getIndex();
-					if (idx == StartNode::controlProjIndex())
+					if(idx == StartNode::controlProjIndex())
 						startCtrl = u;
-					else if (idx == StartNode::memoryProjIndex())
+					else if(idx == StartNode::memoryProjIndex())
 						startMem = u;
 				}
 
-				for (const Rec& r : recs) {
-					if (r.op == Opcode::Start)
+				for(const Rec& r : recs) {
+					if(r.op == Opcode::Start)
 						byId[r.id] = fn->getStart();
-					else if (r.op == Opcode::Stop)
+					else if(r.op == Opcode::Stop)
 						byId[r.id] = fn->getStop();
 				}
 
 				auto need = [&](const Rec& r, U32 i) -> Node* {
-					if (i >= r.operands.size()) {
+					if(i >= r.operands.size()) {
 						fail("v" + std::to_string(r.id) + " (" + getOpcodeMnemonic(r.op) +
 								 ") is missing operand " + std::to_string(i));
 						return nullptr;
 					}
 					auto it = byId.find(r.operands[i]);
-					if (it == byId.end()) {
+					if(it == byId.end()) {
 						fail("v" + std::to_string(r.id) + " references undefined v" +
 								 std::to_string(r.operands[i]));
 						return nullptr;
@@ -492,120 +492,120 @@ namespace rat {
 				};
 
 				List<B32> done(recs.size(), false);
-				for (U32 k = 0; k < recs.size(); ++k)
-					if (recs[k].op == Opcode::Start || recs[k].op == Opcode::Stop)
+				for(U32 k = 0; k < recs.size(); ++k)
+					if(recs[k].op == Opcode::Start || recs[k].op == Opcode::Stop)
 						done[k] = true;
 
 				auto ready = [&](const Rec& r) -> B32 {
-					if (r.op == Opcode::Region || r.op == Opcode::Phi)
+					if(r.op == Opcode::Region || r.op == Opcode::Phi)
 						return true;
-					for (U32 v : r.operands)
-						if (byId.find(v) == byId.end())
+					for(U32 v : r.operands)
+						if(byId.find(v) == byId.end())
 							return false;
 					return true;
 				};
 
 				U32 remaining = 0;
-				for (B32 d : done)
-					if (!d)
+				for(B32 d : done)
+					if(!d)
 						++remaining;
 
 				B32 progress = true;
-				while (remaining && progress) {
+				while(remaining && progress) {
 					progress = false;
-					for (U32 k = 0; k < recs.size(); ++k) {
-						if (done[k])
+					for(U32 k = 0; k < recs.size(); ++k) {
+						if(done[k])
 							continue;
 						const Rec& r = recs[k];
-						if (!ready(r))
+						if(!ready(r))
 							continue;
 						Node* n = nullptr;
 						Opcode op = r.op;
-						if (op == Opcode::Region) {
+						if(op == Opcode::Region) {
 							auto* reg = fn->create<RegionNode>(r.ty, List<Node*>{});
 							reg->setLoopHeader(r.loopHeader);
 							n = reg;
-						} else if (op == Opcode::Phi) {
+						} else if(op == Opcode::Phi) {
 							n = fn->create<PhiNode>(r.ty, List<Node*>{});
-						} else if (op == Opcode::Constant) {
+						} else if(op == Opcode::Constant) {
 							n = fn->create<ConstantNode>(r.ty, r.cval);
-						} else if (op == Opcode::If) {
+						} else if(op == Opcode::If) {
 							Node* c = need(r, 0);
 							Node* p = need(r, 1);
-							if (!c || !p)
+							if(!c || !p)
 								return false;
 							n = fn->create<IfNode>(r.ty, c, p);
-						} else if (op == Opcode::Proj) {
+						} else if(op == Opcode::Proj) {
 							Node* prod = need(r, 0);
-							if (!prod)
+							if(!prod)
 								return false;
-							if (prod == fn->getStart() && r.projIndex == StartNode::controlProjIndex() &&
-									startCtrl)
+							if(prod == fn->getStart() && r.projIndex == StartNode::controlProjIndex() &&
+								 startCtrl)
 								n = startCtrl;
-							else if (prod == fn->getStart() && r.projIndex == StartNode::memoryProjIndex() &&
-											 startMem)
+							else if(prod == fn->getStart() && r.projIndex == StartNode::memoryProjIndex() &&
+											startMem)
 								n = startMem;
 							else
 								n = fn->create<ProjNode>(r.ty, prod, r.projIndex, r.projLabel);
-						} else if (op == Opcode::Load) {
+						} else if(op == Opcode::Load) {
 							Node* c = need(r, 0);
 							Node* m = need(r, 1);
 							Node* ptr = need(r, 2);
-							if (!c || !m || !ptr)
+							if(!c || !m || !ptr)
 								return false;
 							n = fn->create<LoadNode>(r.ty, c, m, ptr);
-						} else if (op == Opcode::Store) {
+						} else if(op == Opcode::Store) {
 							Node* c = need(r, 0);
 							Node* m = need(r, 1);
 							Node* ptr = need(r, 2);
 							Node* v = need(r, 3);
-							if (!c || !m || !ptr || !v)
+							if(!c || !m || !ptr || !v)
 								return false;
 							n = fn->create<StoreNode>(r.ty, c, m, ptr, v);
-						} else if (op == Opcode::Call) {
+						} else if(op == Opcode::Call) {
 							List<Node*> ins;
-							for (U32 i = 0; i < r.operands.size(); ++i) {
+							for(U32 i = 0; i < r.operands.size(); ++i) {
 								Node* a = need(r, i);
-								if (!a)
+								if(!a)
 									return false;
 								ins.push_back(a);
 							}
 							B32 rv = r.ty->isTuple() && r.ty->getTupleElementCount() == 3;
 							n = fn->create<CallNode>(r.ty, r.callee, rv, ins);
-						} else if (op == Opcode::Return) {
+						} else if(op == Opcode::Return) {
 							List<Node*> ins;
-							for (U32 i = 0; i < r.operands.size(); ++i) {
+							for(U32 i = 0; i < r.operands.size(); ++i) {
 								Node* a = need(r, i);
-								if (!a)
+								if(!a)
 									return false;
 								ins.push_back(a);
 							}
 							n = fn->create<ReturnNode>(r.ty, ins);
-						} else if (isBinaryOpcode(op)) {
+						} else if(isBinaryOpcode(op)) {
 							Node* l = need(r, 0);
 							Node* rh = need(r, 1);
-							if (!l || !rh)
+							if(!l || !rh)
 								return false;
 							n = fn->create<BinaryNode>(op, r.ty, l, rh);
-						} else if (isUnaryOpcode(op)) {
+						} else if(isUnaryOpcode(op)) {
 							Node* v = need(r, 0);
-							if (!v)
+							if(!v)
 								return false;
 							n = fn->create<UnaryNode>(op, r.ty, v);
-						} else if (isCompareOpcode(op)) {
+						} else if(isCompareOpcode(op)) {
 							Node* l = need(r, 0);
 							Node* rh = need(r, 1);
-							if (!l || !rh)
+							if(!l || !rh)
 								return false;
 							n = fn->create<CompareNode>(op, r.ty, l, rh);
-						} else if (isConvertOpcode(op)) {
+						} else if(isConvertOpcode(op)) {
 							Node* v = need(r, 0);
-							if (!v)
+							if(!v)
 								return false;
 							n = fn->create<ConvertNode>(op, r.ty, v);
-						} else if (op == Opcode::Global) {
+						} else if(op == Opcode::Global) {
 							n = fn->create<GlobalNode>(r.ty, r.symbol);
-						} else if (op == Opcode::Alloc) {
+						} else if(op == Opcode::Alloc) {
 							n = fn->create<AllocNode>(r.ty, r.allocType);
 						} else {
 							return fail(String("cannot construct opcode '") + getOpcodeMnemonic(op) + "'");
@@ -617,21 +617,21 @@ namespace rat {
 					}
 				}
 
-				if (remaining) {
-					for (U32 k = 0; k < recs.size(); ++k)
-						if (!done[k])
+				if(remaining) {
+					for(U32 k = 0; k < recs.size(); ++k)
+						if(!done[k])
 							return fail("v" + std::to_string(recs[k].id) +
 													" has unresolved operands (undefined or cyclic ref)");
 				}
 
 				// pass 2
-				for (const Rec& r : recs) {
-					if (r.op != Opcode::Region && r.op != Opcode::Phi && r.op != Opcode::Stop)
+				for(const Rec& r : recs) {
+					if(r.op != Opcode::Region && r.op != Opcode::Phi && r.op != Opcode::Stop)
 						continue;
 					Node* n = byId[r.id];
-					for (U32 i = 0; i < r.operands.size(); ++i) {
+					for(U32 i = 0; i < r.operands.size(); ++i) {
 						Node* in = need(r, i);
-						if (!in)
+						if(!in)
 							return false;
 						n->addInput(in);
 					}

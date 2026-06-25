@@ -84,7 +84,7 @@ int main() {
 	obj->ret(obj->load(i32, aSlot));
 
 	std::cout << "; verify (before opt)\n";
-	if (rat::verify(module, std::cout))
+	if(rat::verify(module, std::cout))
 		std::cout << "; ok\n";
 
 	std::cout << "\n; before opt\n";
@@ -104,7 +104,7 @@ int main() {
 
 	std::cout << "\n; schedule of sum (blocks in rpo)\n";
 	rat::Schedule sched(*fn);
-	for (int blockIdx : sched.rpo()) {
+	for(int blockIdx : sched.rpo()) {
 		const rat::Schedule::Block& bl = sched.block(blockIdx);
 		std::cout << "; block " << blockIdx << " idom=" << bl.idom << " loopDepth=" << bl.loopDepth
 							<< " phis=" << bl.phis.size() << " nodes=" << bl.nodes.size() << "\n";

@@ -15,15 +15,15 @@ namespace rat {
 		U32 removed = 0;
 
 		B32 changed = true;
-		while (changed) {
+		while(changed) {
 			changed = false;
 			Map<String, Node*> table;
-			for (Node* n : fn) {
-				if (!GVNPass::isPureValue(n) || !n->hasUsers())
+			for(Node* n : fn) {
+				if(!GVNPass::isPureValue(n) || !n->hasUsers())
 					continue;
 				String sig = nodeSignature(n);
 				auto it = table.find(sig);
-				if (it == table.end()) {
+				if(it == table.end()) {
 					table.emplace(std::move(sig), n);
 				} else {
 					// n is a duplicate of the earlier representative; redirect its uses
@@ -34,7 +34,7 @@ namespace rat {
 			}
 		}
 
-		if (removed)
+		if(removed)
 			fn.eliminateDeadNodes();
 		return removed;
 	}

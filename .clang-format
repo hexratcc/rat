@@ -6,6 +6,10 @@ UseTab: Always
 TabWidth: 2
 IndentWidth: 2
 
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterControlStatements: false
+
 # comments
 ReflowComments: false
 

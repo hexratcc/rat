@@ -28,7 +28,7 @@ namespace rat {
 	U32 Type::getArrayCount() const { return bits; }
 
 	U32 Type::byteSize(U32 ptrBytes) const {
-		switch (kind) {
+		switch(kind) {
 		case Int:
 		case Float:
 			return (bits + 7) / 8;
@@ -42,7 +42,7 @@ namespace rat {
 	}
 
 	void Type::print(std::ostream& os) const {
-		switch (kind) {
+		switch(kind) {
 		case Control:
 			os << "ctrl";
 			return;
@@ -60,8 +60,8 @@ namespace rat {
 			return;
 		case Tuple:
 			os << '(';
-			for (U32 i = 0; i < elements.size(); ++i) {
-				if (i)
+			for(U32 i = 0; i < elements.size(); ++i) {
+				if(i)
 					os << ", ";
 				elements[i]->print(os);
 			}
@@ -95,7 +95,7 @@ namespace rat {
 
 	Type* TypeContext::getInt(U32 bits) {
 		auto it = ints.find(bits);
-		if (it != ints.end())
+		if(it != ints.end())
 			return it->second;
 		Type* t = arena.make<Type>(Type::Int, bits, List<Type*>{});
 		ints.emplace(bits, t);
@@ -104,7 +104,7 @@ namespace rat {
 
 	Type* TypeContext::getFloat(U32 bits) {
 		auto it = floats.find(bits);
-		if (it != floats.end())
+		if(it != floats.end())
 			return it->second;
 		Type* t = arena.make<Type>(Type::Float, bits, List<Type*>{});
 		floats.emplace(bits, t);
@@ -112,8 +112,8 @@ namespace rat {
 	}
 
 	Type* TypeContext::getTuple(const List<Type*>& elements) {
-		for (Type* existing : tuples) {
-			if (existing->getTupleElements() == elements)
+		for(Type* existing : tuples) {
+			if(existing->getTupleElements() == elements)
 				return existing;
 		}
 
@@ -123,8 +123,8 @@ namespace rat {
 	}
 
 	Type* TypeContext::getArray(Type* element, U32 count) {
-		for (Type* existing : arrays) {
-			if (existing->getArrayElement() == element && existing->getArrayCount() == count)
+		for(Type* existing : arrays) {
+			if(existing->getArrayElement() == element && existing->getArrayCount() == count)
 				return existing;
 		}
 

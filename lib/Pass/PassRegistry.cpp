@@ -22,8 +22,8 @@ namespace rat {
 	}
 
 	const PassRegistry::Entry* PassRegistry::find(const String& name) const {
-		for (const Entry& e : items)
-			if (e.name == name)
+		for(const Entry& e : items)
+			if(e.name == name)
 				return &e;
 		return nullptr;
 	}
@@ -87,10 +87,10 @@ namespace rat {
 		const PassRegistry& reg = passRegistry();
 		String tok;
 		auto flush = [&]() -> B32 {
-			if (tok.empty())
+			if(tok.empty())
 				return true;
 			UniquePtr<Pass> p = reg.create(tok, out);
-			if (!p) {
+			if(!p) {
 				err = "unknown pass: " + tok;
 				return false;
 			}
@@ -98,9 +98,9 @@ namespace rat {
 			tok.clear();
 			return true;
 		};
-		for (C8 ch : spec) {
-			if (ch == ',' || std::isspace((U8)ch)) {
-				if (!flush())
+		for(C8 ch : spec) {
+			if(ch == ',' || std::isspace((U8)ch)) {
+				if(!flush())
 					return false;
 			} else {
 				tok.push_back(ch);

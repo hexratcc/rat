@@ -12,18 +12,18 @@ namespace rat {
 	const C8* RenameSymbolPass::name() const { return "rename-symbol"; }
 
 	B32 RenameSymbolPass::run(Module& module) {
-		if (from.empty() || from == to)
+		if(from.empty() || from == to)
 			return false;
 
 		B32 changed = false;
-		for (Function* fn : module) {
-			if (fn->getName() == from) {
+		for(Function* fn : module) {
+			if(fn->getName() == from) {
 				fn->setName(to);
 				changed = true;
 			}
-			for (Node* n : *fn) {
+			for(Node* n : *fn) {
 				CallNode* c = dyn_cast<CallNode>(n);
-				if (c && !c->isIndirect() && c->getCallee() == from) {
+				if(c && !c->isIndirect() && c->getCallee() == from) {
 					c->setCallee(to);
 					changed = true;
 				}
