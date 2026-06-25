@@ -4,20 +4,6 @@
 #include "Target/Target.h"
 
 namespace rat {
-	struct Function::Block {
-		String name;
-		RegionNode* region = nullptr;
-		List<Node*> preds;
-		List<Block*> predBlocks; // source block per pred (parallel)
-		Node* ctrl = nullptr;		 // control anchor once active
-		B32 sealed = false;
-		B32 active = false; // ctrl established
-		B32 loopHeader = false;
-		B32 finished = false; // ended in a terminator
-		Map<U32, Node*> defs;
-		Map<U32, PhiNode*> incompletePhis;
-	};
-
 	Module& Function::getModule() const { return *mod; }
 	TypeContext& Function::types() const { return *mod; }
 	const String& Function::getName() const { return name; }
@@ -27,6 +13,9 @@ namespace rat {
 	Type* Function::getParamType(U32 index) const { return paramTypes[index]; }
 	Type* Function::getReturnType() const { return retType; }
 	B32 Function::returnsValue() const { return retType != nullptr; }
+
+	B32 Function::isVariadic() const { return variadic; }
+	void Function::setVariadic(B32 v) { variadic = v; }
 
 	StartNode* Function::getStart() const { return start; }
 	StopNode* Function::getStop() const { return stop; }
@@ -439,7 +428,7 @@ namespace rat {
 
 	B32 Function::hasReturn() const {
 		for(Node* n : *this)
-			if(n->getOpcode() == Opcode::Return)
+			if(isa<ReturnNode>(n))
 				return true;
 		return false;
 	}

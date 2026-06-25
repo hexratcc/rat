@@ -239,16 +239,14 @@ namespace rat {
 		template <> inline B32 nodeIsa<CallNode>(const Node* n)     { return n->getOpcode() == Opcode::Call; }
 		template <> inline B32 nodeIsa<GlobalNode>(const Node* n)   { return n->getOpcode() == Opcode::Global; }
 		template <> inline B32 nodeIsa<AllocNode>(const Node* n)    { return n->getOpcode() == Opcode::Alloc; }
-		// clang-format on
 	} // namespace detail
 
 	template <typename T> B32 isa(const Node* n) { return n && detail::nodeIsa<T>(n); }
 	template <typename T> T* cast(Node* n) { return static_cast<T*>(n); }
 	template <typename T> const T* cast(const Node* n) { return static_cast<const T*>(n); }
 	template <typename T> T* dyn_cast(Node* n) { return isa<T>(n) ? static_cast<T*>(n) : nullptr; }
-	template <typename T> const T* dyn_cast(const Node* n) {
-		return isa<T>(n) ? static_cast<const T*>(n) : nullptr;
-	}
+	template <typename T> const T* dyn_cast(const Node* n) { return isa<T>(n) ? static_cast<const T*>(n) : nullptr; }
+	// clang-format on
 
 	template <typename T> List<T*> usersOfType(const Node* n) {
 		List<T*> out;

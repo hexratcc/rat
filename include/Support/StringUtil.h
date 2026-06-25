@@ -11,6 +11,22 @@ namespace rat {
 		return (B32)!in.bad();
 	}
 
+	inline String ltrim(const String& s) {
+		U32 i = 0;
+		while(i < s.size() && std::isspace((U8)s[i]))
+			++i;
+		return s.substr(i);
+	}
+
+	inline String rtrim(const String& s) {
+		U32 e = (U32)s.size();
+		while(e > 0 && std::isspace((U8)s[e - 1]))
+			--e;
+		return s.substr(0, e);
+	}
+
+	inline String trim(const String& s) { return rtrim(ltrim(s)); }
+
 	inline String stripAnsi(const String& s) {
 		String out;
 		out.reserve(s.size());

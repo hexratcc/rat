@@ -22,8 +22,8 @@ namespace rat {
 		Type* getReturnType() const;
 		B32 returnsValue() const;
 
-		B32 isVariadic() const { return variadic; }
-		void setVariadic(B32 v) { variadic = v; }
+		B32 isVariadic() const;
+		void setVariadic(B32 v);
 
 		StartNode* getStart() const;
 		StopNode* getStop() const;
@@ -34,7 +34,20 @@ namespace rat {
 			return node;
 		}
 
-		struct Block;
+		struct Block {
+			String name;
+			RegionNode* region = nullptr;
+			List<Node*> preds;
+			List<Block*> predBlocks; // source block per pred (parallel)
+			Node* ctrl = nullptr;		 // control anchor once active
+			B32 sealed = false;
+			B32 active = false; // ctrl established
+			B32 loopHeader = false;
+			B32 finished = false; // ended in a terminator
+			Map<U32, Node*> defs;
+			Map<U32, PhiNode*> incompletePhis;
+		};
+
 		using Var = U32;
 
 		Type* boolTy() const;
