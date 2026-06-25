@@ -437,6 +437,13 @@ namespace rat {
 	Function::NodeIterator Function::end() const { return {nodes.end()}; }
 	U32 Function::size() const { return (U32)nodes.size(); }
 
+	B32 Function::hasReturn() const {
+		for (Node* n : *this)
+			if (n->getOpcode() == Opcode::Return)
+				return true;
+		return false;
+	}
+
 	U32 Function::eliminateDeadNodes(B32 includeControl) {
 		U32 removed = 0;
 		B32 changed = true;
