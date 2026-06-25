@@ -7,16 +7,20 @@
 namespace rat {
 	struct Function;
 	struct Module;
-
-	void emitDot(const Function& fn, std::ostream& os);
-	void emitDot(const Module& module, std::ostream& os);
+	struct Node;
 
 	struct GraphEmitterPass : Pass {
 		explicit GraphEmitterPass(std::ostream& os);
 
 		const C8* name() const override;
 		B32 run(Module& module) override;
+	private:
+		void emitModule(const Module& module);
+		void emitFunctionBody(const Function& fn);
 
+		String getNodeId(const Function& fn, const Node* n);
+		void getStyle(const Node* n, String& label, String& attrs);
+		const C8* getEdgeStyle(const Node* producer);
 	private:
 		std::ostream* os;
 	};
