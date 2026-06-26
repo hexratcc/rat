@@ -4,7 +4,7 @@
 #include "Parser.h"
 #include "Preprocess.h"
 
-#include "Pass/Emit/X86Emitter.h"
+#include "Target/Target.h"
 
 #include "Support/StringUtil.h"
 #include "rat.h"
@@ -46,21 +46,27 @@ namespace {
 	}
 
 	void addEmitter(PassManager& pm, const String& emitKind, std::ostream& os) {
-		if(emitKind == "c")
+		if(emitKind == "c") {
 			pm.add<CEmitterPass>(os);
-		else if(emitKind == "x86")
-			pm.add<X86EmitterPass>(os);
-		else
+		} else if(emitKind == "x86") {
+			pm.add<X86LowerPass>();
+			pm.add<RegAllocPass>();
+			pm.add<X86EncodePass>(os);
+		} else {
 			pm.add<TextEmitterPass>(os);
+		}
 	}
 
 	I32 lowerToModule(const String& path,
 										const String& source,
 										const String& passSpec,
 										const String& emitKind) {
+		Generic64 generic;
+		X86Target x86;
+		const TargetInfo& target = (emitKind == "x86") ? (const TargetInfo&)x86 : generic;
+
 		Lexer lex(source.data(), (U32)source.size(), path);
 		Arena arena;
-		Generic64 target;
 		Parser parser(lex, arena, target);
 		TransUnit* unit = parser.parseUnit();
 		if(!unit) {
@@ -76,7 +82,7 @@ namespace {
 			return 1;
 		}
 
-		PassManager pm;
+		PassManager pm(target);
 		if(!passSpec.empty()) {
 			std::ostringstream diag;
 			String err;

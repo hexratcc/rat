@@ -1,24 +1,138 @@
 #include "Pass/Emit/X86Emitter.h"
 
-#include "X86Lower.h"
-
+#include "CodeGen/MachineFunction.h"
 #include "CodeGen/MachineModule.h"
 #include "CodeGen/RegAlloc.h"
+#include "CodeGen/Schedule.h"
 #include "IR/Function.h"
 #include "IR/Module.h"
+#include "IR/Node.h"
+#include "IR/Opcode.h"
+#include "IR/Type.h"
 #include "Target/Target.h"
 #include "Target/X86Asm.h"
 #include "Target/X86Elf.h"
 
 namespace rat {
+	enum class X86Op : U32 {
+		// pseudo / data movement
+		Copy,			 // dst = src (reg-reg or fill from a fixed phys; RA-coalescable)
+		LoadImm,	 // dst = imm
+		LoadSym,	 // dst = lea rip[sym]  (address of a global)
+		LoadFrame, // dst = lea rbp[slot] (address of a frame slot, e.g. alloc storage)
+		FrameAddr, // dst = lea rbp[imm]  (address of an arbitrary rbp offset; imm = disp)
+		// integer memory: use[0] = address reg, imm = displacement
+		Load,	 // dst = [addr + disp], sign/zero-extended per width/imm2
+		Store, // [addr + disp] = src, width
+		// integer ALU (two-address on the def reg; def and use[0] are coalesced)
+		Add,
+		Sub,
+		Mul,
+		And,
+		Or,
+		Xor,
+		Neg,
+		Not,
+		Shl,
+		AShr,
+		LShr, // shift count in use[1] (fixed to RCX by lowering)
+		SDiv,
+		SRem,
+		UDiv,
+		URem,				 // RAX/RDX/RCX fixed by lowering via Phys operands
+		Cmp,				 // flag-setting compare of use[0],use[1]
+		SetCC,			 // dst = (cc); condition code in imm
+		Movzx,			 // dst = zero-extend byte src
+		MaskBits,		 // dst &= ((1<<imm)-1)
+		SignExtBits, // dst = sign-extend dst from imm bits to 64
+		// SSE scalar float
+		FLoad,
+		FStore, // [addr+disp] <-> xmm
+		FAdd,
+		FSub,
+		FMul,
+		FDiv, // two-address on the def xmm
+		FNeg, // pxor-based scalar negate
+		FCmp, // ucomis use[0],use[1]; cc in imm, swap in imm2
+		Cvt,	// SSE convert; pfx/opc/w packed in imm
+		// x87 ops
+		X87LoadMem,	 // def(slot) = fld [use0 addr]; imm = mem width (4/8/80)
+		X87StoreMem, // [use0 addr] = fstp use1(slot); imm = mem width (4/8/80)
+		X87LoadImmD, // def(slot) = fld double-bits in use0.imm (via scratch slot)
+		X87FromInt,	 // def(slot) = fild use0 (gp), through scratch slot
+		X87ToInt,		 // def(gp)   = fistp use0(slot), through scratch slot + cw juggle
+		X87FromSse,	 // def(slot) = (long double)use0 (xmm); imm = src width
+		X87ToSse,		 // def(xmm)  = (float)use0(slot);   imm = dst width
+		X87Add,
+		X87Sub,
+		X87Mul,
+		X87Div, // def(slot) = use0(slot) OP use1(slot)
+		X87Neg, // def(slot) = -use0(slot) (fchs)
+		X87Cmp, // def(gp) = use0(slot) CMP use1(slot); cc in imm, swap in imm2
+		// control / calls
+		Call, // direct (sym in sym) or indirect (target reg in use[0]); imm = xmmUsed
+		Ret,
+		Jmp, // unconditional, target block in use[0].block
+		Br,	 // test+jcc: predicate in use[0], then in use[1].block, else in use[2].block
+		// variadic support
+		VaStart, // init va_list at [use0]; imm = gpOffset start, imm2 = fpOffset start
+		VaArg,	 // fetch next vararg into def; use0 = va_list ptr; imm = kind, imm2 = width
+	};
+
+	enum class VaArgKind : I64 { Int = 0, Sse = 1, X87 = 2 };
+
+	struct X86FrameLayout : MachineFuncAux {
+		I32 ldScratch = 0;
+		B32 variadic = false;
+		I32 saveArea = 0;
+		I32 overflowOff = 16;
+		U32 namedGp = 0;
+		U32 namedFp = 0;
+	};
+
 	namespace {
 		constexpr U32 kGp = X86Target::kGpClass;
 		constexpr U32 kFp = X86Target::kFpClass;
+		constexpr U32 kX87 = X86Target::kX87Class;
 
 		Reg toGp(PhysReg p) { return (Reg)(p - X86Target::kGpBase); }
 		U32 toXmm(PhysReg p) { return p - X86Target::kXmmBase; }
 
 		using namespace sysv;
+
+		PhysReg gpReg(Reg r) { return X86Target::kGpBase + (PhysReg)r; }
+		PhysReg xmmReg(U32 n) { return X86Target::kXmmBase + n; }
+
+		constexpr U8 kIntCc[] = {CC_E, CC_NE, CC_L, CC_LE, CC_B, CC_BE};
+
+		B32 isFloatTy(const Type* t) { return t && t->isFloat(); }
+		B32 isX87Ty(const Type* t) { return t && t->isFloat() && t->getFloatWidth() == 128; }
+		B32 isSseTy(const Type* t) { return isFloatTy(t) && !isX87Ty(t); }
+
+		U32 intBits(const Type* t) { return t && t->isInt() ? t->getIntWidth() : 64; }
+
+		U32 opWidth(const Type* t) {
+			if(!t)
+				return 8;
+			if(t->isPtr())
+				return 8;
+			if(t->isFloat())
+				return t->getFloatWidth() == 32 ? 4 : 8;
+			U32 w = t->getIntWidth();
+			if(w <= 8)
+				return 1;
+			if(w <= 16)
+				return 2;
+			if(w <= 32)
+				return 4;
+			return 8;
+		}
+
+		String libcName(const String& callee) {
+			if(callee.rfind("__builtin_", 0) == 0)
+				return callee.substr(10);
+			return callee;
+		}
 
 		constexpr U8 kSseOp[] = {0x58, 0x5c, 0x59, 0x5e};
 
@@ -171,9 +285,7 @@ namespace rat {
 					a.notReg(d);
 			}
 
-			void emitShift(const MachineInstr& in, U8 ext) {
-				a.shiftCL(ext, gpOf(in.defs[0]));
-			}
+			void emitShift(const MachineInstr& in, U8 ext) { a.shiftCL(ext, gpOf(in.defs[0])); }
 
 			void emitDiv(const MachineInstr& in, B32 isSigned) {
 				B32 wide = (U32)in.imm > 32;
@@ -414,7 +526,7 @@ namespace rat {
 				a.loadExt(R11, R10, offDisp, 4, false); // R11 = cur offset
 				a.cmpRegImm32(R11, (I32)limit);					// offset vs limit
 				U32 toStack = a.jccRel32(CC_AE);				// offset >= limit -> overflow path
-				a.storeMem(RBP, fl.ldScratch, R11, 8); // stash original offset
+				a.storeMem(RBP, fl.ldScratch, R11, 8);	// stash original offset
 				a.addRegImm32(R11, regStep);
 				a.storeMem(R10, offDisp, R11, 4); // write advanced offset
 				a.load64(R11, RBP, fl.ldScratch); // R11 = original offset
@@ -723,13 +835,1108 @@ namespace rat {
 					a.patchRel32(f.dispAt, blockOffset[f.targetBlock]);
 			}
 		};
+
+		struct Builder {
+			const Function& fn;
+			const Module& mod;
+			Schedule& sched;
+			MachineFunc& out;
+			X86FrameLayout& fl;
+
+			Map<const Node*, VReg> vregOf;
+			Map<const Node*, I32> x87Slot;
+			Map<const Node*, I32> allocOff;
+			MachineBlock* mb = nullptr;
+
+			Builder(
+					const Function& f, const Module& m, Schedule& s, MachineFunc& o, X86FrameLayout& layout)
+			: fn(f),
+				mod(m),
+				sched(s),
+				out(o),
+				fl(layout) {}
+
+			I32 reserve(U32 bytes) {
+				out.frameBytes += bytes;
+				out.frameBytes = (out.frameBytes + 7u) & ~7u;
+				return -(I32)out.frameBytes;
+			}
+
+			void layout() {
+				for(const Node* n : fn) {
+					if(const AllocNode* al = dyn_cast<AllocNode>(n)) {
+						if(!al->isVariableSized()) {
+							U32 sz = al->getAllocType()->byteSize(mod.pointerBytes());
+							if(sz == 0)
+								sz = 8;
+							sz = (sz + 7u) & ~7u;
+							allocOff[n] = reserve(sz);
+						}
+					}
+				}
+				fl.ldScratch = reserve(16);
+				fl.variadic = fn.isVariadic();
+				if(fl.variadic)
+					layoutVariadic();
+			}
+
+			void layoutVariadic() {
+				U32 intIdx = 0, xmmIdx = 0;
+				I32 stackBytes = 0;
+				for(U32 i = 0; i < fn.getParamCount(); ++i) {
+					Type* t = fn.getParamType(i);
+					if(isX87Ty(t))
+						stackBytes += 16;
+					else if(isSseTy(t) && xmmIdx < kMaxXmmArgs)
+						++xmmIdx;
+					else if(!isFloatTy(t) && intIdx < kMaxIntArgs)
+						++intIdx;
+					else
+						stackBytes += 8;
+				}
+				fl.namedGp = intIdx;
+				fl.namedFp = xmmIdx;
+				fl.overflowOff = 16 + stackBytes;
+				fl.saveArea = reserve(kRegSaveBytes);
+			}
+
+			U32 classOf(const Type* t) {
+				if(isX87Ty(t))
+					return kX87;
+				if(isFloatTy(t))
+					return kFp;
+				return kGp;
+			}
+
+			VReg fresh(U32 cls) { return out.newVReg(cls); }
+
+			I32 x87SlotOf(const Node* n) {
+				auto it = x87Slot.find(n);
+				if(it != x87Slot.end())
+					return it->second;
+				I32 s = reserve(16);
+				x87Slot[n] = s;
+				return s;
+			}
+
+			VReg vregFor(const Node* n) {
+				auto it = vregOf.find(n);
+				if(it != vregOf.end())
+					return it->second;
+				VReg v = fresh(classOf(n->getType()));
+				vregOf[n] = v;
+				return v;
+			}
+
+			void emit(MachineInstr in) { mb->insts.push_back(std::move(in)); }
+
+			MachineInstr& emitRef(MachineInstr in) {
+				mb->insts.push_back(std::move(in));
+				return mb->insts.back();
+			}
+
+			void copy(MachineOperand dst, MachineOperand src, U32 cls) {
+				MachineInstr m;
+				m.op = (MachineOpcode)X86Op::Copy;
+				m.regClass = cls;
+				m.isCopy = true;
+				m.defs = {dst};
+				m.uses = {src};
+				emit(m);
+			}
+
+			MachineInstr& def1(X86Op op, VReg dst, U32 cls, List<MachineOperand> uses) {
+				MachineInstr m;
+				m.op = (MachineOpcode)op;
+				m.regClass = cls;
+				m.defs = {MachineOperand::vr(dst)};
+				m.uses = std::move(uses);
+				return emitRef(m);
+			}
+
+			VReg gpValue(Node* n) {
+				if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
+					U64 v = (U64)c->getValue();
+					if(n->getType() && n->getType()->isInt())
+						v = (U64)signExtend((I64)c->getValue(), opWidth(n->getType()) * 8);
+					VReg d = fresh(kGp);
+					def1(X86Op::LoadImm, d, kGp, {MachineOperand::immVal((I64)v)});
+					return d;
+				}
+				if(GlobalNode* g = dyn_cast<GlobalNode>(n)) {
+					VReg d = fresh(kGp);
+					MachineInstr& m = def1(X86Op::LoadSym, d, kGp, {});
+					m.uses = {MachineOperand::symbol(g->getSymbol())};
+					return d;
+				}
+				if(AllocNode* al = dyn_cast<AllocNode>(n)) {
+					auto it = allocOff.find(al);
+					VReg d = fresh(kGp);
+					if(it != allocOff.end()) {
+						MachineInstr& m = def1(X86Op::FrameAddr, d, kGp, {});
+						m.imm = it->second;
+					} else
+						return vregFor(al);
+					return d;
+				}
+				return vregFor(n);
+			}
+
+			VReg sseValue(Node* n) {
+				if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
+					U32 w = opWidth(n->getType());
+					VReg d = fresh(kFp);
+					MachineInstr& m = def1(X86Op::FLoad, d, kFp, {});
+					m.uses = {MachineOperand::immVal((I64)(U64)c->getValue(), w)};
+					m.defs[0].width = w;
+					return d;
+				}
+				return vregFor(n);
+			}
+
+			I32 x87Value(Node* n) {
+				if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
+					I32 s = x87SlotOf(n);
+					MachineInstr m;
+					m.op = (MachineOpcode)X86Op::X87LoadImmD;
+					m.regClass = kX87;
+					m.defs = {MachineOperand::frameSlot(s)};
+					m.uses = {MachineOperand::immVal((I64)(U64)c->getValue())};
+					emit(m);
+					return s;
+				}
+				return x87SlotOf(n);
+			}
+
+			void storeIntTo(VReg addr, VReg src, U32 w) {
+				MachineInstr m;
+				m.op = (MachineOpcode)X86Op::Store;
+				m.regClass = kGp;
+				m.uses = {MachineOperand::vr(addr), MachineOperand::vr(src, w)};
+				m.imm = 0;
+				emit(m);
+			}
+
+			void emitStore(StoreNode* s) {
+				Node* val = s->getValue();
+				U32 w = opWidth(val->getType());
+				VReg addr = gpValue(s->getPointer());
+				if(isX87Ty(val->getType())) {
+					I32 s = x87Value(val);
+					MachineInstr m;
+					m.op = (MachineOpcode)X86Op::X87StoreMem;
+					m.regClass = kX87;
+					m.uses = {MachineOperand::vr(addr), MachineOperand::frameSlot(s)};
+					m.imm = 80;
+					emit(m);
+				} else if(isSseTy(val->getType())) {
+					VReg v = sseValue(val);
+					MachineInstr m;
+					m.op = (MachineOpcode)X86Op::FStore;
+					m.regClass = kFp;
+					m.uses = {MachineOperand::vr(addr), MachineOperand::vr(v, w)};
+					m.imm = 0;
+					emit(m);
+				} else {
+					VReg v = gpValue(val);
+					storeIntTo(addr, v, w);
+				}
+			}
+
+			void emitLoad(LoadNode* l) {
+				U32 w = opWidth(l->getType());
+				VReg addr = gpValue(l->getPointer());
+				if(isX87Ty(l->getType())) {
+					I32 s = x87SlotOf(l);
+					MachineInstr m;
+					m.op = (MachineOpcode)X86Op::X87LoadMem;
+					m.regClass = kX87;
+					m.defs = {MachineOperand::frameSlot(s)};
+					m.uses = {MachineOperand::vr(addr)};
+					m.imm = 80;
+					emit(m);
+				} else if(isSseTy(l->getType())) {
+					VReg d = vregFor(l);
+					MachineInstr& m = def1(X86Op::FLoad, d, kFp, {MachineOperand::vr(addr)});
+					m.imm = 0;
+					m.defs[0].width = w;
+				} else {
+					B32 sign = l->getType() && l->getType()->isInt();
+					VReg d = vregFor(l);
+					MachineInstr& m = def1(X86Op::Load, d, kGp, {MachineOperand::vr(addr)});
+					m.imm = 0;
+					m.imm2 = sign ? 1 : 0;
+					m.defs[0].width = w;
+				}
+			}
+
+			void emitAlloc(AllocNode* al) {
+				if(!al->isVariableSized())
+					return;
+				VReg sz = gpValue(al->getSizeOperand());
+				VReg d = vregFor(al);
+				MachineInstr& m = def1(X86Op::FrameAddr, d, kGp, {MachineOperand::vr(sz)});
+				m.imm = -1;
+			}
+
+			void twoAddr(X86Op op, VReg d, VReg lhs, VReg rhs) {
+				copy(MachineOperand::vr(d), MachineOperand::vr(lhs), kGp);
+				MachineInstr m;
+				m.op = (MachineOpcode)op;
+				m.regClass = kGp;
+				m.defs = {MachineOperand::vr(d)};
+				m.uses = {MachineOperand::vr(d), MachineOperand::vr(rhs)};
+				emit(m);
+			}
+
+			void maskBits(VReg d, U32 bits) {
+				if(bits == 0 || bits >= 64)
+					return;
+				MachineInstr m;
+				m.op = (MachineOpcode)X86Op::MaskBits;
+				m.regClass = kGp;
+				m.defs = {MachineOperand::vr(d)};
+				m.uses = {MachineOperand::vr(d)};
+				m.imm = (I64)bits;
+				emit(m);
+			}
+
+			void signExtBits(VReg d, U32 bits) {
+				if(bits == 0 || bits >= 64)
+					return;
+				MachineInstr m;
+				m.op = (MachineOpcode)X86Op::SignExtBits;
+				m.regClass = kGp;
+				m.defs = {MachineOperand::vr(d)};
+				m.uses = {MachineOperand::vr(d)};
+				m.imm = (I64)bits;
+				emit(m);
+			}
+
+			void emitDivLike(BinaryNode* n, X86Op op) {
+				Opcode oc = n->getOpcode();
+				B32 wantRem = (oc == Opcode::SRem || oc == Opcode::URem);
+				VReg lhs = gpValue(n->getLHS());
+				VReg rhs = gpValue(n->getRHS());
+				VReg d = vregFor(n);
+
+				U32 bits = intBits(n->getType());
+
+				copy(MachineOperand::fixed(gpReg(R11)), MachineOperand::vr(rhs), kGp);
+				copy(MachineOperand::fixed(gpReg(RAX)), MachineOperand::vr(lhs), kGp);
+				copy(MachineOperand::fixed(gpReg(RCX)), MachineOperand::fixed(gpReg(R11)), kGp);
+
+				MachineInstr m;
+				m.op = (MachineOpcode)op;
+				m.regClass = kGp;
+				m.imm = (I64)bits;
+				m.uses = {MachineOperand::fixed(gpReg(RAX)), MachineOperand::fixed(gpReg(RCX))};
+				m.defs = {MachineOperand::fixed(gpReg(RAX)), MachineOperand::fixed(gpReg(RDX))};
+				emit(m);
+
+				copy(MachineOperand::vr(d), MachineOperand::fixed(gpReg(wantRem ? RDX : RAX)), kGp);
+			}
+
+			void emitShift(BinaryNode* n, X86Op op) {
+				VReg lhs = gpValue(n->getLHS());
+				VReg rhs = gpValue(n->getRHS());
+				VReg d = vregFor(n);
+				U32 bits = intBits(n->getType());
+				if(op == X86Op::LShr)
+					maskBitsInto(d, lhs, bits);
+				else
+					copy(MachineOperand::vr(d), MachineOperand::vr(lhs), kGp);
+				copy(MachineOperand::fixed(gpReg(RCX)), MachineOperand::vr(rhs), kGp);
+				MachineInstr m;
+				m.op = (MachineOpcode)op;
+				m.regClass = kGp;
+				m.defs = {MachineOperand::vr(d)};
+				m.uses = {MachineOperand::vr(d), MachineOperand::fixed(gpReg(RCX))};
+				emit(m);
+				if(op == X86Op::Shl)
+					signExtBits(d, bits);
+			}
+
+			void maskBitsInto(VReg d, VReg lhs, U32 bits) {
+				copy(MachineOperand::vr(d), MachineOperand::vr(lhs), kGp);
+				maskBits(d, bits);
+			}
+
+			void emitBinary(BinaryNode* n) {
+				Opcode op = n->getOpcode();
+				if(op >= Opcode::FAdd && op <= Opcode::FDiv) {
+					emitFloatBinary(n);
+					return;
+				}
+				switch(op) {
+				case Opcode::UDiv:
+					emitDivLike(n, X86Op::UDiv);
+					return;
+				case Opcode::URem:
+					emitDivLike(n, X86Op::URem);
+					return;
+				case Opcode::SDiv:
+					emitDivLike(n, X86Op::SDiv);
+					return;
+				case Opcode::SRem:
+					emitDivLike(n, X86Op::SRem);
+					return;
+				case Opcode::Shl:
+					emitShift(n, X86Op::Shl);
+					return;
+				case Opcode::AShr:
+					emitShift(n, X86Op::AShr);
+					return;
+				case Opcode::LShr:
+					emitShift(n, X86Op::LShr);
+					return;
+				default:
+					break;
+				}
+				VReg lhs = gpValue(n->getLHS());
+				VReg rhs = gpValue(n->getRHS());
+				VReg d = vregFor(n);
+				switch(op) {
+				case Opcode::Add:
+					twoAddr(X86Op::Add, d, lhs, rhs);
+					return;
+				case Opcode::Sub:
+					twoAddr(X86Op::Sub, d, lhs, rhs);
+					return;
+				case Opcode::Mul:
+					twoAddr(X86Op::Mul, d, lhs, rhs);
+					return;
+				case Opcode::And:
+					twoAddr(X86Op::And, d, lhs, rhs);
+					return;
+				case Opcode::Or:
+					twoAddr(X86Op::Or, d, lhs, rhs);
+					return;
+				case Opcode::Xor:
+					twoAddr(X86Op::Xor, d, lhs, rhs);
+					return;
+				default:
+					return;
+				}
+			}
+
+			void emitFloatBinary(BinaryNode* n) {
+				U32 idx = (U32)n->getOpcode() - (U32)Opcode::FAdd; // 0..3
+				if(isX87Ty(n->getType())) {
+					emitX87Binary(n, idx);
+					return;
+				}
+				U32 w = opWidth(n->getType());
+				VReg lhs = sseValue(n->getLHS());
+				VReg rhs = sseValue(n->getRHS());
+				VReg d = vregFor(n);
+				static const X86Op kFOps[] = {X86Op::FAdd, X86Op::FSub, X86Op::FMul, X86Op::FDiv};
+				copy(MachineOperand::vr(d, w), MachineOperand::vr(lhs, w), kFp);
+				MachineInstr m;
+				m.op = (MachineOpcode)kFOps[idx];
+				m.regClass = kFp;
+				m.defs = {MachineOperand::vr(d, w)};
+				m.uses = {MachineOperand::vr(d, w), MachineOperand::vr(rhs, w)};
+				m.imm = (I64)w;
+				emit(m);
+			}
+
+			void emitX87Binary(BinaryNode* n, U32 idx) {
+				static const X86Op kOps[] = {X86Op::X87Add, X86Op::X87Sub, X86Op::X87Mul, X86Op::X87Div};
+				I32 lhs = x87Value(n->getLHS());
+				I32 rhs = x87Value(n->getRHS());
+				I32 d = x87SlotOf(n);
+				MachineInstr m;
+				m.op = (MachineOpcode)kOps[idx];
+				m.regClass = kX87;
+				m.defs = {MachineOperand::frameSlot(d)};
+				m.uses = {MachineOperand::frameSlot(lhs), MachineOperand::frameSlot(rhs)};
+				emit(m);
+			}
+
+			void emitUnary(UnaryNode* n) {
+				if(n->getOpcode() == Opcode::FNeg) {
+					if(isX87Ty(n->getType())) {
+						I32 s = x87Value(n->getOperand());
+						I32 d = x87SlotOf(n);
+						MachineInstr m;
+						m.op = (MachineOpcode)X86Op::X87Neg;
+						m.regClass = kX87;
+						m.defs = {MachineOperand::frameSlot(d)};
+						m.uses = {MachineOperand::frameSlot(s)};
+						emit(m);
+						return;
+					}
+					U32 w = opWidth(n->getType());
+					VReg s = sseValue(n->getOperand());
+					VReg d = vregFor(n);
+					MachineInstr& m = def1(X86Op::FNeg, d, kFp, {MachineOperand::vr(s, w)});
+					m.defs[0].width = w;
+					m.imm = (I64)w;
+					return;
+				}
+				VReg s = gpValue(n->getOperand());
+				VReg d = vregFor(n);
+				copy(MachineOperand::vr(d), MachineOperand::vr(s), kGp);
+				MachineInstr m;
+				m.op = (MachineOpcode)(n->getOpcode() == Opcode::Neg ? X86Op::Neg : X86Op::Not);
+				m.regClass = kGp;
+				m.defs = {MachineOperand::vr(d)};
+				m.uses = {MachineOperand::vr(d)};
+				emit(m);
+			}
+
+			void emitCompare(CompareNode* n) {
+				Opcode op = n->getOpcode();
+				if(op >= Opcode::FEq && op <= Opcode::FGe) {
+					emitFloatCompare(n);
+					return;
+				}
+				VReg lhs = gpValue(n->getLHS());
+				VReg rhs = gpValue(n->getRHS());
+				VReg d = vregFor(n);
+				MachineInstr cmp;
+				cmp.op = (MachineOpcode)X86Op::Cmp;
+				cmp.regClass = kGp;
+				cmp.uses = {MachineOperand::vr(lhs), MachineOperand::vr(rhs)};
+				emit(cmp);
+				MachineInstr& set = def1(X86Op::SetCC, d, kGp, {});
+				set.imm = (I64)kIntCc[(U32)op - (U32)Opcode::Eq];
+			}
+
+			void emitFloatCompare(CompareNode* n) {
+				struct FCmp {
+					U8 cc;
+					B32 swap;
+				};
+				static const FCmp kFCmp[] = {
+						{CC_E, false},	// FEq
+						{CC_NE, false}, // FNe
+						{CC_A, true},		// FLt
+						{CC_AE, true},	// FLe
+						{CC_A, false},	// FGt
+						{CC_AE, false}, // FGe
+				};
+				const FCmp& fc = kFCmp[(U32)n->getOpcode() - (U32)Opcode::FEq];
+				VReg d = vregFor(n);
+				if(isX87Ty(n->getLHS()->getType())) {
+					I32 lhs = x87Value(n->getLHS());
+					I32 rhs = x87Value(n->getRHS());
+					MachineInstr& m = def1(X86Op::X87Cmp,
+																 d,
+																 kGp,
+																 {MachineOperand::frameSlot(lhs), MachineOperand::frameSlot(rhs)});
+					m.regClass = kGp;
+					m.imm = (I64)fc.cc;
+					m.imm2 = fc.swap ? 1 : 0;
+					return;
+				}
+				U32 w = opWidth(n->getLHS()->getType());
+				VReg lhs = sseValue(n->getLHS());
+				VReg rhs = sseValue(n->getRHS());
+				MachineInstr& m =
+						def1(X86Op::FCmp, d, kGp, {MachineOperand::vr(lhs, w), MachineOperand::vr(rhs, w)});
+				m.regClass = kGp;
+				m.imm = (I64)fc.cc;
+				m.imm2 = fc.swap ? 1 : 0;
+			}
+
+			static I64 cvtDesc(U8 pfx, U8 opc, B32 w) {
+				return ((I64)pfx << 16) | ((I64)opc << 8) | (w ? 1 : 0);
+			}
+
+			void emitConvert(ConvertNode* n) {
+				Node* src = n->getOperand();
+				Opcode op = n->getOpcode();
+				if(isX87Ty(n->getType()) || isX87Ty(src->getType())) {
+					emitConvertX87(n, src, op);
+					return;
+				}
+				switch(op) {
+				case Opcode::Trunc: {
+					VReg s = gpValue(src);
+					VReg d = vregFor(n);
+					copy(MachineOperand::vr(d), MachineOperand::vr(s), kGp);
+					signExtBits(d, intBits(n->getType()));
+					return;
+				}
+				case Opcode::SExt: {
+					VReg s = gpValue(src);
+					VReg d = vregFor(n);
+					copy(MachineOperand::vr(d), MachineOperand::vr(s), kGp);
+					return;
+				}
+				case Opcode::ZExt: {
+					VReg s = gpValue(src);
+					VReg d = vregFor(n);
+					copy(MachineOperand::vr(d), MachineOperand::vr(s), kGp);
+					maskBits(d, intBits(src->getType()));
+					return;
+				}
+				case Opcode::SIToFP:
+				case Opcode::UIToFP: {
+					U32 w = opWidth(n->getType());
+					VReg s = gpValue(src);
+					VReg d = vregFor(n);
+					MachineInstr& m = def1(X86Op::Cvt, d, kFp, {MachineOperand::vr(s)});
+					m.defs[0].width = w;
+					m.imm = cvtDesc(Asm::ssePrefixByte(w), 0x2a, true);
+					return;
+				}
+				case Opcode::FPToSI:
+				case Opcode::FPToUI: {
+					U32 w = opWidth(src->getType());
+					VReg s = sseValue(src);
+					VReg d = vregFor(n);
+					MachineInstr& m = def1(X86Op::Cvt, d, kGp, {MachineOperand::vr(s, w)});
+					m.imm = cvtDesc(Asm::ssePrefixByte(w), 0x2c, true);
+					return;
+				}
+				case Opcode::FPExt: {
+					VReg s = sseValue(src);
+					VReg d = vregFor(n);
+					MachineInstr& m = def1(X86Op::Cvt, d, kFp, {MachineOperand::vr(s, 4)});
+					m.defs[0].width = 8;
+					m.imm = cvtDesc(0xf3, 0x5a, false);
+					return;
+				}
+				case Opcode::FPTrunc: {
+					VReg s = sseValue(src);
+					VReg d = vregFor(n);
+					MachineInstr& m = def1(X86Op::Cvt, d, kFp, {MachineOperand::vr(s, 8)});
+					m.defs[0].width = 4;
+					m.imm = cvtDesc(0xf2, 0x5a, false);
+					return;
+				}
+				default:
+					return;
+				}
+			}
+
+			void emitConvertX87(ConvertNode* n, Node* src, Opcode op) {
+				switch(op) {
+				case Opcode::FPExt: {
+					if(isX87Ty(src->getType())) {
+						I32 s = x87Value(src);
+						I32 d = x87SlotOf(n);
+						MachineInstr m;
+						m.op = (MachineOpcode)X86Op::X87FromSse; // reuse
+						m.regClass = kX87;
+						m.defs = {MachineOperand::frameSlot(d)};
+						m.uses = {MachineOperand::frameSlot(s)};
+						m.imm = 80;
+						emit(m);
+						return;
+					}
+					U32 sw = opWidth(src->getType());
+					VReg s = sseValue(src);
+					I32 d = x87SlotOf(n);
+					MachineInstr m;
+					m.op = (MachineOpcode)X86Op::X87FromSse;
+					m.regClass = kX87;
+					m.defs = {MachineOperand::frameSlot(d)};
+					m.uses = {MachineOperand::vr(s, sw)};
+					m.imm = (I64)sw;
+					emit(m);
+					return;
+				}
+				case Opcode::FPTrunc: {
+					I32 s = x87Value(src);
+					U32 dw = opWidth(n->getType());
+					VReg d = vregFor(n);
+					MachineInstr m;
+					m.op = (MachineOpcode)X86Op::X87ToSse;
+					m.regClass = kFp;
+					m.defs = {MachineOperand::vr(d, dw)};
+					m.uses = {MachineOperand::frameSlot(s)};
+					m.imm = (I64)dw;
+					emit(m);
+					return;
+				}
+				case Opcode::SIToFP:
+				case Opcode::UIToFP: {
+					VReg s = gpValue(src);
+					I32 d = x87SlotOf(n);
+					MachineInstr m;
+					m.op = (MachineOpcode)X86Op::X87FromInt;
+					m.regClass = kX87;
+					m.defs = {MachineOperand::frameSlot(d)};
+					m.uses = {MachineOperand::vr(s)};
+					emit(m);
+					return;
+				}
+				case Opcode::FPToSI:
+				case Opcode::FPToUI: {
+					I32 s = x87Value(src);
+					VReg d = vregFor(n);
+					MachineInstr m;
+					m.op = (MachineOpcode)X86Op::X87ToInt;
+					m.regClass = kGp;
+					m.defs = {MachineOperand::vr(d)};
+					m.uses = {MachineOperand::frameSlot(s)};
+					emit(m);
+					return;
+				}
+				default:
+					return;
+				}
+			}
+
+			List<PhysReg> callerSavedClobbers() {
+				List<PhysReg> cl;
+				for(Reg r : kIntArgRegs)
+					cl.push_back(gpReg(r));
+				cl.push_back(gpReg(RAX));
+				cl.push_back(gpReg(R10));
+				cl.push_back(gpReg(R11));
+				for(U32 i = 0; i < kMaxXmmArgs; ++i)
+					cl.push_back(xmmReg(i));
+				return cl;
+			}
+
+			void emitCall(CallNode* c) {
+				if(!c->isIndirect()) {
+					const String& callee = c->getCallee();
+					if(callee == "__builtin_va_start") {
+						emitVaStart(c);
+						return;
+					}
+					if(callee == "__builtin_va_end")
+						return;
+					if(callee == "__builtin_va_arg") {
+						emitVaArg(c);
+						return;
+					}
+				}
+				enum ArgClass { Int, Sse, X87 };
+				struct ArgLoc {
+					Node* node;
+					ArgClass cls;
+					I32 reg;
+				};
+				U32 nargs = c->getArgCount();
+				U32 intUsed = 0, xmmUsed = 0, stackBytes = 0;
+				List<ArgLoc> args;
+				args.reserve(nargs);
+				auto classify = [&](Node* arg, ArgClass cls, U32& used, U32 max) {
+					if(used < max)
+						args.push_back({arg, cls, (I32)used++});
+					else {
+						args.push_back({arg, cls, -1});
+						stackBytes += 8;
+					}
+				};
+				for(U32 i = 0; i < nargs; ++i) {
+					Node* arg = c->getArg(i);
+					if(isX87Ty(arg->getType())) {
+						args.push_back({arg, X87, -1});
+						stackBytes += 16;
+					} else if(isSseTy(arg->getType()))
+						classify(arg, Sse, xmmUsed, kMaxXmmArgs);
+					else
+						classify(arg, Int, intUsed, kMaxIntArgs);
+				}
+
+				MachineInstr call;
+				call.op = (MachineOpcode)X86Op::Call;
+				call.isCall = true;
+				call.clobbers = callerSavedClobbers();
+
+				if(c->isIndirect()) {
+					VReg t = gpValue(c->getTarget());
+					copy(MachineOperand::fixed(gpReg(R11)), MachineOperand::vr(t), kGp);
+				}
+
+				{
+					VReg al = fresh(kGp);
+					def1(X86Op::LoadImm, al, kGp, {MachineOperand::immVal((I64)xmmUsed)});
+					copy(MachineOperand::fixed(gpReg(RAX)), MachineOperand::vr(al), kGp);
+				}
+				for(const ArgLoc& al : args) {
+					if(al.reg < 0)
+						continue;
+					if(al.cls == Sse) {
+						VReg v = sseValue(al.node);
+						U32 w = opWidth(al.node->getType());
+						copy(MachineOperand::fixed(xmmReg((U32)al.reg), w), MachineOperand::vr(v, w), kFp);
+						call.uses.push_back(MachineOperand::fixed(xmmReg((U32)al.reg), w));
+					} else {
+						VReg v = gpValue(al.node);
+						copy(MachineOperand::fixed(gpReg(kIntArgRegs[al.reg])), MachineOperand::vr(v), kGp);
+						call.uses.push_back(MachineOperand::fixed(gpReg(kIntArgRegs[al.reg])));
+					}
+				}
+				call.uses.push_back(MachineOperand::fixed(gpReg(RAX)));
+
+				if(c->isIndirect()) {
+					call.uses.push_back(MachineOperand::fixed(gpReg(R11)));
+					call.imm2 = 1; // indirect
+				} else {
+					call.uses.push_back(MachineOperand::symbol(libcName(c->getCallee())));
+				}
+
+				for(const ArgLoc& al : args) {
+					if(al.reg >= 0)
+						continue;
+					if(al.cls == X87) {
+						I32 s = x87Value(al.node);
+						call.uses.push_back(MachineOperand::frameSlot(s, 16));
+					} else if(al.cls == Sse) {
+						VReg v = sseValue(al.node);
+						call.uses.push_back(MachineOperand::vr(v, opWidth(al.node->getType())));
+					} else {
+						VReg v = gpValue(al.node);
+						call.uses.push_back(MachineOperand::vr(v, 8));
+					}
+				}
+				call.imm = (I64)stackBytes;
+				emit(call);
+
+				Node* vp = c->projection(CallNode::valueProjIndex());
+				const Type* rt =
+						c->returnsValue() ? c->getType()->getTupleElement(CallNode::valueProjIndex()) : nullptr;
+				if(rt && isX87Ty(rt) && !vp) {
+					MachineInstr m;
+					m.op = (MachineOpcode)X86Op::X87StoreMem;
+					m.regClass = kX87;
+					m.imm = -2;
+					emit(m);
+					return;
+				}
+				if(!vp || !rt)
+					return;
+				if(isX87Ty(rt)) {
+					I32 d = x87SlotOf(vp);
+					MachineInstr m;
+					m.op = (MachineOpcode)X86Op::X87StoreMem;
+					m.regClass = kX87;
+					m.defs = {MachineOperand::frameSlot(d)};
+					m.imm = -1;
+					emit(m);
+					return;
+				}
+				VReg d = vregFor(vp);
+				if(isSseTy(rt)) {
+					U32 w = opWidth(rt);
+					copy(MachineOperand::vr(d, w), MachineOperand::fixed(xmmReg(0), w), kFp);
+				} else {
+					copy(MachineOperand::vr(d), MachineOperand::fixed(gpReg(RAX)), kGp);
+					if(rt->isInt())
+						signExtBits(d, intBits(rt));
+				}
+			}
+
+			void emitPrologue() {
+				StartNode* st = fn.getStart();
+				U32 intIdx = 0, xmmIdx = 0;
+				I32 stackOff = 16;
+				for(U32 i = 0; i < fn.getParamCount(); ++i) {
+					ProjNode* p = st->projection(StartNode::paramProjIndex(i));
+					Type* t = fn.getParamType(i);
+					if(isX87Ty(t)) {
+						if(p) {
+							VReg addr = fresh(kGp);
+							MachineInstr& fa = def1(X86Op::FrameAddr, addr, kGp, {});
+							fa.imm = (I64)stackOff;
+							MachineInstr m;
+							m.op = (MachineOpcode)X86Op::X87LoadMem;
+							m.regClass = kX87;
+							m.defs = {MachineOperand::frameSlot(x87SlotOf(p))};
+							m.uses = {MachineOperand::vr(addr)};
+							m.imm = 80;
+							emit(m);
+						}
+						stackOff += 16;
+					} else if(isSseTy(t)) {
+						if(xmmIdx < kMaxXmmArgs) {
+							if(p) {
+								U32 w = opWidth(t);
+								copy(MachineOperand::vr(vregFor(p), w),
+										 MachineOperand::fixed(xmmReg(xmmIdx), w),
+										 kFp);
+							}
+							++xmmIdx;
+						} else {
+							loadStackParam(p, t, stackOff);
+							stackOff += 8;
+						}
+					} else {
+						if(intIdx < kMaxIntArgs) {
+							if(p)
+								copy(MachineOperand::vr(vregFor(p)),
+										 MachineOperand::fixed(gpReg(kIntArgRegs[intIdx])),
+										 kGp);
+							++intIdx;
+						} else {
+							loadStackParam(p, t, stackOff);
+							stackOff += 8;
+						}
+					}
+				}
+			}
+
+			void loadStackParam(ProjNode* p, Type* t, I32 disp) {
+				if(!p)
+					return;
+				VReg addr = fresh(kGp);
+				MachineInstr& fa = def1(X86Op::FrameAddr, addr, kGp, {});
+				fa.imm = (I64)disp;
+				U32 w = opWidth(t);
+				if(isSseTy(t)) {
+					VReg d = vregFor(p);
+					MachineInstr& m = def1(X86Op::FLoad, d, kFp, {MachineOperand::vr(addr)});
+					m.imm = 0;
+					m.defs[0].width = w;
+				} else {
+					VReg d = vregFor(p);
+					MachineInstr& m = def1(X86Op::Load, d, kGp, {MachineOperand::vr(addr)});
+					m.imm = 0;
+					m.imm2 = (t && t->isInt()) ? 1 : 0;
+					m.defs[0].width = w;
+				}
+			}
+
+			void emitVaStart(CallNode* c) {
+				VReg ptr = gpValue(c->getArg(0));
+				MachineInstr m;
+				m.op = (MachineOpcode)X86Op::VaStart;
+				m.regClass = kGp;
+				m.uses = {MachineOperand::vr(ptr)};
+				m.imm = (I64)fl.namedGp;
+				m.imm2 = (I64)fl.namedFp;
+				emit(m);
+			}
+
+			void emitVaArg(CallNode* c) {
+				Node* vp = c->projection(CallNode::valueProjIndex());
+				const Type* rt = vp ? vp->getType() : nullptr;
+				if(!vp || !rt)
+					return;
+				VReg ptr = gpValue(c->getArg(0));
+				VaArgKind kind =
+						isX87Ty(rt) ? VaArgKind::X87 : (isSseTy(rt) ? VaArgKind::Sse : VaArgKind::Int);
+				MachineInstr m;
+				m.op = (MachineOpcode)X86Op::VaArg;
+				m.uses = {MachineOperand::vr(ptr)};
+				m.imm = (I64)kind;
+				m.imm2 = (I64)opWidth(rt);
+				if(kind == VaArgKind::X87) {
+					m.regClass = kX87;
+					m.defs = {MachineOperand::frameSlot(x87SlotOf(vp))};
+				} else {
+					m.regClass = classOf(rt);
+					VReg d = vregFor(vp);
+					m.defs = {MachineOperand::vr(d, opWidth(rt))};
+					if(kind == VaArgKind::Int && rt->isInt())
+						m.imm2 |= (I64)1 << 32;
+				}
+				emit(m);
+			}
+
+			void emitNode(Node* n) {
+				switch(n->getOpcode()) {
+				case Opcode::Store:
+					emitStore(cast<StoreNode>(n));
+					return;
+				case Opcode::Load:
+					emitLoad(cast<LoadNode>(n));
+					return;
+				case Opcode::Call:
+					emitCall(cast<CallNode>(n));
+					return;
+				case Opcode::Alloc:
+					emitAlloc(cast<AllocNode>(n));
+					return;
+				default:
+					break;
+				}
+				if(isCompareOpcode(n->getOpcode())) {
+					emitCompare(cast<CompareNode>(n));
+					return;
+				}
+				if(isConvertOpcode(n->getOpcode())) {
+					emitConvert(cast<ConvertNode>(n));
+					return;
+				}
+				if(isUnaryOpcode(n->getOpcode())) {
+					emitUnary(cast<UnaryNode>(n));
+					return;
+				}
+				if(isBinaryOpcode(n->getOpcode())) {
+					emitBinary(cast<BinaryNode>(n));
+					return;
+				}
+			}
+
+			void emitReturn(ReturnNode* r) {
+				MachineInstr m;
+				m.op = (MachineOpcode)X86Op::Ret;
+				if(r->hasValue()) {
+					Node* v = r->getValue();
+					if(isX87Ty(v->getType())) {
+						I32 s = x87Value(v);
+						MachineInstr ld;
+						ld.op = (MachineOpcode)X86Op::X87LoadMem;
+						ld.regClass = kX87;
+						ld.uses = {MachineOperand::frameSlot(s)};
+						ld.imm = -1;
+						emit(ld);
+					} else if(isSseTy(v->getType())) {
+						U32 w = opWidth(v->getType());
+						VReg s = sseValue(v);
+						copy(MachineOperand::fixed(xmmReg(0), w), MachineOperand::vr(s, w), kFp);
+						m.uses = {MachineOperand::fixed(xmmReg(0), w)};
+					} else {
+						VReg s = gpValue(v);
+						copy(MachineOperand::fixed(gpReg(RAX)), MachineOperand::vr(s), kGp);
+						m.uses = {MachineOperand::fixed(gpReg(RAX))};
+					}
+				}
+				emit(m);
+			}
+
+			void emitPhiCopies(I32 targetBlock, I32 predIdx) {
+				const Schedule::Block& tb = sched.block(targetBlock);
+				List<PhiNode*> live;
+				List<VReg> tmp;
+				for(PhiNode* phi : tb.phis) {
+					Node* v = phi->getValue(predIdx);
+					if(v == phi)
+						continue;
+					U32 cls = classOf(phi->getType());
+					if(cls == kX87) {
+						I32 s = x87Value(v);
+						I32 d = x87SlotOf(phi);
+						MachineInstr m;
+						m.op = (MachineOpcode)X86Op::X87FromSse;
+						m.regClass = kX87;
+						m.defs = {MachineOperand::frameSlot(d)};
+						m.uses = {MachineOperand::frameSlot(s)};
+						m.imm = 80;
+						emit(m);
+						continue;
+					}
+					VReg t = fresh(cls);
+					if(cls == kFp) {
+						U32 w = opWidth(phi->getType());
+						copy(MachineOperand::vr(t, w), MachineOperand::vr(sseValue(v), w), kFp);
+					} else
+						copy(MachineOperand::vr(t), MachineOperand::vr(gpValue(v)), kGp);
+					live.push_back(phi);
+					tmp.push_back(t);
+				}
+				for(size_t i = 0; i < live.size(); i++) {
+					PhiNode* phi = live[i];
+					U32 cls = classOf(phi->getType());
+					VReg d = vregFor(phi);
+					if(cls == kFp) {
+						U32 w = opWidth(phi->getType());
+						copy(MachineOperand::vr(d, w), MachineOperand::vr(tmp[i], w), kFp);
+					} else
+						copy(MachineOperand::vr(d), MachineOperand::vr(tmp[i]), kGp);
+				}
+			}
+
+			void emitTerminator(I32 b) {
+				const Schedule::Block& blk = sched.block(b);
+				switch(blk.term) {
+				case Schedule::TermKind::Return:
+					emitReturn(cast<ReturnNode>(blk.termNode));
+					return;
+				case Schedule::TermKind::Branch: {
+					IfNode* iff = cast<IfNode>(blk.termNode);
+					VReg p = gpValue(iff->getPredicate());
+					MachineInstr m;
+					m.op = (MachineOpcode)X86Op::Br;
+					m.uses = {MachineOperand::vr(p),
+										MachineOperand::blockRef(blk.thenB),
+										MachineOperand::blockRef(blk.elseB)};
+					emit(m);
+					return;
+				}
+				case Schedule::TermKind::Goto: {
+					emitPhiCopies(blk.gotoB, blk.gotoPredIdx);
+					MachineInstr m;
+					m.op = (MachineOpcode)X86Op::Jmp;
+					m.uses = {MachineOperand::blockRef(blk.gotoB)};
+					emit(m);
+					return;
+				}
+				}
+			}
+
+			void run() {
+				layout();
+				const List<I32>& order = sched.rpo();
+				out.blocks.assign(sched.numBlocks(), {});
+				for(U32 i = 0; i < order.size(); ++i) {
+					I32 b = order[i];
+					MachineBlock& block = out.blocks[b];
+					block.id = b;
+					mb = &block;
+					if(i == 0)
+						emitPrologue();
+					for(Node* n : sched.block(b).nodes)
+						emitNode(n);
+					emitTerminator(b);
+				}
+				for(U32 i = 0; i < order.size(); ++i) {
+					I32 b = order[i];
+					const Schedule::Block& sb = sched.block(b);
+					MachineBlock& block = out.blocks[b];
+					for(I32 s : sched.successors(b)) {
+						block.succs.push_back(s);
+						out.blocks[s].preds.push_back(b);
+					}
+					(void)sb;
+				}
+			}
+		};
+
+		I32 hookAllocSlot(MachineFunc& fn, U32 /*cls*/, U32 width) {
+			fn.frameBytes += width < 8 ? 8 : width;
+			fn.frameBytes = (fn.frameBytes + 7u) & ~7u;
+			return -(I32)fn.frameBytes;
+		}
+
+		MachineInstr hookReload(PhysReg dst, I32 slot, U32 cls, U32 width) {
+			MachineInstr m;
+			m.op = (MachineOpcode)(cls == kFp ? X86Op::FLoad : X86Op::Load);
+			m.regClass = cls;
+			m.defs = {MachineOperand::fixed(dst, width)};
+			m.uses = {MachineOperand::frameSlot(slot, width)};
+			m.imm = 0;
+			m.imm2 = 0;
+			return m;
+		}
+
+		MachineInstr hookSpill(I32 slot, PhysReg src, U32 cls, U32 width) {
+			MachineInstr m;
+			m.op = (MachineOpcode)(cls == kFp ? X86Op::FStore : X86Op::Store);
+			m.regClass = cls;
+			m.uses = {MachineOperand::frameSlot(slot, width), MachineOperand::fixed(src, width)};
+			m.imm = 0;
+			return m;
+		}
 	} // namespace
+
+	RegAllocHooks x86RegAllocHooks() {
+		RegAllocHooks hooks;
+		hooks.makeReload = &hookReload;
+		hooks.makeSpill = &hookSpill;
+		hooks.allocSlot = &hookAllocSlot;
+		return hooks;
+	}
 
 	U32 X86LowerPass::runOnMachineFunction(const Function& fn,
 																				 MachineFunc& mf,
 																				 const TargetInfo& /*target*/) {
-		X86Lower lower(fn);
-		mf = lower.lower(); // the frame layout rides along on mf.aux
+		Schedule sched(fn);
+		X86FrameLayout fl;
+		mf.src = &fn;
+		Builder b(fn, fn.getModule(), sched, mf, fl);
+		b.run();
+		mf.aux = std::make_unique<X86FrameLayout>(fl); // the layout rides along on mf.aux
 		return 1;
 	}
 

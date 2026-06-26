@@ -117,7 +117,7 @@ I32 main(I32 argc, char** argv) {
 	}
 	std::ostream& out = outputPath.empty() ? std::cout : outFile;
 
-	PassManager pm;
+	PassManager pm(target);
 	String err;
 	if(!buildPipeline(pm, passSpec, out, err)) {
 		std::cerr << "rat: " << err << "\n";

@@ -171,7 +171,8 @@ namespace {
 
 		std::ostringstream src;
 		{
-			PassManager pm;
+			Generic64 target;
+			PassManager pm(target);
 			pm.add<RenameSymbolPass>("main", "__ratcc_user_main");
 			pm.add<CEmitterPass>(src);
 			pm.run(mod);
@@ -273,9 +274,12 @@ namespace {
 				err = "x86: cannot write temp object";
 				return false;
 			}
-			PassManager pm;
+			X86Target target;
+			PassManager pm(target);
 			pm.add<RenameSymbolPass>("main", "__ratcc_user_main");
-			pm.add<X86EmitterPass>(of);
+			pm.add<X86LowerPass>();
+			pm.add<RegAllocPass>();
+			pm.add<X86EncodePass>(of);
 			pm.run(mod);
 		}
 
@@ -388,7 +392,8 @@ namespace {
 		}
 
 		if(!exp.passes.empty()) {
-			PassManager pm;
+			Generic64 target;
+			PassManager pm(target);
 			std::ostringstream sink;
 			String perr;
 			if(!buildPipeline(pm, exp.passes, sink, perr)) {
@@ -454,7 +459,8 @@ namespace {
 
 	String emitToString(Module& m) {
 		std::ostringstream os;
-		PassManager pm;
+		Generic64 target;
+		PassManager pm(target);
 		pm.add<TextEmitterPass>(os);
 		pm.run(m);
 		return os.str();
@@ -555,7 +561,7 @@ namespace {
 		}
 
 		std::ostringstream sink;
-		PassManager pm;
+		PassManager pm(target);
 		String spec;
 		for(const String& p : tf.passes) {
 			if(!spec.empty())

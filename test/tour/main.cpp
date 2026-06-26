@@ -88,12 +88,12 @@ int main() {
 		std::cout << "; ok\n";
 
 	std::cout << "\n; before opt\n";
-	rat::PassManager before;
+	rat::PassManager before(target);
 	before.add<rat::TextEmitterPass>(std::cout);
 	before.run(module);
 
 	std::cout << "\n; after memoryopt + fold + gvn + simplifycfg\n";
-	rat::PassManager pm;
+	rat::PassManager pm(target);
 	pm.add<rat::MemoryOptPass>();
 	pm.add<rat::FoldPass>();
 	pm.add<rat::GVNPass>();
@@ -112,14 +112,14 @@ int main() {
 
 	std::cout << "\n/* --- c --- */\n";
 	{
-		rat::PassManager cpm;
+		rat::PassManager cpm(target);
 		cpm.add<rat::CEmitterPass>(std::cout);
 		cpm.run(module);
 	}
 
 	std::cout << "\n// --- graph ---\n";
 	{
-		rat::PassManager gpm;
+		rat::PassManager gpm(target);
 		gpm.add<rat::GraphEmitterPass>(std::cout);
 		gpm.run(module);
 	}
