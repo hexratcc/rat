@@ -4,6 +4,8 @@
 #include "Core.h"
 
 namespace rat {
+	struct RegAllocHooks;
+
 	using PhysReg = U32;
 	constexpr PhysReg kNoReg = 0;
 
@@ -32,6 +34,7 @@ namespace rat {
 		virtual Endianness getEndianness() const = 0;
 		virtual U32 getNativeIntegerWidth() const = 0;
 		virtual const RegisterInfo* registers() const { return nullptr; }
+		virtual RegAllocHooks regAllocHooks() const;
 
 		U32 getPointerSizeInBytes() const { return getPointerSizeInBits() / 8; }
 		B32 isLittleEndian() const { return getEndianness() == Endianness::Little; }
@@ -67,6 +70,8 @@ namespace rat {
 			static const RegisterInfo info = build();
 			return &info;
 		}
+
+		RegAllocHooks regAllocHooks() const override;
 
 		// classify a physical register by its encoding range.
 		static B32 isGp(PhysReg p) { return p >= kGpBase && p < kXmmBase; }
