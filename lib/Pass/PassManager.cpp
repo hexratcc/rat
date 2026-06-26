@@ -17,6 +17,12 @@ namespace rat {
 				*log << "; " << pass->name() << (c ? " : changed\n" : " : unchanged\n");
 			changed = changed || c;
 		}
+		for(auto& pass : machinePasses) {
+			B32 c = pass->run(module, mm, *target);
+			if(log)
+				*log << "; " << pass->name() << (c ? " : changed\n" : " : unchanged\n");
+			changed = changed || c;
+		}
 		return changed;
 	}
 } // namespace rat
