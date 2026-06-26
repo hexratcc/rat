@@ -5,7 +5,7 @@
 
 namespace rat {
 	enum class ElfReloc : U32 {
-		Pc32 = 2,  // R_X86_64_PC32  (S + A - P), used by call/lea(rip)
+		Pc32 = 2,	 // R_X86_64_PC32  (S + A - P), used by call/lea(rip)
 		Plt32 = 4, // R_X86_64_PLT32 (L + A - P), call to a function via PLT
 		Abs64 = 1, // R_X86_64_64    (S + A), absolute 64-bit address
 	};
@@ -18,12 +18,9 @@ namespace rat {
 		U32 append(Section sec, const U8* bytes, U32 len);
 		U32 appendZero(Section sec, U32 len);
 		U32 align(Section sec, U32 align);
-		void defineSymbol(const String& name, Section sec, U32 offset, B32 global,
-											B32 isFunc);
-		void addReloc(Section sec, U32 offset, const String& symbol, ElfReloc kind,
-									I64 addend);
+		void defineSymbol(const String& name, Section sec, U32 offset, B32 global, B32 isFunc);
+		void addReloc(Section sec, U32 offset, const String& symbol, ElfReloc kind, I64 addend);
 		void write(std::ostream& os);
-
 	private:
 		struct Sym {
 			String name;
