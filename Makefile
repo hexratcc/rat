@@ -19,7 +19,7 @@ LIB_OBJS := $(patsubst %.cpp,build/%.o,$(LIB_SRCS))
 LIB      := build/rat.a
 
 SOURCES  := $(LIB_SRCS) test/tour/main.cpp test/driver/main.cpp
-HEADERS  := $(wildcard include/*.h include/IR/*.h include/Support/*.h include/Pass/*.h include/Pass/Emit/*.h include/Pass/Opt/*.h include/CodeGen/*.h)
+HEADERS  := $(wildcard include/*.h include/IR/*.h include/Support/*.h include/Pass/*.h include/Pass/Emit/*.h include/Pass/Opt/*.h include/CodeGen/*.h include/Target/*.h)
 CC_FMT   := $(shell find test/cc -path test/cc/cases -prune -o \( -name '*.cpp' -o -name '*.h' \) -print | sort)
 
 .PHONY: all run rat test test-c test-x86 compiledb format clean

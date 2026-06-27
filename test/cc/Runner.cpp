@@ -80,10 +80,12 @@ namespace {
 		return cache;
 	}
 
+	const char* const kDefaultPasses = "fold,gvn,sccp,simplifycfg,memoryopt,inline";
+
 	struct Expectation {
 		B32 hasValue = false;
 		I32 value = 0;
-		String passes = "fold,gvn";
+		String passes = kDefaultPasses;
 		B32 hasOutput = false;
 		String output;
 	};
@@ -162,96 +164,6 @@ namespace {
 		return only ? dyn_cast<ConstantNode>(only->getValue()) : nullptr;
 	}
 
-	B32 runOracle(Module& mod, I32& out, String& capturedOut, String& err) {
-		std::ostringstream base;
-		base << tempDir() << "/ratcc_oracle_" << (long)getpid() << "_" << oracleCounter++;
-		String cpath = base.str() + ".c";
-		String xpath = base.str() + ".out";
-		String rpath = base.str() + ".ret";
-
-		std::ostringstream src;
-		{
-			Generic64 target;
-			PassManager pm(target);
-			pm.add<RenameSymbolPass>("main", "__ratcc_user_main");
-			pm.add<CEmitterPass>(src);
-			pm.run(mod);
-		}
-
-		String wpath = base.str() + ".wrap.c";
-		std::ostringstream wrap;
-		wrap << "#include <stdio.h>\n";
-		wrap << "extern int __ratcc_user_main(void);\n";
-		wrap << "int main(void) {\n";
-		wrap << "  int __r = (int)__ratcc_user_main();\n";
-		wrap << "  FILE* __rf = fopen(\"" << rpath << "\", \"w\");\n";
-		wrap << "  if (__rf) { fprintf(__rf, \"%d\", __r); fclose(__rf); }\n";
-		wrap << "  return __r;\n";
-		wrap << "}\n";
-
-		{
-			std::ofstream cf(cpath);
-			if(!cf) {
-				err = "oracle: cannot write temp source";
-				return false;
-			}
-			cf << src.str();
-			std::ofstream wf(wpath);
-			if(!wf) {
-				err = "oracle: cannot write wrapper source";
-				return false;
-			}
-			wf << wrap.str();
-		}
-
-		std::ostringstream cmd;
-		cmd << hostCC() << " -std=c11 -w -O0 -o '" << xpath << "' '" << cpath << "' '" << wpath
-				<< "' -lm";
-		I32 crc = std::system(cmd.str().c_str());
-		if(crc != 0) {
-			std::remove(cpath.c_str());
-			std::remove(wpath.c_str());
-			err = "oracle: C compilation failed";
-			return false;
-		}
-
-		FILE* p = popen(xpath.c_str(), "r");
-		if(!p) {
-			std::remove(cpath.c_str());
-			std::remove(wpath.c_str());
-			std::remove(xpath.c_str());
-			err = "oracle: cannot execute program";
-			return false;
-		}
-		capturedOut.clear();
-		char buf[4096];
-		size_t n;
-		while((n = fread(buf, 1, sizeof(buf), p)) > 0)
-			capturedOut.append(buf, n);
-		I32 status = pclose(p);
-
-		B32 gotRet = false;
-		{
-			std::ifstream rf(rpath);
-			if(rf) {
-				String rv;
-				std::getline(rf, rv);
-				if(!rv.empty()) {
-					out = (I32)std::strtol(rv.c_str(), nullptr, 10);
-					gotRet = true;
-				}
-			}
-		}
-		if(!gotRet)
-			out = WIFEXITED(status) ? (I32)WEXITSTATUS(status) : -1;
-
-		std::remove(cpath.c_str());
-		std::remove(wpath.c_str());
-		std::remove(xpath.c_str());
-		std::remove(rpath.c_str());
-		return true;
-	}
-
 	B32 useX86Backend() {
 		static B32 on = [] {
 			const char* e = std::getenv("RATCC_X86");
@@ -260,64 +172,70 @@ namespace {
 		return on;
 	}
 
-	B32 runOracleX86(Module& mod, I32& out, String& capturedOut, String& err) {
-		std::ostringstream base;
-		base << tempDir() << "/ratcc_x86_" << (long)getpid() << "_" << oracleCounter++;
-		String opath = base.str() + ".o";
-		String wpath = base.str() + ".wrap.c";
-		String xpath = base.str() + ".out";
-		String rpath = base.str() + ".ret";
+	template <class AddPasses>
+	void runPasses(Module& mod, const TargetInfo& target, AddPasses&& add) {
+		PassManager pm(target);
+		add(pm);
+		pm.run(mod);
+	}
 
-		{
-			std::ofstream of(opath, std::ios::binary);
-			if(!of) {
-				err = "x86: cannot write temp object";
-				return false;
-			}
-			X86Target target;
-			PassManager pm(target);
-			pm.add<RenameSymbolPass>("main", "__ratcc_user_main");
-			pm.add<X86LowerPass>();
-			pm.add<RegAllocPass>();
-			pm.add<X86EncodePass>(of);
-			pm.run(mod);
-		}
+	struct Artifact {
+		String path;
+		String compileArgs;
+	};
 
-		std::ostringstream wrap;
-		wrap << "#include <stdio.h>\n";
-		wrap << "extern int __ratcc_user_main(void);\n";
-		wrap << "int main(void) {\n";
-		wrap << "  int __r = (int)__ratcc_user_main();\n";
-		wrap << "  FILE* __rf = fopen(\"" << rpath << "\", \"w\");\n";
-		wrap << "  if (__rf) { fprintf(__rf, \"%d\", __r); fclose(__rf); }\n";
-		wrap << "  return __r;\n";
-		wrap << "}\n";
+	B32 runBackend(const char* tag,
+								 const std::function<B32(const String& base, Artifact&, String&)>& makeArtifact,
+								 I32& out,
+								 String& capturedOut,
+								 String& err) {
+		std::ostringstream basess;
+		basess << tempDir() << "/ratcc_" << tag << "_" << (long)getpid() << "_" << oracleCounter++;
+		String base = basess.str();
+		String wpath = base + ".wrap.c";
+		String xpath = base + ".out";
+		String rpath = base + ".ret";
+
+		Artifact art;
+		if(!makeArtifact(base, art, err))
+			return false;
+
+		auto cleanup = [&] {
+			std::remove(art.path.c_str());
+			std::remove(wpath.c_str());
+			std::remove(xpath.c_str());
+			std::remove(rpath.c_str());
+		};
+
 		{
 			std::ofstream wf(wpath);
 			if(!wf) {
-				err = "x86: cannot write wrapper source";
+				cleanup();
+				err = String(tag) + ": cannot write wrapper source";
 				return false;
 			}
-			wf << wrap.str();
+			wf << "#include <stdio.h>\n"
+				 << "extern int __ratcc_user_main(void);\n"
+				 << "int main(void) {\n"
+				 << "  int __r = (int)__ratcc_user_main();\n"
+				 << "  FILE* __rf = fopen(\"" << rpath << "\", \"w\");\n"
+				 << "  if (__rf) { fprintf(__rf, \"%d\", __r); fclose(__rf); }\n"
+				 << "  return __r;\n"
+				 << "}\n";
 		}
 
-		std::ostringstream cmd;
-		cmd << hostCC() << " -w -O0 -no-pie -o '" << xpath << "' '" << wpath << "' '" << opath
-				<< "' -lm";
-		I32 crc = std::system(cmd.str().c_str());
-		if(crc != 0) {
-			std::remove(opath.c_str());
-			std::remove(wpath.c_str());
-			err = "x86: link failed";
+		String cmd =
+				hostCC() + " -w -O0 " + art.compileArgs + " '" + wpath + "' -o '" + xpath + "' -lm";
+		if(std::system(cmd.c_str()) != 0) {
+			cleanup();
+			err = String(tag) + ": compilation/link failed";
 			return false;
 		}
 
 		FILE* p = popen(xpath.c_str(), "r");
 		if(!p) {
-			std::remove(opath.c_str());
-			std::remove(wpath.c_str());
-			std::remove(xpath.c_str());
-			err = "x86: cannot execute program";
+			cleanup();
+			err = String(tag) + ": cannot execute program";
 			return false;
 		}
 		capturedOut.clear();
@@ -327,26 +245,56 @@ namespace {
 			capturedOut.append(buf, n);
 		I32 status = pclose(p);
 
-		B32 gotRet = false;
-		{
-			std::ifstream rf(rpath);
-			if(rf) {
-				String rv;
-				std::getline(rf, rv);
-				if(!rv.empty()) {
-					out = (I32)std::strtol(rv.c_str(), nullptr, 10);
-					gotRet = true;
-				}
-			}
-		}
-		if(!gotRet)
+		std::ifstream rf(rpath);
+		String rv;
+		if(rf && std::getline(rf, rv) && !rv.empty())
+			out = (I32)std::strtol(rv.c_str(), nullptr, 10);
+		else
 			out = WIFEXITED(status) ? (I32)WEXITSTATUS(status) : -1;
 
-		std::remove(opath.c_str());
-		std::remove(wpath.c_str());
-		std::remove(xpath.c_str());
-		std::remove(rpath.c_str());
+		cleanup();
 		return true;
+	}
+
+	B32 runOracle(Module& mod, I32& out, String& capturedOut, String& err) {
+		if(useX86Backend()) {
+			auto make = [&](const String& base, Artifact& art, String& e) -> B32 {
+				art.path = base + ".o";
+				std::ofstream of(art.path, std::ios::binary);
+				if(!of) {
+					e = "x86: cannot write temp object";
+					return false;
+				}
+				X86Target target;
+				runPasses(mod, target, [&](PassManager& pm) {
+					pm.add<RenameSymbolPass>("main", "__ratcc_user_main");
+					pm.add<X86LowerPass>();
+					pm.add<RegAllocPass>();
+					pm.add<X86EncodePass>(of);
+				});
+				art.compileArgs = "-no-pie '" + art.path + "'";
+				return true;
+			};
+			return runBackend("x86", make, out, capturedOut, err);
+		}
+		auto make = [&](const String& base, Artifact& art, String& e) -> B32 {
+			art.path = base + ".c";
+			std::ostringstream src;
+			Generic64 target;
+			runPasses(mod, target, [&](PassManager& pm) {
+				pm.add<RenameSymbolPass>("main", "__ratcc_user_main");
+				pm.add<CEmitterPass>(src);
+			});
+			std::ofstream cf(art.path);
+			if(!cf) {
+				e = "oracle: cannot write temp source";
+				return false;
+			}
+			cf << src.str();
+			art.compileArgs = "-std=c11 '" + art.path + "'";
+			return true;
+		};
+		return runBackend("oracle", make, out, capturedOut, err);
 	}
 
 	B32 runCase(const String& path, String& err) {
@@ -392,15 +340,15 @@ namespace {
 		}
 
 		if(!exp.passes.empty()) {
-			Generic64 target;
-			PassManager pm(target);
 			std::ostringstream sink;
 			String perr;
-			if(!buildPipeline(pm, exp.passes, sink, perr)) {
+			B32 ok = true;
+			runPasses(
+					mod, target, [&](PassManager& pm) { ok = buildPipeline(pm, exp.passes, sink, perr); });
+			if(!ok) {
 				err = "bad pass spec: " + perr;
 				return false;
 			}
-			pm.run(mod);
 		}
 
 		Function* main = mod.getFunction("main");
@@ -412,14 +360,10 @@ namespace {
 		I32 got;
 		String capturedOut;
 		const ConstantNode* result = exp.hasOutput ? nullptr : returnConstant(*main);
-		if(result) {
+		if(result)
 			got = (I32)result->getValue();
-		} else if(useX86Backend()) {
-			if(!runOracleX86(mod, got, capturedOut, err))
-				return false;
-		} else if(!runOracle(mod, got, capturedOut, err)) {
+		else if(!runOracle(mod, got, capturedOut, err))
 			return false;
-		}
 
 		if(got != exp.value) {
 			std::ostringstream os;
@@ -460,9 +404,7 @@ namespace {
 	String emitToString(Module& m) {
 		std::ostringstream os;
 		Generic64 target;
-		PassManager pm(target);
-		pm.add<TextEmitterPass>(os);
-		pm.run(m);
+		runPasses(m, target, [&](PassManager& pm) { pm.add<TextEmitterPass>(os); });
 		return os.str();
 	}
 
@@ -560,20 +502,20 @@ namespace {
 			return false;
 		}
 
-		std::ostringstream sink;
-		PassManager pm(target);
 		String spec;
 		for(const String& p : tf.passes) {
 			if(!spec.empty())
 				spec += ',';
 			spec += p;
 		}
+		std::ostringstream sink;
 		String perr2;
-		if(!buildPipeline(pm, spec, sink, perr2)) {
+		B32 ok = true;
+		runPasses(mod, target, [&](PassManager& pm) { ok = buildPipeline(pm, spec, sink, perr2); });
+		if(!ok) {
 			err = perr2;
 			return false;
 		}
-		pm.run(mod);
 
 		String actualCanon, expectCanon, cerr;
 		if(!canonicalIR(emitToString(mod), actualCanon, cerr)) {
