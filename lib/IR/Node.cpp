@@ -89,7 +89,9 @@ namespace rat {
 	Node* Node::getControlInput() const {
 		// for Phi, input[0] is the controlling Region
 		I32 slot = getOpcodeInfo(op).controlInputIndex;
-		return slot < 0 ? nullptr : getInput((U32)slot);
+		if(slot < 0 || (U32)slot >= getInputCount())
+			return nullptr;
+		return getInput((U32)slot);
 	}
 
 	ProjNode* Node::projection(U32 index) const {

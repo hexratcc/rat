@@ -442,6 +442,8 @@ namespace rat {
 				Node* n = *it;
 				B32 dead = !n->hasUsers() && !n->hasSideEffects() && (includeControl || !n->isCFG()) &&
 									 n != start && n != stop;
+				if(!dead && (isa<StoreNode>(n) || isa<CallNode>(n)) && !n->getControlInput())
+					dead = true;
 				if(dead) {
 					n->clearInputs();
 					it = nodes.erase(it);

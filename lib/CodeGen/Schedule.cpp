@@ -443,6 +443,12 @@ namespace rat {
 					loadsByMem[m].push_back(n);
 
 		Map<const Node*, List<Node*>> extraSuccs;
+		auto addEdge = [&](Node* before, Node* after) {
+			if(before == after || !inBlock.count(before) || !inBlock.count(after))
+				return;
+			extraSuccs[before].push_back(after);
+		};
+
 		auto addAntiDep = [&](Node* writer) {
 			Node* m = memoryInputOf(writer);
 			if(!m)
@@ -452,11 +458,26 @@ namespace rat {
 				return;
 			for(Node* ld : it->second)
 				if(ld != writer)
-					extraSuccs[ld].push_back(writer);
+					addEdge(ld, writer);
 		};
 		for(Node* n : nodes)
 			if(isa<StoreNode>(n) || isa<CallNode>(n))
 				addAntiDep(n);
+
+		auto producerOfMem = [&](Node* m) -> Node* {
+			if(!m)
+				return nullptr;
+			if(ProjNode* p = dyn_cast<ProjNode>(m))
+				return p->getProducer();
+			return m; // a store produces memory directly
+		};
+		for(Node* n : nodes) {
+			if(!isa<StoreNode>(n) && !isa<CallNode>(n) && !isa<LoadNode>(n))
+				continue;
+			Node* prod = producerOfMem(memoryInputOf(n));
+			if(prod && (isa<StoreNode>(prod) || isa<CallNode>(prod)))
+				addEdge(prod, n);
+		}
 
 		auto laterId = [](const Node* a, const Node* b) { return a->getId() > b->getId(); };
 		std::priority_queue<Node*, std::vector<Node*>, decltype(laterId)> ready(laterId);
