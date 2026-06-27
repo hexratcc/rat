@@ -228,6 +228,14 @@ namespace rat::cc {
 				return initStructInit(sink, goff, g, els[0]);
 			return initStructInit(sink, goff, g, init);
 		}
+		if(des.isSet && des.next) {
+			if(f.isArray)
+				return initArrayInit(sink, off, f.type, f.count, wrapNested(des.next, els[0]));
+			if(isStruct(f.type))
+				return initStructInit(sink, off, f.type.strukt, wrapNested(des.next, els[0]));
+			fail("designator selects a sub-object of a scalar union member");
+			return false;
+		}
 		if(f.isArray) {
 			if(els[0]->kind == ExprKind::StrLit)
 				return sink.charArray(off, f.type, f.count, els[0]);

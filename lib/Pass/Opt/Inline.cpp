@@ -57,11 +57,11 @@ namespace rat {
 			for(U32 i = 0, e = orig->getInputCount(); i < e; ++i)
 				clone->setInput(i, resolve(orig->getInput(i)));
 		}
-
 		// collect the callee's mapped return triples and merge them
 		List<Node*> ctrls, mems, vals;
-		for(Node* n : callee) {
-			ReturnNode* r = dyn_cast<ReturnNode>(n);
+		StopNode* stop = callee.getStop();
+		for(U32 i = 0, e = stop ? stop->getInputCount() : 0; i < e; ++i) {
+			ReturnNode* r = dyn_cast<ReturnNode>(stop->getInput(i));
 			if(!r)
 				continue;
 			ctrls.push_back(resolve(r->getControl()));
