@@ -17,22 +17,11 @@ namespace rat {
 		virtual B32 run(Module& module) = 0;
 	};
 
-	struct FunctionPass : Pass {
-		B32 run(Module& module) final;
-		virtual U32 runOnFunction(Function& fn) = 0;
-	};
-
 	struct MachinePass {
 		virtual ~MachinePass();
 
 		virtual const C8* name() const = 0;
 		virtual B32 run(Module& module, MachineModule& mm, const TargetInfo& target) = 0;
-	};
-
-	struct MachineFunctionPass : MachinePass {
-		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) final;
-		virtual U32
-		runOnMachineFunction(const Function& fn, MachineFunc& mf, const TargetInfo& target) = 0;
 	};
 } // namespace rat
 
