@@ -56,29 +56,33 @@ namespace rat {
 			return sched.dominates(ba, bb);
 		};
 
+		Map<Node*, List<LoadNode*>> byDef;
+		for(LoadNode* l : live)
+			byDef[effectiveDef(aa, l)].push_back(l);
+
 		U32 removed = 0;
-		for(U32 i = 0, e = (U32)live.size(); i < e; ++i) {
-			LoadNode* a = live[i];
-			if(!a->hasUsers())
-				continue;
-			U32 szA = aa.getAccessSize(a);
-			Node* defA = effectiveDef(aa, a);
-			for(U32 j = 0; j < e; ++j) {
-				if(i == j)
+		for(auto& kv : byDef) {
+			List<LoadNode*>& group = kv.second;
+			for(U32 i = 0, e = (U32)group.size(); i < e; ++i) {
+				LoadNode* a = group[i];
+				if(!a->hasUsers())
 					continue;
-				LoadNode* b = live[j];
-				if(!b->hasUsers() || b->getType() != a->getType())
-					continue;
-				U32 szB = aa.getAccessSize(b);
-				if(szB != szA)
-					continue;
-				if(effectiveDef(aa, b) != defA)
-					continue;
-				if(aa.alias(a->getPointer(), szA, b->getPointer(), szB) != AliasResult::MustAlias)
-					continue;
-				if(dominates(a, b)) {
-					b->replaceAllUsesWith(a);
-					++removed;
+				U32 szA = aa.getAccessSize(a);
+				for(U32 j = 0; j < e; ++j) {
+					if(i == j)
+						continue;
+					LoadNode* b = group[j];
+					if(!b->hasUsers() || b->getType() != a->getType())
+						continue;
+					U32 szB = aa.getAccessSize(b);
+					if(szB != szA)
+						continue;
+					if(aa.alias(a->getPointer(), szA, b->getPointer(), szB) != AliasResult::MustAlias)
+						continue;
+					if(dominates(a, b)) {
+						b->replaceAllUsesWith(a);
+						++removed;
+					}
 				}
 			}
 		}
@@ -88,6 +92,8 @@ namespace rat {
 	const C8* MemoryOptPass::name() const { return "memoryopt"; }
 
 	U32 MemoryOptPass::runOnFunction(Function& fn) {
+		fn.eliminateDeadNodes();
+
 		AliasAnalysis aa(fn);
 
 		List<LoadNode*> loads;
