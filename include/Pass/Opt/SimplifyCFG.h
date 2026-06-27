@@ -24,6 +24,7 @@ namespace rat {
 	private:
 		Set<Node*> reachableControl(Function& fn);
 		List<Node*> nodesOfOpcode(Function& fn, Opcode op);
+		void detachFromRegions(Node* ctrl);
 	};
 } // namespace rat
 
