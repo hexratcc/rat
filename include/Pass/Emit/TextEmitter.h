@@ -2,7 +2,7 @@
 #define RAT_PASS_EMIT_TEXTEMITTER_H
 
 #include "Core.h"
-#include "Pass/Pass.h"
+#include "Support/Pass.h"
 
 namespace rat {
 	struct Function;

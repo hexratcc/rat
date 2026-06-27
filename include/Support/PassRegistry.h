@@ -1,8 +1,8 @@
-#ifndef RAT_PASS_PASSREGISTRY_H
-#define RAT_PASS_PASSREGISTRY_H
+#ifndef RAT_SUPPORT_PASSREGISTRY_H
+#define RAT_SUPPORT_PASSREGISTRY_H
 
 #include "Core.h"
-#include "Pass/PassManager.h"
+#include "Support/PassManager.h"
 
 namespace rat {
 	struct Pass;

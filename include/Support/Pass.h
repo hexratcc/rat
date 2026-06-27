@@ -1,5 +1,5 @@
-#ifndef RAT_PASS_PASS_H
-#define RAT_PASS_PASS_H
+#ifndef RAT_SUPPORT_PASS_H
+#define RAT_SUPPORT_PASS_H
 
 #include "Core.h"
 

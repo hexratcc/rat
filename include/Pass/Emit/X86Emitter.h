@@ -3,7 +3,7 @@
 
 #include "CodeGen/RegAlloc.h"
 #include "Core.h"
-#include "Pass/Pass.h"
+#include "Support/Pass.h"
 
 namespace rat {
 	struct ElfObject;

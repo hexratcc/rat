@@ -1,9 +1,9 @@
-#ifndef RAT_PASS_PASSMANAGER_H
-#define RAT_PASS_PASSMANAGER_H
+#ifndef RAT_SUPPORT_PASSMANAGER_H
+#define RAT_SUPPORT_PASSMANAGER_H
 
 #include "CodeGen/MachineModule.h"
 #include "Core.h"
-#include "Pass/Pass.h"
+#include "Support/Pass.h"
 
 #include <type_traits>
 

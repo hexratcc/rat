@@ -1,6 +1,6 @@
-#include "Pass/PassRegistry.h"
+#include "Support/PassRegistry.h"
 
-#include "Pass/Pass.h"
+#include "Support/Pass.h"
 
 #include "Pass/Verify.h"
 

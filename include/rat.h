@@ -6,9 +6,9 @@
 #include "CodeGen/Schedule.h"
 #include "Target/Target.h"
 
-#include "Pass/PassManager.h"
-#include "Pass/PassRegistry.h"
 #include "Pass/Verify.h"
+#include "Support/PassManager.h"
+#include "Support/PassRegistry.h"
 
 #include "Pass/Emit/CEmitter.h"
 #include "Pass/Emit/GraphEmitter.h"

@@ -16,7 +16,7 @@
 #include "Core.h"
 
 #include "CodeGen/MachineFunction.h"
-#include "Pass/Pass.h"
+#include "Support/Pass.h"
 
 namespace rat {
 	struct RegAllocHooks {
