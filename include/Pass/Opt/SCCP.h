@@ -17,15 +17,18 @@
 
 namespace rat {
 	struct Function;
+	struct Module;
 	struct Node;
 	struct IfNode;
 	struct PhiNode;
 	struct RegionNode;
 
-	struct SCCPPass : FunctionPass {
+	struct SCCPPass : Pass {
 		const C8* name() const override;
-		U32 runOnFunction(Function& fn) override;
+		B32 run(Module& module) override;
 	private:
+		U32 runOnFunction(Function& fn);
+
 		struct Lattice {
 			enum class Kind : U8 { Top, Constant, Bottom };
 

@@ -2,6 +2,7 @@
 
 #include "CodeGen/Schedule.h"
 #include "IR/Function.h"
+#include "IR/Module.h"
 #include "IR/Node.h"
 #include "Pass/Opt/AliasAnalysis.h"
 
@@ -90,6 +91,13 @@ namespace rat {
 	}
 
 	const C8* MemoryOptPass::name() const { return "memoryopt"; }
+
+	B32 MemoryOptPass::run(Module& module) {
+		U32 changed = 0;
+		for(Function* fn : module)
+			changed += runOnFunction(*fn);
+		return changed != 0;
+	}
 
 	U32 MemoryOptPass::runOnFunction(Function& fn) {
 		fn.eliminateDeadNodes();

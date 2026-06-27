@@ -1,5 +1,7 @@
 #include "CodeGen/RegAlloc.h"
 
+#include "CodeGen/MachineModule.h"
+#include "IR/Module.h"
 #include "Target/Target.h"
 
 namespace rat {
@@ -370,6 +372,13 @@ namespace rat {
 				usedCalleeSaved->push_back(p);
 		}
 		return r;
+	}
+
+	B32 RegAllocPass::run(Module& module, MachineModule& mm, const TargetInfo& target) {
+		U32 changed = 0;
+		for(const Function* fn : module)
+			changed += runOnMachineFunction(*fn, mm.get(fn), target);
+		return changed != 0;
 	}
 
 	U32 RegAllocPass::runOnMachineFunction(const Function&,

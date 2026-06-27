@@ -1,6 +1,7 @@
 #include "Pass/Opt/Fold.h"
 
 #include "IR/Function.h"
+#include "IR/Module.h"
 #include "IR/Node.h"
 #include "IR/Type.h"
 
@@ -438,5 +439,10 @@ namespace rat {
 
 	const C8* FoldPass::name() const { return "fold"; }
 
-	U32 FoldPass::runOnFunction(Function& fn) { return foldFunction(fn); }
+	B32 FoldPass::run(Module& module) {
+		U32 changed = 0;
+		for(Function* fn : module)
+			changed += foldFunction(*fn);
+		return changed != 0;
+	}
 } // namespace rat

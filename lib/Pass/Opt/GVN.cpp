@@ -1,6 +1,7 @@
 #include "Pass/Opt/GVN.h"
 
 #include "IR/Function.h"
+#include "IR/Module.h"
 #include "IR/Node.h"
 
 namespace rat {
@@ -10,6 +11,13 @@ namespace rat {
 	}
 
 	const C8* GVNPass::name() const { return "gvn"; }
+
+	B32 GVNPass::run(Module& module) {
+		U32 changed = 0;
+		for(Function* fn : module)
+			changed += runOnFunction(*fn);
+		return changed != 0;
+	}
 
 	U32 GVNPass::runOnFunction(Function& fn) {
 		U32 removed = 0;

@@ -16,12 +16,14 @@
 
 namespace rat {
 	struct Function;
+	struct Module;
 	struct Node;
 
-	struct SimplifyCFGPass : FunctionPass {
+	struct SimplifyCFGPass : Pass {
 		const C8* name() const override;
-		U32 runOnFunction(Function& fn) override;
+		B32 run(Module& module) override;
 	private:
+		U32 runOnFunction(Function& fn);
 		Set<Node*> reachableControl(Function& fn);
 		List<Node*> nodesOfOpcode(Function& fn, Opcode op);
 		void detachFromRegions(Node* ctrl);

@@ -16,6 +16,7 @@
 
 namespace rat {
 	struct Function;
+	struct Module;
 	struct Node;
 	struct ConstantNode;
 	struct Type;
@@ -34,9 +35,9 @@ namespace rat {
 
 	Node* simplify(Function& fn, Node* n); // dispatch to the matching fold*
 
-	struct FoldPass : FunctionPass {
+	struct FoldPass : Pass {
 		const C8* name() const override;
-		U32 runOnFunction(Function& fn) override;
+		B32 run(Module& module) override;
 
 		static U64 maskW(I64 v, U32 w);									 // zero-extend low w bits
 		static B32 wouldSignedDivOverflow(I64 a, I64 b); // div by 0 or INT_MIN-1

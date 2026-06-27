@@ -19,12 +19,14 @@ namespace rat {
 	struct AliasAnalysis;
 	struct Function;
 	struct LoadNode;
+	struct Module;
 	struct Node;
 
-	struct MemoryOptPass : FunctionPass {
+	struct MemoryOptPass : Pass {
 		const C8* name() const override;
-		U32 runOnFunction(Function& fn) override;
+		B32 run(Module& module) override;
 	private:
+		U32 runOnFunction(Function& fn);
 		static U32 forwardStores(const AliasAnalysis& aa, const List<LoadNode*>& loads);
 		static U32 cseLoads(Function& fn, const AliasAnalysis& aa, const List<LoadNode*>& loads);
 

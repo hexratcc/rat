@@ -1928,6 +1928,13 @@ namespace rat {
 		return hooks;
 	}
 
+	B32 X86LowerPass::run(Module& module, MachineModule& mm, const TargetInfo& target) {
+		U32 changed = 0;
+		for(const Function* fn : module)
+			changed += runOnMachineFunction(*fn, mm.get(fn), target);
+		return changed != 0;
+	}
+
 	U32 X86LowerPass::runOnMachineFunction(const Function& fn,
 																				 MachineFunc& mf,
 																				 const TargetInfo& /*target*/) {

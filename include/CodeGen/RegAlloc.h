@@ -30,10 +30,11 @@ namespace rat {
 												const RegAllocHooks& hooks,
 												List<PhysReg>* usedCalleeSaved = nullptr);
 
-	struct RegAllocPass : MachineFunctionPass {
+	struct RegAllocPass : MachinePass {
 		const C8* name() const override { return "regalloc"; }
-		U32
-		runOnMachineFunction(const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
+		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;
+	private:
+		U32 runOnMachineFunction(const Function& fn, MachineFunc& mf, const TargetInfo& target);
 	};
 } // namespace rat
 

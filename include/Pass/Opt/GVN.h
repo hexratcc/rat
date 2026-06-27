@@ -14,13 +14,16 @@
 
 namespace rat {
 	struct Function;
+	struct Module;
 	struct Node;
 
-	struct GVNPass : FunctionPass {
+	struct GVNPass : Pass {
 		const C8* name() const override;
-		U32 runOnFunction(Function& fn) override;
+		B32 run(Module& module) override;
 
 		static B32 isPureValue(Node* n);
+	private:
+		U32 runOnFunction(Function& fn);
 	};
 } // namespace rat
 

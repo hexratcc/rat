@@ -15,10 +15,11 @@ namespace rat {
 
 	RegAllocHooks x86RegAllocHooks();
 
-	struct X86LowerPass : MachineFunctionPass {
+	struct X86LowerPass : MachinePass {
 		const C8* name() const override { return "x86-lower"; }
-		U32
-		runOnMachineFunction(const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
+		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;
+	private:
+		U32 runOnMachineFunction(const Function& fn, MachineFunc& mf, const TargetInfo& target);
 	};
 
 	struct X86EncodePass : MachinePass {
