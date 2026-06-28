@@ -185,7 +185,7 @@ namespace {
 	};
 
 	B32 runBackend(const char* tag,
-								 const std::function<B32(const String& base, Artifact&, String&)>& makeArtifact,
+								 const Delegate<B32(const String& base, Artifact&, String&)>& makeArtifact,
 								 I32& out,
 								 String& capturedOut,
 								 String& err) {
@@ -269,7 +269,7 @@ namespace {
 				runPasses(mod, target, [&](PassManager& pm) {
 					pm.add<RenameSymbolPass>("main", "__ratcc_user_main");
 					pm.add<X86LowerPass>();
-					pm.add<RegAllocPass>();
+					pm.add<LinearRegAllocPass>();
 					pm.add<X86EncodePass>(of);
 				});
 				art.compileArgs = "-no-pie '" + art.path + "'";

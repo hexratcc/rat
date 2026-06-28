@@ -52,7 +52,7 @@ namespace rat::cc {
 		B32 looksLikeFuncPtr();
 		B32 parseFuncPtrDeclarator(CType ret, Token& nameOut, CType& outType);
 		void bindDeclaratorType(Declarator& d, CType t, U32 offset);
-		using TypeBuilder = std::function<CType(CType)>;
+		using TypeBuilder = Delegate<CType(CType)>;
 		B32 parseDeclaratorType(CType base, Token& nameOut, B32& haveName, CType& out);
 		TypeBuilder parseDeclaratorBuilder(Token& nameOut, B32& haveName);
 		TypeBuilder parseDirectDeclarator(Token& nameOut, B32& haveName);

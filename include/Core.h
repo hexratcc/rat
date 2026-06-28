@@ -52,6 +52,7 @@ namespace rat {
 	using String = std::string;
 	template <typename Type> using List = std::vector<Type>;
 	template <typename Type> using UniquePtr = std::unique_ptr<Type>;
+	template <typename Signature> using Delegate = std::function<Signature>;
 	template <typename Key, typename Value> using Map = std::unordered_map<Key, Value>;
 	template <typename Key> using Set = std::unordered_set<Key>;
 

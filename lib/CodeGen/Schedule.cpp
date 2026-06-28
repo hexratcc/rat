@@ -159,7 +159,7 @@ namespace rat {
 		List<I32> order;
 		List<C8> visited(count, 0);
 
-		std::function<void(I32)> dfs = [&](I32 b) {
+		Delegate<void(I32)> dfs = [&](I32 b) {
 			visited[b] = 1;
 			for(I32 s : successors(b))
 				if(!visited[s])

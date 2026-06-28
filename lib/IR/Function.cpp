@@ -364,7 +364,7 @@ namespace rat {
 	Node* Function::get(Var var) { return readVar(var); }
 	void Function::set(Var var, Node* value) { writeVar(var, value); }
 
-	void Function::loop(const std::function<void()>& bodyFn) {
+	void Function::loop(const Delegate<void()>& bodyFn) {
 		Block* h = createLoopHeader("loop.header");
 		Block* x = createBlock("loop.exit");
 

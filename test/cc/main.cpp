@@ -50,7 +50,7 @@ namespace {
 			pm.add<CEmitterPass>(os);
 		} else if(emitKind == "x86") {
 			pm.add<X86LowerPass>();
-			pm.add<RegAllocPass>();
+			pm.add<LinearRegAllocPass>();
 			pm.add<X86EncodePass>(os);
 		} else {
 			pm.add<TextEmitterPass>(os);

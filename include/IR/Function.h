@@ -128,7 +128,7 @@ namespace rat {
 		Node* get(Var var);
 		void set(Var var, Node* value);
 
-		void loop(const std::function<void()>& bodyFn);
+		void loop(const Delegate<void()>& bodyFn);
 		void breakIf(Node* cond);
 
 		void ret(Node* value);

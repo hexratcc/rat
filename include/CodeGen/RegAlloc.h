@@ -20,21 +20,60 @@
 
 namespace rat {
 	struct RegAllocHooks {
-		MachineInstr (*makeReload)(PhysReg dst, I32 slot, U32 cls, U32 width) = nullptr;
-		MachineInstr (*makeSpill)(I32 slot, PhysReg src, U32 cls, U32 width) = nullptr;
-		I32 (*allocSlot)(MachineFunc& fn, U32 cls, U32 width) = nullptr;
+		Delegate<MachineInstr(PhysReg dst, I32 slot, U32 cls, U32 width)> makeReload;
+		Delegate<MachineInstr(I32 slot, PhysReg src, U32 cls, U32 width)> makeSpill;
+		Delegate<I32(MachineFunc& fn, U32 cls, U32 width)> allocSlot;
 	};
 
-	B32 allocateRegisters(MachineFunc& fn,
-												const RegisterInfo& ri,
-												const RegAllocHooks& hooks,
-												List<PhysReg>* usedCalleeSaved = nullptr);
-
-	struct RegAllocPass : MachinePass {
-		const C8* name() const override { return "regalloc"; }
+	struct LinearRegAllocPass : MachinePass {
+		const C8* name() const override { return "linear-regalloc"; }
 		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;
 	private:
-		U32 runOnMachineFunction(const Function& fn, MachineFunc& mf, const TargetInfo& target);
+		struct Interval {
+			VReg vreg = kNoVReg;
+			U32 cls = 0;
+			I32 start = -1;
+			I32 end = -1;
+			PhysReg assigned = kNoReg;
+			I32 spillSlot = 0;
+			B32 spilled = false;
+			B32 crossesCall = false;
+		};
+
+		struct Loc {
+			U32 block;
+			U32 inst;
+		};
+
+		B32 allocate(MachineFunc& fn,
+								 const RegisterInfo& ri,
+								 const RegAllocHooks& hooks,
+								 List<PhysReg>* usedCalleeSaved);
+
+		void number();
+		void pinFixedArgWindows();
+		void liveness(List<Set<VReg>>& liveIn, List<Set<VReg>>& liveOut);
+		void extend(VReg v, U32 cls, I32 point);
+		U32 classOf(VReg v) const;
+		void buildIntervals();
+		const RegClass& regClass(U32 cls) const;
+		Set<PhysReg> forbidden(const Interval& iv) const;
+		void assignRegs();
+		static B32 isCalleeSaved(const RegClass& rc, PhysReg p);
+		void spillAt(Interval* cur, List<Interval*>& active);
+		void rewrite();
+		PhysReg scratchAt(U32 cls, U32 idx);
+	private:
+		MachineFunc* fn = nullptr;
+		const RegisterInfo* ri = nullptr;
+		const RegAllocHooks* hooks = nullptr;
+		List<Loc> order;
+		List<List<U32>> blkPts;
+		List<I32> callPts;
+		Map<I32, Set<PhysReg>> fixedAt;
+		Map<VReg, Interval> intervals;
+		Set<PhysReg> usedCallee;
+		B32 ok = true;
 	};
 } // namespace rat
 
