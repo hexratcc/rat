@@ -76,5 +76,4 @@ namespace rat {
 
 	Module::FunctionIterator Module::begin() const { return {funcs.begin()}; }
 	Module::FunctionIterator Module::end() const { return {funcs.end()}; }
-	B32 Module::empty() const { return funcs.empty(); }
 } // namespace rat

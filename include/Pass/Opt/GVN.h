@@ -20,9 +20,8 @@ namespace rat {
 	struct GVNPass : Pass {
 		const C8* name() const override;
 		B32 run(Module& module) override;
-
-		static B32 isPureValue(Node* n);
 	private:
+		static B32 isPureValue(Node* n);
 		U32 runOnFunction(Function& fn);
 	};
 } // namespace rat

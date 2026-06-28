@@ -16,13 +16,9 @@ namespace rat {
 		buildBlockLists();
 	}
 
-	const Function& Schedule::function() const { return fn; }
-	I32 Schedule::entry() const { return entryBlock; }
 	I32 Schedule::numBlocks() const { return (I32)blocks.size(); }
 	const Schedule::Block& Schedule::block(I32 b) const { return blocks[b]; }
 	const List<I32>& Schedule::rpo() const { return rpoOrder; }
-	I32 Schedule::idomOf(I32 b) const { return blocks[b].idom; }
-	I32 Schedule::loopDepthOf(I32 b) const { return blocks[b].loopDepth; }
 
 	Node* Schedule::requireProj(Node* n, U32 index) {
 		Node* p = n->projection(index);
@@ -272,7 +268,6 @@ namespace rat {
 		switch(n->getOpcode()) {
 		case Opcode::Phi:
 			return blockOfHead(cast<PhiNode>(n)->getRegion());
-		case Opcode::Load:
 		case Opcode::Store:
 		case Opcode::Call:
 			return blockOf(n);
@@ -329,11 +324,6 @@ namespace rat {
 					acc = lca(acc, predBlockForRegionInput(rb, i));
 			return acc < 0 ? rb : acc;
 		}
-		if(isFloating(u)) {
-			auto it = nodeBlock.find(u);
-			return it == nodeBlock.end() ? -1 : it->second;
-		}
-		// pinned user (store/load/call/return/if): its own block
 		auto it = nodeBlock.find(u);
 		if(it != nodeBlock.end())
 			return it->second;

@@ -17,8 +17,6 @@ namespace rat {
 
 	enum class AliasResult { NoAlias, MayAlias, MustAlias };
 
-	const C8* toString(AliasResult r);
-
 	struct AliasAnalysis {
 		explicit AliasAnalysis(const Function& fn);
 

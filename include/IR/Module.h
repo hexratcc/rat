@@ -60,7 +60,6 @@ namespace rat {
 
 		FunctionIterator begin() const;
 		FunctionIterator end() const;
-		B32 empty() const;
 	private:
 		String name;
 		const TargetInfo* tgt = nullptr;

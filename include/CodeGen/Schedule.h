@@ -42,23 +42,19 @@ namespace rat {
 
 		explicit Schedule(const Function& fn);
 
-		const Function& function() const;
-		I32 entry() const;
 		I32 numBlocks() const;
 		const Block& block(I32 b) const;
 		const List<I32>& rpo() const;
 
 		I32 blockOf(const Node* n) const;
-		I32 blockOfHead(const Node* head) const;
 
 		List<I32> successors(I32 b) const;
 		B32 dominates(I32 a, I32 b) const;
 
-		I32 idomOf(I32 b) const;
-		I32 loopDepthOf(I32 b) const;
-
 		static B32 isFloating(const Node* n);
 	private:
+		I32 blockOfHead(const Node* head) const;
+
 		void collectHeads();
 		void buildCFG();
 		void computeDominators();

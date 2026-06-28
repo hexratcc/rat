@@ -44,7 +44,6 @@ namespace rat {
 		U32 regClass = 0;					 // register class of the def
 		I64 imm = 0;							 // backend-defined small immediate
 		I64 imm2 = 0;							 // second backend-defined immediate
-		B32 isCopy = false;				 // reg-reg move
 		B32 isCall = false;				 // applies clobbers and bounds live intervals
 	};
 

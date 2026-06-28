@@ -95,6 +95,14 @@ namespace rat {
 		constexpr U32 kFp = X86Target::kFpClass;
 		constexpr U32 kX87 = X86Target::kX87Class;
 
+		constexpr I64 kX87MemBits = 80;
+
+		constexpr U8 kAluAdd = 0x01;
+		constexpr U8 kAluSub = 0x29;
+		constexpr U8 kAluAnd = 0x21;
+		constexpr U8 kAluOr = 0x09;
+		constexpr U8 kAluXor = 0x31;
+
 		Reg toGp(PhysReg p) { return (Reg)(p - X86Target::kGpBase); }
 		U32 toXmm(PhysReg p) { return p - X86Target::kXmmBase; }
 
@@ -657,22 +665,22 @@ namespace rat {
 					emitStore(in);
 					return;
 				case X86Op::Add:
-					emitAlu(in, 0x01);
+					emitAlu(in, kAluAdd);
 					return;
 				case X86Op::Sub:
-					emitAlu(in, 0x29);
+					emitAlu(in, kAluSub);
 					return;
 				case X86Op::Mul:
 					emitMul(in);
 					return;
 				case X86Op::And:
-					emitAlu(in, 0x21);
+					emitAlu(in, kAluAnd);
 					return;
 				case X86Op::Or:
-					emitAlu(in, 0x09);
+					emitAlu(in, kAluOr);
 					return;
 				case X86Op::Xor:
-					emitAlu(in, 0x31);
+					emitAlu(in, kAluXor);
 					return;
 				case X86Op::Neg:
 					emitNegNot(in, true);
@@ -939,7 +947,6 @@ namespace rat {
 				MachineInstr m;
 				m.op = (MachineOpcode)X86Op::Copy;
 				m.regClass = cls;
-				m.isCopy = true;
 				m.defs = {dst};
 				m.uses = {src};
 				emit(m);
@@ -1022,12 +1029,12 @@ namespace rat {
 				U32 w = opWidth(val->getType());
 				VReg addr = gpValue(s->getPointer());
 				if(isX87Ty(val->getType())) {
-					I32 s = x87Value(val);
+					I32 slot = x87Value(val);
 					MachineInstr m;
 					m.op = (MachineOpcode)X86Op::X87StoreMem;
 					m.regClass = kX87;
-					m.uses = {MachineOperand::vr(addr), MachineOperand::frameSlot(s)};
-					m.imm = 80;
+					m.uses = {MachineOperand::vr(addr), MachineOperand::frameSlot(slot)};
+					m.imm = kX87MemBits;
 					emit(m);
 				} else if(isSseTy(val->getType())) {
 					VReg v = sseValue(val);
@@ -1053,7 +1060,7 @@ namespace rat {
 					m.regClass = kX87;
 					m.defs = {MachineOperand::frameSlot(s)};
 					m.uses = {MachineOperand::vr(addr)};
-					m.imm = 80;
+					m.imm = kX87MemBits;
 					emit(m);
 				} else if(isSseTy(l->getType())) {
 					VReg d = vregFor(l);
@@ -1142,10 +1149,9 @@ namespace rat {
 				VReg rhs = gpValue(n->getRHS());
 				VReg d = vregFor(n);
 				U32 bits = intBits(n->getType());
+				copy(MachineOperand::vr(d), MachineOperand::vr(lhs), kGp);
 				if(op == X86Op::LShr)
-					maskBitsInto(d, lhs, bits);
-				else
-					copy(MachineOperand::vr(d), MachineOperand::vr(lhs), kGp);
+					maskBits(d, bits);
 				copy(MachineOperand::fixed(gpReg(RCX)), MachineOperand::vr(rhs), kGp);
 				MachineInstr m;
 				m.op = (MachineOpcode)op;
@@ -1155,11 +1161,6 @@ namespace rat {
 				emit(m);
 				if(op == X86Op::Shl)
 					signExtBits(d, bits);
-			}
-
-			void maskBitsInto(VReg d, VReg lhs, U32 bits) {
-				copy(MachineOperand::vr(d), MachineOperand::vr(lhs), kGp);
-				maskBits(d, bits);
 			}
 
 			void emitBinary(BinaryNode* n) {
@@ -1326,7 +1327,6 @@ namespace rat {
 																 d,
 																 kGp,
 																 {MachineOperand::frameSlot(lhs), MachineOperand::frameSlot(rhs)});
-					m.regClass = kGp;
 					m.imm = (I64)fc.cc;
 					m.imm2 = fc.swap ? 1 : 0;
 					return;
@@ -1336,7 +1336,6 @@ namespace rat {
 				VReg rhs = sseValue(n->getRHS());
 				MachineInstr& m =
 						def1(X86Op::FCmp, d, kGp, {MachineOperand::vr(lhs, w), MachineOperand::vr(rhs, w)});
-				m.regClass = kGp;
 				m.imm = (I64)fc.cc;
 				m.imm2 = fc.swap ? 1 : 0;
 			}
@@ -1424,7 +1423,7 @@ namespace rat {
 						m.regClass = kX87;
 						m.defs = {MachineOperand::frameSlot(d)};
 						m.uses = {MachineOperand::frameSlot(s)};
-						m.imm = 80;
+						m.imm = kX87MemBits;
 						emit(m);
 						return;
 					}
@@ -1643,7 +1642,7 @@ namespace rat {
 							m.regClass = kX87;
 							m.defs = {MachineOperand::frameSlot(x87SlotOf(p))};
 							m.uses = {MachineOperand::vr(addr)};
-							m.imm = 80;
+							m.imm = kX87MemBits;
 							emit(m);
 						}
 						stackOff += 16;
@@ -1812,7 +1811,7 @@ namespace rat {
 						m.regClass = kX87;
 						m.defs = {MachineOperand::frameSlot(d)};
 						m.uses = {MachineOperand::frameSlot(s)};
-						m.imm = 80;
+						m.imm = kX87MemBits;
 						emit(m);
 						continue;
 					}
@@ -1882,13 +1881,11 @@ namespace rat {
 				}
 				for(U32 i = 0; i < order.size(); ++i) {
 					I32 b = order[i];
-					const Schedule::Block& sb = sched.block(b);
 					MachineBlock& block = out.blocks[b];
 					for(I32 s : sched.successors(b)) {
 						block.succs.push_back(s);
 						out.blocks[s].preds.push_back(b);
 					}
-					(void)sb;
 				}
 			}
 		};

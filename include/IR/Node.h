@@ -34,7 +34,6 @@ namespace rat {
 		void setInput(U32 index, Node* value);
 		void removeInput(U32 index);
 		void clearInputs();
-		void replaceInput(Node* old, Node* replacement);
 
 		void replaceAllUsesWith(Node* value);
 
@@ -118,7 +117,6 @@ namespace rat {
 		RegionNode* getRegion() const;
 		U32 getValueCount() const;
 		Node* getValue(U32 index) const;
-		void setValue(U32 index, Node* value);
 	};
 
 	struct ConstantNode : Node {

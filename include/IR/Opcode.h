@@ -111,11 +111,6 @@ namespace rat {
 	constexpr B32 isArithmeticOpcode(Opcode op) {
 		return isBinaryOpcode(op) || isUnaryOpcode(op) || isCompareOpcode(op) || isConvertOpcode(op);
 	}
-	constexpr B32 isFloatOpcode(Opcode op) {
-		return (op >= Opcode::FAdd && op <= Opcode::FDiv) || op == Opcode::FNeg ||
-					 (op >= Opcode::FEq && op <= Opcode::FGe) ||
-					 (op >= Opcode::SIToFP && op <= Opcode::FPTrunc);
-	}
 } // namespace rat
 
 #endif

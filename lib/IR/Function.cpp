@@ -1,7 +1,6 @@
 #include "IR/Function.h"
 
 #include "IR/Module.h"
-#include "Target/Target.h"
 
 namespace rat {
 	Module& Function::getModule() const { return *mod; }
@@ -21,7 +20,6 @@ namespace rat {
 	StopNode* Function::getStop() const { return stop; }
 
 	Type* Function::boolTy() const { return mod->getBool(); }
-	Type* Function::intTy(U32 bits) const { return mod->getInt(bits); }
 	Type* Function::ptrTy() const { return mod->getPtr(); }
 	Type* Function::memTy() const { return mod->getMemory(); }
 	Type* Function::ctrlTy() const { return mod->getControl(); }
@@ -45,7 +43,7 @@ namespace rat {
 
 		memVar = newVar("mem", memTy());
 
-		Block* entry = makeBlock("entry", false);
+		Block* entry = makeBlock(false);
 		entry->ctrl = proj(start, StartNode::controlProjIndex(), ctrlTy(), "ctrl");
 		entry->active = true;
 		entry->sealed = true;
@@ -206,9 +204,8 @@ namespace rat {
 		return create<PhiNode>(type, ins);
 	}
 
-	Function::Block* Function::makeBlock(String name, B32 loopHeader) {
+	Function::Block* Function::makeBlock(B32 loopHeader) {
 		Block* b = arena.make<Block>();
-		b->name = std::move(name);
 		b->loopHeader = loopHeader;
 		blocks.push_back(b);
 		if(loopHeader) {
@@ -220,10 +217,8 @@ namespace rat {
 		return b;
 	}
 
-	Function::Block* Function::createBlock(String name) { return makeBlock(std::move(name), false); }
-	Function::Block* Function::createLoopHeader(String name) {
-		return makeBlock(std::move(name), true);
-	}
+	Function::Block* Function::createBlock(String) { return makeBlock(false); }
+	Function::Block* Function::createLoopHeader(String) { return makeBlock(true); }
 
 	void Function::addEdge(Node* exitControl, Block* from, Block* to) {
 		to->preds.push_back(exitControl);
@@ -368,8 +363,6 @@ namespace rat {
 	}
 	Node* Function::get(Var var) { return readVar(var); }
 	void Function::set(Var var, Node* value) { writeVar(var, value); }
-	const String& Function::localName(Var var) const { return varInfos[var].name; }
-	U32 Function::numLocals() const { return (U32)varInfos.size(); }
 
 	void Function::loop(const std::function<void()>& bodyFn) {
 		Block* h = createLoopHeader("loop.header");
@@ -390,10 +383,7 @@ namespace rat {
 			setInsertBlock(x);
 	}
 
-	void Function::break_() { jmp(loopStack.back().exit); }
-	void Function::continue_() { jmp(loopStack.back().header); }
 	void Function::breakIf(Node* cond) { jumpif(cond, loopStack.back().exit); }
-	void Function::continueIf(Node* cond) { jumpif(cond, loopStack.back().header); }
 
 	void Function::ret(Node* value) {
 		if(!cur->ctrl) {

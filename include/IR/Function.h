@@ -35,7 +35,6 @@ namespace rat {
 		}
 
 		struct Block {
-			String name;
 			RegionNode* region = nullptr;
 			List<Node*> preds;
 			List<Block*> predBlocks; // source block per pred (parallel)
@@ -51,7 +50,6 @@ namespace rat {
 		using Var = U32;
 
 		Type* boolTy() const;
-		Type* intTy(U32 bits) const;
 		Type* ptrTy() const;
 		Type* memTy() const;
 		Type* ctrlTy() const;
@@ -129,14 +127,9 @@ namespace rat {
 		Var declareLocal(String name, Node* init);
 		Node* get(Var var);
 		void set(Var var, Node* value);
-		const String& localName(Var var) const;
-		U32 numLocals() const;
 
 		void loop(const std::function<void()>& bodyFn);
-		void break_();
-		void continue_();
 		void breakIf(Node* cond);
-		void continueIf(Node* cond);
 
 		void ret(Node* value);
 		void retVoid();
@@ -170,7 +163,7 @@ namespace rat {
 		PhiNode* newIncompletePhi(Var var, Block* block);
 		void replacePhiEverywhere(PhiNode* phi, Node* with);
 
-		Block* makeBlock(String name, B32 loopHeader);
+		Block* makeBlock(B32 loopHeader);
 		void addEdge(Node* exitControl, Block* from, Block* to);
 		void activateOnSeal(Block* block);
 

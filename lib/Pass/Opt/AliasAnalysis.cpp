@@ -6,18 +6,6 @@
 #include "IR/Type.h"
 
 namespace rat {
-	const C8* toString(AliasResult r) {
-		switch(r) {
-		case AliasResult::NoAlias:
-			return "NoAlias";
-		case AliasResult::MayAlias:
-			return "MayAlias";
-		case AliasResult::MustAlias:
-			return "MustAlias";
-		}
-		return "?";
-	}
-
 	AliasAnalysis::AliasAnalysis(const Function& fn)
 	: fn(fn) {}
 

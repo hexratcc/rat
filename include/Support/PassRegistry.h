@@ -18,11 +18,12 @@ namespace rat {
 
 		void add(String name, String description, Factory make);
 
-		const Entry* find(const String& name) const;
 		UniquePtr<Pass> create(const String& name, std::ostream& out) const;
 
 		const List<Entry>& entries() const { return items; }
 	private:
+		const Entry* find(const String& name) const;
+
 		List<Entry> items;
 	};
 

@@ -65,12 +65,6 @@ namespace rat {
 			removeInput(getInputCount() - 1);
 	}
 
-	void Node::replaceInput(Node* old, Node* replacement) {
-		for(U32 i = 0, e = getInputCount(); i < e; ++i)
-			if(inputs[i] == old)
-				setInput(i, replacement);
-	}
-
 	void Node::replaceAllUsesWith(Node* value) {
 		// snapshot users
 		List<Node*> snapshot = users;
@@ -148,7 +142,6 @@ namespace rat {
 	RegionNode* PhiNode::getRegion() const { return cast<RegionNode>(getInput(0)); }
 	U32 PhiNode::getValueCount() const { return getInputCount() - 1; }
 	Node* PhiNode::getValue(U32 index) const { return getInput(1 + index); }
-	void PhiNode::setValue(U32 index, Node* value) { setInput(1 + index, value); }
 
 	ConstantNode::ConstantNode(Function& fn, Type* type, I64 value)
 	: Node(fn, Opcode::Constant, type, {}),
