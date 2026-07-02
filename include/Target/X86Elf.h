@@ -38,6 +38,11 @@ namespace rat {
 			I64 addend;
 		};
 
+		static void put8(List<U8>& b, U8 v);
+		static void put16(List<U8>& b, U16 v);
+		static void put32(List<U8>& b, U32 v);
+		static void put64(List<U8>& b, U64 v);
+
 		U32 symbolIndex(const String& name);
 		U32 sectionSize(Section sec) const;
 

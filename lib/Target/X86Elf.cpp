@@ -1,7 +1,7 @@
 #include "Target/X86Elf.h"
 
 namespace rat {
-	namespace {
+	namespace detail {
 		constexpr U8 kElfMag[4] = {0x7f, 'E', 'L', 'F'};
 		constexpr U8 ELFCLASS64 = 2;
 		constexpr U8 ELFDATA2LSB = 1;
@@ -32,21 +32,21 @@ namespace rat {
 		constexpr U64 kShEntSize = 64;	 // Elf64_Shdr
 		constexpr U64 kSymEntSize = 24;	 // Elf64_Sym
 		constexpr U64 kRelaEntSize = 24; // Elf64_Rela
+	} // namespace detail
 
-		void put8(List<U8>& b, U8 v) { b.push_back(v); }
-		void put16(List<U8>& b, U16 v) {
-			b.push_back((U8)(v));
-			b.push_back((U8)(v >> 8));
-		}
-		void put32(List<U8>& b, U32 v) {
-			for(U32 i = 0; i < 4; ++i)
-				b.push_back((U8)(v >> (i * 8)));
-		}
-		void put64(List<U8>& b, U64 v) {
-			for(U32 i = 0; i < 8; ++i)
-				b.push_back((U8)(v >> (i * 8)));
-		}
-	} // namespace
+	void ElfObject::put8(List<U8>& b, U8 v) { b.push_back(v); }
+	void ElfObject::put16(List<U8>& b, U16 v) {
+		b.push_back((U8)(v));
+		b.push_back((U8)(v >> 8));
+	}
+	void ElfObject::put32(List<U8>& b, U32 v) {
+		for(U32 i = 0; i < 4; ++i)
+			b.push_back((U8)(v >> (i * 8)));
+	}
+	void ElfObject::put64(List<U8>& b, U64 v) {
+		for(U32 i = 0; i < 8; ++i)
+			b.push_back((U8)(v >> (i * 8)));
+	}
 
 	ElfObject::ElfObject() { syms.push_back({"", Text, 0, true, false, false}); }
 
@@ -185,9 +185,9 @@ namespace rat {
 			U32 oi = order[i];
 			const Sym& s = syms[oi];
 			bool placed = i != 0 && s.defined;
-			U8 bind = (i != 0 && s.global) ? STB_GLOBAL : STB_LOCAL;
-			U8 type = !placed ? STT_NOTYPE : (s.isFunc ? STT_FUNC : STT_OBJECT);
-			U16 shndx = !placed ? SHN_UNDEF : (U16)secShIndex(s.sec);
+			U8 bind = (i != 0 && s.global) ? detail::STB_GLOBAL : detail::STB_LOCAL;
+			U8 type = !placed ? detail::STT_NOTYPE : (s.isFunc ? detail::STT_FUNC : detail::STT_OBJECT);
+			U16 shndx = !placed ? detail::SHN_UNDEF : (U16)secShIndex(s.sec);
 
 			put32(symtab, i == 0 ? 0u : nameOff[oi]);				// st_name
 			put8(symtab, (U8)((bind << 4) | (type & 0xf))); // st_info
@@ -235,7 +235,7 @@ namespace rat {
 		U32 nNoteStack = addShName(".note.GNU-stack");
 
 		const U32 shCount = 12;
-		U64 off = kEhSize;
+		U64 off = detail::kEhSize;
 		auto place = [&](U64 size, U64 a) {
 			off = (off + (a - 1)) & ~(a - 1);
 			U64 here = off;
@@ -254,27 +254,27 @@ namespace rat {
 		U64 offSh = (off + 7) & ~7ull; // section header table
 
 		List<U8> out;
-		for(U8 c : kElfMag)
+		for(U8 c : detail::kElfMag)
 			put8(out, c);
-		put8(out, ELFCLASS64);
-		put8(out, ELFDATA2LSB);
-		put8(out, EV_CURRENT);
+		put8(out, detail::ELFCLASS64);
+		put8(out, detail::ELFDATA2LSB);
+		put8(out, detail::EV_CURRENT);
 		put8(out, 0); // System V
 		for(U32 i = 0; i < 8; ++i)
 			put8(out, 0); // ABIVERSION + padding
-		put16(out, ET_REL);
-		put16(out, EM_X86_64);
-		put32(out, EV_CURRENT);
-		put64(out, 0);							 // e_entry
-		put64(out, 0);							 // e_phoff
-		put64(out, offSh);					 // e_shoff
-		put32(out, 0);							 // e_flags
-		put16(out, (U16)kEhSize);		 // e_ehsize
-		put16(out, 0);							 // e_phentsize
-		put16(out, 0);							 // e_phnum
-		put16(out, (U16)kShEntSize); // e_shentsize
-		put16(out, (U16)shCount);		 // e_shnum
-		put16(out, (U16)shShstrtab); // e_shstrndx
+		put16(out, detail::ET_REL);
+		put16(out, detail::EM_X86_64);
+		put32(out, detail::EV_CURRENT);
+		put64(out, 0);											 // e_entry
+		put64(out, 0);											 // e_phoff
+		put64(out, offSh);									 // e_shoff
+		put32(out, 0);											 // e_flags
+		put16(out, (U16)detail::kEhSize);		 // e_ehsize
+		put16(out, 0);											 // e_phentsize
+		put16(out, 0);											 // e_phnum
+		put16(out, (U16)detail::kShEntSize); // e_shentsize
+		put16(out, (U16)shCount);						 // e_shnum
+		put16(out, (U16)shShstrtab);				 // e_shstrndx
 
 		auto emitAt = [&](U64 target, const List<U8>& blob) {
 			while(out.size() < target)
@@ -315,10 +315,10 @@ namespace rat {
 			put64(out, entSize);
 		};
 
-		sh(0, SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0); // 0 null
+		sh(0, detail::SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0); // 0 null
 		sh(nText,
-			 SHT_PROGBITS,
-			 SHF_ALLOC | SHF_EXECINSTR,
+			 detail::SHT_PROGBITS,
+			 detail::SHF_ALLOC | detail::SHF_EXECINSTR,
 			 0,
 			 offText,
 			 text.size(),
@@ -327,42 +327,67 @@ namespace rat {
 			 16,
 			 0); // 1 .text
 		sh(nRelaText,
-			 SHT_RELA,
-			 SHF_INFO_LINK,
+			 detail::SHT_RELA,
+			 detail::SHF_INFO_LINK,
 			 0,
 			 offRelaText,
 			 relaText.size(),
 			 shSymtab,
 			 shText,
 			 8,
-			 kRelaEntSize); // 2 .rela.text
-		sh(nRodata, SHT_PROGBITS, SHF_ALLOC, 0, offRodata, rodata.size(), 0, 0, 16,
+			 detail::kRelaEntSize); // 2 .rela.text
+		sh(nRodata,
+			 detail::SHT_PROGBITS,
+			 detail::SHF_ALLOC,
+			 0,
+			 offRodata,
+			 rodata.size(),
+			 0,
+			 0,
+			 16,
 			 0); // 3 .rodata
 		sh(nRelaRodata,
-			 SHT_RELA,
-			 SHF_INFO_LINK,
+			 detail::SHT_RELA,
+			 detail::SHF_INFO_LINK,
 			 0,
 			 offRelaRodata,
 			 relaRodata.size(),
 			 shSymtab,
 			 shRodata,
 			 8,
-			 kRelaEntSize); // 4 .rela.rodata
-		sh(nData, SHT_PROGBITS, SHF_ALLOC | SHF_WRITE, 0, offData, data.size(), 0, 0, 16, 0); // 5 .data
+			 detail::kRelaEntSize); // 4 .rela.rodata
+		sh(nData,
+			 detail::SHT_PROGBITS,
+			 detail::SHF_ALLOC | detail::SHF_WRITE,
+			 0,
+			 offData,
+			 data.size(),
+			 0,
+			 0,
+			 16,
+			 0); // 5 .data
 		sh(nRelaData,
-			 SHT_RELA,
-			 SHF_INFO_LINK,
+			 detail::SHT_RELA,
+			 detail::SHF_INFO_LINK,
 			 0,
 			 offRelaData,
 			 relaData.size(),
 			 shSymtab,
 			 shData,
 			 8,
-			 kRelaEntSize); // 6 .rela.data
-		sh(nBss, SHT_NOBITS, SHF_ALLOC | SHF_WRITE, 0, 0, bssSize, 0, 0, 16,
+			 detail::kRelaEntSize); // 6 .rela.data
+		sh(nBss,
+			 detail::SHT_NOBITS,
+			 detail::SHF_ALLOC | detail::SHF_WRITE,
+			 0,
+			 0,
+			 bssSize,
+			 0,
+			 0,
+			 16,
 			 0); // 7 .bss
 		sh(nSymtab,
-			 SHT_SYMTAB,
+			 detail::SHT_SYMTAB,
 			 0,
 			 0,
 			 offSymtab,
@@ -370,12 +395,12 @@ namespace rat {
 			 shStrtab,
 			 firstGlobal,
 			 8,
-			 kSymEntSize); // 8 .symtab
-		sh(nStrtab, SHT_STRTAB, 0, 0, offStrtab, strtab.size(), 0, 0, 1,
-			 0); // 9 .strtab
-		sh(nShstrtab, SHT_STRTAB, 0, 0, offShstr, shstr.size(), 0, 0, 1,
-			 0);																								// 10 .shstrtab
-		sh(nNoteStack, SHT_PROGBITS, 0, 0, 0, 0, 0, 0, 1, 0); // 11 .note.GNU-stack
+			 detail::kSymEntSize); // 8 .symtab
+		// 9 .strtab
+		sh(nStrtab, detail::SHT_STRTAB, 0, 0, offStrtab, strtab.size(), 0, 0, 1, 0);
+		// 10 .shstrtab
+		sh(nShstrtab, detail::SHT_STRTAB, 0, 0, offShstr, shstr.size(), 0, 0, 1, 0);
+		sh(nNoteStack, detail::SHT_PROGBITS, 0, 0, 0, 0, 0, 0, 1, 0); // 11 .note.GNU-stack
 
 		os.write(reinterpret_cast<const C8*>(out.data()), (std::streamsize)out.size());
 	}
