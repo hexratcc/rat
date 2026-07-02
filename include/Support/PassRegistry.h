@@ -16,6 +16,8 @@ namespace rat {
 			Factory make;
 		};
 
+		static void registerAll(PassRegistry& r);
+
 		void add(String name, String description, Factory make);
 
 		UniquePtr<Pass> create(const String& name, std::ostream& out) const;
