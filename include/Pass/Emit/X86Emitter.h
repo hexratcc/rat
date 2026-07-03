@@ -4,7 +4,6 @@
 #include "Core.h"
 
 #include "CodeGen/MachineFunction.h"
-#include "CodeGen/RegAlloc.h"
 #include "CodeGen/Schedule.h"
 #include "IR/Opcode.h"
 #include "Support/Pass.h"

@@ -1,11 +1,11 @@
-#include "CodeGen/RegAlloc.h"
+#include "CodeGen/LinearScanRegAlloc.h"
 
 #include "CodeGen/MachineModule.h"
 #include "IR/Module.h"
 #include "Target/Target.h"
 
 namespace rat {
-	void LinearRegAllocPass::number() {
+	void LinearScanRegAllocPass::number() {
 		blkPts.assign(fn->blocks.size(), {});
 		for(U32 b = 0; b < fn->blocks.size(); ++b)
 			for(U32 i = 0; i < fn->blocks[b].insts.size(); ++i) {
@@ -27,7 +27,7 @@ namespace rat {
 		pinFixedArgWindows();
 	}
 
-	void LinearRegAllocPass::pinFixedArgWindows() {
+	void LinearScanRegAllocPass::pinFixedArgWindows() {
 		for(I32 c : callPts) {
 			U32 b = order[(U32)c].block;
 			U32 callIdx = order[(U32)c].inst;
@@ -54,7 +54,7 @@ namespace rat {
 		}
 	}
 
-	void LinearRegAllocPass::liveness(List<Set<VReg>>& liveIn, List<Set<VReg>>& liveOut) {
+	void LinearScanRegAllocPass::liveness(List<Set<VReg>>& liveIn, List<Set<VReg>>& liveOut) {
 		U32 nb = (U32)fn->blocks.size();
 		List<Set<VReg>> useSet(nb), defSet(nb);
 		for(U32 b = 0; b < nb; ++b) {
@@ -93,7 +93,7 @@ namespace rat {
 		}
 	}
 
-	void LinearRegAllocPass::extend(VReg v, U32 cls, I32 point) {
+	void LinearScanRegAllocPass::extend(VReg v, U32 cls, I32 point) {
 		Interval& iv = intervals[v];
 		if(iv.vreg == kNoVReg) {
 			iv.vreg = v;
@@ -108,12 +108,12 @@ namespace rat {
 		}
 	}
 
-	U32 LinearRegAllocPass::classOf(VReg v) const {
+	U32 LinearScanRegAllocPass::classOf(VReg v) const {
 		auto it = fn->vregClass.find(v);
 		return it == fn->vregClass.end() ? 0 : it->second;
 	}
 
-	void LinearRegAllocPass::buildIntervals() {
+	void LinearScanRegAllocPass::buildIntervals() {
 		List<Set<VReg>> liveIn, liveOut;
 		liveness(liveIn, liveOut);
 
@@ -149,9 +149,9 @@ namespace rat {
 		}
 	}
 
-	const RegClass& LinearRegAllocPass::regClass(U32 cls) const { return ri->classes[cls]; }
+	const RegClass& LinearScanRegAllocPass::regClass(U32 cls) const { return ri->classes[cls]; }
 
-	Set<PhysReg> LinearRegAllocPass::forbidden(const Interval& iv) const {
+	Set<PhysReg> LinearScanRegAllocPass::forbidden(const Interval& iv) const {
 		Set<PhysReg> bad;
 		for(const auto& kv : fixedAt)
 			if(iv.start <= kv.first && kv.first <= iv.end)
@@ -160,7 +160,7 @@ namespace rat {
 		return bad;
 	}
 
-	void LinearRegAllocPass::assignRegs() {
+	void LinearScanRegAllocPass::assignRegs() {
 		List<Interval*> sorted;
 		for(auto& kv : intervals)
 			sorted.push_back(&kv.second);
@@ -220,14 +220,14 @@ namespace rat {
 		}
 	}
 
-	B32 LinearRegAllocPass::isCalleeSaved(const RegClass& rc, PhysReg p) {
+	B32 LinearScanRegAllocPass::isCalleeSaved(const RegClass& rc, PhysReg p) {
 		for(PhysReg c : rc.calleeSaved)
 			if(c == p)
 				return true;
 		return false;
 	}
 
-	void LinearRegAllocPass::spillAt(Interval* cur, List<Interval*>& active) {
+	void LinearScanRegAllocPass::spillAt(Interval* cur, List<Interval*>& active) {
 		const RegClass& rc = regClass(cur->cls);
 		Set<PhysReg> bad = forbidden(*cur);
 		Interval* victim = nullptr;
@@ -257,7 +257,7 @@ namespace rat {
 		}
 	}
 
-	void LinearRegAllocPass::rewrite() {
+	void LinearScanRegAllocPass::rewrite() {
 		for(U32 b = 0; b < fn->blocks.size(); ++b) {
 			List<MachineInstr> out;
 			for(MachineInstr& in : fn->blocks[b].insts) {
@@ -302,7 +302,7 @@ namespace rat {
 		}
 	}
 
-	PhysReg LinearRegAllocPass::scratchAt(U32 cls, U32 idx) {
+	PhysReg LinearScanRegAllocPass::scratchAt(U32 cls, U32 idx) {
 		const RegClass& rc = ri->classes[cls];
 		if(rc.scratch.empty()) {
 			ok = false;
@@ -315,10 +315,10 @@ namespace rat {
 		return rc.scratch[idx];
 	}
 
-	B32 LinearRegAllocPass::allocate(MachineFunc& f,
-																	 const RegisterInfo& r,
-																	 const RegAllocHooks& h,
-																	 List<PhysReg>* usedCalleeSaved) {
+	B32 LinearScanRegAllocPass::allocate(MachineFunc& f,
+																			 const RegisterInfo& r,
+																			 const RegAllocHooks& h,
+																			 List<PhysReg>* usedCalleeSaved) {
 		fn = &f;
 		ri = &r;
 		hooks = &h;
@@ -343,7 +343,7 @@ namespace rat {
 		return ok;
 	}
 
-	B32 LinearRegAllocPass::run(Module& module, MachineModule& mm, const TargetInfo& target) {
+	B32 LinearScanRegAllocPass::run(Module& module, MachineModule& mm, const TargetInfo& target) {
 		U32 changed = 0;
 		for(const Function* fn : module) {
 			MachineFunc& mf = mm.get(fn);

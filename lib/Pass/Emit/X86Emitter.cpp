@@ -2,7 +2,6 @@
 
 #include "CodeGen/MachineFunction.h"
 #include "CodeGen/MachineModule.h"
-#include "CodeGen/RegAlloc.h"
 #include "CodeGen/Schedule.h"
 #include "IR/Function.h"
 #include "IR/Module.h"

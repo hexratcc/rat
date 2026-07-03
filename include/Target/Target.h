@@ -4,7 +4,8 @@
 #include "Core.h"
 
 namespace rat {
-	struct RegAllocHooks;
+	struct MachineInstr;
+	struct MachineFunc;
 
 	using PhysReg = U32;
 	constexpr PhysReg kNoReg = 0;
@@ -19,6 +20,12 @@ namespace rat {
 	struct RegisterInfo {
 		List<RegClass> classes;
 		U32 spillSlotBytes = 8;
+	};
+
+	struct RegAllocHooks {
+		Delegate<MachineInstr(PhysReg dst, I32 slot, U32 cls, U32 width)> makeReload;
+		Delegate<MachineInstr(I32 slot, PhysReg src, U32 cls, U32 width)> makeSpill;
+		Delegate<I32(MachineFunc& fn, U32 cls, U32 width)> allocSlot;
 	};
 
 	struct TargetInfo {

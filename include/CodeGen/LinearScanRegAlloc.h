@@ -10,8 +10,8 @@
 // - P. Briggs, K. D. Cooper, T. J. Harvey, L. T. Simpson, "Practical Improvements to the
 //   Construction and Destruction of Static Single Assignment Form", SP&E, 1998
 
-#ifndef RAT_CODEGEN_REGALLOC_H
-#define RAT_CODEGEN_REGALLOC_H
+#ifndef RAT_CODEGEN_LINEARSCANREGALLOC_H
+#define RAT_CODEGEN_LINEARSCANREGALLOC_H
 
 #include "Core.h"
 
@@ -19,14 +19,8 @@
 #include "Support/Pass.h"
 
 namespace rat {
-	struct RegAllocHooks {
-		Delegate<MachineInstr(PhysReg dst, I32 slot, U32 cls, U32 width)> makeReload;
-		Delegate<MachineInstr(I32 slot, PhysReg src, U32 cls, U32 width)> makeSpill;
-		Delegate<I32(MachineFunc& fn, U32 cls, U32 width)> allocSlot;
-	};
-
-	struct LinearRegAllocPass : MachinePass {
-		const C8* name() const override { return "linear-regalloc"; }
+	struct LinearScanRegAllocPass : MachinePass {
+		const C8* name() const override { return "linear-scan-regalloc"; }
 		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;
 	private:
 		struct Interval {
