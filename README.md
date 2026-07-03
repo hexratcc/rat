@@ -1,4 +1,4 @@
-## rat
+## rat [![test (ubuntu-latest)](https://github.com/hexratcc/rat/actions/workflows/test_ubuntu_latest.yml/badge.svg?branch=main)](https://github.com/hexratcc/rat/actions/workflows/test_ubuntu_latest.yml)
 Compiler backend for toying around with various optimizations
 
 ## build
