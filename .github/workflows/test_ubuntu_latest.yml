@@ -1,0 +1,31 @@
+name: test (ubuntu-latest)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: toolchain versions
+        run: |
+          g++ --version
+          make --version
+          cc --version
+
+      - name: build
+        run: |
+          make build/rat.a
+          make -C test/cc all
+
+      - name: test (x86-64 backend)
+        run: make test-x86
+
+      - name: test (c backend)
+        run: make test-c
