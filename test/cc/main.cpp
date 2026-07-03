@@ -45,12 +45,20 @@ namespace {
 		return 0;
 	}
 
+	B32 useGraphRegAlloc() {
+		const char* e = std::getenv("RATCC_REGALLOC");
+		return (B32)(e && String(e) == "graph");
+	}
+
 	void addEmitter(PassManager& pm, const String& emitKind, std::ostream& os) {
 		if(emitKind == "c") {
 			pm.add<CEmitterPass>(os);
 		} else if(emitKind == "x86") {
 			pm.add<X86LowerPass>();
-			pm.add<LinearRegAllocPass>();
+			if(useGraphRegAlloc())
+				pm.add<GraphColorRegAllocPass>();
+			else
+				pm.add<LinearScanRegAllocPass>();
 			pm.add<X86EncodePass>(os);
 		} else {
 			pm.add<TextEmitterPass>(os);
