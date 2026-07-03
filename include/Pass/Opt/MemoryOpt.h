@@ -27,8 +27,13 @@ namespace rat {
 		B32 run(Module& module) override;
 	private:
 		U32 runOnFunction(Function& fn);
-		static U32 forwardStores(const AliasAnalysis& aa, const List<LoadNode*>& loads);
-		static U32 cseLoads(Function& fn, const AliasAnalysis& aa, const List<LoadNode*>& loads);
+		static U32 forwardStores(const AliasAnalysis& aa,
+														 const Map<LoadNode*, Node*>& defs,
+														 const List<LoadNode*>& loads);
+		static U32 cseLoads(Function& fn,
+												const AliasAnalysis& aa,
+												const Map<LoadNode*, Node*>& defs,
+												const List<LoadNode*>& loads);
 
 		// skip back over stores that provably do not alias [addr, addr+size)
 		static Node* effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size);

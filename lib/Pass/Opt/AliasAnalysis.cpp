@@ -9,7 +9,11 @@ namespace rat {
 	AliasAnalysis::AliasAnalysis(const Function& fn)
 	: fn(fn) {}
 
-	AliasAnalysis::Address AliasAnalysis::decompose(Node* addr) const {
+	const AliasAnalysis::Address& AliasAnalysis::decompose(Node* addr) const {
+		auto it = decomposeCache.find(addr);
+		if(it != decomposeCache.end())
+			return it->second;
+
 		Address info{addr, 0, {}};
 		while(BinaryNode* b = dyn_cast<BinaryNode>(info.base)) {
 			Opcode op = b->getOpcode();
@@ -30,7 +34,7 @@ namespace rat {
 		std::sort(info.symbolic.begin(), info.symbolic.end(), [](const Node* a, const Node* b) {
 			return a->getId() < b->getId();
 		});
-		return info;
+		return decomposeCache.emplace(addr, std::move(info)).first->second;
 	}
 
 	U32 AliasAnalysis::getAccessSize(
@@ -47,6 +51,26 @@ namespace rat {
 		return t->byteSize(fn.getModule().pointerBytes());
 	}
 
+	AliasAnalysis::MustAliasKey AliasAnalysis::mustAliasKey(Node* access) const {
+		auto addrOf = [](Node* n) -> Node* {
+			if(n->getOpcode() == Opcode::Load)
+				return cast<LoadNode>(n)->getPointer();
+			if(n->getOpcode() == Opcode::Store)
+				return cast<StoreNode>(n)->getPointer();
+			return nullptr;
+		};
+		MustAliasKey key;
+		Node* addr = addrOf(access);
+		if(!addr)
+			return key; // not a memory access
+		const Address& a = decompose(addr);
+		key.base = a.base;
+		key.constant = a.constant;
+		key.symbolic = a.symbolic;
+		key.size = getAccessSize(access);
+		return key; // valid if base known and size known
+	}
+
 	B32 AliasAnalysis::isIdentified(const Node* n) { return isa<AllocNode>(n) || isa<GlobalNode>(n); }
 
 	B32 AliasAnalysis::distinctObjects(const Node* a, const Node* b) {
@@ -60,8 +84,8 @@ namespace rat {
 
 	AliasResult AliasAnalysis::alias(Node* addrA, U32 sizeA, Node* addrB, U32 sizeB) const {
 		// alias query between two addresses with known access sizes (0 = unknown)
-		Address a = decompose(addrA);
-		Address b = decompose(addrB);
+		const Address& a = decompose(addrA);
+		const Address& b = decompose(addrB);
 
 		// different base objects
 		if(a.base != b.base)

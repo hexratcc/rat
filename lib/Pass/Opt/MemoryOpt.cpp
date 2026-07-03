@@ -22,13 +22,15 @@ namespace rat {
 		return effectiveDef(aa, l->getMemory(), l->getPointer(), aa.getAccessSize(l));
 	}
 
-	U32 MemoryOptPass::forwardStores(const AliasAnalysis& aa, const List<LoadNode*>& loads) {
+	U32 MemoryOptPass::forwardStores(const AliasAnalysis& aa,
+																	 const Map<LoadNode*, Node*>& defs,
+																	 const List<LoadNode*>& loads) {
 		U32 removed = 0;
 		for(LoadNode* l : loads) {
 			if(!l->hasUsers())
 				continue;
 			U32 sz = aa.getAccessSize(l);
-			StoreNode* s = dyn_cast<StoreNode>(effectiveDef(aa, l));
+			StoreNode* s = dyn_cast<StoreNode>(defs.at(l));
 			if(!s)
 				continue;
 			if(aa.alias(l->getPointer(), sz, s->getPointer(), aa.getAccessSize(s)) ==
@@ -41,12 +43,11 @@ namespace rat {
 		return removed;
 	}
 
-	U32 MemoryOptPass::cseLoads(Function& fn, const AliasAnalysis& aa, const List<LoadNode*>& loads) {
+	U32 MemoryOptPass::cseLoads(Function& fn,
+															const AliasAnalysis& aa,
+															const Map<LoadNode*, Node*>& defs,
+															const List<LoadNode*>& loads) {
 		Schedule sched(fn);
-		List<LoadNode*> live;
-		for(LoadNode* l : loads)
-			if(l->hasUsers())
-				live.push_back(l);
 
 		auto dominates = [&](LoadNode* a, LoadNode* b) -> B32 {
 			I32 ba = sched.blockOf(a), bb = sched.blockOf(b);
@@ -57,32 +58,57 @@ namespace rat {
 			return sched.dominates(ba, bb);
 		};
 
-		Map<Node*, List<LoadNode*>> byDef;
-		for(LoadNode* l : live)
-			byDef[effectiveDef(aa, l)].push_back(l);
+		struct BucketKey {
+			Node* def;
+			AliasAnalysis::MustAliasKey addr;
+			B32 operator==(const BucketKey& o) const { return def == o.def && addr == o.addr; }
+		};
+
+		struct BucketKeyHash {
+			U64 operator()(const BucketKey& k) const {
+				U64 h = AliasAnalysis::MustAliasKeyHash{}(k.addr);
+				h ^= (U64) reinterpret_cast<std::uintptr_t>(k.def) + 0x9e3779b97f4a7c15ull + (h << 6) +
+						 (h >> 2);
+				return h;
+			}
+		};
+
+		std::unordered_map<BucketKey, List<LoadNode*>, BucketKeyHash> buckets;
+
+		for(LoadNode* l : loads) {
+			if(!l->hasUsers())
+				continue;
+			AliasAnalysis::MustAliasKey key = aa.mustAliasKey(l);
+			if(!key.valid())
+				continue; // opaque address / unknown size: not provably CSE
+			buckets[BucketKey{defs.at(l), key}].push_back(l);
+		}
 
 		U32 removed = 0;
-		for(auto& kv : byDef) {
+		for(auto& kv : buckets) {
 			List<LoadNode*>& group = kv.second;
+			if(group.size() < 2)
+				continue;
+			std::sort(group.begin(), group.end(), [&](LoadNode* a, LoadNode* b) {
+				I32 ba = sched.blockOf(a), bb = sched.blockOf(b);
+				I32 da = ba < 0 ? -1 : sched.block(ba).domDepth;
+				I32 db = bb < 0 ? -1 : sched.block(bb).domDepth;
+				if(da != db)
+					return da < db;
+				return a->getId() < b->getId();
+			});
 			for(U32 i = 0, e = (U32)group.size(); i < e; ++i) {
-				LoadNode* a = group[i];
-				if(!a->hasUsers())
+				LoadNode* b = group[i];
+				if(!b->hasUsers())
 					continue;
-				U32 szA = aa.getAccessSize(a);
-				for(U32 j = 0; j < e; ++j) {
-					if(i == j)
-						continue;
-					LoadNode* b = group[j];
-					if(!b->hasUsers() || b->getType() != a->getType())
-						continue;
-					U32 szB = aa.getAccessSize(b);
-					if(szB != szA)
-						continue;
-					if(aa.alias(a->getPointer(), szA, b->getPointer(), szB) != AliasResult::MustAlias)
+				for(U32 j = 0; j < i; ++j) {
+					LoadNode* a = group[j];
+					if(!a->hasUsers())
 						continue;
 					if(dominates(a, b)) {
 						b->replaceAllUsesWith(a);
 						++removed;
+						break;
 					}
 				}
 			}
@@ -108,9 +134,13 @@ namespace rat {
 		for(Node* n : fn)
 			if(LoadNode* l = dyn_cast<LoadNode>(n))
 				loads.push_back(l);
+		Map<LoadNode*, Node*> defs;
+		defs.reserve(loads.size());
+		for(LoadNode* l : loads)
+			defs.emplace(l, l->hasUsers() ? effectiveDef(aa, l) : nullptr);
 
-		U32 removed = forwardStores(aa, loads);
-		removed += cseLoads(fn, aa, loads);
+		U32 removed = forwardStores(aa, defs, loads);
+		removed += cseLoads(fn, aa, defs, loads);
 		if(removed)
 			fn.eliminateDeadNodes();
 		return removed;
