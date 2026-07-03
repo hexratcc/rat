@@ -172,6 +172,14 @@ namespace {
 		return on;
 	}
 
+	B32 useGraphRegAlloc() {
+		static B32 on = [] {
+			const char* e = std::getenv("RATCC_REGALLOC");
+			return (B32)(e && String(e) == "graph");
+		}();
+		return on;
+	}
+
 	template <class AddPasses>
 	void runPasses(Module& mod, const TargetInfo& target, AddPasses&& add) {
 		PassManager pm(target);
@@ -269,7 +277,10 @@ namespace {
 				runPasses(mod, target, [&](PassManager& pm) {
 					pm.add<RenameSymbolPass>("main", "__ratcc_user_main");
 					pm.add<X86LowerPass>();
-					pm.add<LinearRegAllocPass>();
+					// if(useGraphRegAlloc())
+					//	pm.add<GraphColorRegAllocPass>();
+					// else
+					pm.add<LinearScanRegAllocPass>();
 					pm.add<X86EncodePass>(of);
 				});
 				art.compileArgs = "-no-pie '" + art.path + "'";
