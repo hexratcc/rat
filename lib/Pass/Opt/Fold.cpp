@@ -238,7 +238,7 @@ namespace rat {
 			break;
 		case Opcode::URem:
 			if(I32 k = FoldPass::pow2Log(rhs, w); k > 0)
-				return mkBin(Opcode::And, lhs, ((I64)1 << k) - 1);
+				return mkBin(Opcode::And, lhs, (I64)((1ULL << k) - 1));
 			break;
 		default:
 			break;
