@@ -55,9 +55,9 @@ namespace {
 			pm.add<CEmitterPass>(os);
 		} else if(emitKind == "x86") {
 			pm.add<X86LowerPass>();
-			if(useGraphRegAlloc())
-				pm.add<GraphColorRegAllocPass>();
-			else
+			//if(useGraphRegAlloc())
+			//	pm.add<GraphColorRegAllocPass>();
+			//else
 				pm.add<LinearScanRegAllocPass>();
 			pm.add<X86EncodePass>(os);
 		} else {
