@@ -193,13 +193,15 @@ namespace rat {
 		};
 		if((op == Opcode::Add || op == Opcode::Sub) && cr) {
 			I64 c2 = cr->getValue();
-			I32 outerSign = (op == Opcode::Add) ? 1 : -1;
+			B32 outerNeg = op == Opcode::Sub;
 			Node* base;
 			I64 c1;
 			for(Opcode inner : {Opcode::Add, Opcode::Sub}) {
 				if(FoldPass::matchVarConst(lhs, inner, base, c1)) {
-					I32 innerSign = (inner == Opcode::Add) ? 1 : -1;
-					I64 k = FoldPass::normalizeConst(innerSign * c1 + outerSign * c2, w);
+					B32 innerNeg = inner == Opcode::Sub;
+					U64 t1 = innerNeg ? (U64)0 - (U64)c1 : (U64)c1;
+					U64 t2 = outerNeg ? (U64)0 - (U64)c2 : (U64)c2;
+					I64 k = FoldPass::normalizeConst((I64)(t1 + t2), w);
 					if(k == 0)
 						return base;
 					return mkBin(Opcode::Add, base, k); // sub-by-const normalizes to add
@@ -210,7 +212,7 @@ namespace rat {
 			Node* base;
 			I64 c1;
 			if(FoldPass::matchVarConst(lhs, Opcode::Mul, base, c1)) {
-				I64 k = FoldPass::normalizeConst(c1 * cr->getValue(), w);
+				I64 k = FoldPass::normalizeConst((I64)((U64)c1 * (U64)cr->getValue()), w);
 				if(k == 0)
 					return constant(fn, ty, 0);
 				if(k == 1)

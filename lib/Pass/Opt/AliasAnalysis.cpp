@@ -75,9 +75,13 @@ namespace rat {
 				return AliasResult::MayAlias;
 
 		// the two addresses differ only by a constant byte offset
-		I64 delta = a.constant - b.constant; // a = b + delta
+		I64 delta = (I64)((U64)a.constant - (U64)b.constant); // a = b + delta (wraps)
 		if(delta == 0)
 			return AliasResult::MustAlias;
+
+		B32 diffSigns = (a.constant < 0) != (b.constant < 0);
+		if(diffSigns && (delta < 0) != (a.constant < 0))
+			return AliasResult::MayAlias;
 
 		if(sizeA == 0 || sizeB == 0)
 			return AliasResult::MayAlias; // unknown size: cannot prove disjoint

@@ -40,9 +40,9 @@ namespace rat {
 		errs.push_back(os.str());
 	}
 
-	B32 VerifyPass::FunctionVerifier::isCtrl(const Node* n) { return n->getType()->isControl(); }
-	B32 VerifyPass::FunctionVerifier::isMem(const Node* n) { return n->getType()->isMemory(); }
-	B32 VerifyPass::FunctionVerifier::isData(const Node* n) { return n->getType()->isData(); }
+	B32 VerifyPass::FunctionVerifier::isCtrl(const Node* n) { return n && n->getType()->isControl(); }
+	B32 VerifyPass::FunctionVerifier::isMem(const Node* n) { return n && n->getType()->isMemory(); }
+	B32 VerifyPass::FunctionVerifier::isData(const Node* n) { return n && n->getType()->isData(); }
 
 	B32 VerifyPass::FunctionVerifier::checkArity(const Node* n) {
 		const OpcodeInfo& info = getOpcodeInfo(n->getOpcode());
@@ -108,6 +108,10 @@ namespace rat {
 
 		if(!checkArity(n))
 			return;
+
+		for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
+			if(!n->getInput(i))
+				return;
 
 		switch(op) {
 		case Opcode::Start: {

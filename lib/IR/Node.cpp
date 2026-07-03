@@ -339,8 +339,10 @@ namespace rat {
 		// sort for commutative opcodes
 		List<U32> ops;
 		ops.reserve(n->getInputCount());
-		for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
-			ops.push_back(n->getInput(i)->getId());
+		for(U32 i = 0, e = n->getInputCount(); i < e; ++i) {
+			Node* in = n->getInput(i);
+			ops.push_back(in ? in->getId() : ~0u);
+		}
 		if(n->isCommutative())
 			std::sort(ops.begin(), ops.end());
 		for(U32 id : ops)
