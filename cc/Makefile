@@ -9,17 +9,17 @@
 ROOT     := ..
 CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
-INC      := -I$(ROOT)/rat/include -I.
+INC      := -I$(ROOT)/rat/include -Iinclude
 DEPFLAGS := -MMD -MP
 
 LIB      := $(ROOT)/build/rat.a
 OBJDIR   := $(ROOT)/build/cc
 
-CORE     := Lexer.cpp Parser.cpp Ast.cpp Emit.cpp EmitComplex.cpp EmitConst.cpp EmitType.cpp EmitInit.cpp EmitGlobal.cpp \
-            Preprocess.cpp
+CORE     := lib/Lexer.cpp lib/Parser.cpp lib/Ast.cpp lib/Emit.cpp lib/EmitComplex.cpp lib/EmitConst.cpp \
+            lib/EmitType.cpp lib/EmitInit.cpp lib/EmitGlobal.cpp lib/Preprocess.cpp
 CORE_OBJS := $(patsubst %.cpp,$(OBJDIR)/%.o,$(CORE))
 
-HEADERS  := $(wildcard *.h)
+HEADERS  := $(wildcard include/*.h)
 SRCS     := $(CORE) main.cpp Runner.cpp
 
 BIN      := $(ROOT)/bin/ratcc
