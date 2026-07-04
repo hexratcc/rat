@@ -38,7 +38,7 @@ $(OBJDIR)/%.o: %.cpp
 
 .PHONY: $(LIB)
 $(LIB):
-	$(MAKE) -C $(ROOT) build/rat.a
+	$(MAKE) -C $(ROOT)/rat lib
 
 $(BIN): $(CORE_OBJS) $(OBJDIR)/main.o $(LIB)
 	@mkdir -p $(ROOT)/bin
