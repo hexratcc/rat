@@ -1,9 +1,9 @@
-# make           build bin/tour and bin/rat
-# make run       build and run the tour example
+# make           build the core lib and bin/rat pipeline driver
 # make rat       build the bin/rat pipeline driver
-# make test      run tests (x86-64 backend)
-# make test-c    run tests through the C backend
-# make test-x86  run tests through the x86-64 backend
+# make test      run both suites (cc via x86-64 backend, plus rat IR)
+# make test-c    run the cc suite through the C backend, plus rat IR
+# make test-x86  run the cc suite through the x86-64 backend, plus rat IR
+# make test-rat  run only the rat IR golden suite
 # make compiledb generate compile_commands.json for editors
 # make format    run clang-format over the sources
 # make clean
@@ -18,12 +18,12 @@ LIB_SRCS := $(shell find rat/lib -name '*.cpp' | sort)
 LIB_OBJS := $(patsubst %.cpp,build/%.o,$(LIB_SRCS))
 LIB      := build/rat.a
 
-SOURCES  := $(LIB_SRCS) test/tour/main.cpp test/driver/main.cpp
+SOURCES  := $(LIB_SRCS) rat/test/driver.cpp rat/test/Runner.cpp
 HEADERS  := $(wildcard rat/include/*.h rat/include/IR/*.h rat/include/Support/*.h rat/include/Pass/*.h rat/include/Pass/Emit/*.h rat/include/Pass/Opt/*.h rat/include/CodeGen/*.h rat/include/Target/*.h)
 CC_FMT   := $(shell find cc \( -name '*.cpp' -o -name '*.h' \) -print | sort)
 
-.PHONY: all run rat test test-c test-x86 compiledb format clean
-all: compiledb bin/tour bin/rat
+.PHONY: all rat test test-c test-x86 test-rat compiledb format clean
+all: compiledb bin/rat
 
 build/%.o: %.cpp
 	@mkdir -p $(dir $@)
@@ -35,26 +35,21 @@ $(LIB): $(LIB_OBJS)
 	@mkdir -p $(dir $@)
 	$(AR) rcs $@ $^
 
-bin/tour: test/tour/main.cpp $(LIB)
-	@mkdir -p bin
-	$(CXX) $(CXXFLAGS) $(INC) $< $(LIB) -o $@
-
-run: bin/tour
-	./bin/tour
-
-bin/rat: test/driver/main.cpp $(LIB)
-	@mkdir -p bin
-	$(CXX) $(CXXFLAGS) $(INC) $< $(LIB) -o $@
+bin/rat: $(LIB)
+	$(MAKE) -C rat/test all
 
 rat: bin/rat
 
-test:
+test-rat:
+	$(MAKE) -C rat/test test TESTBIN_ARGS="-j$$(nproc)"
+
+test: test-rat
 	$(MAKE) -C cc test TESTBIN_ARGS="-j$$(nproc)"
 
-test-c:
+test-c: test-rat
 	$(MAKE) -C cc test-c TESTBIN_ARGS="-j$$(nproc)"
 
-test-x86:
+test-x86: test-rat
 	$(MAKE) -C cc test-x86 TESTBIN_ARGS="-j$$(nproc)"
 
 compiledb:

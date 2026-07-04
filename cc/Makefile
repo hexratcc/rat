@@ -25,8 +25,7 @@ SRCS     := $(CORE) main.cpp Runner.cpp
 BIN      := $(ROOT)/bin/ratcc
 TESTBIN  := $(ROOT)/bin/ratcc-test
 
-CASES    := $(shell find $(ROOT)/test/cc -name '*.c' | sort)
-RAT_CASES := $(wildcard $(ROOT)/test/rat/*.rat)
+CASES    := $(shell find $(ROOT)/cc/test -name '*.c' | sort)
 
 .PHONY: all test test-c test-x86 run format clean
 all: $(BIN) $(TESTBIN)
@@ -50,13 +49,13 @@ $(TESTBIN): $(CORE_OBJS) $(OBJDIR)/Runner.o $(LIB)
 	$(CXX) $(CXXFLAGS) $(INC) $(CORE_OBJS) $(OBJDIR)/Runner.o $(LIB) -pthread -o $@
 
 test: $(TESTBIN)
-	@$(TESTBIN) $(TESTBIN_ARGS) $(CASES) $(RAT_CASES)
+	@$(TESTBIN) $(TESTBIN_ARGS) $(CASES)
 
 test-c: $(TESTBIN)
-	@RATCC_X86=0 $(TESTBIN) $(TESTBIN_ARGS) $(CASES) $(RAT_CASES)
+	@RATCC_X86=0 $(TESTBIN) $(TESTBIN_ARGS) $(CASES)
 
 test-x86: $(TESTBIN)
-	@RATCC_X86=1 $(TESTBIN) $(TESTBIN_ARGS) $(CASES) $(RAT_CASES)
+	@RATCC_X86=1 $(TESTBIN) $(TESTBIN_ARGS) $(CASES)
 
 run: $(BIN)
 	@for c in $(CASES); do echo "== $$c =="; $(BIN) -dump-tokens $$c; done

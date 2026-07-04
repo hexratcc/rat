@@ -23,6 +23,7 @@ jobs:
         run: |
           make -j build/rat.a
           make -j -C cc all
+          make -j -C rat/test all
 
       - name: test (x86-64 backend)
         run: make test-x86
