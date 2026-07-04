@@ -9,15 +9,15 @@ $ make test   # builds and runs tests
 ```
 
 ## passes
-- [**FoldPass:**](./include/Pass/Opt/Fold.h) Constant folding and algebraic simplification
-- [**GVNPass:**](./include/Pass/Opt/GVN.h) Global value numbering
-- [**SCCPPass:**](./include/Pass/Opt/SCCP.h) Sparse conditional constant propagation
-- [**SimplifyCFGPass:**](./include/Pass/Opt/SimplifyCFG.h) Control-flow simplification
-- [**MemoryOptPass:**](./include/Pass/Opt/MemoryOpt.h) Load/store forwarding
-- [**InlinePass:**](./include/Pass/Opt/Inline.h) Function inlining
-- [**CEmitterPass:**](./include/Pass/Emit/CEmitter.h) Emit C code
-- [**X86EmitterPass:**](./include/Pass/Emit/X86EmitterPass.h) Emit x86 code
-- [**VerifyPass:**](./include/Pass/Verify.h) Edge consistency + per-opcode structural invariants
-- [**TextEmitterPass:**](./include/Pass/Emit/TextEmitter.h) Textual IR viz
-- [**GraphEmitterPass:**](./include/Pass/Emit/GraphEmitter.h) Graph IR viz
-- [**RenameSymbolPass:**](./include/Pass/Opt/RenameSymbolPass.h) Rename a given symbol
+- [**FoldPass:**](./rat/include/Pass/Opt/Fold.h) Constant folding and algebraic simplification
+- [**GVNPass:**](./rat/include/Pass/Opt/GVN.h) Global value numbering
+- [**SCCPPass:**](./rat/include/Pass/Opt/SCCP.h) Sparse conditional constant propagation
+- [**SimplifyCFGPass:**](./rat/include/Pass/Opt/SimplifyCFG.h) Control-flow simplification
+- [**MemoryOptPass:**](./rat/include/Pass/Opt/MemoryOpt.h) Load/store forwarding
+- [**InlinePass:**](./rat/include/Pass/Opt/Inline.h) Function inlining
+- [**CEmitterPass:**](./rat/include/Pass/Emit/CEmitter.h) Emit C code
+- [**X86EmitterPass:**](./rat/include/Pass/Emit/X86EmitterPass.h) Emit x86 code
+- [**VerifyPass:**](./rat/include/Pass/Verify.h) Edge consistency + per-opcode structural invariants
+- [**TextEmitterPass:**](./rat/include/Pass/Emit/TextEmitter.h) Textual IR viz
+- [**GraphEmitterPass:**](./rat/include/Pass/Emit/GraphEmitter.h) Graph IR viz
+- [**RenameSymbolPass:**](./rat/include/Pass/Opt/RenameSymbolPass.h) Rename a given symbol

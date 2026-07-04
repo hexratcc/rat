@@ -10,17 +10,17 @@
 
 CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
-INC      := -Iinclude
+INC      := -Irat/include
 DEPFLAGS := -MMD -MP
 
-LIB_SRCS := $(shell find lib -name '*.cpp' | sort)
+LIB_SRCS := $(shell find rat/lib -name '*.cpp' | sort)
 
 LIB_OBJS := $(patsubst %.cpp,build/%.o,$(LIB_SRCS))
 LIB      := build/rat.a
 
 SOURCES  := $(LIB_SRCS) test/tour/main.cpp test/driver/main.cpp
-HEADERS  := $(wildcard include/*.h include/IR/*.h include/Support/*.h include/Pass/*.h include/Pass/Emit/*.h include/Pass/Opt/*.h include/CodeGen/*.h include/Target/*.h)
-CC_FMT   := $(shell find test/cc -path test/cc/cases -prune -o \( -name '*.cpp' -o -name '*.h' \) -print | sort)
+HEADERS  := $(wildcard rat/include/*.h rat/include/IR/*.h rat/include/Support/*.h rat/include/Pass/*.h rat/include/Pass/Emit/*.h rat/include/Pass/Opt/*.h rat/include/CodeGen/*.h rat/include/Target/*.h)
+CC_FMT   := $(shell find cc \( -name '*.cpp' -o -name '*.h' \) -print | sort)
 
 .PHONY: all run rat test test-c test-x86 compiledb format clean
 all: compiledb bin/tour bin/rat
@@ -49,13 +49,13 @@ bin/rat: test/driver/main.cpp $(LIB)
 rat: bin/rat
 
 test:
-	$(MAKE) -C test/cc test TESTBIN_ARGS="-j$$(nproc)"
+	$(MAKE) -C cc test TESTBIN_ARGS="-j$$(nproc)"
 
 test-c:
-	$(MAKE) -C test/cc test-c TESTBIN_ARGS="-j$$(nproc)"
+	$(MAKE) -C cc test-c TESTBIN_ARGS="-j$$(nproc)"
 
 test-x86:
-	$(MAKE) -C test/cc test-x86 TESTBIN_ARGS="-j$$(nproc)"
+	$(MAKE) -C cc test-x86 TESTBIN_ARGS="-j$$(nproc)"
 
 compiledb:
 	@printf '[\n' > compile_commands.json

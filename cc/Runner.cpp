@@ -678,12 +678,12 @@ static String findDir(const char* const* candidates, U32 count) {
 }
 
 static String findCasesDir() {
-	const char* candidates[] = {"cases", "test/cc/cases"};
+	const char* candidates[] = {"test/cc", "../test/cc"};
 	return findDir(candidates, 2);
 }
 
 static String findRatCasesDir() {
-	const char* candidates[] = {"../cases", "test/cases"};
+	const char* candidates[] = {"test/rat", "../test/rat"};
 	return findDir(candidates, 2);
 }
 

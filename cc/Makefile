@@ -6,14 +6,14 @@
 # make format   run clang-format over the frontend sources
 # make clean    remove this frontend's build artifacts
 
-ROOT     := ../..
+ROOT     := ..
 CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
-INC      := -I$(ROOT)/include -I.
+INC      := -I$(ROOT)/rat/include -I.
 DEPFLAGS := -MMD -MP
 
 LIB      := $(ROOT)/build/rat.a
-OBJDIR   := $(ROOT)/build/test/cc
+OBJDIR   := $(ROOT)/build/cc
 
 CORE     := Lexer.cpp Parser.cpp Ast.cpp Emit.cpp EmitComplex.cpp EmitConst.cpp EmitType.cpp EmitInit.cpp EmitGlobal.cpp \
             Preprocess.cpp
@@ -25,9 +25,8 @@ SRCS     := $(CORE) main.cpp Runner.cpp
 BIN      := $(ROOT)/bin/ratcc
 TESTBIN  := $(ROOT)/bin/ratcc-test
 
-CASES    := $(wildcard cases/custom/*.c) $(wildcard cases/c-testsuite/*.c) \
-            $(wildcard cases/gcc-torture/*.c) $(wildcard cases/c99/*.c)
-RAT_CASES := $(wildcard $(ROOT)/test/cases/*.rat)
+CASES    := $(shell find $(ROOT)/test/cc -name '*.c' | sort)
+RAT_CASES := $(wildcard $(ROOT)/test/rat/*.rat)
 
 .PHONY: all test test-c test-x86 run format clean
 all: $(BIN) $(TESTBIN)
