@@ -1,8 +1,5 @@
 #include "Emit.h"
 
-#include "IR/Function.h"
-#include "IR/Module.h"
-
 namespace rat::cc {
 	CType Emitter::completeComplex(CType t) {
 		if(!isComplexType(t) || t.strukt != nullptr)

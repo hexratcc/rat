@@ -1,8 +1,5 @@
 #include "Emit.h"
 
-#include "IR/Function.h"
-#include "IR/Module.h"
-
 namespace rat::cc {
 	String Emitter::internString(const Expr* e) {
 		const String& bytes = *e->str.bytes;

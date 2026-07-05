@@ -3,6 +3,7 @@
 
 #include "IR/Module.h"
 
+#include "CodeGen/GraphRegAlloc.h"
 #include "CodeGen/LinearScanRegAlloc.h"
 #include "CodeGen/Schedule.h"
 #include "Target/Target.h"

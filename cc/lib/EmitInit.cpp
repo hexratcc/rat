@@ -1,8 +1,5 @@
 #include "Emit.h"
 
-#include "IR/Function.h"
-#include "IR/Module.h"
-
 namespace rat::cc {
 	const Expr* Emitter::peelAggregateCompound(const Expr* el) {
 		if(el->kind == ExprKind::CompoundLit && !el->compound.isArray && el->compound.init &&

@@ -1,8 +1,5 @@
 #include "Emit.h"
 
-#include "IR/Function.h"
-#include "IR/Module.h"
-
 namespace rat::cc {
 	Emitter::Emitter(Module& module)
 	: mod(module) {}

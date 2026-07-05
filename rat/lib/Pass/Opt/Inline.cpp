@@ -123,6 +123,9 @@ namespace rat {
 			return false;
 		if(call->getArgCount() != callee->getParamCount())
 			return false;
+		for(U32 i = 0, e = call->getArgCount(); i < e; ++i)
+			if(call->getArg(i)->getType() != callee->getParamType(i))
+				return false;
 		return callee->size() <= kInlineNodeBudget;
 	}
 

@@ -15,11 +15,10 @@ DEPFLAGS := -MMD -MP
 LIB      := $(ROOT)/build/rat.a
 OBJDIR   := $(ROOT)/build/cc
 
-CORE     := lib/Lexer.cpp lib/Parser.cpp lib/Ast.cpp lib/Emit.cpp lib/EmitComplex.cpp lib/EmitConst.cpp \
-            lib/EmitType.cpp lib/EmitInit.cpp lib/EmitGlobal.cpp lib/Preprocess.cpp
+CORE     := $(shell find lib -name '*.cpp' | sort)
 CORE_OBJS := $(patsubst %.cpp,$(OBJDIR)/%.o,$(CORE))
 
-HEADERS  := $(wildcard include/*.h)
+HEADERS  := $(shell find include -name '*.h' | sort)
 SRCS     := $(CORE) main.cpp Runner.cpp
 
 BIN      := $(ROOT)/bin/ratcc
