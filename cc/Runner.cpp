@@ -1,4 +1,5 @@
 #include "Ast.h"
+#include "Compile.h"
 #include "Emit.h"
 #include "Lexer.h"
 #include "Parser.h"
@@ -80,12 +81,17 @@ namespace {
 		return cache;
 	}
 
-	const char* const kDefaultPasses = "fold,gvn,sccp,simplifycfg,memoryopt,inline";
+	String defaultPasses() {
+		String spec;
+		for(const String& p : defaultOptPipeline())
+			spec += (spec.empty() ? "" : ",") + p;
+		return spec;
+	}
 
 	struct Expectation {
 		B32 hasValue = false;
 		I32 value = 0;
-		String passes = kDefaultPasses;
+		String passes = defaultPasses();
 		B32 hasOutput = false;
 		String output;
 	};
@@ -180,13 +186,6 @@ namespace {
 		return on;
 	}
 
-	template <class AddPasses>
-	void runPasses(Module& mod, const TargetInfo& target, AddPasses&& add) {
-		PassManager pm(target);
-		add(pm);
-		pm.run(mod);
-	}
-
 	struct Artifact {
 		String path;
 		String compileArgs;
@@ -265,7 +264,11 @@ namespace {
 	}
 
 	B32 runOracle(Module& mod, I32& out, String& capturedOut, String& err) {
+		CompileOptions copt;
+		copt.renameMain = "__ratcc_user_main";
 		if(useX86Backend()) {
+			copt.backend = Backend::X86;
+			copt.regAlloc = useGraphRegAlloc() ? RegAlloc::Graph : RegAlloc::Linear;
 			auto make = [&](const String& base, Artifact& art, String& e) -> B32 {
 				art.path = base + ".o";
 				std::ofstream of(art.path, std::ios::binary);
@@ -274,34 +277,22 @@ namespace {
 					return false;
 				}
 				X86Target target;
-				runPasses(mod, target, [&](PassManager& pm) {
-					pm.add<RenameSymbolPass>("main", "__ratcc_user_main");
-					pm.add<X86LowerPass>();
-					if(useGraphRegAlloc())
-						pm.add<GraphColorRegAllocPass>();
-					else
-						pm.add<LinearScanRegAllocPass>();
-					pm.add<X86EncodePass>(of);
-				});
+				compileModule(mod, target, copt, of);
 				art.compileArgs = "-no-pie '" + art.path + "'";
 				return true;
 			};
 			return runBackend("x86", make, out, capturedOut, err);
 		}
+		copt.backend = Backend::C;
 		auto make = [&](const String& base, Artifact& art, String& e) -> B32 {
 			art.path = base + ".c";
-			std::ostringstream src;
-			Generic64 target;
-			runPasses(mod, target, [&](PassManager& pm) {
-				pm.add<RenameSymbolPass>("main", "__ratcc_user_main");
-				pm.add<CEmitterPass>(src);
-			});
 			std::ofstream cf(art.path);
 			if(!cf) {
 				e = "oracle: cannot write temp source";
 				return false;
 			}
-			cf << src.str();
+			Generic64 target;
+			compileModule(mod, target, copt, cf);
 			art.compileArgs = "-std=c11 '" + art.path + "'";
 			return true;
 		};
@@ -353,13 +344,12 @@ namespace {
 		if(!exp.passes.empty()) {
 			std::ostringstream sink;
 			String perr;
-			B32 ok = true;
-			runPasses(
-					mod, target, [&](PassManager& pm) { ok = buildPipeline(pm, exp.passes, sink, perr); });
-			if(!ok) {
+			PassManager pm(target);
+			if(!buildPipeline(pm, exp.passes, sink, perr)) {
 				err = "bad pass spec: " + perr;
 				return false;
 			}
+			pm.run(mod);
 		}
 
 		Function* main = mod.getFunction("main");

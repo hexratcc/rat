@@ -57,7 +57,7 @@ test-x86: $(TESTBIN)
 	@RATCC_X86=1 $(TESTBIN) $(TESTBIN_ARGS) $(CASES)
 
 run: $(BIN)
-	@for c in $(CASES); do echo "== $$c =="; $(BIN) -dump-tokens $$c; done
+	@for c in $(CASES); do echo "== $$c =="; $(BIN) -emit tok -o /tmp/ratcc-run $$c && cat /tmp/ratcc-run.tok; done
 
 format:
 	clang-format -i $(CORE) main.cpp Runner.cpp $(HEADERS)

@@ -75,6 +75,10 @@ namespace rat {
 		return reg;
 	}
 
+	List<String> defaultOptPipeline() {
+		return {"sccp", "fold", "simplifycfg", "gvn", "memoryopt", "inline", "fold", "gvn"};
+	}
+
 	B32 buildPipeline(PassManager& pm, const String& spec, std::ostream& out, String& err) {
 		const PassRegistry& reg = passRegistry();
 		String tok;

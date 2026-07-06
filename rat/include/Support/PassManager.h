@@ -11,6 +11,12 @@ namespace rat {
 	struct Module;
 	struct TargetInfo;
 
+	struct PassTiming {
+		String name;
+		U64 nanos;
+		U32 calls;
+	};
+
 	struct PassManager {
 		explicit PassManager(const TargetInfo& target)
 		: target(&target) {}
@@ -27,11 +33,17 @@ namespace rat {
 
 		Pass* add(UniquePtr<Pass> pass);
 		B32 run(Module& module, std::ostream* log = nullptr);
+
+		List<PassTiming> timings() const;
+		void printTimingReport(std::ostream& os) const;
 	private:
+		void record(const C8* name, U64 nanos);
+
 		const TargetInfo* target;
 		List<UniquePtr<Pass>> passes;
 		List<UniquePtr<MachinePass>> machinePasses;
 		MachineModule mm;
+		List<PassTiming> timing;
 	};
 } // namespace rat
 
