@@ -9,15 +9,21 @@ $ make test   # builds and runs tests
 ```
 
 ## passes
+**Optimization**
 - [**FoldPass:**](./rat/include/Pass/Opt/Fold.h) Constant folding and algebraic simplification
 - [**GVNPass:**](./rat/include/Pass/Opt/GVN.h) Global value numbering
 - [**SCCPPass:**](./rat/include/Pass/Opt/SCCP.h) Sparse conditional constant propagation
 - [**SimplifyCFGPass:**](./rat/include/Pass/Opt/SimplifyCFG.h) Control-flow simplification
 - [**MemoryOptPass:**](./rat/include/Pass/Opt/MemoryOpt.h) Load/store forwarding
 - [**InlinePass:**](./rat/include/Pass/Opt/Inline.h) Function inlining
+
+**Codegen**
+- [**X86LowerPass:**](./rat/include/Pass/Emit/X86Emitter.h) Lower IR to x86 machine instructions
+- [**X86EncodePass:**](./rat/include/Pass/Emit/X86Emitter.h) Encode x86 to an ELF object
 - [**CEmitterPass:**](./rat/include/Pass/Emit/CEmitter.h) Emit C code
-- [**X86EmitterPass:**](./rat/include/Pass/Emit/X86EmitterPass.h) Emit x86 code
+
+**Utility**
 - [**VerifyPass:**](./rat/include/Pass/Verify.h) Edge consistency + per-opcode structural invariants
+- [**RenameSymbolPass:**](./rat/include/Pass/Opt/RenameSymbol.h) Rename a given symbol
 - [**TextEmitterPass:**](./rat/include/Pass/Emit/TextEmitter.h) Textual IR viz
-- [**GraphEmitterPass:**](./rat/include/Pass/Emit/GraphEmitter.h) Graph IR viz
-- [**RenameSymbolPass:**](./rat/include/Pass/Opt/RenameSymbolPass.h) Rename a given symbol
+- [**GraphEmitterPass:**](./rat/include/Pass/Emit/GraphEmitter.h) Graphviz DOT IR viz
