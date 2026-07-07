@@ -6,8 +6,6 @@
 
 #include "Target/Target.h"
 
-#include <functional>
-
 namespace rat::cc {
 	struct Parser {
 		Parser(Lexer& lexer, Arena& arena, const TargetInfo& target);

@@ -30,16 +30,28 @@ namespace rat::cc {
 		return -1;
 	}
 
-	B32 Emitter::storeScalar(Function& fn, Node* slot, U32 off, CType dt, const Expr* e) {
-		if(e->kind == ExprKind::InitList) {
-			if(e->args.empty())
-				return true;
-			if(e->args.size() != 1 || e->designators[0].isSet) {
-				failScalarInit();
-				return false;
-			}
-			e = e->args[0];
+	B32 Emitter::unwrapScalarInit(const Expr*& e, B32& skip) {
+		skip = false;
+		if(e->kind != ExprKind::InitList)
+			return true;
+		if(e->args.empty()) {
+			skip = true;
+			return true;
 		}
+		if(e->args.size() != 1 || e->designators[0].isSet) {
+			failScalarInit();
+			return false;
+		}
+		e = e->args[0];
+		return true;
+	}
+
+	B32 Emitter::storeScalar(Function& fn, Node* slot, U32 off, CType dt, const Expr* e) {
+		B32 skip = false;
+		if(!unwrapScalarInit(e, skip))
+			return false;
+		if(skip)
+			return true;
 		Value v = emitExpr(fn, e);
 		if(!v.node)
 			return false;
@@ -50,7 +62,7 @@ namespace rat::cc {
 
 	B32 Emitter::storeCharArray(
 			Function& fn, Node* slot, U32 base, CType elem, U32 count, const Expr* e) {
-		if(elem.ptr != 0 || isStruct(elem) || elem.bits != 8) {
+		if(!isCharType(elem)) {
 			failStringNeedsCharArray();
 			return false;
 		}
@@ -451,15 +463,11 @@ namespace rat::cc {
 		return emit.storeScalar(fn, slot, off, dt, e);
 	}
 	B32 Emitter::StoreSink::bitfield(U32 off, CType dt, U32 width, U32 bitOff, const Expr* e) {
-		if(e->kind == ExprKind::InitList) {
-			if(e->args.empty())
-				return true;
-			if(e->args.size() != 1 || e->designators[0].isSet) {
-				emit.failScalarInit();
-				return false;
-			}
-			e = e->args[0];
-		}
+		B32 skip = false;
+		if(!emit.unwrapScalarInit(e, skip))
+			return false;
+		if(skip)
+			return true;
 		Value v = emit.emitExpr(fn, e);
 		if(!v.node)
 			return false;
@@ -506,15 +514,11 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::ImageSink::scalar(U32 off, CType dt, const Expr* e) {
-		if(e->kind == ExprKind::InitList) {
-			if(e->args.empty())
-				return true;
-			if(e->args.size() != 1 || e->designators[0].isSet) {
-				emit.failScalarInit();
-				return false;
-			}
-			e = e->args[0];
-		}
+		B32 skip = false;
+		if(!emit.unwrapScalarInit(e, skip))
+			return false;
+		if(skip)
+			return true;
 		U64 bits = 0;
 		if(isFloating(dt)) {
 			long double d = 0;
@@ -573,7 +577,7 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::ImageSink::charArray(U32 base, CType elem, U32 count, const Expr* e) {
-		if(elem.ptr != 0 || isStruct(elem) || elem.bits != 8) {
+		if(!isCharType(elem)) {
 			emit.failStringNeedsCharArray();
 			return false;
 		}

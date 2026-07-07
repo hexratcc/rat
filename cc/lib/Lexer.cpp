@@ -109,10 +109,10 @@ namespace rat::cc {
 		}
 	} // namespace
 
-	Lexer::Lexer(const char* src, U32 len, String file)
+	Lexer::Lexer(const char* src, U32 len, String fileName)
 	: src(src),
 		len(len),
-		fileName(std::move(file)) {}
+		fileName(std::move(fileName)) {}
 
 	void Lexer::bump() {
 		if(pos < len && src[pos] == '\n') {
@@ -314,7 +314,7 @@ namespace rat::cc {
 		bump(); // opening quote
 		while(pos < len && cur() != quote && cur() != '\n') {
 			if(cur() == '\\')
-				bump(); // skip the escaped character as a pair
+				bump(); // consume the backslash
 			bump();
 		}
 		if(cur() != quote)

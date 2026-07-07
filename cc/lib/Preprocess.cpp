@@ -24,9 +24,16 @@ namespace rat::cc {
 			Set<String> hide; // hide set (macros that must not re-expand here)
 		};
 
+		constexpr U32 kMaxIncludeDepth = 200;
+
 		B32 isPunct(const PpToken& t, const char* s) { return t.kind == Pk::Punct && t.text == s; }
 
 		String unquote(const String& s) { return s.size() >= 2 ? s.substr(1, s.size() - 2) : s; }
+
+		void stripTrailingSlash(String& s) {
+			if(!s.empty() && s.back() == '/')
+				s.pop_back();
+		}
 
 		size_t ucnLen(const String& s, size_t i) {
 			size_t n = s.size();
@@ -495,7 +502,7 @@ namespace rat::cc {
 
 			Val apply(const String& op, Val a, Val b) {
 				B32 u = a.isU || b.isU;
-				auto cmp = [&](B32 r) { return Val{r ? 1u : 0u, false}; };
+				auto cmp = [](B32 r) { return Val{r ? 1u : 0u, false}; };
 				if(op == "*")
 					return u ? Val{a.u * b.u, true} : Val{(U64)((I64)a.u * (I64)b.u), false};
 				if(op == "+")
@@ -512,10 +519,12 @@ namespace rat::cc {
 						return u ? Val{a.u / b.u, true} : Val{(U64)((I64)a.u / (I64)b.u), false};
 					return u ? Val{a.u % b.u, true} : Val{(U64)((I64)a.u % (I64)b.u), false};
 				}
+				constexpr U64 kShiftMask = 63;
 				if(op == "<<")
-					return Val{a.u << (b.u & 63), a.isU};
+					return Val{a.u << (b.u & kShiftMask), a.isU};
 				if(op == ">>")
-					return a.isU ? Val{a.u >> (b.u & 63), true} : Val{(U64)((I64)a.u >> (b.u & 63)), false};
+					return a.isU ? Val{a.u >> (b.u & kShiftMask), true}
+											 : Val{(U64)((I64)a.u >> (b.u & kShiftMask)), false};
 				if(op == "<")
 					return cmp(u ? a.u < b.u : (I64)a.u < (I64)b.u);
 				if(op == "<=")
@@ -906,7 +915,7 @@ namespace rat::cc {
 						os.push_back(t);
 						continue;
 					}
-					work.pop_front(); // )
+					work.pop_front(); // (
 					List<List<PpToken>> raw;
 					PpToken rparen;
 					if(!gatherArgs(work, raw, rparen))
@@ -1133,12 +1142,10 @@ namespace rat::cc {
 				size_t startDir = 0;
 				if(next) {
 					String cur = curDir;
-					if(!cur.empty() && cur.back() == '/')
-						cur.pop_back();
+					stripTrailingSlash(cur);
 					for(size_t k = 0; k < opts.includeDirs.size(); ++k) {
 						String d = opts.includeDirs[k];
-						if(!d.empty() && d.back() == '/')
-							d.pop_back();
+						stripTrailingSlash(d);
 						if(d == cur) {
 							startDir = k + 1;
 							break;
@@ -1173,7 +1180,7 @@ namespace rat::cc {
 				}
 				if(pragmaOnce.count(found))
 					return;
-				if(includeDepth > 200) {
+				if(includeDepth > kMaxIncludeDepth) {
 					fail("#include nesting too deep");
 					return;
 				}
@@ -1302,7 +1309,8 @@ namespace rat::cc {
 							}
 						}
 					}
-					stack.push_back({parent, parent && cond, parent && cond});
+					B32 active = parent && cond;
+					stack.push_back({parent, active, active});
 					return true;
 				}
 				if(name == "elif") {

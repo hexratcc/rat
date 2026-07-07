@@ -117,7 +117,7 @@ namespace rat::cc {
 	};
 
 	struct Lexer {
-		Lexer(const char* src, U32 len, String file = "<input>");
+		Lexer(const char* src, U32 len, String fileName = "<input>");
 
 		Token next();
 		const Token& peek();
@@ -126,8 +126,6 @@ namespace rat::cc {
 		String text(const Token& tok) const;
 
 		const String& file() const { return fileName; }
-		const char* source() const { return src; }
-		U32 sourceLength() const { return len; }
 		const String& error() const { return errMsg; }
 	private:
 		Token scan();

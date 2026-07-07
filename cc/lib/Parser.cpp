@@ -4,6 +4,9 @@
 
 namespace rat::cc {
 	namespace {
+		constexpr I64 kIntMin = -2147483648LL;
+		constexpr I64 kIntMax = 2147483647LL;
+
 		struct BinInfo {
 			I32 prec;
 			ExprOp op;
@@ -1214,8 +1217,7 @@ namespace rat::cc {
 				fail(peek(), "sizeof a variable-length array is not constant");
 				return false;
 			}
-			if(isStruct(e->sizeOf.type) &&
-				 (e->sizeOf.type.strukt == nullptr || !e->sizeOf.type.strukt->complete)) {
+			if(isStruct(e->sizeOf.type) && !e->sizeOf.type.strukt->complete) {
 				fail(peek(), "sizeof applied to an incomplete type");
 				return false;
 			}
@@ -1233,7 +1235,7 @@ namespace rat::cc {
 		B32 ok = evalIntConst(e, out);
 		if(!ok) {
 			failed = savedFailed;
-			errMsg = savedMsg;
+			errMsg = std::move(savedMsg);
 		}
 		return ok;
 	}
@@ -1528,7 +1530,7 @@ namespace rat::cc {
 					if(!evalIntConst(init, value))
 						return false;
 				}
-				if(value < -2147483648LL || value > 2147483647LL) {
+				if(value < kIntMin || value > kIntMax) {
 					fail(name, "enumerator value is not representable as int");
 					return false;
 				}

@@ -1,6 +1,14 @@
 #include "Emit.h"
 
 namespace rat::cc {
+	static U32 alignedChunkWidth(U32 offset, U32 size) {
+		constexpr U32 kMaxChunkBytes = 8;
+		U32 w = kMaxChunkBytes;
+		while(w > 1 && (offset % w != 0 || offset + w > size))
+			w >>= 1;
+		return w;
+	}
+
 	Emitter::Emitter(Module& module)
 	: mod(module) {}
 
@@ -12,9 +20,9 @@ namespace rat::cc {
 
 	Node* Emitter::constSize(Function& fn, U64 value) { return fn.constInt(irType(ctSize()), value); }
 
-	Node* Emitter::allocBytes(Function& fn, U32 size) {
-		return fn.alloc(mod.getArray(mod.getInt(8), size));
-	}
+	Type* Emitter::byteArrayType(U32 n) { return mod.getArray(mod.getInt(8), n); }
+
+	Node* Emitter::allocBytes(Function& fn, U32 size) { return fn.alloc(byteArrayType(size)); }
 
 	Node* Emitter::emitArrayElemCount(Function& fn, CType t) {
 		Node* total = constSize(fn, 1);
@@ -338,9 +346,7 @@ namespace rat::cc {
 
 	void Emitter::emitMemCopy(Function& fn, Node* dst, Node* src, U32 size) {
 		for(U32 i = 0; i < size;) {
-			U32 w = 8;
-			while(w > 1 && (i % w != 0 || i + w > size))
-				w >>= 1;
+			U32 w = alignedChunkWidth(i, size);
 			Type* ty = mod.getInt(w * 8);
 			fn.store(offsetPtr(fn, dst, i), fn.load(ty, offsetPtr(fn, src, i)));
 			i += w;
@@ -1331,77 +1337,75 @@ namespace rat::cc {
 	}
 
 	Emitter::Value Emitter::emitCompoundLit(Function& fn, const Expr* e) {
-		{
-			CType ty = e->compound.type;
-			const Expr* init = e->compound.init;
-			if(e->compound.isArray) {
-				Type* elemTy = irType(ty);
-				U32 elemSize = byteSize(ty);
-				I64 count = 0;
-				if(e->compound.arrayLen) {
-					if(!evalConst(e->compound.arrayLen, count) || count <= 0) {
-						failArrayCount();
-						return {};
-					}
-				} else if(init->kind == ExprKind::StrLit) {
-					count = (I64)init->str.bytes->size() + 1;
-				} else if(init->kind == ExprKind::InitList) {
-					I64 cur = 0, maxIdx = -1;
-					for(U32 i = 0; i < init->args.size(); ++i) {
-						const Designator& des = init->designators[i];
-						if(des.isSet) {
-							if(!des.isIndex) {
-								failFieldInArray();
-								return {};
-							}
-							cur = des.index;
-						}
-						if(cur > maxIdx)
-							maxIdx = cur;
-						++cur;
-					}
-					count = maxIdx + 1;
-				}
-				if(count <= 0) {
+		CType ty = e->compound.type;
+		const Expr* init = e->compound.init;
+		if(e->compound.isArray) {
+			Type* elemTy = irType(ty);
+			U32 elemSize = byteSize(ty);
+			I64 count = 0;
+			if(e->compound.arrayLen) {
+				if(!evalConst(e->compound.arrayLen, count) || count <= 0) {
 					failArrayCount();
 					return {};
 				}
-				U32 total = (U32)count * elemSize;
-				Node* slot =
-						isAggregate(ty) ? allocBytes(fn, total) : fn.alloc(mod.getArray(elemTy, (U32)count));
-				zeroSlot(fn, slot, total);
-				StoreSink sink(*this, fn, slot);
-				if(init->kind == ExprKind::StrLit) {
-					if(!sink.charArray(0, ty, (U32)count, init))
-						return {};
-				} else if(!initArrayInit(sink, 0, ty, (U32)count, init))
-					return {};
-				return {slot, pointerTo(ty)};
-			}
-			if(isStruct(ty)) {
-				Node* slot = allocBytes(fn, ty.strukt->size);
-				zeroSlot(fn, slot, ty.strukt->size);
-				StoreSink sink(*this, fn, slot);
-				if(!initStructInit(sink, 0, ty.strukt, init))
-					return {};
-				return {slot, ty};
-			}
-			const Expr* se = init;
-			if(se->kind == ExprKind::InitList) {
-				if(se->args.empty())
-					return {fn.constInt(irType(ty), 0), ty};
-				if(se->args.size() != 1 || se->designators[0].isSet) {
-					failScalarInit();
-					return {};
+			} else if(init->kind == ExprKind::StrLit) {
+				count = (I64)init->str.bytes->size() + 1;
+			} else if(init->kind == ExprKind::InitList) {
+				I64 cur = 0, maxIdx = -1;
+				for(U32 i = 0; i < init->args.size(); ++i) {
+					const Designator& des = init->designators[i];
+					if(des.isSet) {
+						if(!des.isIndex) {
+							failFieldInArray();
+							return {};
+						}
+						cur = des.index;
+					}
+					if(cur > maxIdx)
+						maxIdx = cur;
+					++cur;
 				}
-				se = se->args[0];
+				count = maxIdx + 1;
 			}
-			Value v = emitExpr(fn, se);
-			if(!v.node)
+			if(count <= 0) {
+				failArrayCount();
 				return {};
-			Node* val = convert(fn, v.node, v.type, ty);
-			return {val, ty};
+			}
+			U32 total = (U32)count * elemSize;
+			Node* slot =
+					isAggregate(ty) ? allocBytes(fn, total) : fn.alloc(mod.getArray(elemTy, (U32)count));
+			zeroSlot(fn, slot, total);
+			StoreSink sink(*this, fn, slot);
+			if(init->kind == ExprKind::StrLit) {
+				if(!sink.charArray(0, ty, (U32)count, init))
+					return {};
+			} else if(!initArrayInit(sink, 0, ty, (U32)count, init))
+				return {};
+			return {slot, pointerTo(ty)};
 		}
+		if(isStruct(ty)) {
+			Node* slot = allocBytes(fn, ty.strukt->size);
+			zeroSlot(fn, slot, ty.strukt->size);
+			StoreSink sink(*this, fn, slot);
+			if(!initStructInit(sink, 0, ty.strukt, init))
+				return {};
+			return {slot, ty};
+		}
+		const Expr* se = init;
+		if(se->kind == ExprKind::InitList) {
+			if(se->args.empty())
+				return {fn.constInt(irType(ty), 0), ty};
+			if(se->args.size() != 1 || se->designators[0].isSet) {
+				failScalarInit();
+				return {};
+			}
+			se = se->args[0];
+		}
+		Value v = emitExpr(fn, se);
+		if(!v.node)
+			return {};
+		Node* val = convert(fn, v.node, v.type, ty);
+		return {val, ty};
 	}
 
 	B32 Emitter::emitIf(Function& fn, const Stmt* s) {
@@ -1713,9 +1717,7 @@ namespace rat::cc {
 
 	void Emitter::zeroSlot(Function& fn, Node* slot, U32 size) {
 		for(U32 i = 0; i < size;) {
-			U32 w = 8;
-			while(w > 1 && (i % w != 0 || i + w > size))
-				w >>= 1;
+			U32 w = alignedChunkWidth(i, size);
 			Type* ty = mod.getInt(w * 8);
 			fn.store(offsetPtr(fn, slot, i), fn.constInt(ty, 0));
 			i += w;

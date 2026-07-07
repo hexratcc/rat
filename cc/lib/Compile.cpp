@@ -4,15 +4,10 @@
 
 namespace rat::cc {
 	List<UniquePtr<Pass>> defaultOptPasses() {
+		std::ostringstream sink;
 		List<UniquePtr<Pass>> passes;
-		passes.push_back(std::make_unique<SCCPPass>());
-		passes.push_back(std::make_unique<FoldPass>());
-		passes.push_back(std::make_unique<SimplifyCFGPass>());
-		passes.push_back(std::make_unique<GVNPass>());
-		passes.push_back(std::make_unique<MemoryOptPass>());
-		passes.push_back(std::make_unique<InlinePass>());
-		passes.push_back(std::make_unique<FoldPass>());
-		passes.push_back(std::make_unique<GVNPass>());
+		for(const String& name : defaultOptPipeline())
+			passes.push_back(passRegistry().create(name, sink));
 		return passes;
 	}
 
@@ -22,7 +17,6 @@ namespace rat::cc {
 
 		for(UniquePtr<Pass>& p : opt.optPasses)
 			pm.add(std::move(p));
-		opt.optPasses.clear();
 
 		if(opt.backend == Backend::C) {
 			pm.add<CEmitterPass>(out);

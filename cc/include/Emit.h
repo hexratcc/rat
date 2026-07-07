@@ -102,6 +102,7 @@ namespace rat::cc {
 		CType ctPtrDiff() const;
 		Node* constSize(Function& fn, U64 value);
 		Node* allocBytes(Function& fn, U32 size);
+		Type* byteArrayType(U32 n);
 		B32 sizeofOperand(const Expr* operand, U32& out);
 		Node* emitArrayElemCount(Function& fn, CType t);
 		Node* emitArrayByteSize(Function& fn, CType t);
@@ -267,6 +268,7 @@ namespace rat::cc {
 
 		B32 storeScalar(Function& fn, Node* slot, U32 off, CType dt, const Expr* e);
 		B32 storeCharArray(Function& fn, Node* slot, U32 base, CType elem, U32 count, const Expr* e);
+		B32 unwrapScalarInit(const Expr*& e, B32& skip);
 
 		B32 initStructInit(InitSink& sink, U32 base, const StructType* st, const Expr* init);
 		B32 initUnionInit(InitSink& sink, U32 base, const StructType* st, const Expr* init);

@@ -9,7 +9,7 @@ namespace rat::cc {
 		for(char c : bytes)
 			init.push_back((U8)c);
 		init.push_back(0);
-		mod.createGlobal(name, mod.getArray(mod.getInt(8), (U32)init.size()), true, std::move(init));
+		mod.createGlobal(name, byteArrayType((U32)init.size()), true, std::move(init));
 		return name;
 	}
 
@@ -51,8 +51,7 @@ namespace rat::cc {
 			else
 				ok = sink.scalar(0, ty, init);
 			if(ok)
-				mod.createGlobal(
-						name, mod.getArray(mod.getInt(8), total), false, std::move(img), std::move(relocs));
+				mod.createGlobal(name, byteArrayType(total), false, std::move(img), std::move(relocs));
 		}
 
 		relocs.swap(saved);
@@ -105,11 +104,8 @@ namespace rat::cc {
 		ImageSink sink(*this, img);
 		if(d.init && !initArrayInit(sink, 0, d.type, (U32)count, d.init))
 			return false;
-		mod.createGlobal(symbol,
-										 mod.getArray(mod.getInt(8), (U32)img.size()),
-										 false,
-										 std::move(img),
-										 std::move(relocs));
+		mod.createGlobal(
+				symbol, byteArrayType((U32)img.size()), false, std::move(img), std::move(relocs));
 		bindArrayGlobal(d, symbol, fn, (U32)count);
 		return true;
 	}
@@ -151,11 +147,8 @@ namespace rat::cc {
 			} else if(!initArrayInit(sink, 0, d.type, (U32)count, d.init))
 				return false;
 		}
-		mod.createGlobal(symbol,
-										 mod.getArray(mod.getInt(8), (U32)img.size()),
-										 false,
-										 std::move(img),
-										 std::move(relocs));
+		mod.createGlobal(
+				symbol, byteArrayType((U32)img.size()), false, std::move(img), std::move(relocs));
 		bindArrayGlobal(d, symbol, fn, (U32)count);
 		return true;
 	}
@@ -269,8 +262,7 @@ namespace rat::cc {
 		}
 		flexCount = 0;
 
-		mod.createGlobal(
-				symbol, mod.getArray(mod.getInt(8), total), false, std::move(init), std::move(relocs));
+		mod.createGlobal(symbol, byteArrayType(total), false, std::move(init), std::move(relocs));
 		if(fn)
 			declare(*d.name, Local{0, fn->global(symbol), d.type, true, false});
 		else

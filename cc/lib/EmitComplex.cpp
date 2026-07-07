@@ -32,14 +32,14 @@ namespace rat::cc {
 	}
 
 	Node* Emitter::complexReal(Function& fn, const Value& v) {
-		CType re = complexElem(v.type);
-		return fn.load(irType(re), v.node);
+		CType elemTy = complexElem(v.type);
+		return fn.load(irType(elemTy), v.node);
 	}
 
 	Node* Emitter::complexImag(Function& fn, const Value& v) {
-		CType re = complexElem(v.type);
-		U32 off = byteSize(re);
-		return fn.load(irType(re), offsetPtr(fn, v.node, off));
+		CType elemTy = complexElem(v.type);
+		U32 off = byteSize(elemTy);
+		return fn.load(irType(elemTy), offsetPtr(fn, v.node, off));
 	}
 
 	Emitter::Value Emitter::makeComplex(Function& fn, CType type, Node* re, Node* im) {
@@ -51,14 +51,14 @@ namespace rat::cc {
 	}
 
 	Emitter::Value Emitter::toComplex(Function& fn, const Value& v, CType type) {
-		CType re = complexElem(type);
+		CType elemTy = complexElem(type);
 		if(isComplexType(v.type)) {
-			Node* r = convert(fn, complexReal(fn, v), complexElem(v.type), re);
-			Node* i = convert(fn, complexImag(fn, v), complexElem(v.type), re);
+			Node* r = convert(fn, complexReal(fn, v), complexElem(v.type), elemTy);
+			Node* i = convert(fn, complexImag(fn, v), complexElem(v.type), elemTy);
 			return makeComplex(fn, type, r, i);
 		}
-		Node* r = convert(fn, v.node, v.type, re);
-		return makeComplex(fn, type, r, fn.constFloat(irType(re), 0.0));
+		Node* r = convert(fn, v.node, v.type, elemTy);
+		return makeComplex(fn, type, r, fn.constFloat(irType(elemTy), 0.0));
 	}
 
 	void Emitter::storeComplex(Function& fn, Node* addr, CType type, const Value& v) {

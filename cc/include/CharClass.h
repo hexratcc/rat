@@ -4,16 +4,16 @@
 #include "Core.h"
 
 namespace rat::cc {
-	inline B32 isIdentStart(char c) {
+	inline B32 isIdentStart(C8 c) {
 		return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 	}
-	inline B32 isIdentCont(char c) { return isIdentStart(c) || (c >= '0' && c <= '9'); }
-	inline B32 isDigit(char c) { return c >= '0' && c <= '9'; }
-	inline B32 isOctalDigit(char c) { return c >= '0' && c <= '7'; }
-	inline B32 isHexDigit(char c) {
+	inline B32 isIdentCont(C8 c) { return isIdentStart(c) || (c >= '0' && c <= '9'); }
+	inline B32 isDigit(C8 c) { return c >= '0' && c <= '9'; }
+	inline B32 isOctalDigit(C8 c) { return c >= '0' && c <= '7'; }
+	inline B32 isHexDigit(C8 c) {
 		return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 	}
-	inline I32 hexVal(char c) {
+	inline I32 hexVal(C8 c) {
 		if(c >= '0' && c <= '9')
 			return c - '0';
 		if(c >= 'a' && c <= 'f')
@@ -22,7 +22,7 @@ namespace rat::cc {
 			return c - 'A' + 10;
 		return -1;
 	}
-	inline B32 simpleEscape(char e, U8& out) {
+	inline B32 simpleEscape(C8 e, U8& out) {
 		switch(e) {
 		case 'n':
 			out = '\n';
