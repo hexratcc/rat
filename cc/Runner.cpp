@@ -1,4 +1,3 @@
-#include "Ast.h"
 #include "Compile.h"
 #include "Emit.h"
 #include "Lexer.h"
@@ -14,6 +13,8 @@ using namespace rat;
 using namespace rat::cc;
 
 namespace {
+	constexpr U32 kReadBufSize = 4096;
+
 	U32 oracleCounter = 0;
 
 	const String& hostCC() {
@@ -37,7 +38,7 @@ namespace {
 		FILE* p = popen(cmd.c_str(), "r");
 		if(!p)
 			return out;
-		char buf[4096];
+		char buf[kReadBufSize];
 		size_t n;
 		while((n = fread(buf, 1, sizeof(buf), p)) > 0)
 			out.append(buf, n);
@@ -246,7 +247,7 @@ namespace {
 			return false;
 		}
 		capturedOut.clear();
-		char buf[4096];
+		char buf[kReadBufSize];
 		size_t n;
 		while((n = fread(buf, 1, sizeof(buf), p)) > 0)
 			capturedOut.append(buf, n);
@@ -430,7 +431,7 @@ B32 runCaseForked(const String& path, String& err) {
 			timedOut = true;
 			break;
 		}
-		char buf[4096];
+		char buf[kReadBufSize];
 		ssize_t n = read(fds[0], buf, sizeof(buf));
 		if(n > 0)
 			childErr.append(buf, (size_t)n);

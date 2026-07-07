@@ -1,11 +1,8 @@
-#include "Ast.h"
 #include "Compile.h"
 #include "Emit.h"
 #include "Lexer.h"
 #include "Parser.h"
 #include "Preprocess.h"
-
-#include "Target/Target.h"
 
 #include "Support/StringUtil.h"
 #include "rat.h"
@@ -29,29 +26,20 @@ namespace {
 		PpOptions pp;
 	};
 
-	UniquePtr<Pass> makeOptPass(const String& name) {
-		if(name == "fold")
-			return std::make_unique<FoldPass>();
-		if(name == "gvn")
-			return std::make_unique<GVNPass>();
-		if(name == "sccp")
-			return std::make_unique<SCCPPass>();
-		if(name == "simplifycfg")
-			return std::make_unique<SimplifyCFGPass>();
-		if(name == "memoryopt")
-			return std::make_unique<MemoryOptPass>();
-		if(name == "inline")
-			return std::make_unique<InlinePass>();
-		return nullptr;
-	}
-
 	List<UniquePtr<Pass>> buildOptPasses(const Options& opt) {
+		std::ostringstream sink;
 		List<UniquePtr<Pass>> passes;
 		if(opt.optLevel >= 1)
 			passes = defaultOptPasses();
 		for(const String& name : opt.extraPasses)
-			passes.push_back(makeOptPass(name));
+			passes.push_back(passRegistry().create(name, sink));
 		return passes;
+	}
+
+	B32 isOptPass(const String& name) {
+		static const Set<String> kOptPasses = {
+				"fold", "gvn", "sccp", "simplifycfg", "memoryopt", "inline"};
+		return kOptPasses.count(name) != 0;
 	}
 
 	B32 parseEmit(const String& spec, List<Emit>& out, String& err) {
@@ -103,7 +91,7 @@ namespace {
 		case Emit::X86:
 			return opt.output;
 		}
-		return opt.output;
+		__builtin_unreachable();
 	}
 
 	void usage(std::ostream& os) {
@@ -151,7 +139,7 @@ namespace {
 				opt.timePasses = true;
 			} else if(arg.rfind("-f", 0) == 0) {
 				String pass = arg.substr(2);
-				if(!makeOptPass(pass)) {
+				if(!isOptPass(pass)) {
 					std::cerr << "ratcc: unknown optimization '-f" << pass << "'\n";
 					return 2;
 				}
@@ -289,7 +277,7 @@ namespace {
 		case Emit::X86:
 			return emitViaModule(opt, path, source, kind, file);
 		}
-		return 0;
+		__builtin_unreachable();
 	}
 } // namespace
 
