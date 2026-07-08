@@ -79,13 +79,13 @@ namespace rat::cc {
 		}
 
 		B32 validFloatSuffix(const char* s, U32 n) {
-			B32 size = false, imag = false;
+			B32 haveSize = false, imag = false;
 			for(U32 i = 0; i < n; ++i) {
 				char c = s[i];
 				if(c == 'f' || c == 'F' || c == 'l' || c == 'L') {
-					if(size)
+					if(haveSize)
 						return false;
-					size = true;
+					haveSize = true;
 				} else if(c == 'i' || c == 'I' || c == 'j' || c == 'J') {
 					if(imag)
 						return false;
@@ -331,6 +331,15 @@ namespace rat::cc {
 		return lexQuoted(tok, '"', "unterminated string literal", TokKind::StringLiteral);
 	}
 
+	Token Lexer::lexEqSuffixOp(Token tok, TokKind base, TokKind eq) {
+		bump();
+		if(cur() == '=') {
+			bump();
+			return finish(tok, eq);
+		}
+		return finish(tok, base);
+	}
+
 	Token Lexer::lexPunct(Token tok) {
 		char c = cur();
 
@@ -404,47 +413,17 @@ namespace rat::cc {
 			}
 			return finish(tok, TokKind::Minus);
 		case '*':
-			bump();
-			if(cur() == '=') {
-				bump();
-				return finish(tok, TokKind::StarEq);
-			}
-			return finish(tok, TokKind::Star);
+			return lexEqSuffixOp(tok, TokKind::Star, TokKind::StarEq);
 		case '/':
-			bump();
-			if(cur() == '=') {
-				bump();
-				return finish(tok, TokKind::SlashEq);
-			}
-			return finish(tok, TokKind::Slash);
+			return lexEqSuffixOp(tok, TokKind::Slash, TokKind::SlashEq);
 		case '%':
-			bump();
-			if(cur() == '=') {
-				bump();
-				return finish(tok, TokKind::PercentEq);
-			}
-			return finish(tok, TokKind::Percent);
+			return lexEqSuffixOp(tok, TokKind::Percent, TokKind::PercentEq);
 		case '^':
-			bump();
-			if(cur() == '=') {
-				bump();
-				return finish(tok, TokKind::CaretEq);
-			}
-			return finish(tok, TokKind::Caret);
+			return lexEqSuffixOp(tok, TokKind::Caret, TokKind::CaretEq);
 		case '!':
-			bump();
-			if(cur() == '=') {
-				bump();
-				return finish(tok, TokKind::BangEq);
-			}
-			return finish(tok, TokKind::Bang);
+			return lexEqSuffixOp(tok, TokKind::Bang, TokKind::BangEq);
 		case '=':
-			bump();
-			if(cur() == '=') {
-				bump();
-				return finish(tok, TokKind::EqEq);
-			}
-			return finish(tok, TokKind::Assign);
+			return lexEqSuffixOp(tok, TokKind::Assign, TokKind::EqEq);
 		case '&':
 			bump();
 			if(cur() == '&') {

@@ -65,6 +65,7 @@ namespace rat::cc {
 		Stmt* parseDeclaration();
 		B32 checkObjectComplete(const Declarator& d);
 		B32 parseStaticAssert();
+		Expr* parseParenCond();
 		Stmt* parseIf();
 		Stmt* parseWhile();
 		Stmt* parseDoWhile();
@@ -85,6 +86,7 @@ namespace rat::cc {
 
 		// node builders
 		Expr* makeExpr(ExprKind kind, U32 offset);
+		Stmt* makeStmt(StmtKind kind, U32 offset);
 		Expr* makeInt(const Token& tok, I64 value, B32 isUnsigned, B32 isLong);
 		Expr* makeIdent(const Token& tok);
 		Expr* makeUnary(U32 offset, ExprOp op, Expr* operand);

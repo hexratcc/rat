@@ -178,20 +178,9 @@ namespace rat::cc {
 			const List<Expr*>& els = d.init->args;
 			const List<Designator>& des = d.init->designators;
 			List<I64> idx(els.size());
-			I64 cur = 0, maxIdx = -1;
-			for(U32 i = 0; i < els.size(); ++i) {
-				if(des[i].isSet) {
-					if(!des[i].isIndex) {
-						failFieldInArray();
-						return false;
-					}
-					cur = des[i].index;
-				}
-				idx[i] = cur;
-				if(cur > maxIdx)
-					maxIdx = cur;
-				++cur;
-			}
+			I64 maxIdx = -1;
+			if(!resolveArrayIndices(els, des, idx, maxIdx))
+				return false;
 			if(!haveLen)
 				count = maxIdx + 1;
 			else if(maxIdx >= count) {

@@ -58,7 +58,7 @@ namespace rat::cc {
 		if((a.func != nullptr) != (b.func != nullptr))
 			return false;
 		if(a.func && b.func)
-			return a.ptr == b.ptr && funcTypesMatch(a.func, b.func);
+			return funcTypesMatch(a.func, b.func);
 		B32 aArr = a.array != nullptr && a.ptr == 0;
 		B32 bArr = b.array != nullptr && b.ptr == 0;
 		if(aArr != bArr)

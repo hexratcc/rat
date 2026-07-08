@@ -960,7 +960,7 @@ namespace rat::cc {
 		}
 		popScope();
 		if(!result.node)
-			return {fn.constInt(mod.getInt(32), 0), ctInt()};
+			return {fn.constInt(i32, 0), ctInt()};
 		return result;
 	}
 
@@ -1408,11 +1408,17 @@ namespace rat::cc {
 		return {val, ty};
 	}
 
+	Node* Emitter::emitCondPred(Function& fn, const Expr* cond) {
+		Value v = emitExpr(fn, cond);
+		if(!v.node)
+			return nullptr;
+		return toBool(fn, v);
+	}
+
 	B32 Emitter::emitIf(Function& fn, const Stmt* s) {
-		Value cond = emitExpr(fn, s->expr);
-		if(!cond.node)
+		Node* pred = emitCondPred(fn, s->expr);
+		if(!pred)
 			return false;
-		Node* pred = toBool(fn, cond);
 
 		Function::Block* thenB = fn.createBlock("if.then");
 		Function::Block* elseB = s->elseBody ? fn.createBlock("if.else") : nullptr;
@@ -1457,10 +1463,10 @@ namespace rat::cc {
 
 		fn.jmp(header);
 		fn.setInsertBlock(header);
-		Value cond = emitExpr(fn, s->expr);
-		if(!cond.node)
+		Node* pred = emitCondPred(fn, s->expr);
+		if(!pred)
 			return false;
-		fn.jumpif(toBool(fn, cond), bodyB);
+		fn.jumpif(pred, bodyB);
 		fn.jmp(exitB);
 
 		fn.seal(bodyB);
@@ -1496,10 +1502,10 @@ namespace rat::cc {
 
 		fn.seal(condB);
 		fn.setInsertBlock(condB);
-		Value cond = emitExpr(fn, s->expr);
-		if(!cond.node)
+		Node* pred = emitCondPred(fn, s->expr);
+		if(!pred)
 			return false;
-		fn.jumpif(toBool(fn, cond), bodyB);
+		fn.jumpif(pred, bodyB);
 		fn.jmp(exitB);
 
 		fn.seal(bodyB);
@@ -2088,20 +2094,9 @@ namespace rat::cc {
 			const List<Expr*>& els = d.init->args;
 			const List<Designator>& des = d.init->designators;
 			List<I64> idx(els.size());
-			I64 cur = 0, maxIdx = -1;
-			for(U32 i = 0; i < els.size(); ++i) {
-				if(des[i].isSet) {
-					if(!des[i].isIndex) {
-						failFieldInArray();
-						return false;
-					}
-					cur = des[i].index;
-				}
-				idx[i] = cur;
-				if(cur > maxIdx)
-					maxIdx = cur;
-				++cur;
-			}
+			I64 maxIdx = -1;
+			if(!resolveArrayIndices(els, des, idx, maxIdx))
+				return false;
 			if(!haveLen)
 				count = maxIdx + 1;
 			else if(maxIdx >= count) {

@@ -133,6 +133,7 @@ namespace rat::cc {
 
 		Node* toBool(Function& fn, const Value& v);
 		Node* fromBool(Function& fn, Node* boolean);
+		Node* emitCondPred(Function& fn, const Expr* cond);
 
 		struct Local {
 			Function::Var var = 0;
@@ -141,7 +142,7 @@ namespace rat::cc {
 			B32 inMem = false;
 			B32 isArray = false;
 			U32 count = 0;
-			Node* lengthNode = nullptr;
+			Node* lengthNode = nullptr; // runtime byte size for a VLA
 		};
 		void pushScope();
 		void popScope();
@@ -281,6 +282,10 @@ namespace rat::cc {
 										 U32& i,
 										 U32& cur);
 		U32 arrayInitOuterExtent(CType elem, const Expr* init);
+		B32 resolveArrayIndices(const List<Expr*>& els,
+														const List<Designator>& des,
+														List<I64>& idx,
+														I64& maxIdx);
 		U32 scalarLeaves(CType ty);
 		B32 initFlatObject(InitSink& sink,
 											 U32 base,

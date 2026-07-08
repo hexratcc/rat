@@ -403,7 +403,7 @@ B32 runCaseForked(const String& path, String& err) {
 		String cerr;
 		B32 ok = runCase(path, cerr);
 		if(!ok && !cerr.empty())
-			(void)!write(fds[1], cerr.data(), cerr.size());
+			(void)write(fds[1], cerr.data(), cerr.size());
 		close(fds[1]);
 		_exit(ok ? 0 : 1);
 	}

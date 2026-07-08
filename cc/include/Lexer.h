@@ -140,6 +140,7 @@ namespace rat::cc {
 		Token lexString(Token tok);
 		Token lexQuoted(Token tok, char quote, const char* unterminated, TokKind kind);
 		Token lexPunct(Token tok);
+		Token lexEqSuffixOp(Token tok, TokKind base, TokKind eq);
 
 		Token finish(Token tok, TokKind kind);
 		Token fail(Token tok, const String& msg);

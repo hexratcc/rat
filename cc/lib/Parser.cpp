@@ -269,6 +269,13 @@ namespace rat::cc {
 		return e;
 	}
 
+	Stmt* Parser::makeStmt(StmtKind kind, U32 offset) {
+		Stmt* s = arena.make<Stmt>();
+		s->kind = kind;
+		s->offset = offset;
+		return s;
+	}
+
 	Expr* Parser::makeInt(const Token& tok, I64 value, B32 isUnsigned, B32 isLong) {
 		Expr* e = makeExpr(ExprKind::IntLit, tok.offset);
 		e->intLit = {value, isUnsigned, isLong};
@@ -1143,18 +1150,12 @@ namespace rat::cc {
 				out = l * r;
 				return true;
 			case ExprOp::Div:
-				if(r == 0) {
-					fail(peek(), "division by zero in constant expression");
-					return false;
-				}
-				out = l / r;
-				return true;
 			case ExprOp::Rem:
 				if(r == 0) {
 					fail(peek(), "division by zero in constant expression");
 					return false;
 				}
-				out = l % r;
+				out = (e->binary.op == ExprOp::Div) ? (l / r) : (l % r);
 				return true;
 			case ExprOp::Shl:
 				out = l << r;
@@ -1609,8 +1610,7 @@ namespace rat::cc {
 		sawStatic = false;
 		sawExtern = false;
 		sawInline = false;
-		while(isQualOrStorage(peek().kind)) {
-			TokKind sk = peek().kind;
+		auto applyQualStorage = [&](TokKind sk) {
 			if(sk == TokKind::KwStatic)
 				isStatic = true;
 			if(sk == TokKind::KwExtern)
@@ -1622,31 +1622,33 @@ namespace rat::cc {
 			if(sk == TokKind::KwStatic || sk == TokKind::KwExtern || sk == TokKind::KwAuto ||
 				 sk == TokKind::KwRegister)
 				++storageCount;
+		};
+		while(isQualOrStorage(peek().kind)) {
+			applyQualStorage(peek().kind);
 			advance();
 		}
+		auto finishSpec = [&] {
+			if(isConst)
+				out.quals |= 1u;
+			setStorage(isStatic, isExtern, isInline);
+		};
 		if(storageCount > 1) {
 			fail(peek(), "more than one storage-class specifier");
 			return false;
 		}
 		if(peek().kind == TokKind::KwTypeof) {
 			B32 ok = parseTypeofSpec(out);
-			if(isConst)
-				out.quals |= 1u;
-			setStorage(isStatic, isExtern, isInline);
+			finishSpec();
 			return ok;
 		}
 		if(peek().kind == TokKind::KwEnum) {
 			B32 ok = parseEnumSpec(out);
-			if(isConst)
-				out.quals |= 1u;
-			setStorage(isStatic, isExtern, isInline);
+			finishSpec();
 			return ok;
 		}
 		if(peek().kind == TokKind::KwStruct || peek().kind == TokKind::KwUnion) {
 			B32 ok = parseStructSpec(out);
-			if(isConst)
-				out.quals |= 1u;
-			setStorage(isStatic, isExtern, isInline);
+			finishSpec();
 			return ok;
 		}
 		if(peek().kind == TokKind::Identifier) {
@@ -1654,9 +1656,7 @@ namespace rat::cc {
 			if(it != typedefs.end()) {
 				advance();
 				out = it->second;
-				if(isConst)
-					out.quals |= 1u;
-				setStorage(isStatic, isExtern, isInline);
+				finishSpec();
 				return true;
 			}
 		}
@@ -1692,17 +1692,7 @@ namespace rat::cc {
 			else if(k == TokKind::KwInt)
 				; // base int
 			else if(isQualOrStorage(k)) {
-				if(k == TokKind::KwStatic)
-					isStatic = true;
-				if(k == TokKind::KwExtern)
-					isExtern = true;
-				if(k == TokKind::KwInline)
-					isInline = true;
-				if(k == TokKind::KwConst)
-					isConst = true;
-				if(k == TokKind::KwStatic || k == TokKind::KwExtern || k == TokKind::KwAuto ||
-					 k == TokKind::KwRegister)
-					++storageCount;
+				applyQualStorage(k);
 				advance();
 				continue;
 			} else
@@ -2057,21 +2047,11 @@ namespace rat::cc {
 
 	Stmt* Parser::parseDeclaration() {
 		Token start = peek();
-		if(peek().kind == TokKind::KwStaticAssert) {
-			if(!parseStaticAssert())
+		if(peek().kind == TokKind::KwStaticAssert || peek().kind == TokKind::KwTypedef) {
+			B32 ok = peek().kind == TokKind::KwStaticAssert ? parseStaticAssert() : parseTypedef();
+			if(!ok)
 				return nullptr;
-			Stmt* s = arena.make<Stmt>();
-			s->kind = StmtKind::Empty;
-			s->offset = start.offset;
-			return s;
-		}
-		if(peek().kind == TokKind::KwTypedef) {
-			if(!parseTypedef())
-				return nullptr;
-			Stmt* s = arena.make<Stmt>();
-			s->kind = StmtKind::Empty;
-			s->offset = start.offset;
-			return s;
+			return makeStmt(StmtKind::Empty, start.offset);
 		}
 		CType base;
 		if(!parseTypeSpec(base)) {
@@ -2080,9 +2060,7 @@ namespace rat::cc {
 		}
 		B32 isStatic = sawStatic;
 		B32 isExtern = sawExtern;
-		Stmt* s = arena.make<Stmt>();
-		s->kind = StmtKind::Decl;
-		s->offset = start.offset;
+		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
 		if(peek().kind == TokKind::Semicolon) {
 			advance();
 			return s;
@@ -2150,14 +2128,21 @@ namespace rat::cc {
 		return s;
 	}
 
-	Stmt* Parser::parseIf() {
-		Token kw = advance(); // if
+	Expr* Parser::parseParenCond() {
 		if(!expect(TokKind::LParen, "'('"))
 			return nullptr;
 		Expr* cond = parseExpression();
 		if(!cond)
 			return nullptr;
 		if(!expect(TokKind::RParen, "')'"))
+			return nullptr;
+		return cond;
+	}
+
+	Stmt* Parser::parseIf() {
+		Token kw = advance(); // if
+		Expr* cond = parseParenCond();
+		if(!cond)
 			return nullptr;
 		Stmt* thenS = parseStatement();
 		if(!thenS)
@@ -2168,9 +2153,7 @@ namespace rat::cc {
 			if(!elseS)
 				return nullptr;
 		}
-		Stmt* s = arena.make<Stmt>();
-		s->kind = StmtKind::If;
-		s->offset = kw.offset;
+		Stmt* s = makeStmt(StmtKind::If, kw.offset);
 		s->expr = cond;
 		s->thenBody = thenS;
 		s->elseBody = elseS;
@@ -2179,19 +2162,13 @@ namespace rat::cc {
 
 	Stmt* Parser::parseWhile() {
 		Token kw = advance(); // while
-		if(!expect(TokKind::LParen, "'('"))
-			return nullptr;
-		Expr* cond = parseExpression();
+		Expr* cond = parseParenCond();
 		if(!cond)
-			return nullptr;
-		if(!expect(TokKind::RParen, "')'"))
 			return nullptr;
 		Stmt* body = parseStatement();
 		if(!body)
 			return nullptr;
-		Stmt* s = arena.make<Stmt>();
-		s->kind = StmtKind::While;
-		s->offset = kw.offset;
+		Stmt* s = makeStmt(StmtKind::While, kw.offset);
 		s->expr = cond;
 		s->thenBody = body;
 		return s;
@@ -2204,18 +2181,12 @@ namespace rat::cc {
 			return nullptr;
 		if(!expect(TokKind::KwWhile, "'while'"))
 			return nullptr;
-		if(!expect(TokKind::LParen, "'('"))
-			return nullptr;
-		Expr* cond = parseExpression();
+		Expr* cond = parseParenCond();
 		if(!cond)
-			return nullptr;
-		if(!expect(TokKind::RParen, "')'"))
 			return nullptr;
 		if(!expect(TokKind::Semicolon, "';'"))
 			return nullptr;
-		Stmt* s = arena.make<Stmt>();
-		s->kind = StmtKind::DoWhile;
-		s->offset = kw.offset;
+		Stmt* s = makeStmt(StmtKind::DoWhile, kw.offset);
 		s->expr = cond;
 		s->thenBody = body;
 		return s;
@@ -2239,9 +2210,7 @@ namespace rat::cc {
 				return nullptr;
 			if(!expect(TokKind::Semicolon, "';'"))
 				return nullptr;
-			init = arena.make<Stmt>();
-			init->kind = StmtKind::Expr;
-			init->offset = at.offset;
+			init = makeStmt(StmtKind::Expr, at.offset);
 			init->expr = e;
 		} else {
 			advance(); // empty init
@@ -2271,9 +2240,7 @@ namespace rat::cc {
 		if(!body)
 			return nullptr;
 
-		Stmt* s = arena.make<Stmt>();
-		s->kind = StmtKind::For;
-		s->offset = kw.offset;
+		Stmt* s = makeStmt(StmtKind::For, kw.offset);
 		s->forInit = init;
 		s->expr = cond;
 		s->forPost = post;
@@ -2283,12 +2250,8 @@ namespace rat::cc {
 
 	Stmt* Parser::parseSwitch() {
 		Token kw = advance(); // switch
-		if(!expect(TokKind::LParen, "'('"))
-			return nullptr;
-		Expr* ctrl = parseExpression();
+		Expr* ctrl = parseParenCond();
 		if(!ctrl)
-			return nullptr;
-		if(!expect(TokKind::RParen, "')'"))
 			return nullptr;
 		Stmt* body;
 		if(peek().kind == TokKind::LBrace) {
@@ -2296,9 +2259,7 @@ namespace rat::cc {
 			if(!body)
 				return nullptr;
 		} else {
-			Stmt* block = arena.make<Stmt>();
-			block->kind = StmtKind::Compound;
-			block->offset = peek().offset;
+			Stmt* block = makeStmt(StmtKind::Compound, peek().offset);
 			while(peek().kind == TokKind::KwCase || peek().kind == TokKind::KwDefault) {
 				Stmt* marker = parseStatement();
 				if(!marker)
@@ -2311,9 +2272,7 @@ namespace rat::cc {
 			block->body.push_back(inner);
 			body = block;
 		}
-		Stmt* s = arena.make<Stmt>();
-		s->kind = StmtKind::Switch;
-		s->offset = kw.offset;
+		Stmt* s = makeStmt(StmtKind::Switch, kw.offset);
 		s->expr = ctrl;
 		s->thenBody = body;
 		return s;
@@ -2330,9 +2289,7 @@ namespace rat::cc {
 			Stmt* sub = parseStatement();
 			if(!sub)
 				return nullptr;
-			Stmt* s = arena.make<Stmt>();
-			s->kind = StmtKind::Label;
-			s->offset = nameTok.offset;
+			Stmt* s = makeStmt(StmtKind::Label, nameTok.offset);
 			s->label = arena.make<String>(lex.text(nameTok));
 			s->thenBody = sub;
 			return s;
@@ -2345,9 +2302,7 @@ namespace rat::cc {
 				return nullptr;
 			}
 			Token nameTok = advance();
-			Stmt* s = arena.make<Stmt>();
-			s->kind = StmtKind::Goto;
-			s->offset = kw.offset;
+			Stmt* s = makeStmt(StmtKind::Goto, kw.offset);
 			s->label = arena.make<String>(lex.text(nameTok));
 			if(!expect(TokKind::Semicolon, "';'"))
 				return nullptr;
@@ -2375,9 +2330,7 @@ namespace rat::cc {
 				return nullptr;
 			if(!expect(TokKind::Colon, "':'"))
 				return nullptr;
-			Stmt* s = arena.make<Stmt>();
-			s->kind = StmtKind::Case;
-			s->offset = kw.offset;
+			Stmt* s = makeStmt(StmtKind::Case, kw.offset);
 			s->expr = value;
 			return s;
 		}
@@ -2386,17 +2339,13 @@ namespace rat::cc {
 			Token kw = advance();
 			if(!expect(TokKind::Colon, "':'"))
 				return nullptr;
-			Stmt* s = arena.make<Stmt>();
-			s->kind = StmtKind::Default;
-			s->offset = kw.offset;
-			return s;
+			return makeStmt(StmtKind::Default, kw.offset);
 		}
 
 		if(tok.kind == TokKind::KwBreak || tok.kind == TokKind::KwContinue) {
 			Token kw = advance();
-			Stmt* s = arena.make<Stmt>();
-			s->kind = kw.kind == TokKind::KwBreak ? StmtKind::Break : StmtKind::Continue;
-			s->offset = kw.offset;
+			Stmt* s =
+					makeStmt(kw.kind == TokKind::KwBreak ? StmtKind::Break : StmtKind::Continue, kw.offset);
 			if(!expect(TokKind::Semicolon, "';'"))
 				return nullptr;
 			return s;
@@ -2404,9 +2353,7 @@ namespace rat::cc {
 
 		if(tok.kind == TokKind::KwReturn) {
 			Token kw = advance();
-			Stmt* s = arena.make<Stmt>();
-			s->kind = StmtKind::Return;
-			s->offset = kw.offset;
+			Stmt* s = makeStmt(StmtKind::Return, kw.offset);
 			if(peek().kind != TokKind::Semicolon) {
 				s->expr = parseExpression();
 				if(!s->expr)
@@ -2419,15 +2366,10 @@ namespace rat::cc {
 
 		if(tok.kind == TokKind::Semicolon) {
 			Token semi = advance();
-			Stmt* s = arena.make<Stmt>();
-			s->kind = StmtKind::Empty;
-			s->offset = semi.offset;
-			return s;
+			return makeStmt(StmtKind::Empty, semi.offset);
 		}
 
-		Stmt* s = arena.make<Stmt>();
-		s->kind = StmtKind::Expr;
-		s->offset = tok.offset;
+		Stmt* s = makeStmt(StmtKind::Expr, tok.offset);
 		s->expr = parseExpression();
 		if(!s->expr)
 			return nullptr;
@@ -2440,9 +2382,7 @@ namespace rat::cc {
 		Token open = peek();
 		if(!expect(TokKind::LBrace, "'{'"))
 			return nullptr;
-		Stmt* block = arena.make<Stmt>();
-		block->kind = StmtKind::Compound;
-		block->offset = open.offset;
+		Stmt* block = makeStmt(StmtKind::Compound, open.offset);
 		Map<String, CType> savedTypedefs = typedefs;
 		Map<String, I64> savedEnumConstants = enumConstants;
 		Map<String, StructType*> savedStructTypes = structTypes;
@@ -2621,9 +2561,7 @@ namespace rat::cc {
 	}
 
 	Stmt* Parser::parseGlobalRest(CType base, Declarator first, const Token& start) {
-		Stmt* s = arena.make<Stmt>();
-		s->kind = StmtKind::Decl;
-		s->offset = start.offset;
+		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
 		Declarator d = first;
 		for(;;) {
 			CType raw = d.type;

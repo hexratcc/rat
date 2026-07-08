@@ -726,11 +726,13 @@ namespace rat::cc {
 					B32 isPaste = isPunct(T, "##");
 
 					// # param -> stringize
-					if(m.isFunc && isHash && i + 1 < body.size() && idxOf(body[i + 1].text) >= 0) {
+					if(m.isFunc && isHash && i + 1 < body.size()) {
 						int p = idxOf(body[i + 1].text);
-						os.push_back(stringize(args[p], T.spaceBefore));
-						i += 2;
-						continue;
+						if(p >= 0) {
+							os.push_back(stringize(args[p], T.spaceBefore));
+							i += 2;
+							continue;
+						}
 					}
 
 					// ## token -> paste onto the previous token
