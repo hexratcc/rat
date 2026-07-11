@@ -15,13 +15,11 @@
 
 #include "Core.h"
 
-#include "CodeGen/MachineFunction.h"
-#include "Support/Pass.h"
+#include "CodeGen/RegAllocBase.h"
 
 namespace rat {
-	struct LinearScanRegAllocPass : MachinePass {
+	struct LinearScanRegAllocPass : RegAllocBase {
 		const C8* name() const override { return "linear-scan-regalloc"; }
-		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;
 	private:
 		struct Interval {
 			VReg vreg = kNoVReg;
@@ -34,40 +32,17 @@ namespace rat {
 			B32 crossesCall = false;
 		};
 
-		struct Loc {
-			U32 block;
-			U32 inst;
-		};
+		void resetState() override { intervals.clear(); }
+		void solve() override;
+		Assignment assignmentOf(VReg v) override;
 
-		B32 allocate(MachineFunc& fn,
-								 const RegisterInfo& ri,
-								 const RegAllocHooks& hooks,
-								 List<PhysReg>* usedCalleeSaved);
-
-		void number();
-		void pinFixedArgWindows();
-		void liveness(List<Set<VReg>>& liveIn, List<Set<VReg>>& liveOut);
 		void extend(VReg v, U32 cls, I32 point);
-		U32 classOf(VReg v) const;
 		void buildIntervals();
-		const RegClass& regClass(U32 cls) const;
 		Set<PhysReg> forbidden(const Interval& iv) const;
 		void assignRegs();
-		static B32 isCalleeSaved(const RegClass& rc, PhysReg p);
 		void spillAt(Interval* cur, List<Interval*>& active);
-		void rewrite();
-		PhysReg scratchAt(U32 cls, U32 idx);
 	private:
-		MachineFunc* fn = nullptr;
-		const RegisterInfo* ri = nullptr;
-		const RegAllocHooks* hooks = nullptr;
-		List<Loc> order;
-		List<List<U32>> blkPts;
-		List<I32> callPts;
-		Map<I32, Set<PhysReg>> fixedAt;
 		Map<VReg, Interval> intervals;
-		Set<PhysReg> usedCallee;
-		B32 ok = true;
 	};
 } // namespace rat
 

@@ -10,15 +10,13 @@
 
 #include "Core.h"
 
-#include "CodeGen/MachineFunction.h"
-#include "Support/Pass.h"
+#include "CodeGen/RegAllocBase.h"
 
 namespace rat {
-	struct GraphColorRegAllocPass : MachinePass {
+	struct GraphColorRegAllocPass : RegAllocBase {
 		static constexpr U32 kAdjCap = 128;
 
 		const C8* name() const override { return "graph-regalloc"; }
-		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;
 	private:
 		// one interference graph node per virtual register
 		struct Node {
@@ -37,21 +35,12 @@ namespace rat {
 			Set<PhysReg> forbidden; // precolored constraints
 		};
 
-		struct Loc {
-			U32 block;
-			U32 inst;
-		};
-
-		B32 allocate(MachineFunc& fn,
-								 const RegisterInfo& ri,
-								 const RegAllocHooks& hooks,
-								 List<PhysReg>* usedCalleeSaved);
-
-		void number();
-		void pinFixedArgWindows();
-		void liveness(List<Set<VReg>>& liveIn, List<Set<VReg>>& liveOut);
-		U32 classOf(VReg v) const;
-		const RegClass& regClass(U32 cls) const;
+		void resetState() override {
+			nodes.clear();
+			selectStack.clear();
+		}
+		void solve() override;
+		Assignment assignmentOf(VReg v) override;
 
 		void buildInterference();
 		Node& nodeFor(VReg v);
@@ -64,22 +53,9 @@ namespace rat {
 		U32 colorCount(U32 cls) const;
 		F64 spillCost(const Node& n) const;
 		void selectColors();
-
-		static B32 isCalleeSaved(const RegClass& rc, PhysReg p);
-		void rewrite();
-		PhysReg scratchAt(U32 cls, U32 idx);
 	private:
-		MachineFunc* fn = nullptr;
-		const RegisterInfo* ri = nullptr;
-		const RegAllocHooks* hooks = nullptr;
-		List<Loc> order;
-		List<List<U32>> blkPts;
-		List<I32> callPts;
-		Map<I32, Set<PhysReg>> fixedAt;
 		Map<VReg, Node> nodes;
 		List<VReg> selectStack; // simplify order; popped in reverse during select
-		Set<PhysReg> usedCallee;
-		B32 ok = true;
 	};
 } // namespace rat
 
