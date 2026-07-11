@@ -122,34 +122,8 @@ namespace rat {
 					fail("unbalanced tuple type: " + t);
 					return nullptr;
 				}
-				String inner = t.substr(1, t.size() - 2);
 				List<Type*> elems;
-				U32 depth = 0;
-				String cur;
-				auto flush = [&]() -> B32 {
-					String e = trim(cur);
-					cur.clear();
-					if(e.empty())
-						return true;
-					Type* et = parseType(e);
-					if(!et)
-						return false;
-					elems.push_back(et);
-					return true;
-				};
-				for(C8 c : inner) {
-					if(c == '(')
-						++depth;
-					if(c == ')')
-						--depth;
-					if(c == ',' && depth == 0) {
-						if(!flush())
-							return nullptr;
-					} else {
-						cur.push_back(c);
-					}
-				}
-				if(!flush())
+				if(!parseTypeList(t.substr(1, t.size() - 2), elems))
 					return nullptr;
 				return mod.getTuple(elems);
 			}
@@ -184,6 +158,35 @@ namespace rat {
 				return mod.getInt((U32)std::stoul(t.substr(1)));
 			fail("unknown type '" + t + "'");
 			return nullptr;
+		}
+
+		B32 Parser::parseTypeList(const String& s, List<Type*>& out) {
+			U32 depth = 0;
+			String cur;
+			auto flush = [&]() -> B32 {
+				String e = trim(cur);
+				cur.clear();
+				if(e.empty())
+					return true;
+				Type* et = parseType(e);
+				if(!et)
+					return false;
+				out.push_back(et);
+				return true;
+			};
+			for(C8 c : s) {
+				if(c == '(')
+					++depth;
+				if(c == ')')
+					--depth;
+				if(c == ',' && depth == 0) {
+					if(!flush())
+						return false;
+				} else {
+					cur.push_back(c);
+				}
+			}
+			return flush();
 		}
 
 		B32 Parser::parseGlobal(const String& line) {
@@ -222,35 +225,8 @@ namespace rat {
 			String retStr = trim(header.substr(arrow + 2, brace - (arrow + 2)));
 
 			List<Type*> params;
-			{
-				U32 depth = 0;
-				String cur;
-				auto flush = [&]() -> B32 {
-					String p = trim(cur);
-					cur.clear();
-					if(p.empty())
-						return true;
-					Type* pt = parseType(p);
-					if(!pt)
-						return false;
-					params.push_back(pt);
-					return true;
-				};
-				for(C8 c : paramsStr) {
-					if(c == '(')
-						++depth;
-					if(c == ')')
-						--depth;
-					if(c == ',' && depth == 0) {
-						if(!flush())
-							return false;
-					} else {
-						cur.push_back(c);
-					}
-				}
-				if(!flush())
-					return false;
-			}
+			if(!parseTypeList(paramsStr, params))
+				return false;
 
 			Type* ret = nullptr;
 			if(retStr != "void") {

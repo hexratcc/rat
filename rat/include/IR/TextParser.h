@@ -42,6 +42,7 @@ namespace rat {
 			B32 skip(const String& t);
 			B32 parse(std::istream& in);
 			Type* parseType(const String& s);
+			B32 parseTypeList(const String& s, List<Type*>& out);
 			B32 parseGlobal(const String& line);
 			B32 parseFunction(const String& header, std::istream& in);
 			B32 parseNodeLine(const String& line, ParsedNode& pn);
