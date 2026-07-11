@@ -74,13 +74,7 @@ namespace rat {
 			}
 			U32 width = n->getType()->getIntWidth();
 			I64 raw = cast<ConstantNode>(n)->getValue();
-			I64 v = raw;
-			if(width > 1 && width < 64) {
-				U64 mask = ((U64)1 << width) - 1;
-				U64 bits = (U64)raw & mask;
-				U64 sign = (U64)1 << (width - 1);
-				v = (I64)((bits ^ sign) - sign);
-			}
+			I64 v = width > 1 ? signExtend(raw, width) : raw;
 			std::ostringstream oss;
 			oss << v;
 			if(width > 32)
@@ -107,44 +101,35 @@ namespace rat {
 		String b = valueExpr(bin->getRHS());
 		String u = "(" + intCType(width, false) + ")";
 		String s = "(" + intCType(width, true) + ")";
-		switch(n->getOpcode()) {
-		case Opcode::Add:
-			return a + " + " + b;
-		case Opcode::Sub:
-			return a + " - " + b;
-		case Opcode::Mul:
-			return a + " * " + b;
-		case Opcode::SDiv:
-			return a + " / " + b;
+		Opcode op = n->getOpcode();
+		switch(op) {
 		case Opcode::UDiv:
-			return u + a + " / " + u + b;
-		case Opcode::SRem:
-			return a + " % " + b;
+			return u + a + " / " + u + b; // unsigned semantics need both sides cast
 		case Opcode::URem:
 			return u + a + " % " + u + b;
-		case Opcode::And:
-			return a + " & " + b;
-		case Opcode::Or:
-			return a + " | " + b;
-		case Opcode::Xor:
-			return a + " ^ " + b;
-		case Opcode::Shl:
-			return a + " << " + b;
 		case Opcode::LShr:
 			return s + "(" + u + a + " >> " + b + ")";
 		case Opcode::AShr:
 			return s + a + " >> " + b;
-		case Opcode::FAdd:
-			return a + " + " + b;
-		case Opcode::FSub:
-			return a + " - " + b;
-		case Opcode::FMul:
-			return a + " * " + b;
-		case Opcode::FDiv:
-			return a + " / " + b;
 		default:
-			return "0"; // not a binary opcode
+			break;
 		}
+		// clang-format off
+		static const C8* const kInfix[] = {
+				"+", "-", "*",           // Add Sub Mul
+				"/", nullptr,            // SDiv UDiv
+				"%", nullptr,            // SRem URem
+				"&", "|", "^",           // And Or Xor
+				"<<", nullptr, nullptr,  // Shl LShr AShr
+				"+", "-", "*", "/",      // FAdd FSub FMul FDiv
+		};
+		// clang-format on
+		static_assert(sizeof(kInfix) / sizeof(kInfix[0]) == (U32)Opcode::FDiv - (U32)Opcode::Add + 1,
+									"kInfix must cover Add..FDiv");
+		U32 idx = (U32)op - (U32)Opcode::Add;
+		if(idx >= sizeof(kInfix) / sizeof(kInfix[0]) || !kInfix[idx])
+			return "0"; // not a binary opcode
+		return a + " " + kInfix[idx] + " " + b;
 	}
 
 	String CEmitterPass::FunctionEmitter::cmpExpr(Node* n) {
@@ -153,35 +138,17 @@ namespace rat {
 		U32 width = ot->isInt() ? ot->getIntWidth() : 0;
 		String a = valueExpr(cmp->getLHS());
 		String b = valueExpr(cmp->getRHS());
-		String u = "(" + intCType(width, false) + ")";
-		switch(n->getOpcode()) {
-		case Opcode::Eq:
-			return a + " == " + b;
-		case Opcode::Ne:
-			return a + " != " + b;
-		case Opcode::Slt:
-			return a + " < " + b;
-		case Opcode::Sle:
-			return a + " <= " + b;
-		case Opcode::Ult:
-			return u + a + " < " + u + b;
-		case Opcode::Ule:
-			return u + a + " <= " + u + b;
-		case Opcode::FEq:
-			return a + " == " + b;
-		case Opcode::FNe:
-			return a + " != " + b;
-		case Opcode::FLt:
-			return a + " < " + b;
-		case Opcode::FLe:
-			return a + " <= " + b;
-		case Opcode::FGt:
-			return a + " > " + b;
-		case Opcode::FGe:
-			return a + " >= " + b;
-		default:
-			return "0"; // not a compare opcode
+		Opcode op = n->getOpcode();
+		if(!isCompareOpcode(op))
+			return "0";
+		static const C8* const kInfix[] = {
+				"==", "!=", "<", "<=", "<", "<=", "==", "!=", "<", "<=", ">", ">="};
+		U32 idx = (U32)op - (U32)Opcode::Eq;
+		if(op == Opcode::Ult || op == Opcode::Ule) {
+			String u = "(" + intCType(width, false) + ")";
+			return u + a + " " + kInfix[idx] + " " + u + b;
 		}
+		return a + " " + kInfix[idx] + " " + b;
 	}
 
 	String CEmitterPass::FunctionEmitter::convExpr(Node* n) {
