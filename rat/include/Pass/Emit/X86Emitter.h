@@ -155,7 +155,12 @@ namespace rat {
 		I32 x87SlotOf(const Node* n);
 		VReg vregFor(const Node* n);
 		void emit(MachineInstr in);
-		MachineInstr& emitRef(MachineInstr in);
+		MachineInstr& inst(X86Op op,
+											 U32 cls,
+											 List<MachineOperand> defs,
+											 List<MachineOperand> uses,
+											 I64 imm = 0,
+											 I64 imm2 = 0);
 		void copy(MachineOperand dst, MachineOperand src, U32 cls);
 		MachineInstr& def1(X86Op op, VReg dst, U32 cls, List<MachineOperand> uses);
 		VReg gpValue(Node* n);

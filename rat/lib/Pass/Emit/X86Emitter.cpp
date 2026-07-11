@@ -131,27 +131,25 @@ namespace rat {
 
 	void X86LowerPass::emit(MachineInstr in) { mb->insts.push_back(std::move(in)); }
 
-	MachineInstr& X86LowerPass::emitRef(MachineInstr in) {
-		mb->insts.push_back(std::move(in));
+	MachineInstr& X86LowerPass::inst(
+			X86Op op, U32 cls, List<MachineOperand> defs, List<MachineOperand> uses, I64 imm, I64 imm2) {
+		MachineInstr m;
+		m.op = (MachineOpcode)op;
+		m.regClass = cls;
+		m.defs = std::move(defs);
+		m.uses = std::move(uses);
+		m.imm = imm;
+		m.imm2 = imm2;
+		mb->insts.push_back(std::move(m));
 		return mb->insts.back();
 	}
 
 	void X86LowerPass::copy(MachineOperand dst, MachineOperand src, U32 cls) {
-		MachineInstr m;
-		m.op = (MachineOpcode)X86Op::Copy;
-		m.regClass = cls;
-		m.defs = {dst};
-		m.uses = {src};
-		emit(m);
+		inst(X86Op::Copy, cls, {dst}, {src});
 	}
 
 	MachineInstr& X86LowerPass::def1(X86Op op, VReg dst, U32 cls, List<MachineOperand> uses) {
-		MachineInstr m;
-		m.op = (MachineOpcode)op;
-		m.regClass = cls;
-		m.defs = {MachineOperand::vr(dst)};
-		m.uses = std::move(uses);
-		return emitRef(m);
+		return inst(op, cls, {MachineOperand::vr(dst)}, std::move(uses));
 	}
 
 	VReg X86LowerPass::gpValue(Node* n) {
@@ -165,18 +163,15 @@ namespace rat {
 		}
 		if(GlobalNode* g = dyn_cast<GlobalNode>(n)) {
 			VReg d = fresh(detail::kGp);
-			MachineInstr& m = def1(X86Op::LoadSym, d, detail::kGp, {});
-			m.uses = {MachineOperand::symbol(g->getSymbol())};
+			def1(X86Op::LoadSym, d, detail::kGp, {MachineOperand::symbol(g->getSymbol())});
 			return d;
 		}
 		if(AllocNode* al = dyn_cast<AllocNode>(n)) {
 			auto it = allocOff.find(al);
+			if(it == allocOff.end())
+				return vregFor(al); // variable-sized: already materialized
 			VReg d = fresh(detail::kGp);
-			if(it != allocOff.end()) {
-				MachineInstr& m = def1(X86Op::FrameAddr, d, detail::kGp, {});
-				m.imm = it->second;
-			} else
-				return vregFor(al);
+			inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(d)}, {}, it->second);
 			return d;
 		}
 		return vregFor(n);
@@ -186,9 +181,10 @@ namespace rat {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
 			U32 w = opWidth(n->getType());
 			VReg d = fresh(detail::kFp);
-			MachineInstr& m = def1(X86Op::FLoad, d, detail::kFp, {});
-			m.uses = {MachineOperand::immVal((I64)(U64)c->getValue(), w)};
-			m.defs[0].width = w;
+			inst(X86Op::FLoad,
+					 detail::kFp,
+					 {MachineOperand::vr(d, w)},
+					 {MachineOperand::immVal((I64)(U64)c->getValue(), w)});
 			return d;
 		}
 		return vregFor(n);
@@ -197,24 +193,17 @@ namespace rat {
 	I32 X86LowerPass::x87Value(Node* n) {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
 			I32 s = x87SlotOf(n);
-			MachineInstr m;
-			m.op = (MachineOpcode)X86Op::X87LoadImmD;
-			m.regClass = detail::kX87;
-			m.defs = {MachineOperand::frameSlot(s)};
-			m.uses = {MachineOperand::immVal((I64)(U64)c->getValue())};
-			emit(m);
+			inst(X86Op::X87LoadImmD,
+					 detail::kX87,
+					 {MachineOperand::frameSlot(s)},
+					 {MachineOperand::immVal((I64)(U64)c->getValue())});
 			return s;
 		}
 		return x87SlotOf(n);
 	}
 
 	void X86LowerPass::storeIntTo(VReg addr, VReg src, U32 w) {
-		MachineInstr m;
-		m.op = (MachineOpcode)X86Op::Store;
-		m.regClass = detail::kGp;
-		m.uses = {MachineOperand::vr(addr), MachineOperand::vr(src, w)};
-		m.imm = 0;
-		emit(m);
+		inst(X86Op::Store, detail::kGp, {}, {MachineOperand::vr(addr), MachineOperand::vr(src, w)});
 	}
 
 	void X86LowerPass::emitStore(StoreNode* s) {
@@ -223,20 +212,14 @@ namespace rat {
 		VReg addr = gpValue(s->getPointer());
 		if(isX87Ty(val->getType())) {
 			I32 slot = x87Value(val);
-			MachineInstr m;
-			m.op = (MachineOpcode)X86Op::X87StoreMem;
-			m.regClass = detail::kX87;
-			m.uses = {MachineOperand::vr(addr), MachineOperand::frameSlot(slot)};
-			m.imm = detail::kX87MemBits;
-			emit(m);
+			inst(X86Op::X87StoreMem,
+					 detail::kX87,
+					 {},
+					 {MachineOperand::vr(addr), MachineOperand::frameSlot(slot)},
+					 detail::kX87MemBits);
 		} else if(isSseTy(val->getType())) {
 			VReg v = sseValue(val);
-			MachineInstr m;
-			m.op = (MachineOpcode)X86Op::FStore;
-			m.regClass = detail::kFp;
-			m.uses = {MachineOperand::vr(addr), MachineOperand::vr(v, w)};
-			m.imm = 0;
-			emit(m);
+			inst(X86Op::FStore, detail::kFp, {}, {MachineOperand::vr(addr), MachineOperand::vr(v, w)});
 		} else {
 			VReg v = gpValue(val);
 			storeIntTo(addr, v, w);
@@ -247,26 +230,24 @@ namespace rat {
 		U32 w = opWidth(l->getType());
 		VReg addr = gpValue(l->getPointer());
 		if(isX87Ty(l->getType())) {
-			I32 s = x87SlotOf(l);
-			MachineInstr m;
-			m.op = (MachineOpcode)X86Op::X87LoadMem;
-			m.regClass = detail::kX87;
-			m.defs = {MachineOperand::frameSlot(s)};
-			m.uses = {MachineOperand::vr(addr)};
-			m.imm = detail::kX87MemBits;
-			emit(m);
+			inst(X86Op::X87LoadMem,
+					 detail::kX87,
+					 {MachineOperand::frameSlot(x87SlotOf(l))},
+					 {MachineOperand::vr(addr)},
+					 detail::kX87MemBits);
 		} else if(isSseTy(l->getType())) {
-			VReg d = vregFor(l);
-			MachineInstr& m = def1(X86Op::FLoad, d, detail::kFp, {MachineOperand::vr(addr)});
-			m.imm = 0;
-			m.defs[0].width = w;
+			inst(X86Op::FLoad,
+					 detail::kFp,
+					 {MachineOperand::vr(vregFor(l), w)},
+					 {MachineOperand::vr(addr)});
 		} else {
 			B32 sign = l->getType() && l->getType()->isInt();
-			VReg d = vregFor(l);
-			MachineInstr& m = def1(X86Op::Load, d, detail::kGp, {MachineOperand::vr(addr)});
-			m.imm = 0;
-			m.imm2 = sign ? 1 : 0;
-			m.defs[0].width = w;
+			inst(X86Op::Load,
+					 detail::kGp,
+					 {MachineOperand::vr(vregFor(l), w)},
+					 {MachineOperand::vr(addr)},
+					 0,
+					 sign ? 1 : 0);
 		}
 	}
 
@@ -274,43 +255,35 @@ namespace rat {
 		if(!al->isVariableSized())
 			return;
 		VReg sz = gpValue(al->getSizeOperand());
-		VReg d = vregFor(al);
-		MachineInstr& m = def1(X86Op::FrameAddr, d, detail::kGp, {MachineOperand::vr(sz)});
-		m.imm = -1;
+		inst(X86Op::FrameAddr,
+				 detail::kGp,
+				 {MachineOperand::vr(vregFor(al))},
+				 {MachineOperand::vr(sz)},
+				 -1); // imm -1 marks a dynamic frame address
 	}
 
 	void X86LowerPass::twoAddr(X86Op op, VReg d, VReg lhs, VReg rhs) {
 		copy(MachineOperand::vr(d), MachineOperand::vr(lhs), detail::kGp);
-		MachineInstr m;
-		m.op = (MachineOpcode)op;
-		m.regClass = detail::kGp;
-		m.defs = {MachineOperand::vr(d)};
-		m.uses = {MachineOperand::vr(d), MachineOperand::vr(rhs)};
-		emit(m);
+		inst(
+				op, detail::kGp, {MachineOperand::vr(d)}, {MachineOperand::vr(d), MachineOperand::vr(rhs)});
 	}
 
 	void X86LowerPass::maskBits(VReg d, U32 bits) {
-		if(bits == 0 || bits >= 64)
-			return;
-		MachineInstr m;
-		m.op = (MachineOpcode)X86Op::MaskBits;
-		m.regClass = detail::kGp;
-		m.defs = {MachineOperand::vr(d)};
-		m.uses = {MachineOperand::vr(d)};
-		m.imm = (I64)bits;
-		emit(m);
+		if(bits > 0 && bits < 64)
+			inst(X86Op::MaskBits,
+					 detail::kGp,
+					 {MachineOperand::vr(d)},
+					 {MachineOperand::vr(d)},
+					 (I64)bits);
 	}
 
 	void X86LowerPass::signExtBits(VReg d, U32 bits) {
-		if(bits == 0 || bits >= 64)
-			return;
-		MachineInstr m;
-		m.op = (MachineOpcode)X86Op::SignExtBits;
-		m.regClass = detail::kGp;
-		m.defs = {MachineOperand::vr(d)};
-		m.uses = {MachineOperand::vr(d)};
-		m.imm = (I64)bits;
-		emit(m);
+		if(bits > 0 && bits < 64)
+			inst(X86Op::SignExtBits,
+					 detail::kGp,
+					 {MachineOperand::vr(d)},
+					 {MachineOperand::vr(d)},
+					 (I64)bits);
 	}
 
 	void X86LowerPass::emitDivLike(BinaryNode* n, X86Op op) {
@@ -326,13 +299,11 @@ namespace rat {
 		copy(MachineOperand::fixed(gpReg(RAX)), MachineOperand::vr(lhs), detail::kGp);
 		copy(MachineOperand::fixed(gpReg(RCX)), MachineOperand::fixed(gpReg(R11)), detail::kGp);
 
-		MachineInstr m;
-		m.op = (MachineOpcode)op;
-		m.regClass = detail::kGp;
-		m.imm = (I64)bits;
-		m.uses = {MachineOperand::fixed(gpReg(RAX)), MachineOperand::fixed(gpReg(RCX))};
-		m.defs = {MachineOperand::fixed(gpReg(RAX)), MachineOperand::fixed(gpReg(RDX))};
-		emit(m);
+		inst(op,
+				 detail::kGp,
+				 {MachineOperand::fixed(gpReg(RAX)), MachineOperand::fixed(gpReg(RDX))},
+				 {MachineOperand::fixed(gpReg(RAX)), MachineOperand::fixed(gpReg(RCX))},
+				 (I64)bits);
 
 		copy(MachineOperand::vr(d), MachineOperand::fixed(gpReg(wantRem ? RDX : RAX)), detail::kGp);
 	}
@@ -346,12 +317,10 @@ namespace rat {
 		if(op == X86Op::LShr)
 			maskBits(d, bits);
 		copy(MachineOperand::fixed(gpReg(RCX)), MachineOperand::vr(rhs), detail::kGp);
-		MachineInstr m;
-		m.op = (MachineOpcode)op;
-		m.regClass = detail::kGp;
-		m.defs = {MachineOperand::vr(d)};
-		m.uses = {MachineOperand::vr(d), MachineOperand::fixed(gpReg(RCX))};
-		emit(m);
+		inst(op,
+				 detail::kGp,
+				 {MachineOperand::vr(d)},
+				 {MachineOperand::vr(d), MachineOperand::fixed(gpReg(RCX))});
 		if(op == X86Op::Shl)
 			signExtBits(d, bits);
 	}
@@ -363,55 +332,42 @@ namespace rat {
 			return;
 		}
 		switch(op) {
-		case Opcode::UDiv:
-			emitDivLike(n, X86Op::UDiv);
-			return;
-		case Opcode::URem:
-			emitDivLike(n, X86Op::URem);
-			return;
 		case Opcode::SDiv:
-			emitDivLike(n, X86Op::SDiv);
-			return;
+		case Opcode::UDiv:
 		case Opcode::SRem:
-			emitDivLike(n, X86Op::SRem);
+		case Opcode::URem: {
+			static const X86Op kDiv[] = {X86Op::SDiv, X86Op::UDiv, X86Op::SRem, X86Op::URem};
+			static_assert((U32)Opcode::URem - (U32)Opcode::SDiv + 1 == 4, "kDiv must cover SDiv..URem");
+			emitDivLike(n, kDiv[(U32)op - (U32)Opcode::SDiv]);
 			return;
+		}
 		case Opcode::Shl:
-			emitShift(n, X86Op::Shl);
-			return;
-		case Opcode::AShr:
-			emitShift(n, X86Op::AShr);
-			return;
 		case Opcode::LShr:
-			emitShift(n, X86Op::LShr);
+		case Opcode::AShr: {
+			static const X86Op kShift[] = {X86Op::Shl, X86Op::LShr, X86Op::AShr};
+			static_assert((U32)Opcode::AShr - (U32)Opcode::Shl + 1 == 3, "kShift must cover Shl..AShr");
+			emitShift(n, kShift[(U32)op - (U32)Opcode::Shl]);
 			return;
+		}
 		default:
 			break;
 		}
-		VReg lhs = gpValue(n->getLHS());
-		VReg rhs = gpValue(n->getRHS());
-		VReg d = vregFor(n);
+		X86Op mop;
 		switch(op) {
-		case Opcode::Add:
-			twoAddr(X86Op::Add, d, lhs, rhs);
-			return;
-		case Opcode::Sub:
-			twoAddr(X86Op::Sub, d, lhs, rhs);
-			return;
-		case Opcode::Mul:
-			twoAddr(X86Op::Mul, d, lhs, rhs);
-			return;
-		case Opcode::And:
-			twoAddr(X86Op::And, d, lhs, rhs);
-			return;
-		case Opcode::Or:
-			twoAddr(X86Op::Or, d, lhs, rhs);
-			return;
-		case Opcode::Xor:
-			twoAddr(X86Op::Xor, d, lhs, rhs);
-			return;
+			// clang-format off
+		case Opcode::Add: mop = X86Op::Add; break;
+		case Opcode::Sub: mop = X86Op::Sub; break;
+		case Opcode::Mul: mop = X86Op::Mul; break;
+		case Opcode::And: mop = X86Op::And; break;
+		case Opcode::Or:  mop = X86Op::Or;  break;
+		case Opcode::Xor: mop = X86Op::Xor; break;
+		// clang-format on
 		default:
 			return;
 		}
+		VReg lhs = gpValue(n->getLHS());
+		VReg rhs = gpValue(n->getRHS());
+		twoAddr(mop, vregFor(n), lhs, rhs);
 	}
 
 	void X86LowerPass::emitFloatBinary(BinaryNode* n) {
@@ -426,58 +382,49 @@ namespace rat {
 		VReg d = vregFor(n);
 		static const X86Op kFOps[] = {X86Op::FAdd, X86Op::FSub, X86Op::FMul, X86Op::FDiv};
 		copy(MachineOperand::vr(d, w), MachineOperand::vr(lhs, w), detail::kFp);
-		MachineInstr m;
-		m.op = (MachineOpcode)kFOps[idx];
-		m.regClass = detail::kFp;
-		m.defs = {MachineOperand::vr(d, w)};
-		m.uses = {MachineOperand::vr(d, w), MachineOperand::vr(rhs, w)};
-		m.imm = (I64)w;
-		emit(m);
+		inst(kFOps[idx],
+				 detail::kFp,
+				 {MachineOperand::vr(d, w)},
+				 {MachineOperand::vr(d, w), MachineOperand::vr(rhs, w)},
+				 (I64)w);
 	}
 
 	void X86LowerPass::emitX87Binary(BinaryNode* n, U32 idx) {
 		static const X86Op kOps[] = {X86Op::X87Add, X86Op::X87Sub, X86Op::X87Mul, X86Op::X87Div};
 		I32 lhs = x87Value(n->getLHS());
 		I32 rhs = x87Value(n->getRHS());
-		I32 d = x87SlotOf(n);
-		MachineInstr m;
-		m.op = (MachineOpcode)kOps[idx];
-		m.regClass = detail::kX87;
-		m.defs = {MachineOperand::frameSlot(d)};
-		m.uses = {MachineOperand::frameSlot(lhs), MachineOperand::frameSlot(rhs)};
-		emit(m);
+		inst(kOps[idx],
+				 detail::kX87,
+				 {MachineOperand::frameSlot(x87SlotOf(n))},
+				 {MachineOperand::frameSlot(lhs), MachineOperand::frameSlot(rhs)});
 	}
 
 	void X86LowerPass::emitUnary(UnaryNode* n) {
 		if(n->getOpcode() == Opcode::FNeg) {
 			if(isX87Ty(n->getType())) {
 				I32 s = x87Value(n->getOperand());
-				I32 d = x87SlotOf(n);
-				MachineInstr m;
-				m.op = (MachineOpcode)X86Op::X87Neg;
-				m.regClass = detail::kX87;
-				m.defs = {MachineOperand::frameSlot(d)};
-				m.uses = {MachineOperand::frameSlot(s)};
-				emit(m);
+				inst(X86Op::X87Neg,
+						 detail::kX87,
+						 {MachineOperand::frameSlot(x87SlotOf(n))},
+						 {MachineOperand::frameSlot(s)});
 				return;
 			}
 			U32 w = opWidth(n->getType());
 			VReg s = sseValue(n->getOperand());
-			VReg d = vregFor(n);
-			MachineInstr& m = def1(X86Op::FNeg, d, detail::kFp, {MachineOperand::vr(s, w)});
-			m.defs[0].width = w;
-			m.imm = (I64)w;
+			inst(X86Op::FNeg,
+					 detail::kFp,
+					 {MachineOperand::vr(vregFor(n), w)},
+					 {MachineOperand::vr(s, w)},
+					 (I64)w);
 			return;
 		}
 		VReg s = gpValue(n->getOperand());
 		VReg d = vregFor(n);
 		copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
-		MachineInstr m;
-		m.op = (MachineOpcode)(n->getOpcode() == Opcode::Neg ? X86Op::Neg : X86Op::Not);
-		m.regClass = detail::kGp;
-		m.defs = {MachineOperand::vr(d)};
-		m.uses = {MachineOperand::vr(d)};
-		emit(m);
+		inst(n->getOpcode() == Opcode::Neg ? X86Op::Neg : X86Op::Not,
+				 detail::kGp,
+				 {MachineOperand::vr(d)},
+				 {MachineOperand::vr(d)});
 	}
 
 	void X86LowerPass::emitCompare(CompareNode* n) {
@@ -489,13 +436,12 @@ namespace rat {
 		VReg lhs = gpValue(n->getLHS());
 		VReg rhs = gpValue(n->getRHS());
 		VReg d = vregFor(n);
-		MachineInstr cmp;
-		cmp.op = (MachineOpcode)X86Op::Cmp;
-		cmp.regClass = detail::kGp;
-		cmp.uses = {MachineOperand::vr(lhs), MachineOperand::vr(rhs)};
-		emit(cmp);
-		MachineInstr& set = def1(X86Op::SetCC, d, detail::kGp, {});
-		set.imm = (I64)detail::kIntCc[(U32)op - (U32)Opcode::Eq];
+		inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(lhs), MachineOperand::vr(rhs)});
+		inst(X86Op::SetCC,
+				 detail::kGp,
+				 {MachineOperand::vr(d)},
+				 {},
+				 (I64)detail::kIntCc[(U32)op - (U32)Opcode::Eq]);
 	}
 
 	void X86LowerPass::emitFloatCompare(CompareNode* n) {
@@ -516,21 +462,23 @@ namespace rat {
 		if(isX87Ty(n->getLHS()->getType())) {
 			I32 lhs = x87Value(n->getLHS());
 			I32 rhs = x87Value(n->getRHS());
-			MachineInstr& m = def1(X86Op::X87Cmp,
-														 d,
-														 detail::kGp,
-														 {MachineOperand::frameSlot(lhs), MachineOperand::frameSlot(rhs)});
-			m.imm = (I64)fc.cc;
-			m.imm2 = fc.swap ? 1 : 0;
+			inst(X86Op::X87Cmp,
+					 detail::kGp,
+					 {MachineOperand::vr(d)},
+					 {MachineOperand::frameSlot(lhs), MachineOperand::frameSlot(rhs)},
+					 (I64)fc.cc,
+					 fc.swap ? 1 : 0);
 			return;
 		}
 		U32 w = opWidth(n->getLHS()->getType());
 		VReg lhs = sseValue(n->getLHS());
 		VReg rhs = sseValue(n->getRHS());
-		MachineInstr& m =
-				def1(X86Op::FCmp, d, detail::kGp, {MachineOperand::vr(lhs, w), MachineOperand::vr(rhs, w)});
-		m.imm = (I64)fc.cc;
-		m.imm2 = fc.swap ? 1 : 0;
+		inst(X86Op::FCmp,
+				 detail::kGp,
+				 {MachineOperand::vr(d)},
+				 {MachineOperand::vr(lhs, w), MachineOperand::vr(rhs, w)},
+				 (I64)fc.cc,
+				 fc.swap ? 1 : 0);
 	}
 
 	I64 X86LowerPass::cvtDesc(U8 pfx, U8 opc, B32 w) {
@@ -569,35 +517,40 @@ namespace rat {
 		case Opcode::UIToFP: {
 			U32 w = opWidth(n->getType());
 			VReg s = gpValue(src);
-			VReg d = vregFor(n);
-			MachineInstr& m = def1(X86Op::Cvt, d, detail::kFp, {MachineOperand::vr(s)});
-			m.defs[0].width = w;
-			m.imm = cvtDesc(Asm::ssePrefixByte(w), 0x2a, true);
+			inst(X86Op::Cvt,
+					 detail::kFp,
+					 {MachineOperand::vr(vregFor(n), w)},
+					 {MachineOperand::vr(s)},
+					 cvtDesc(Asm::ssePrefixByte(w), 0x2a, true));
 			return;
 		}
 		case Opcode::FPToSI:
 		case Opcode::FPToUI: {
 			U32 w = opWidth(src->getType());
 			VReg s = sseValue(src);
-			VReg d = vregFor(n);
-			MachineInstr& m = def1(X86Op::Cvt, d, detail::kGp, {MachineOperand::vr(s, w)});
-			m.imm = cvtDesc(Asm::ssePrefixByte(w), 0x2c, true);
+			inst(X86Op::Cvt,
+					 detail::kGp,
+					 {MachineOperand::vr(vregFor(n))},
+					 {MachineOperand::vr(s, w)},
+					 cvtDesc(Asm::ssePrefixByte(w), 0x2c, true));
 			return;
 		}
 		case Opcode::FPExt: {
 			VReg s = sseValue(src);
-			VReg d = vregFor(n);
-			MachineInstr& m = def1(X86Op::Cvt, d, detail::kFp, {MachineOperand::vr(s, 4)});
-			m.defs[0].width = 8;
-			m.imm = cvtDesc(0xf3, 0x5a, false);
+			inst(X86Op::Cvt,
+					 detail::kFp,
+					 {MachineOperand::vr(vregFor(n), 8)},
+					 {MachineOperand::vr(s, 4)},
+					 cvtDesc(0xf3, 0x5a, false));
 			return;
 		}
 		case Opcode::FPTrunc: {
 			VReg s = sseValue(src);
-			VReg d = vregFor(n);
-			MachineInstr& m = def1(X86Op::Cvt, d, detail::kFp, {MachineOperand::vr(s, 8)});
-			m.defs[0].width = 4;
-			m.imm = cvtDesc(0xf2, 0x5a, false);
+			inst(X86Op::Cvt,
+					 detail::kFp,
+					 {MachineOperand::vr(vregFor(n), 4)},
+					 {MachineOperand::vr(s, 8)},
+					 cvtDesc(0xf2, 0x5a, false));
 			return;
 		}
 		default:
@@ -608,65 +561,50 @@ namespace rat {
 	void X86LowerPass::emitConvertX87(ConvertNode* n, Node* src, Opcode op) {
 		switch(op) {
 		case Opcode::FPExt: {
-			if(isX87Ty(src->getType())) {
+			if(isX87Ty(src->getType())) { // long double -> long double: plain move
 				I32 s = x87Value(src);
-				I32 d = x87SlotOf(n);
-				MachineInstr m;
-				m.op = (MachineOpcode)X86Op::X87FromSse; // reuse
-				m.regClass = detail::kX87;
-				m.defs = {MachineOperand::frameSlot(d)};
-				m.uses = {MachineOperand::frameSlot(s)};
-				m.imm = detail::kX87MemBits;
-				emit(m);
+				inst(X86Op::X87FromSse,
+						 detail::kX87,
+						 {MachineOperand::frameSlot(x87SlotOf(n))},
+						 {MachineOperand::frameSlot(s)},
+						 detail::kX87MemBits);
 				return;
 			}
 			U32 sw = opWidth(src->getType());
 			VReg s = sseValue(src);
-			I32 d = x87SlotOf(n);
-			MachineInstr m;
-			m.op = (MachineOpcode)X86Op::X87FromSse;
-			m.regClass = detail::kX87;
-			m.defs = {MachineOperand::frameSlot(d)};
-			m.uses = {MachineOperand::vr(s, sw)};
-			m.imm = (I64)sw;
-			emit(m);
+			inst(X86Op::X87FromSse,
+					 detail::kX87,
+					 {MachineOperand::frameSlot(x87SlotOf(n))},
+					 {MachineOperand::vr(s, sw)},
+					 (I64)sw);
 			return;
 		}
 		case Opcode::FPTrunc: {
 			I32 s = x87Value(src);
 			U32 dw = opWidth(n->getType());
-			VReg d = vregFor(n);
-			MachineInstr m;
-			m.op = (MachineOpcode)X86Op::X87ToSse;
-			m.regClass = detail::kFp;
-			m.defs = {MachineOperand::vr(d, dw)};
-			m.uses = {MachineOperand::frameSlot(s)};
-			m.imm = (I64)dw;
-			emit(m);
+			inst(X86Op::X87ToSse,
+					 detail::kFp,
+					 {MachineOperand::vr(vregFor(n), dw)},
+					 {MachineOperand::frameSlot(s)},
+					 (I64)dw);
 			return;
 		}
 		case Opcode::SIToFP:
 		case Opcode::UIToFP: {
 			VReg s = gpValue(src);
-			I32 d = x87SlotOf(n);
-			MachineInstr m;
-			m.op = (MachineOpcode)X86Op::X87FromInt;
-			m.regClass = detail::kX87;
-			m.defs = {MachineOperand::frameSlot(d)};
-			m.uses = {MachineOperand::vr(s)};
-			emit(m);
+			inst(X86Op::X87FromInt,
+					 detail::kX87,
+					 {MachineOperand::frameSlot(x87SlotOf(n))},
+					 {MachineOperand::vr(s)});
 			return;
 		}
 		case Opcode::FPToSI:
 		case Opcode::FPToUI: {
 			I32 s = x87Value(src);
-			VReg d = vregFor(n);
-			MachineInstr m;
-			m.op = (MachineOpcode)X86Op::X87ToInt;
-			m.regClass = detail::kGp;
-			m.defs = {MachineOperand::vr(d)};
-			m.uses = {MachineOperand::frameSlot(s)};
-			emit(m);
+			inst(X86Op::X87ToInt,
+					 detail::kGp,
+					 {MachineOperand::vr(vregFor(n))},
+					 {MachineOperand::frameSlot(s)});
 			return;
 		}
 		default:
@@ -790,23 +728,13 @@ namespace rat {
 		const Type* rt =
 				c->returnsValue() ? c->getType()->getTupleElement(CallNode::valueProjIndex()) : nullptr;
 		if(rt && isX87Ty(rt) && !vp) {
-			MachineInstr m;
-			m.op = (MachineOpcode)X86Op::X87StoreMem;
-			m.regClass = detail::kX87;
-			m.imm = -2;
-			emit(m);
+			inst(X86Op::X87StoreMem, detail::kX87, {}, {}, -2); // pop the unused st(0)
 			return;
 		}
 		if(!vp || !rt)
 			return;
 		if(isX87Ty(rt)) {
-			I32 d = x87SlotOf(vp);
-			MachineInstr m;
-			m.op = (MachineOpcode)X86Op::X87StoreMem;
-			m.regClass = detail::kX87;
-			m.defs = {MachineOperand::frameSlot(d)};
-			m.imm = -1;
-			emit(m);
+			inst(X86Op::X87StoreMem, detail::kX87, {MachineOperand::frameSlot(x87SlotOf(vp))}, {}, -1);
 			return;
 		}
 		VReg d = vregFor(vp);
@@ -830,15 +758,12 @@ namespace rat {
 			if(isX87Ty(t)) {
 				if(p) {
 					VReg addr = fresh(detail::kGp);
-					MachineInstr& fa = def1(X86Op::FrameAddr, addr, detail::kGp, {});
-					fa.imm = (I64)stackOff;
-					MachineInstr m;
-					m.op = (MachineOpcode)X86Op::X87LoadMem;
-					m.regClass = detail::kX87;
-					m.defs = {MachineOperand::frameSlot(x87SlotOf(p))};
-					m.uses = {MachineOperand::vr(addr)};
-					m.imm = detail::kX87MemBits;
-					emit(m);
+					inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(addr)}, {}, (I64)stackOff);
+					inst(X86Op::X87LoadMem,
+							 detail::kX87,
+							 {MachineOperand::frameSlot(x87SlotOf(p))},
+							 {MachineOperand::vr(addr)},
+							 detail::kX87MemBits);
 				}
 				stackOff += 16;
 			} else if(isSseTy(t)) {
@@ -873,32 +798,30 @@ namespace rat {
 		if(!p)
 			return;
 		VReg addr = fresh(detail::kGp);
-		MachineInstr& fa = def1(X86Op::FrameAddr, addr, detail::kGp, {});
-		fa.imm = (I64)disp;
+		inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(addr)}, {}, (I64)disp);
 		U32 w = opWidth(t);
-		if(isSseTy(t)) {
-			VReg d = vregFor(p);
-			MachineInstr& m = def1(X86Op::FLoad, d, detail::kFp, {MachineOperand::vr(addr)});
-			m.imm = 0;
-			m.defs[0].width = w;
-		} else {
-			VReg d = vregFor(p);
-			MachineInstr& m = def1(X86Op::Load, d, detail::kGp, {MachineOperand::vr(addr)});
-			m.imm = 0;
-			m.imm2 = (t && t->isInt()) ? 1 : 0;
-			m.defs[0].width = w;
-		}
+		if(isSseTy(t))
+			inst(X86Op::FLoad,
+					 detail::kFp,
+					 {MachineOperand::vr(vregFor(p), w)},
+					 {MachineOperand::vr(addr)});
+		else
+			inst(X86Op::Load,
+					 detail::kGp,
+					 {MachineOperand::vr(vregFor(p), w)},
+					 {MachineOperand::vr(addr)},
+					 0,
+					 (t && t->isInt()) ? 1 : 0);
 	}
 
 	void X86LowerPass::emitVaStart(CallNode* c) {
 		VReg ptr = gpValue(c->getArg(0));
-		MachineInstr m;
-		m.op = (MachineOpcode)X86Op::VaStart;
-		m.regClass = detail::kGp;
-		m.uses = {MachineOperand::vr(ptr)};
-		m.imm = (I64)fl->namedGp;
-		m.imm2 = (I64)fl->namedFp;
-		emit(m);
+		inst(X86Op::VaStart,
+				 detail::kGp,
+				 {},
+				 {MachineOperand::vr(ptr)},
+				 (I64)fl->namedGp,
+				 (I64)fl->namedFp);
 	}
 
 	void X86LowerPass::emitVaArg(CallNode* c) {
@@ -908,22 +831,18 @@ namespace rat {
 			return;
 		VReg ptr = gpValue(c->getArg(0));
 		VaArgKind kind = isX87Ty(rt) ? VaArgKind::X87 : (isSseTy(rt) ? VaArgKind::Sse : VaArgKind::Int);
-		MachineInstr m;
-		m.op = (MachineOpcode)X86Op::VaArg;
-		m.uses = {MachineOperand::vr(ptr)};
-		m.imm = (I64)kind;
-		m.imm2 = (I64)opWidth(rt);
-		if(kind == VaArgKind::X87) {
-			m.regClass = detail::kX87;
-			m.defs = {MachineOperand::frameSlot(x87SlotOf(vp))};
-		} else {
-			m.regClass = classOf(rt);
-			VReg d = vregFor(vp);
-			m.defs = {MachineOperand::vr(d, opWidth(rt))};
-			if(kind == VaArgKind::Int && rt->isInt())
-				m.imm2 |= (I64)1 << 32;
-		}
-		emit(m);
+		U32 w = opWidth(rt);
+		I64 imm2 = (I64)w;
+		if(kind == VaArgKind::Int && rt->isInt())
+			imm2 |= (I64)1 << 32; // sign-extend the fetched value
+		MachineOperand def = kind == VaArgKind::X87 ? MachineOperand::frameSlot(x87SlotOf(vp))
+																								: MachineOperand::vr(vregFor(vp), w);
+		inst(X86Op::VaArg,
+				 kind == VaArgKind::X87 ? detail::kX87 : classOf(rt),
+				 {def},
+				 {MachineOperand::vr(ptr)},
+				 (I64)kind,
+				 imm2);
 	}
 
 	void X86LowerPass::emitNode(Node* n) {
@@ -968,12 +887,7 @@ namespace rat {
 			Node* v = r->getValue();
 			if(isX87Ty(v->getType())) {
 				I32 s = x87Value(v);
-				MachineInstr ld;
-				ld.op = (MachineOpcode)X86Op::X87LoadMem;
-				ld.regClass = detail::kX87;
-				ld.uses = {MachineOperand::frameSlot(s)};
-				ld.imm = -1;
-				emit(ld);
+				inst(X86Op::X87LoadMem, detail::kX87, {}, {MachineOperand::frameSlot(s)}, -1);
 			} else if(isSseTy(v->getType())) {
 				U32 w = opWidth(v->getType());
 				VReg s = sseValue(v);
@@ -999,14 +913,11 @@ namespace rat {
 			U32 cls = classOf(phi->getType());
 			if(cls == detail::kX87) {
 				I32 s = x87Value(v);
-				I32 d = x87SlotOf(phi);
-				MachineInstr m;
-				m.op = (MachineOpcode)X86Op::X87FromSse;
-				m.regClass = detail::kX87;
-				m.defs = {MachineOperand::frameSlot(d)};
-				m.uses = {MachineOperand::frameSlot(s)};
-				m.imm = detail::kX87MemBits;
-				emit(m);
+				inst(X86Op::X87FromSse,
+						 detail::kX87,
+						 {MachineOperand::frameSlot(x87SlotOf(phi))},
+						 {MachineOperand::frameSlot(s)},
+						 detail::kX87MemBits);
 				continue;
 			}
 			VReg t = fresh(cls);
@@ -1039,22 +950,18 @@ namespace rat {
 		case Schedule::TermKind::Branch: {
 			IfNode* iff = cast<IfNode>(blk.termNode);
 			VReg p = gpValue(iff->getPredicate());
-			MachineInstr m;
-			m.op = (MachineOpcode)X86Op::Br;
-			m.uses = {MachineOperand::vr(p),
-								MachineOperand::blockRef(blk.thenB),
-								MachineOperand::blockRef(blk.elseB)};
-			emit(m);
+			inst(X86Op::Br,
+					 detail::kGp,
+					 {},
+					 {MachineOperand::vr(p),
+						MachineOperand::blockRef(blk.thenB),
+						MachineOperand::blockRef(blk.elseB)});
 			return;
 		}
-		case Schedule::TermKind::Goto: {
+		case Schedule::TermKind::Goto:
 			emitPhiCopies(blk.gotoB, blk.gotoPredIdx);
-			MachineInstr m;
-			m.op = (MachineOpcode)X86Op::Jmp;
-			m.uses = {MachineOperand::blockRef(blk.gotoB)};
-			emit(m);
+			inst(X86Op::Jmp, detail::kGp, {}, {MachineOperand::blockRef(blk.gotoB)});
 			return;
-		}
 		}
 	}
 
@@ -1457,20 +1364,8 @@ namespace rat {
 	void X86EncodePass::emitX87Binary(const MachineInstr& in, U32 idx) {
 		fldSlot(in.uses[0].slot);
 		fldSlot(in.uses[1].slot);
-		switch(idx) {
-		case 0:
-			a->faddp();
-			break;
-		case 1:
-			a->fsubp();
-			break;
-		case 2:
-			a->fmulp();
-			break;
-		case 3:
-			a->fdivp();
-			break;
-		}
+		static void (Asm::* const kArith[])() = {&Asm::faddp, &Asm::fsubp, &Asm::fmulp, &Asm::fdivp};
+		(a->*kArith[idx])();
 		fstpSlot(in.defs[0].slot);
 	}
 
@@ -1654,28 +1549,22 @@ namespace rat {
 			emitStore(in);
 			return;
 		case X86Op::Add:
-			emitAlu(in, detail::kAluAdd);
-			return;
 		case X86Op::Sub:
-			emitAlu(in, detail::kAluSub);
+		case X86Op::And:
+		case X86Op::Or:
+		case X86Op::Xor: {
+			static const U8 kAlu[] = {
+					detail::kAluAdd, detail::kAluSub, 0, detail::kAluAnd, detail::kAluOr, detail::kAluXor};
+			static_assert((U32)X86Op::Xor - (U32)X86Op::Add + 1 == 6, "kAlu must cover Add..Xor");
+			emitAlu(in, kAlu[(U32)in.op - (U32)X86Op::Add]);
 			return;
+		}
 		case X86Op::Mul:
 			emitMul(in);
 			return;
-		case X86Op::And:
-			emitAlu(in, detail::kAluAnd);
-			return;
-		case X86Op::Or:
-			emitAlu(in, detail::kAluOr);
-			return;
-		case X86Op::Xor:
-			emitAlu(in, detail::kAluXor);
-			return;
 		case X86Op::Neg:
-			emitNegNot(in, true);
-			return;
 		case X86Op::Not:
-			emitNegNot(in, false);
+			emitNegNot(in, (X86Op)in.op == X86Op::Neg);
 			return;
 		case X86Op::Shl:
 			emitShift(in, 4);
@@ -1716,16 +1605,10 @@ namespace rat {
 			emitFStore(in);
 			return;
 		case X86Op::FAdd:
-			emitFArith(in, detail::kSseOp[0]);
-			return;
 		case X86Op::FSub:
-			emitFArith(in, detail::kSseOp[1]);
-			return;
 		case X86Op::FMul:
-			emitFArith(in, detail::kSseOp[2]);
-			return;
 		case X86Op::FDiv:
-			emitFArith(in, detail::kSseOp[3]);
+			emitFArith(in, detail::kSseOp[(U32)in.op - (U32)X86Op::FAdd]);
 			return;
 		case X86Op::FNeg:
 			emitFNeg(in);
@@ -1758,16 +1641,10 @@ namespace rat {
 			emitX87ToSse(in);
 			return;
 		case X86Op::X87Add:
-			emitX87Binary(in, 0);
-			return;
 		case X86Op::X87Sub:
-			emitX87Binary(in, 1);
-			return;
 		case X86Op::X87Mul:
-			emitX87Binary(in, 2);
-			return;
 		case X86Op::X87Div:
-			emitX87Binary(in, 3);
+			emitX87Binary(in, (U32)in.op - (U32)X86Op::X87Add);
 			return;
 		case X86Op::X87Neg:
 			emitX87Neg(in);
