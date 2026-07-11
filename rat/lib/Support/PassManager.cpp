@@ -2,6 +2,7 @@
 
 #include "IR/Module.h"
 
+#include <chrono>
 #include <iomanip>
 
 namespace rat {

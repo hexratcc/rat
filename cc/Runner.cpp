@@ -1,4 +1,10 @@
 #include "Compile.h"
+
+#include <fstream>
+#include <poll.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include "Emit.h"
 #include "Lexer.h"
 #include "Parser.h"

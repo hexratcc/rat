@@ -1,5 +1,7 @@
 #include "CodeGen/Schedule.h"
 
+#include <queue>
+
 #include "IR/Function.h"
 #include "IR/Node.h"
 

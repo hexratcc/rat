@@ -2,31 +2,17 @@
 #define RAT_CORE_H
 
 #include <algorithm>
-#include <atomic>
 #include <cassert>
 #include <cctype>
-#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <ctime>
-#include <deque>
-#include <dirent.h>
-#include <fstream>
 #include <functional>
 #include <iostream>
 #include <memory>
-#include <mutex>
 #include <ostream>
-#include <poll.h>
-#include <queue>
-#include <signal.h>
 #include <sstream>
 #include <string>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <thread>
-#include <unistd.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -70,8 +56,8 @@ namespace rat {
 		constexpr U64 kDefaultChunk = 4096;
 
 		inline C8* alignUp(C8* p, U64 align) {
-			auto v = reinterpret_cast<std::uintptr_t>(p);
-			std::uintptr_t a = align;
+			U64 v = reinterpret_cast<U64>(p);
+			U64 a = align;
 			return reinterpret_cast<C8*>((v + (a - 1)) & ~(a - 1));
 		}
 	} // namespace detail

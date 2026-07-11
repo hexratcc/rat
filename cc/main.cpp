@@ -1,4 +1,6 @@
 #include "Compile.h"
+
+#include <fstream>
 #include "Emit.h"
 #include "Lexer.h"
 #include "Parser.h"

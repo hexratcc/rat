@@ -1,5 +1,9 @@
 #include "Preprocess.h"
 
+#include <ctime>
+#include <deque>
+#include <fstream>
+
 #include "CharClass.h"
 
 namespace rat::cc {

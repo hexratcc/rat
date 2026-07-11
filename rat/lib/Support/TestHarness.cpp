@@ -1,5 +1,11 @@
 #include "Support/TestHarness.h"
 
+#include <atomic>
+#include <dirent.h>
+#include <mutex>
+#include <sys/stat.h>
+#include <thread>
+
 namespace rat {
 	namespace {
 		B32 hasSuffix(const String& s, const char* suffix) {
@@ -55,7 +61,7 @@ namespace rat {
 				if(num.empty() && i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9')
 					num = argv[++i];
 				if(!num.empty()) {
-					long n = std::strtol(num.c_str(), nullptr, 10);
+					I64 n = std::strtol(num.c_str(), nullptr, 10);
 					if(n > 1)
 						jobs = (U32)n;
 				}

@@ -1,5 +1,7 @@
 #include "rat.h"
 
+#include <fstream>
+
 #include "IR/TextParser.h"
 #include "Support/StringUtil.h"
 
