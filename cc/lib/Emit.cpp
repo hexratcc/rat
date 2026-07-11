@@ -405,45 +405,38 @@ namespace rat::cc {
 
 	Node* Emitter::emitArith(Function& fn, ExprOp op, Node* l, Node* r, CType ct) {
 		if(isFloating(ct)) {
-			switch(op) {
-			case ExprOp::Add:
-				return fn.binary(Opcode::FAdd, l, r);
-			case ExprOp::Sub:
-				return fn.binary(Opcode::FSub, l, r);
-			case ExprOp::Mul:
-				return fn.binary(Opcode::FMul, l, r);
-			case ExprOp::Div:
-				return fn.binary(Opcode::FDiv, l, r);
-			default:
-				fail("invalid operator on a floating-point operand");
-				return nullptr;
-			}
+			if(op >= ExprOp::Add && op <= ExprOp::Div) // Add..Div map onto FAdd..FDiv
+				return fn.binary((Opcode)((U32)Opcode::FAdd + ((U32)op - (U32)ExprOp::Add)), l, r);
+			fail("invalid operator on a floating-point operand");
+			return nullptr;
 		}
-		switch(op) {
-		case ExprOp::Add:
-			return fn.add(l, r);
-		case ExprOp::Sub:
-			return fn.sub(l, r);
-		case ExprOp::Mul:
-			return fn.mul(l, r);
-		case ExprOp::Div:
-			return ct.isUnsigned ? fn.udiv(l, r) : fn.sdiv(l, r);
-		case ExprOp::Rem:
-			return ct.isUnsigned ? fn.urem(l, r) : fn.srem(l, r);
-		case ExprOp::Shl:
-			return fn.shl(l, r);
-		case ExprOp::Shr:
-			return ct.isUnsigned ? fn.lshr(l, r) : fn.ashr(l, r);
-		case ExprOp::BitAnd:
-			return fn.and_(l, r);
-		case ExprOp::BitOr:
-			return fn.or_(l, r);
-		case ExprOp::BitXor:
-			return fn.xor_(l, r);
-		default:
+		struct Sel {
+			Opcode s, u;
+		};
+		constexpr Sel kInvalid = {Opcode::Start, Opcode::Start};
+		// clang-format off
+		static const Sel kArith[] = {
+				{Opcode::Add, Opcode::Add},   // Add
+				{Opcode::Sub, Opcode::Sub},   // Sub
+				{Opcode::Mul, Opcode::Mul},   // Mul
+				{Opcode::SDiv, Opcode::UDiv}, // Div
+				{Opcode::SRem, Opcode::URem}, // Rem
+				{Opcode::Shl, Opcode::Shl},   // Shl
+				{Opcode::AShr, Opcode::LShr}, // Shr
+				kInvalid, kInvalid, kInvalid, kInvalid, kInvalid, kInvalid, // Lt..Ne
+				{Opcode::And, Opcode::And},   // BitAnd
+				{Opcode::Or, Opcode::Or},     // BitOr
+				{Opcode::Xor, Opcode::Xor},   // BitXor
+		};
+		// clang-format on
+		static_assert(sizeof(kArith) / sizeof(kArith[0]) == (U32)ExprOp::BitXor - (U32)ExprOp::Add + 1,
+									"kArith must cover Add..BitXor");
+		U32 idx = (U32)op - (U32)ExprOp::Add;
+		if(op < ExprOp::Add || op > ExprOp::BitXor || kArith[idx].s == Opcode::Start) {
 			fail("unsupported arithmetic operator");
 			return nullptr;
 		}
+		return fn.binary(ct.isUnsigned ? kArith[idx].u : kArith[idx].s, l, r);
 	}
 
 	Emitter::Value Emitter::emitIncDec(Function& fn, const Expr* e) {
@@ -1124,50 +1117,32 @@ namespace rat::cc {
 		CType ct = ptrCmp ? ctSize() : usualArithmetic(lhs.type, rhs.type);
 		Node* l = ptrCmp ? lhs.node : convert(fn, lhs.node, lhs.type, ct);
 		Node* r = ptrCmp ? rhs.node : convert(fn, rhs.node, rhs.type, ct);
-		Node* cmp = nullptr;
-		if(isFloating(ct)) {
-			switch(op) {
-			case ExprOp::Lt:
-				cmp = fn.compare(Opcode::FLt, l, r);
-				break;
-			case ExprOp::Gt:
-				cmp = fn.compare(Opcode::FGt, l, r);
-				break;
-			case ExprOp::Le:
-				cmp = fn.compare(Opcode::FLe, l, r);
-				break;
-			case ExprOp::Ge:
-				cmp = fn.compare(Opcode::FGe, l, r);
-				break;
-			case ExprOp::Eq:
-				cmp = fn.compare(Opcode::FEq, l, r);
-				break;
-			default:
-				cmp = fn.compare(Opcode::FNe, l, r);
-				break;
-			}
-		} else {
-			switch(op) {
-			case ExprOp::Lt:
-				cmp = ct.isUnsigned ? fn.ult(l, r) : fn.slt(l, r);
-				break;
-			case ExprOp::Gt:
-				cmp = ct.isUnsigned ? fn.ugt(l, r) : fn.sgt(l, r);
-				break;
-			case ExprOp::Le:
-				cmp = ct.isUnsigned ? fn.ule(l, r) : fn.sle(l, r);
-				break;
-			case ExprOp::Ge:
-				cmp = ct.isUnsigned ? fn.uge(l, r) : fn.sge(l, r);
-				break;
-			case ExprOp::Eq:
-				cmp = fn.eq(l, r);
-				break;
-			default:
-				cmp = fn.ne(l, r);
-				break;
-			}
-		}
+		struct Sel {
+			Opcode f, s, u;
+			B32 swap;
+		};
+		// clang-format off
+		static const Sel kCmp[] = {
+				{Opcode::FLt, Opcode::Slt, Opcode::Ult, false}, // Lt
+				{Opcode::FGt, Opcode::Slt, Opcode::Ult, true},  // Gt
+				{Opcode::FLe, Opcode::Sle, Opcode::Ule, false}, // Le
+				{Opcode::FGe, Opcode::Sle, Opcode::Ule, true},  // Ge
+				{Opcode::FEq, Opcode::Eq, Opcode::Eq, false},   // Eq
+				{Opcode::FNe, Opcode::Ne, Opcode::Ne, false},   // Ne
+		};
+		// clang-format on
+		static_assert(sizeof(kCmp) / sizeof(kCmp[0]) == (U32)ExprOp::Ne - (U32)ExprOp::Lt + 1,
+									"kCmp must cover Lt..Ne");
+		U32 idx = (op >= ExprOp::Lt && op <= ExprOp::Ne) ? (U32)op - (U32)ExprOp::Lt
+																										 : (U32)ExprOp::Ne - (U32)ExprOp::Lt;
+		const Sel& sel = kCmp[idx];
+		Node* cmp;
+		if(isFloating(ct))
+			cmp = fn.compare(sel.f, l, r);
+		else if(sel.swap)
+			cmp = fn.compare(ct.isUnsigned ? sel.u : sel.s, r, l);
+		else
+			cmp = fn.compare(ct.isUnsigned ? sel.u : sel.s, l, r);
 		return {fromBool(fn, cmp), ctInt()};
 	}
 

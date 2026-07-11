@@ -27,23 +27,14 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::evalConstUnary(ExprOp op, I64 v, CType opTy, I64& out, CType& ty) {
+		ty = op == ExprOp::Not ? ctInt() : opTy;
 		switch(op) {
-		case ExprOp::Pos:
-			out = v;
-			ty = opTy;
-			return true;
-		case ExprOp::Neg:
-			out = -v;
-			ty = opTy;
-			return true;
-		case ExprOp::BitNot:
-			out = ~v;
-			ty = opTy;
-			return true;
-		case ExprOp::Not:
-			out = !v;
-			ty = ctInt();
-			return true;
+			// clang-format off
+		case ExprOp::Pos:    out = v;  return true;
+		case ExprOp::Neg:    out = -v; return true;
+		case ExprOp::BitNot: out = ~v; return true;
+		case ExprOp::Not:    out = !v; return true;
+		// clang-format on
 		default:
 			return false;
 		}
@@ -98,66 +89,31 @@ namespace rat::cc {
 		CType rt = arithResultType(aTy, bTy);
 		U64 ua = (U64)narrowToType(a, rt), ub = (U64)narrowToType(b, rt);
 		B32 u = rt.isUnsigned;
+		ty = (op >= ExprOp::Lt && op <= ExprOp::Ne) ? ctInt() : rt;
 		switch(op) {
-		case ExprOp::Add:
-			out = narrowToType(a + b, rt);
-			ty = rt;
-			return true;
-		case ExprOp::Sub:
-			out = narrowToType(a - b, rt);
-			ty = rt;
-			return true;
-		case ExprOp::Mul:
-			out = narrowToType(a * b, rt);
-			ty = rt;
-			return true;
+			// clang-format off
+		case ExprOp::Add:    out = narrowToType(a + b, rt); return true;
+		case ExprOp::Sub:    out = narrowToType(a - b, rt); return true;
+		case ExprOp::Mul:    out = narrowToType(a * b, rt); return true;
+		case ExprOp::BitAnd: out = narrowToType(a & b, rt); return true;
+		case ExprOp::BitOr:  out = narrowToType(a | b, rt); return true;
+		case ExprOp::BitXor: out = narrowToType(a ^ b, rt); return true;
+		case ExprOp::Lt:     out = u ? ua < ub : a < b;     return true;
+		case ExprOp::Gt:     out = u ? ua > ub : a > b;     return true;
+		case ExprOp::Le:     out = u ? ua <= ub : a <= b;   return true;
+		case ExprOp::Ge:     out = u ? ua >= ub : a >= b;   return true;
+		case ExprOp::Eq:     out = a == b;                  return true;
+		case ExprOp::Ne:     out = a != b;                  return true;
+		// clang-format on
 		case ExprOp::Div:
 			if(!b)
 				return false;
 			out = u ? (I64)(ua / ub) : narrowToType(a / b, rt);
-			ty = rt;
 			return true;
 		case ExprOp::Rem:
 			if(!b)
 				return false;
 			out = u ? (I64)(ua % ub) : narrowToType(a % b, rt);
-			ty = rt;
-			return true;
-		case ExprOp::BitAnd:
-			out = narrowToType(a & b, rt);
-			ty = rt;
-			return true;
-		case ExprOp::BitOr:
-			out = narrowToType(a | b, rt);
-			ty = rt;
-			return true;
-		case ExprOp::BitXor:
-			out = narrowToType(a ^ b, rt);
-			ty = rt;
-			return true;
-		case ExprOp::Lt:
-			out = u ? ua < ub : a < b;
-			ty = ctInt();
-			return true;
-		case ExprOp::Gt:
-			out = u ? ua > ub : a > b;
-			ty = ctInt();
-			return true;
-		case ExprOp::Le:
-			out = u ? ua <= ub : a <= b;
-			ty = ctInt();
-			return true;
-		case ExprOp::Ge:
-			out = u ? ua >= ub : a >= b;
-			ty = ctInt();
-			return true;
-		case ExprOp::Eq:
-			out = a == b;
-			ty = ctInt();
-			return true;
-		case ExprOp::Ne:
-			out = a != b;
-			ty = ctInt();
 			return true;
 		default:
 			return false;

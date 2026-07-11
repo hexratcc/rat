@@ -77,6 +77,13 @@ namespace rat::cc {
 		}
 	}
 
+	void Emitter::bindScalarGlobal(const Declarator& d, const String& symbol, Function* fn) {
+		if(fn)
+			declare(*d.name, Local{0, fn->global(symbol), d.type, true, false});
+		else
+			globals[*d.name] = d.type;
+	}
+
 	B32 Emitter::validateGlobalArrayLen(const Declarator& d, I64& count, B32& haveLen) {
 		haveLen = d.arrayLen != nullptr;
 		count = 0;
@@ -252,10 +259,7 @@ namespace rat::cc {
 		flexCount = 0;
 
 		mod.createGlobal(symbol, byteArrayType(total), false, std::move(init), std::move(relocs));
-		if(fn)
-			declare(*d.name, Local{0, fn->global(symbol), d.type, true, false});
-		else
-			globals[*d.name] = d.type;
+		bindScalarGlobal(d, symbol, fn);
 		return true;
 	}
 
@@ -309,10 +313,7 @@ namespace rat::cc {
 				init.push_back((U8)(value >> (8 * i)));
 		}
 		mod.createGlobal(symbol, irType(d.type), false, std::move(init), std::move(relocs));
-		if(fn)
-			declare(*d.name, Local{0, fn->global(symbol), d.type, true, false});
-		else
-			globals[*d.name] = d.type;
+		bindScalarGlobal(d, symbol, fn);
 		return true;
 	}
 
