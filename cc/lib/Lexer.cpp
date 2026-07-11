@@ -4,57 +4,27 @@
 
 namespace rat::cc {
 	namespace {
-		struct Keyword {
-			const char* text;
-			TokKind kind;
+		// clang-format off
+		const char* const kTokNames[] = {
+				// literals and specials
+				"eof", "error", "identifier", "int-constant", "float-constant", "char-constant",
+				"string-literal",
+				// keywords
+				"auto", "break", "case", "char", "const", "continue", "default", "do", "double",
+				"else", "enum", "extern", "float", "for", "goto", "if", "inline", "int", "long",
+				"register", "restrict", "return", "short", "signed", "sizeof", "static", "struct",
+				"switch", "typedef", "union", "unsigned", "void", "volatile", "while", "_Bool",
+				"_Complex", "_Imaginary", "_Generic", "_Static_assert", "__real__", "__imag__",
+				"typeof",
+				// punctuation
+				"(", ")", "{", "}", "[", "]", ";", ",", ".", "->", "...", "+", "-", "*", "/", "%",
+				"++", "--", "&", "|", "^", "~", "!", "&&", "||", "<", ">", "<=", ">=", "==", "!=",
+				"<<", ">>", "?", ":", "=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=",
+				">>=",
 		};
-
-		const Keyword kKeywords[] = {
-				{"auto", TokKind::KwAuto},
-				{"break", TokKind::KwBreak},
-				{"case", TokKind::KwCase},
-				{"char", TokKind::KwChar},
-				{"const", TokKind::KwConst},
-				{"continue", TokKind::KwContinue},
-				{"default", TokKind::KwDefault},
-				{"do", TokKind::KwDo},
-				{"double", TokKind::KwDouble},
-				{"else", TokKind::KwElse},
-				{"enum", TokKind::KwEnum},
-				{"extern", TokKind::KwExtern},
-				{"float", TokKind::KwFloat},
-				{"for", TokKind::KwFor},
-				{"goto", TokKind::KwGoto},
-				{"if", TokKind::KwIf},
-				{"inline", TokKind::KwInline},
-				{"int", TokKind::KwInt},
-				{"long", TokKind::KwLong},
-				{"register", TokKind::KwRegister},
-				{"restrict", TokKind::KwRestrict},
-				{"return", TokKind::KwReturn},
-				{"short", TokKind::KwShort},
-				{"signed", TokKind::KwSigned},
-				{"sizeof", TokKind::KwSizeof},
-				{"static", TokKind::KwStatic},
-				{"struct", TokKind::KwStruct},
-				{"switch", TokKind::KwSwitch},
-				{"typedef", TokKind::KwTypedef},
-				{"union", TokKind::KwUnion},
-				{"unsigned", TokKind::KwUnsigned},
-				{"void", TokKind::KwVoid},
-				{"volatile", TokKind::KwVolatile},
-				{"while", TokKind::KwWhile},
-				{"_Bool", TokKind::KwBool},
-				{"_Complex", TokKind::KwComplex},
-				{"_Imaginary", TokKind::KwImaginary},
-				{"_Generic", TokKind::KwGeneric},
-				{"_Static_assert", TokKind::KwStaticAssert},
-				{"__real__", TokKind::KwReal},
-				{"__imag__", TokKind::KwImag},
-				{"typeof", TokKind::KwTypeof},
-				{"__typeof", TokKind::KwTypeof},
-				{"__typeof__", TokKind::KwTypeof},
-		};
+		// clang-format on
+		static_assert(sizeof(kTokNames) / sizeof(kTokNames[0]) == (U32)TokKind::ShrEq + 1,
+									"kTokNames must cover every TokKind");
 
 		B32 validIntSuffix(const char* s, U32 n) {
 			B32 haveU = false, haveL = false;
@@ -96,15 +66,19 @@ namespace rat::cc {
 			return true;
 		}
 
+		B32 spellingIs(const char* k, const char* s, U32 n) {
+			U32 i = 0;
+			for(; i < n && k[i] && k[i] == s[i]; ++i)
+				;
+			return i == n && k[i] == '\0';
+		}
+
 		TokKind keywordKind(const char* s, U32 n) {
-			for(const Keyword& kw : kKeywords) {
-				const char* k = kw.text;
-				U32 i = 0;
-				for(; i < n && k[i] && k[i] == s[i]; ++i)
-					;
-				if(i == n && k[i] == '\0')
-					return kw.kind;
-			}
+			for(U32 k = (U32)TokKind::KwAuto; k <= (U32)TokKind::KwTypeof; ++k)
+				if(spellingIs(kTokNames[k], s, n))
+					return (TokKind)k;
+			if(spellingIs("__typeof", s, n) || spellingIs("__typeof__", s, n))
+				return TokKind::KwTypeof;
 			return TokKind::Identifier;
 		}
 	} // namespace
@@ -343,40 +317,30 @@ namespace rat::cc {
 	Token Lexer::lexPunct(Token tok) {
 		char c = cur();
 
+		struct Simple {
+			char c;
+			TokKind kind;
+		};
+		static const Simple kSimple[] = {
+				{'(', TokKind::LParen},
+				{')', TokKind::RParen},
+				{'{', TokKind::LBrace},
+				{'}', TokKind::RBrace},
+				{'[', TokKind::LBracket},
+				{']', TokKind::RBracket},
+				{';', TokKind::Semicolon},
+				{',', TokKind::Comma},
+				{'~', TokKind::Tilde},
+				{'?', TokKind::Question},
+				{':', TokKind::Colon},
+		};
+		for(const Simple& s : kSimple)
+			if(s.c == c) {
+				bump();
+				return finish(tok, s.kind);
+			}
+
 		switch(c) {
-		case '(':
-			bump();
-			return finish(tok, TokKind::LParen);
-		case ')':
-			bump();
-			return finish(tok, TokKind::RParen);
-		case '{':
-			bump();
-			return finish(tok, TokKind::LBrace);
-		case '}':
-			bump();
-			return finish(tok, TokKind::RBrace);
-		case '[':
-			bump();
-			return finish(tok, TokKind::LBracket);
-		case ']':
-			bump();
-			return finish(tok, TokKind::RBracket);
-		case ';':
-			bump();
-			return finish(tok, TokKind::Semicolon);
-		case ',':
-			bump();
-			return finish(tok, TokKind::Comma);
-		case '~':
-			bump();
-			return finish(tok, TokKind::Tilde);
-		case '?':
-			bump();
-			return finish(tok, TokKind::Question);
-		case ':':
-			bump();
-			return finish(tok, TokKind::Colon);
 		case '.':
 			if(at(pos + 1) == '.' && at(pos + 2) == '.') {
 				bump();
@@ -514,199 +478,5 @@ namespace rat::cc {
 
 	String Lexer::text(const Token& tok) const { return String(src + tok.offset, tok.length); }
 
-	const char* tokKindName(TokKind kind) {
-		switch(kind) {
-		case TokKind::Eof:
-			return "eof";
-		case TokKind::Error:
-			return "error";
-		case TokKind::Identifier:
-			return "identifier";
-		case TokKind::IntConstant:
-			return "int-constant";
-		case TokKind::FloatConstant:
-			return "float-constant";
-		case TokKind::CharConstant:
-			return "char-constant";
-		case TokKind::StringLiteral:
-			return "string-literal";
-		case TokKind::KwAuto:
-			return "auto";
-		case TokKind::KwBreak:
-			return "break";
-		case TokKind::KwCase:
-			return "case";
-		case TokKind::KwChar:
-			return "char";
-		case TokKind::KwConst:
-			return "const";
-		case TokKind::KwContinue:
-			return "continue";
-		case TokKind::KwDefault:
-			return "default";
-		case TokKind::KwDo:
-			return "do";
-		case TokKind::KwDouble:
-			return "double";
-		case TokKind::KwElse:
-			return "else";
-		case TokKind::KwEnum:
-			return "enum";
-		case TokKind::KwExtern:
-			return "extern";
-		case TokKind::KwFloat:
-			return "float";
-		case TokKind::KwFor:
-			return "for";
-		case TokKind::KwGoto:
-			return "goto";
-		case TokKind::KwIf:
-			return "if";
-		case TokKind::KwInline:
-			return "inline";
-		case TokKind::KwInt:
-			return "int";
-		case TokKind::KwLong:
-			return "long";
-		case TokKind::KwRegister:
-			return "register";
-		case TokKind::KwRestrict:
-			return "restrict";
-		case TokKind::KwReturn:
-			return "return";
-		case TokKind::KwShort:
-			return "short";
-		case TokKind::KwSigned:
-			return "signed";
-		case TokKind::KwSizeof:
-			return "sizeof";
-		case TokKind::KwStatic:
-			return "static";
-		case TokKind::KwStruct:
-			return "struct";
-		case TokKind::KwSwitch:
-			return "switch";
-		case TokKind::KwTypedef:
-			return "typedef";
-		case TokKind::KwUnion:
-			return "union";
-		case TokKind::KwUnsigned:
-			return "unsigned";
-		case TokKind::KwVoid:
-			return "void";
-		case TokKind::KwVolatile:
-			return "volatile";
-		case TokKind::KwWhile:
-			return "while";
-		case TokKind::KwBool:
-			return "_Bool";
-		case TokKind::KwComplex:
-			return "_Complex";
-		case TokKind::KwImaginary:
-			return "_Imaginary";
-		case TokKind::KwGeneric:
-			return "_Generic";
-		case TokKind::KwStaticAssert:
-			return "_Static_assert";
-		case TokKind::KwReal:
-			return "__real__";
-		case TokKind::KwImag:
-			return "__imag__";
-		case TokKind::KwTypeof:
-			return "typeof";
-		case TokKind::LParen:
-			return "(";
-		case TokKind::RParen:
-			return ")";
-		case TokKind::LBrace:
-			return "{";
-		case TokKind::RBrace:
-			return "}";
-		case TokKind::LBracket:
-			return "[";
-		case TokKind::RBracket:
-			return "]";
-		case TokKind::Semicolon:
-			return ";";
-		case TokKind::Comma:
-			return ",";
-		case TokKind::Dot:
-			return ".";
-		case TokKind::Arrow:
-			return "->";
-		case TokKind::Ellipsis:
-			return "...";
-		case TokKind::Plus:
-			return "+";
-		case TokKind::Minus:
-			return "-";
-		case TokKind::Star:
-			return "*";
-		case TokKind::Slash:
-			return "/";
-		case TokKind::Percent:
-			return "%";
-		case TokKind::PlusPlus:
-			return "++";
-		case TokKind::MinusMinus:
-			return "--";
-		case TokKind::Amp:
-			return "&";
-		case TokKind::Pipe:
-			return "|";
-		case TokKind::Caret:
-			return "^";
-		case TokKind::Tilde:
-			return "~";
-		case TokKind::Bang:
-			return "!";
-		case TokKind::AmpAmp:
-			return "&&";
-		case TokKind::PipePipe:
-			return "||";
-		case TokKind::Lt:
-			return "<";
-		case TokKind::Gt:
-			return ">";
-		case TokKind::Le:
-			return "<=";
-		case TokKind::Ge:
-			return ">=";
-		case TokKind::EqEq:
-			return "==";
-		case TokKind::BangEq:
-			return "!=";
-		case TokKind::Shl:
-			return "<<";
-		case TokKind::Shr:
-			return ">>";
-		case TokKind::Question:
-			return "?";
-		case TokKind::Colon:
-			return ":";
-		case TokKind::Assign:
-			return "=";
-		case TokKind::PlusEq:
-			return "+=";
-		case TokKind::MinusEq:
-			return "-=";
-		case TokKind::StarEq:
-			return "*=";
-		case TokKind::SlashEq:
-			return "/=";
-		case TokKind::PercentEq:
-			return "%=";
-		case TokKind::AmpEq:
-			return "&=";
-		case TokKind::PipeEq:
-			return "|=";
-		case TokKind::CaretEq:
-			return "^=";
-		case TokKind::ShlEq:
-			return "<<=";
-		case TokKind::ShrEq:
-			return ">>=";
-		}
-		return "?";
-	}
+	const char* tokKindName(TokKind kind) { return kTokNames[(U32)kind]; }
 } // namespace rat::cc
