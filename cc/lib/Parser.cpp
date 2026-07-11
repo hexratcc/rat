@@ -13,86 +13,54 @@ namespace rat::cc {
 		};
 
 		BinInfo binInfo(TokKind kind) {
-			switch(kind) {
-			case TokKind::Star:
-				return {10, ExprOp::Mul};
-			case TokKind::Slash:
-				return {10, ExprOp::Div};
-			case TokKind::Percent:
-				return {10, ExprOp::Rem};
-			case TokKind::Plus:
-				return {9, ExprOp::Add};
-			case TokKind::Minus:
-				return {9, ExprOp::Sub};
-			case TokKind::Shl:
-				return {8, ExprOp::Shl};
-			case TokKind::Shr:
-				return {8, ExprOp::Shr};
-			case TokKind::Lt:
-				return {7, ExprOp::Lt};
-			case TokKind::Gt:
-				return {7, ExprOp::Gt};
-			case TokKind::Le:
-				return {7, ExprOp::Le};
-			case TokKind::Ge:
-				return {7, ExprOp::Ge};
-			case TokKind::EqEq:
-				return {6, ExprOp::Eq};
-			case TokKind::BangEq:
-				return {6, ExprOp::Ne};
-			case TokKind::Amp:
-				return {5, ExprOp::BitAnd};
-			case TokKind::Caret:
-				return {4, ExprOp::BitXor};
-			case TokKind::Pipe:
-				return {3, ExprOp::BitOr};
-			case TokKind::AmpAmp:
-				return {2, ExprOp::LogAnd};
-			case TokKind::PipePipe:
-				return {1, ExprOp::LogOr};
-			default:
+			// clang-format off
+			static const BinInfo kBin[] = {
+					{9, ExprOp::Add},    // Plus
+					{9, ExprOp::Sub},    // Minus
+					{10, ExprOp::Mul},   // Star
+					{10, ExprOp::Div},   // Slash
+					{10, ExprOp::Rem},   // Percent
+					{0, ExprOp::Add},    // PlusPlus
+					{0, ExprOp::Add},    // MinusMinus
+					{5, ExprOp::BitAnd}, // Amp
+					{3, ExprOp::BitOr},  // Pipe
+					{4, ExprOp::BitXor}, // Caret
+					{0, ExprOp::Add},    // Tilde
+					{0, ExprOp::Add},    // Bang
+					{2, ExprOp::LogAnd}, // AmpAmp
+					{1, ExprOp::LogOr},  // PipePipe
+					{7, ExprOp::Lt},     // Lt
+					{7, ExprOp::Gt},     // Gt
+					{7, ExprOp::Le},     // Le
+					{7, ExprOp::Ge},     // Ge
+					{6, ExprOp::Eq},     // EqEq
+					{6, ExprOp::Ne},     // BangEq
+					{8, ExprOp::Shl},    // Shl
+					{8, ExprOp::Shr},    // Shr
+			};
+			// clang-format on
+			static_assert(sizeof(kBin) / sizeof(kBin[0]) == (U32)TokKind::Shr - (U32)TokKind::Plus + 1,
+										"kBin must cover Plus..Shr");
+			if(kind < TokKind::Plus || kind > TokKind::Shr)
 				return {0, ExprOp::Add};
-			}
+			return kBin[(U32)kind - (U32)TokKind::Plus];
 		}
 
 		B32 assignOp(TokKind kind, ExprOp& op) {
-			switch(kind) {
-			case TokKind::Assign:
-				op = ExprOp::Assign;
-				return true;
-			case TokKind::PlusEq:
-				op = ExprOp::AddAssign;
-				return true;
-			case TokKind::MinusEq:
-				op = ExprOp::SubAssign;
-				return true;
-			case TokKind::StarEq:
-				op = ExprOp::MulAssign;
-				return true;
-			case TokKind::SlashEq:
-				op = ExprOp::DivAssign;
-				return true;
-			case TokKind::PercentEq:
-				op = ExprOp::RemAssign;
-				return true;
-			case TokKind::ShlEq:
-				op = ExprOp::ShlAssign;
-				return true;
-			case TokKind::ShrEq:
-				op = ExprOp::ShrAssign;
-				return true;
-			case TokKind::AmpEq:
-				op = ExprOp::AndAssign;
-				return true;
-			case TokKind::PipeEq:
-				op = ExprOp::OrAssign;
-				return true;
-			case TokKind::CaretEq:
-				op = ExprOp::XorAssign;
-				return true;
-			default:
+			if(kind < TokKind::Assign || kind > TokKind::ShrEq)
 				return false;
-			}
+			// clang-format off
+			static const ExprOp kOps[] = {
+					ExprOp::Assign,    ExprOp::AddAssign, ExprOp::SubAssign, ExprOp::MulAssign,
+					ExprOp::DivAssign, ExprOp::RemAssign, ExprOp::AndAssign, ExprOp::OrAssign,
+					ExprOp::XorAssign, ExprOp::ShlAssign, ExprOp::ShrAssign,
+			};
+			// clang-format on
+			static_assert(sizeof(kOps) / sizeof(kOps[0]) ==
+												(U32)TokKind::ShrEq - (U32)TokKind::Assign + 1,
+										"kOps must cover Assign..ShrEq");
+			op = kOps[(U32)kind - (U32)TokKind::Assign];
+			return true;
 		}
 
 		void utf8Encode(String& out, U32 cp) {
@@ -162,34 +130,26 @@ namespace rat::cc {
 		}
 
 		B32 unaryOp(TokKind kind, ExprOp& op) {
-			switch(kind) {
-			case TokKind::Plus:
-				op = ExprOp::Pos;
-				return true;
-			case TokKind::Minus:
-				op = ExprOp::Neg;
-				return true;
-			case TokKind::Bang:
-				op = ExprOp::Not;
-				return true;
-			case TokKind::Tilde:
-				op = ExprOp::BitNot;
-				return true;
-			case TokKind::Amp:
-				op = ExprOp::Addr;
-				return true;
-			case TokKind::Star:
-				op = ExprOp::Deref;
-				return true;
-			case TokKind::KwReal:
-				op = ExprOp::Real;
-				return true;
-			case TokKind::KwImag:
-				op = ExprOp::Imag;
-				return true;
-			default:
-				return false;
-			}
+			struct Entry {
+				TokKind kind;
+				ExprOp op;
+			};
+			static const Entry kUnary[] = {
+					{TokKind::Plus, ExprOp::Pos},
+					{TokKind::Minus, ExprOp::Neg},
+					{TokKind::Bang, ExprOp::Not},
+					{TokKind::Tilde, ExprOp::BitNot},
+					{TokKind::Amp, ExprOp::Addr},
+					{TokKind::Star, ExprOp::Deref},
+					{TokKind::KwReal, ExprOp::Real},
+					{TokKind::KwImag, ExprOp::Imag},
+			};
+			for(const Entry& e : kUnary)
+				if(e.kind == kind) {
+					op = e.op;
+					return true;
+				}
+			return false;
 		}
 
 		String decodeUtf8ToUtf32LE(const String& bytes) {
@@ -1118,18 +1078,12 @@ namespace rat::cc {
 			if(!evalIntConst(e->unary.operand, v))
 				return false;
 			switch(e->unary.op) {
-			case ExprOp::Pos:
-				out = v;
-				return true;
-			case ExprOp::Neg:
-				out = -v;
-				return true;
-			case ExprOp::Not:
-				out = !v;
-				return true;
-			case ExprOp::BitNot:
-				out = ~v;
-				return true;
+				// clang-format off
+			case ExprOp::Pos:    out = v;  return true;
+			case ExprOp::Neg:    out = -v; return true;
+			case ExprOp::Not:    out = !v; return true;
+			case ExprOp::BitNot: out = ~v; return true;
+			// clang-format on
 			default:
 				fail(peek(), "non-constant operator in constant expression");
 				return false;
@@ -1140,15 +1094,24 @@ namespace rat::cc {
 			if(!evalIntConst(e->binary.lhs, l) || !evalIntConst(e->binary.rhs, r))
 				return false;
 			switch(e->binary.op) {
-			case ExprOp::Add:
-				out = l + r;
-				return true;
-			case ExprOp::Sub:
-				out = l - r;
-				return true;
-			case ExprOp::Mul:
-				out = l * r;
-				return true;
+				// clang-format off
+			case ExprOp::Add:    out = l + r;  return true;
+			case ExprOp::Sub:    out = l - r;  return true;
+			case ExprOp::Mul:    out = l * r;  return true;
+			case ExprOp::Shl:    out = l << r; return true;
+			case ExprOp::Shr:    out = l >> r; return true;
+			case ExprOp::Lt:     out = l < r;  return true;
+			case ExprOp::Gt:     out = l > r;  return true;
+			case ExprOp::Le:     out = l <= r; return true;
+			case ExprOp::Ge:     out = l >= r; return true;
+			case ExprOp::Eq:     out = l == r; return true;
+			case ExprOp::Ne:     out = l != r; return true;
+			case ExprOp::BitAnd: out = l & r;  return true;
+			case ExprOp::BitOr:  out = l | r;  return true;
+			case ExprOp::BitXor: out = l ^ r;  return true;
+			case ExprOp::LogAnd: out = l && r; return true;
+			case ExprOp::LogOr:  out = l || r; return true;
+			// clang-format on
 			case ExprOp::Div:
 			case ExprOp::Rem:
 				if(r == 0) {
@@ -1156,45 +1119,6 @@ namespace rat::cc {
 					return false;
 				}
 				out = (e->binary.op == ExprOp::Div) ? (l / r) : (l % r);
-				return true;
-			case ExprOp::Shl:
-				out = l << r;
-				return true;
-			case ExprOp::Shr:
-				out = l >> r;
-				return true;
-			case ExprOp::Lt:
-				out = l < r;
-				return true;
-			case ExprOp::Gt:
-				out = l > r;
-				return true;
-			case ExprOp::Le:
-				out = l <= r;
-				return true;
-			case ExprOp::Ge:
-				out = l >= r;
-				return true;
-			case ExprOp::Eq:
-				out = l == r;
-				return true;
-			case ExprOp::Ne:
-				out = l != r;
-				return true;
-			case ExprOp::BitAnd:
-				out = l & r;
-				return true;
-			case ExprOp::BitOr:
-				out = l | r;
-				return true;
-			case ExprOp::BitXor:
-				out = l ^ r;
-				return true;
-			case ExprOp::LogAnd:
-				out = l && r;
-				return true;
-			case ExprOp::LogOr:
-				out = l || r;
 				return true;
 			default:
 				fail(peek(), "non-constant operator in constant expression");
