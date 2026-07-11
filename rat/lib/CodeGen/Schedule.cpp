@@ -1,7 +1,5 @@
 #include "CodeGen/Schedule.h"
 
-#include <queue>
-
 #include "IR/Function.h"
 #include "IR/Node.h"
 
@@ -161,15 +159,29 @@ namespace rat {
 		List<I32> order;
 		List<C8> visited(count, 0);
 
-		Delegate<void(I32)> dfs = [&](I32 b) {
-			visited[b] = 1;
-			for(I32 s : successors(b))
-				if(!visited[s])
-					dfs(s);
-			post[b] = (I32)order.size();
-			order.push_back(b);
+		struct Frame {
+			I32 block;
+			List<I32> succs;
+			U32 next = 0;
 		};
-		dfs(entryBlock);
+
+		List<Frame> stack;
+		visited[entryBlock] = 1;
+		stack.push_back({entryBlock, successors(entryBlock)});
+		while(!stack.empty()) {
+			Frame& f = stack.back();
+			if(f.next < f.succs.size()) {
+				I32 s = f.succs[f.next++];
+				if(!visited[s]) {
+					visited[s] = 1;
+					stack.push_back({s, successors(s)});
+				}
+			} else {
+				post[f.block] = (I32)order.size();
+				order.push_back(f.block);
+				stack.pop_back();
+			}
+		}
 		rpoOrder.assign(order.rbegin(), order.rend());
 
 		List<I32> idom(count, -1);
@@ -472,7 +484,7 @@ namespace rat {
 		}
 
 		auto laterId = [](const Node* a, const Node* b) { return a->getId() > b->getId(); };
-		std::priority_queue<Node*, std::vector<Node*>, decltype(laterId)> ready(laterId);
+		PriorityQueue<Node*, std::vector<Node*>, decltype(laterId)> ready(laterId);
 
 		for(Node* n : nodes) {
 			I32 d = 0;
