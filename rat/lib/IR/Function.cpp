@@ -449,11 +449,9 @@ namespace rat {
 
 	void Function::removeNode(Node* n) {
 		n->clearInputs();
-		for(auto it = nodes.begin(); it != nodes.end(); ++it)
-			if(*it == n) {
-				nodes.erase(it);
-				break;
-			}
+		auto it = std::find(nodes.begin(), nodes.end(), n);
+		if(it != nodes.end())
+			nodes.erase(it);
 	}
 
 	U32 Function::allocateId() { return nextId++; }

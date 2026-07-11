@@ -14,21 +14,12 @@ namespace {
 		pm.run(mod);
 	}
 
-	String ratTrim(const String& s) {
-		U32 b = 0, e = (U32)s.size();
-		while(b < e && std::isspace((U8)s[b]))
-			++b;
-		while(e > b && std::isspace((U8)s[e - 1]))
-			--e;
-		return s.substr(b, e - b);
-	}
-
 	List<String> normalizeLines(const String& text) {
 		List<String> out;
 		std::istringstream ss(stripAnsi(text));
 		String line;
 		while(std::getline(ss, line)) {
-			String t = ratTrim(line);
+			String t = trim(line);
 			if(!t.empty())
 				out.push_back(t);
 		}
@@ -67,9 +58,9 @@ namespace {
 		String line;
 		I32 section = 0; // 0 none, 1 input, 2 expect
 		while(std::getline(ss, line)) {
-			String t = ratTrim(line);
+			String t = trim(line);
 			if(t.rfind("@name", 0) == 0) {
-				tf.name = ratTrim(t.substr(5));
+				tf.name = trim(t.substr(5));
 				section = 0;
 			} else if(t.rfind("@passes", 0) == 0) {
 				std::istringstream ps(t.substr(7));
@@ -132,7 +123,7 @@ namespace {
 		mod.setTarget(&target);
 		std::ostringstream perr;
 		if(!parseText(tf.input, mod, perr)) {
-			err = "input parse error\n    " + ratTrim(perr.str());
+			err = "input parse error\n    " + trim(perr.str());
 			return false;
 		}
 
@@ -153,11 +144,11 @@ namespace {
 
 		String actualCanon, expectCanon, cerr;
 		if(!canonicalIR(emitToString(mod), actualCanon, cerr)) {
-			err = "cannot re-parse actual output\n    " + ratTrim(cerr);
+			err = "cannot re-parse actual output\n    " + trim(cerr);
 			return false;
 		}
 		if(!canonicalIR(tf.expect, expectCanon, cerr)) {
-			err = "@expect parse error\n    " + ratTrim(cerr);
+			err = "@expect parse error\n    " + trim(cerr);
 			return false;
 		}
 
