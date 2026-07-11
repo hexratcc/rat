@@ -387,40 +387,19 @@ namespace rat::cc {
 	constexpr B32 isAssignOp(ExprOp op) { return op >= ExprOp::Assign && op <= ExprOp::XorAssign; }
 
 	constexpr B32 compoundBaseOp(ExprOp op, ExprOp& base) {
-		switch(op) {
-		case ExprOp::AddAssign:
-			base = ExprOp::Add;
-			return true;
-		case ExprOp::SubAssign:
-			base = ExprOp::Sub;
-			return true;
-		case ExprOp::MulAssign:
-			base = ExprOp::Mul;
-			return true;
-		case ExprOp::DivAssign:
-			base = ExprOp::Div;
-			return true;
-		case ExprOp::RemAssign:
-			base = ExprOp::Rem;
-			return true;
-		case ExprOp::ShlAssign:
-			base = ExprOp::Shl;
-			return true;
-		case ExprOp::ShrAssign:
-			base = ExprOp::Shr;
-			return true;
-		case ExprOp::AndAssign:
-			base = ExprOp::BitAnd;
-			return true;
-		case ExprOp::OrAssign:
-			base = ExprOp::BitOr;
-			return true;
-		case ExprOp::XorAssign:
-			base = ExprOp::BitXor;
-			return true;
-		default:
+		if(op < ExprOp::AddAssign || op > ExprOp::XorAssign)
 			return false;
-		}
+		// clang-format off
+		constexpr ExprOp kBase[] = {
+				ExprOp::Add, ExprOp::Sub, ExprOp::Mul,    ExprOp::Div,   ExprOp::Rem,
+				ExprOp::Shl, ExprOp::Shr, ExprOp::BitAnd, ExprOp::BitOr, ExprOp::BitXor,
+		};
+		// clang-format on
+		static_assert(sizeof(kBase) / sizeof(kBase[0]) ==
+											(U32)ExprOp::XorAssign - (U32)ExprOp::AddAssign + 1,
+									"kBase must cover AddAssign..XorAssign");
+		base = kBase[(U32)op - (U32)ExprOp::AddAssign];
+		return true;
 	}
 
 	const char* exprOpName(ExprOp op);

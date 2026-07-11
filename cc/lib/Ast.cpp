@@ -124,89 +124,15 @@ namespace rat::cc {
 	}
 
 	const char* exprOpName(ExprOp op) {
-		switch(op) {
-		case ExprOp::Pos:
-			return "+";
-		case ExprOp::Neg:
-			return "-";
-		case ExprOp::Not:
-			return "!";
-		case ExprOp::BitNot:
-			return "~";
-		case ExprOp::Addr:
-			return "&";
-		case ExprOp::Deref:
-			return "*";
-		case ExprOp::Real:
-			return "__real__";
-		case ExprOp::Imag:
-			return "__imag__";
-		case ExprOp::PreInc:
-		case ExprOp::PostInc:
-			return "++";
-		case ExprOp::PreDec:
-		case ExprOp::PostDec:
-			return "--";
-		case ExprOp::Add:
-			return "+";
-		case ExprOp::Sub:
-			return "-";
-		case ExprOp::Mul:
-			return "*";
-		case ExprOp::Div:
-			return "/";
-		case ExprOp::Rem:
-			return "%";
-		case ExprOp::Shl:
-			return "<<";
-		case ExprOp::Shr:
-			return ">>";
-		case ExprOp::Lt:
-			return "<";
-		case ExprOp::Gt:
-			return ">";
-		case ExprOp::Le:
-			return "<=";
-		case ExprOp::Ge:
-			return ">=";
-		case ExprOp::Eq:
-			return "==";
-		case ExprOp::Ne:
-			return "!=";
-		case ExprOp::BitAnd:
-			return "&";
-		case ExprOp::BitOr:
-			return "|";
-		case ExprOp::BitXor:
-			return "^";
-		case ExprOp::LogAnd:
-			return "&&";
-		case ExprOp::LogOr:
-			return "||";
-		case ExprOp::Assign:
-			return "=";
-		case ExprOp::AddAssign:
-			return "+=";
-		case ExprOp::SubAssign:
-			return "-=";
-		case ExprOp::MulAssign:
-			return "*=";
-		case ExprOp::DivAssign:
-			return "/=";
-		case ExprOp::RemAssign:
-			return "%=";
-		case ExprOp::ShlAssign:
-			return "<<=";
-		case ExprOp::ShrAssign:
-			return ">>=";
-		case ExprOp::AndAssign:
-			return "&=";
-		case ExprOp::OrAssign:
-			return "|=";
-		case ExprOp::XorAssign:
-			return "^=";
-		}
-		return "?";
+		static const char* const kNames[] = {
+				"+",	"-",	"!",	"~",	 "&",		"*",	"__real__", "__imag__", "++", "--", "++",
+				"--", "+",	"-",	"*",	 "/",		"%",	"<<",				">>",				"<",	">",	"<=",
+				">=", "==", "!=", "&",	 "|",		"^",	"&&",				"||",				"=",	"+=", "-=",
+				"*=", "/=", "%=", "<<=", ">>=", "&=", "|=",				"^=",
+		};
+		static_assert(sizeof(kNames) / sizeof(kNames[0]) == (U32)ExprOp::XorAssign + 1,
+									"kNames must cover every ExprOp");
+		return kNames[(U32)op];
 	}
 
 	namespace {
