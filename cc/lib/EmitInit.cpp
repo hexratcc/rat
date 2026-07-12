@@ -522,11 +522,12 @@ namespace rat::cc {
 			for(U32 i = 0; i < sizeof(f); ++i)
 				out.push_back(p[i]);
 		} else if(dt.bits == 128) {
+			// x86 extended precision
 			long double ld = v;
 			const U8* p = (const U8*)&ld;
 			U32 n = byteSize(dt); // 16
 			for(U32 i = 0; i < n; ++i)
-				out.push_back(i < sizeof(ld) ? p[i] : (U8)0);
+				out.push_back(i < 10 ? p[i] : (U8)0);
 		} else {
 			double d = (double)v;
 			const U8* p = (const U8*)&d;
