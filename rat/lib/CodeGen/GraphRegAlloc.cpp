@@ -46,16 +46,16 @@ namespace rat {
 		addHalfEdge(nb, a);
 	}
 
-	void GraphColorRegAllocPass::interfereAll(const Set<VReg>& live) {
-		for(auto i = live.begin(); i != live.end(); ++i) {
-			auto j = i;
-			for(++j; j != live.end(); ++j)
-				addEdge(*i, *j);
-		}
+	void GraphColorRegAllocPass::interfereAll(const VRegSet& live) {
+		List<VReg> vs;
+		live.forEach([&](VReg v) { vs.push_back(v); });
+		for(U32 i = 0; i < (U32)vs.size(); ++i)
+			for(U32 j = i + 1; j < (U32)vs.size(); ++j)
+				addEdge(vs[i], vs[j]);
 	}
 
 	void GraphColorRegAllocPass::buildInterference() {
-		List<Set<VReg>> liveIn, liveOut;
+		List<VRegSet> liveIn, liveOut;
 		liveness(liveIn, liveOut);
 
 		auto extend = [&](VReg v, I32 pt) {
@@ -71,10 +71,8 @@ namespace rat {
 				continue;
 			I32 first = (I32)blkPts[b].front();
 			I32 last = (I32)blkPts[b].back();
-			for(VReg v : liveIn[b])
-				extend(v, first);
-			for(VReg v : liveOut[b])
-				extend(v, last);
+			liveIn[b].forEach([&](VReg v) { extend(v, first); });
+			liveOut[b].forEach([&](VReg v) { extend(v, last); });
 			for(U32 i = 0; i < fn->blocks[b].insts.size(); ++i) {
 				I32 pt = (I32)blkPts[b][i];
 				const MachineInstr& in = fn->blocks[b].insts[i];
@@ -92,7 +90,7 @@ namespace rat {
 		}
 
 		for(U32 b = 0; b < fn->blocks.size(); ++b) {
-			Set<VReg> live = liveOut[b];
+			VRegSet live = liveOut[b];
 			interfereAll(live);
 			for(I32 i = (I32)fn->blocks[b].insts.size() - 1; i >= 0; --i) {
 				const MachineInstr& in = fn->blocks[b].insts[(U32)i];
@@ -102,7 +100,9 @@ namespace rat {
 					if(d.isVReg()) {
 						if(nodeFor(d.vreg).mustSpill)
 							continue;
-						for(VReg l : live) {
+						List<VReg> vs;
+						live.forEach([&](VReg v) { vs.push_back(v); });
+						for(VReg l : vs) {
 							if(l != d.vreg)
 								addEdge(d.vreg, l);
 							if(nodeFor(d.vreg).mustSpill)
@@ -113,10 +113,10 @@ namespace rat {
 				// def kills the value
 				for(const MachineOperand& d : in.defs)
 					if(d.isVReg())
-						live.erase(d.vreg);
+						live.reset(d.vreg);
 				for(const MachineOperand& u : in.uses)
 					if(u.isVReg())
-						live.insert(u.vreg);
+						live.set(u.vreg);
 			}
 		}
 
@@ -138,7 +138,8 @@ namespace rat {
 			for(const auto& fk : fixedAt)
 				if(n.start <= fk.first && fk.first <= n.end)
 					for(PhysReg p : fk.second)
-						n.forbidden.insert(p);
+						if(!pinExempt(n.vreg, fk.first, p))
+							n.forbidden.insert(p);
 
 			if(n.crossesCall) {
 				const RegClass& rc = regClass(n.cls);
@@ -232,13 +233,9 @@ namespace rat {
 	}
 
 	void GraphColorRegAllocPass::selectColors() {
-		for(auto& kv : nodes) {
-			Node& n = kv.second;
-			if(n.mustSpill) {
-				n.spilled = true;
-				n.spillSlot = hooks->allocSlot(*fn, n.cls, ri->spillSlotBytes);
-			}
-		}
+		for(auto& kv : nodes)
+			if(kv.second.mustSpill)
+				kv.second.spilled = true;
 
 		for(I32 i = (I32)selectStack.size() - 1; i >= 0; --i) {
 			VReg v = selectStack[(U32)i];
@@ -252,8 +249,24 @@ namespace rat {
 					used.insert(it->second.color);
 			}
 
+			// biased coloring: a legal hinted register elides the copy that produced the hint
 			PhysReg pick = kNoReg;
-			if(n.crossesCall) {
+			auto colorOf = [&](VReg p) {
+				auto it = nodes.find(p);
+				return it == nodes.end() ? kNoReg : it->second.color;
+			};
+			for(PhysReg h : hintedRegs(v, colorOf)) {
+				if(used.count(h) || !isAllocatable(rc, h))
+					continue;
+				if(n.crossesCall && !isCalleeSaved(rc, h))
+					continue;
+				if(isCalleeSaved(rc, h) && !usedCallee.count(h))
+					continue;
+				pick = h;
+				break;
+			}
+
+			if(pick == kNoReg && n.crossesCall) {
 				for(PhysReg p : rc.calleeSaved)
 					if(!used.count(p)) {
 						pick = p;
@@ -273,9 +286,23 @@ namespace rat {
 					usedCallee.insert(pick);
 			} else {
 				n.spilled = true;
-				n.spillSlot = hooks->allocSlot(*fn, n.cls, ri->spillSlotBytes);
 			}
 		}
+
+		assignSpillSlots();
+	}
+
+	void GraphColorRegAllocPass::assignSpillSlots() {
+		// pack
+		List<Node*> spilled;
+		for(auto& kv : nodes)
+			if(kv.second.spilled)
+				spilled.push_back(&kv.second);
+		std::sort(spilled.begin(), spilled.end(), [](const Node* a, const Node* b) {
+			return a->start != b->start ? a->start < b->start : a->vreg < b->vreg;
+		});
+		for(Node* n : spilled)
+			n->spillSlot = takeSpillSlot(n->cls, n->start, n->end);
 	}
 
 } // namespace rat

@@ -46,13 +46,14 @@ namespace rat {
 		Node& nodeFor(VReg v);
 		void addHalfEdge(Node& n, VReg other);
 		void addEdge(VReg a, VReg b);
-		void interfereAll(const Set<VReg>& live);
+		void interfereAll(const VRegSet& live);
 		void computeForbidden();
 
 		void simplify();
 		U32 colorCount(U32 cls) const;
 		F64 spillCost(const Node& n) const;
 		void selectColors();
+		void assignSpillSlots();
 	private:
 		Map<VReg, Node> nodes;
 		List<VReg> selectStack; // simplify order; popped in reverse during select

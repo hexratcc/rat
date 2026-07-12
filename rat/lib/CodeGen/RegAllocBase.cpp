@@ -54,40 +54,101 @@ namespace rat {
 		}
 	}
 
-	void RegAllocBase::liveness(List<Set<VReg>>& liveIn, List<Set<VReg>>& liveOut) {
+	void RegAllocBase::collectCopyHints() {
+		if(!hooks->isCopy)
+			return;
+		for(U32 b = 0; b < (U32)fn->blocks.size(); ++b)
+			for(U32 i = 0; i < (U32)fn->blocks[b].insts.size(); ++i) {
+				const MachineInstr& in = fn->blocks[b].insts[i];
+				if(!hooks->isCopy(in) || in.defs.size() != 1 || in.uses.size() != 1)
+					continue;
+				const MachineOperand& d = in.defs[0];
+				const MachineOperand& u = in.uses[0];
+				I32 pt = (I32)blkPts[b][i];
+				if(d.isVReg() && u.isVReg()) {
+					if(classOf(d.vreg) != classOf(u.vreg))
+						continue;
+					copyHints[d.vreg].push_back({u.vreg, pt});
+					copyHints[u.vreg].push_back({d.vreg, pt});
+				} else if(d.isVReg() && u.isPhys()) {
+					physHints[d.vreg].push_back(u.phys);
+					copyPinAt[d.vreg].emplace(pt, u.phys);
+				} else if(d.isPhys() && u.isVReg()) {
+					physHints[u.vreg].push_back(d.phys);
+					copyPinAt[u.vreg].emplace(pt, d.phys);
+				}
+			}
+	}
+
+	B32 RegAllocBase::pinExempt(VReg v, I32 pt, PhysReg p) const {
+		auto vt = copyPinAt.find(v);
+		if(vt == copyPinAt.end())
+			return false;
+		auto it = vt->second.find(pt);
+		return it != vt->second.end() && it->second == p;
+	}
+
+	List<PhysReg> RegAllocBase::hintedRegs(VReg v, const Delegate<PhysReg(VReg)>& colorOf) const {
+		List<PhysReg> hints;
+		if(auto it = physHints.find(v); it != physHints.end())
+			for(PhysReg p : it->second)
+				hints.push_back(p);
+		if(auto it = copyHints.find(v); it != copyHints.end())
+			for(const CopyHint& h : it->second)
+				if(PhysReg p = colorOf(h.partner); p != kNoReg)
+					hints.push_back(p);
+		return hints;
+	}
+
+	List<I32> RegAllocBase::copyPointsBetween(VReg a, VReg b) const {
+		List<I32> pts;
+		if(auto it = copyHints.find(a); it != copyHints.end())
+			for(const CopyHint& h : it->second)
+				if(h.partner == b)
+					pts.push_back(h.pt);
+		return pts;
+	}
+
+	I32 RegAllocBase::takeSpillSlot(U32 cls, I32 start, I32 end) {
+		for(PooledSlot& ps : slotPool[cls])
+			if(ps.freeEnd < start) {
+				ps.freeEnd = end;
+				return ps.slot;
+			}
+		I32 slot = hooks->allocSlot(*fn, cls, ri->spillSlotBytes);
+		slotPool[cls].push_back({slot, end});
+		return slot;
+	}
+
+	void RegAllocBase::liveness(List<VRegSet>& liveIn, List<VRegSet>& liveOut) {
 		U32 nb = (U32)fn->blocks.size();
-		List<Set<VReg>> useSet(nb), defSet(nb);
+		U32 nv = fn->nextVReg;
+		List<VRegSet> useSet(nb, VRegSet(nv)), defSet(nb, VRegSet(nv));
 		for(U32 b = 0; b < nb; ++b) {
-			Set<VReg> defined;
 			for(const MachineInstr& in : fn->blocks[b].insts) {
 				for(const MachineOperand& u : in.uses)
-					if(u.isVReg() && !defined.count(u.vreg))
-						useSet[b].insert(u.vreg);
+					if(u.isVReg() && !defSet[b].test(u.vreg))
+						useSet[b].set(u.vreg);
 				for(const MachineOperand& d : in.defs)
-					if(d.isVReg()) {
-						defined.insert(d.vreg);
-						defSet[b].insert(d.vreg);
-					}
+					if(d.isVReg())
+						defSet[b].set(d.vreg);
 			}
 		}
-		liveIn.assign(nb, {});
-		liveOut.assign(nb, {});
+		liveIn.assign(nb, VRegSet(nv));
+		liveOut.assign(nb, VRegSet(nv));
 		B32 changed = true;
 		while(changed) {
 			changed = false;
+			VRegSet out(nv), in(nv);
 			for(I32 b = (I32)nb - 1; b >= 0; --b) {
-				Set<VReg> out;
+				out = VRegSet(nv);
 				for(I32 s : fn->blocks[b].succs)
-					for(VReg v : liveIn[s])
-						out.insert(v);
-				Set<VReg> in = useSet[b];
-				for(VReg v : out)
-					if(!defSet[b].count(v))
-						in.insert(v);
-				if(in.size() != liveIn[b].size() || out.size() != liveOut[b].size()) {
+					out.orWith(liveIn[s]);
+				in.assignUnionMasked(useSet[b], out, defSet[b]); // use | (out & ~def)
+				if(!(in == liveIn[b]) || !(out == liveOut[b])) {
 					changed = true;
-					liveIn[b] = std::move(in);
-					liveOut[b] = std::move(out);
+					liveIn[b] = in;
+					liveOut[b] = out;
 				}
 			}
 		}
@@ -102,6 +163,13 @@ namespace rat {
 
 	B32 RegAllocBase::isCalleeSaved(const RegClass& rc, PhysReg p) {
 		for(PhysReg c : rc.calleeSaved)
+			if(c == p)
+				return true;
+		return false;
+	}
+
+	B32 RegAllocBase::isAllocatable(const RegClass& rc, PhysReg p) {
+		for(PhysReg c : rc.allocatable)
 			if(c == p)
 				return true;
 		return false;
@@ -177,17 +245,20 @@ namespace rat {
 		callPts.clear();
 		fixedAt.clear();
 		usedCallee.clear();
+		copyHints.clear();
+		physHints.clear();
+		slotPool.clear();
 		ok = true;
 		resetState();
 
 		number();
+		collectCopyHints();
 		solve();
 		rewrite();
 
 		if(usedCalleeSaved) {
-			usedCalleeSaved->clear();
-			for(PhysReg p : usedCallee)
-				usedCalleeSaved->push_back(p);
+			usedCalleeSaved->assign(usedCallee.begin(), usedCallee.end());
+			std::sort(usedCalleeSaved->begin(), usedCalleeSaved->end());
 		}
 		return ok;
 	}
