@@ -21,7 +21,6 @@ namespace rat {
 		explicit AliasAnalysis(const Function& fn);
 
 		AliasResult alias(Node* addrA, U32 sizeA, Node* addrB, U32 sizeB) const;
-		AliasResult alias(Node* accessA, Node* accessB) const;
 
 		U32 getAccessSize(const Node* access) const;
 
@@ -44,11 +43,11 @@ namespace rat {
 					h ^= v;
 					h *= 1099511628211ull;
 				};
-				mix((U64) reinterpret_cast<std::uintptr_t>(k.base));
+				mix(reinterpret_cast<U64>(k.base));
 				mix((U64)k.constant);
 				mix((U64)k.size);
 				for(Node* s : k.symbolic)
-					mix((U64) reinterpret_cast<std::uintptr_t>(s));
+					mix(reinterpret_cast<U64>(s));
 				return h;
 			}
 		};
@@ -62,6 +61,7 @@ namespace rat {
 		};
 
 		const Address& decompose(Node* addr) const;
+		static Node* accessAddress(Node* n); // pointer operand of a Load/Store (else null)
 
 		static B32 isIdentified(const Node* n);
 		static B32 distinctObjects(const Node* a, const Node* b);

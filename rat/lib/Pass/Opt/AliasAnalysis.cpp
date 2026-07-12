@@ -51,16 +51,17 @@ namespace rat {
 		return t->byteSize(fn.getModule().pointerBytes());
 	}
 
+	Node* AliasAnalysis::accessAddress(Node* n) {
+		if(n->getOpcode() == Opcode::Load)
+			return cast<LoadNode>(n)->getPointer();
+		if(n->getOpcode() == Opcode::Store)
+			return cast<StoreNode>(n)->getPointer();
+		return nullptr;
+	}
+
 	AliasAnalysis::MustAliasKey AliasAnalysis::mustAliasKey(Node* access) const {
-		auto addrOf = [](Node* n) -> Node* {
-			if(n->getOpcode() == Opcode::Load)
-				return cast<LoadNode>(n)->getPointer();
-			if(n->getOpcode() == Opcode::Store)
-				return cast<StoreNode>(n)->getPointer();
-			return nullptr;
-		};
 		MustAliasKey key;
-		Node* addr = addrOf(access);
+		Node* addr = accessAddress(access);
 		if(!addr)
 			return key; // not a memory access
 		const Address& a = decompose(addr);
@@ -114,21 +115,5 @@ namespace rat {
 		if(delta >= (I64)sizeB || -delta >= (I64)sizeA)
 			return AliasResult::NoAlias;
 		return AliasResult::MayAlias;
-	}
-
-	AliasResult AliasAnalysis::alias(Node* accessA, Node* accessB) const {
-		// alias query between two Load/Store accesses (sizes derived from them)
-		auto addrOf = [](Node* n) -> Node* {
-			if(n->getOpcode() == Opcode::Load)
-				return cast<LoadNode>(n)->getPointer();
-			if(n->getOpcode() == Opcode::Store)
-				return cast<StoreNode>(n)->getPointer();
-			return nullptr;
-		};
-		Node* pa = addrOf(accessA);
-		Node* pb = addrOf(accessB);
-		if(!pa || !pb)
-			return AliasResult::MayAlias;
-		return alias(pa, getAccessSize(accessA), pb, getAccessSize(accessB));
 	}
 } // namespace rat
