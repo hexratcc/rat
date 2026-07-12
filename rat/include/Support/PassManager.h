@@ -34,7 +34,6 @@ namespace rat {
 		Pass* add(UniquePtr<Pass> pass);
 		B32 run(Module& module, std::ostream* log = nullptr);
 
-		List<PassTiming> timings() const;
 		void printTimingReport(std::ostream& os) const;
 	private:
 		void record(const C8* name, U64 nanos);

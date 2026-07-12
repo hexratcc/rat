@@ -20,6 +20,17 @@ namespace rat {
 
 		void add(String name, String description, Factory make);
 
+		template <typename P> void add(String name, String description) {
+			if constexpr(std::is_constructible_v<P, std::ostream&>)
+				add(std::move(name), std::move(description), [](std::ostream& os) -> UniquePtr<Pass> {
+					return std::make_unique<P>(os);
+				});
+			else
+				add(std::move(name), std::move(description), [](std::ostream&) -> UniquePtr<Pass> {
+					return std::make_unique<P>();
+				});
+		}
+
 		UniquePtr<Pass> create(const String& name, std::ostream& out) const;
 
 		const List<Entry>& entries() const { return items; }

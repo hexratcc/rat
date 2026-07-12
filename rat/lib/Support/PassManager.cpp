@@ -43,14 +43,6 @@ namespace rat {
 		return changed;
 	}
 
-	List<PassTiming> PassManager::timings() const {
-		List<PassTiming> sorted = timing;
-		std::sort(sorted.begin(), sorted.end(), [](const PassTiming& a, const PassTiming& b) {
-			return a.nanos > b.nanos;
-		});
-		return sorted;
-	}
-
 	void PassManager::printTimingReport(std::ostream& os) const {
 		U64 total = 0;
 		for(auto& t : timing)
@@ -58,8 +50,13 @@ namespace rat {
 		if(total == 0)
 			total = 1;
 
+		List<PassTiming> sorted = timing;
+		std::sort(sorted.begin(), sorted.end(), [](const PassTiming& a, const PassTiming& b) {
+			return a.nanos > b.nanos;
+		});
+
 		B32 first = true;
-		for(auto& t : timings()) {
+		for(auto& t : sorted) {
 			F64 pct = 100.0 * static_cast<F64>(t.nanos) / static_cast<F64>(total);
 			F64 ms = static_cast<F64>(t.nanos) / 1e6;
 			if(!first)

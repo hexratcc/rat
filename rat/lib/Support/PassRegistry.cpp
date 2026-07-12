@@ -33,37 +33,16 @@ namespace rat {
 	}
 
 	void PassRegistry::registerAll(PassRegistry& r) {
-		r.add("fold",
-					"constant folding and algebraic simplification",
-					[](std::ostream&) -> UniquePtr<Pass> { return std::make_unique<FoldPass>(); });
-		r.add("gvn", "global value numbering", [](std::ostream&) -> UniquePtr<Pass> {
-			return std::make_unique<GVNPass>();
-		});
-		r.add("sccp", "sparse conditional constant propagation", [](std::ostream&) -> UniquePtr<Pass> {
-			return std::make_unique<SCCPPass>();
-		});
-		r.add("simplifycfg", "control-flow simplification", [](std::ostream&) -> UniquePtr<Pass> {
-			return std::make_unique<SimplifyCFGPass>();
-		});
-		r.add("memoryopt", "load/store forwarding", [](std::ostream&) -> UniquePtr<Pass> {
-			return std::make_unique<MemoryOptPass>();
-		});
-		r.add("inline", "function inlining", [](std::ostream&) -> UniquePtr<Pass> {
-			return std::make_unique<InlinePass>();
-		});
-		r.add("verify",
-					"edge consistency + structural invariants",
-					[](std::ostream& os) -> UniquePtr<Pass> { return std::make_unique<VerifyPass>(os); });
-		r.add("text-emitter", "textual IR visualization", [](std::ostream& os) -> UniquePtr<Pass> {
-			return std::make_unique<TextEmitterPass>(os);
-		});
-		r.add(
-				"graph-emitter", "Graphviz DOT IR visualization", [](std::ostream& os) -> UniquePtr<Pass> {
-					return std::make_unique<GraphEmitterPass>(os);
-				});
-		r.add("c-emitter", "C code generation", [](std::ostream& os) -> UniquePtr<Pass> {
-			return std::make_unique<CEmitterPass>(os);
-		});
+		r.add<FoldPass>("fold", "constant folding and algebraic simplification");
+		r.add<GVNPass>("gvn", "global value numbering");
+		r.add<SCCPPass>("sccp", "sparse conditional constant propagation");
+		r.add<SimplifyCFGPass>("simplifycfg", "control-flow simplification");
+		r.add<MemoryOptPass>("memoryopt", "load/store forwarding");
+		r.add<InlinePass>("inline", "function inlining");
+		r.add<VerifyPass>("verify", "edge consistency + structural invariants");
+		r.add<TextEmitterPass>("text-emitter", "textual IR visualization");
+		r.add<GraphEmitterPass>("graph-emitter", "Graphviz DOT IR visualization");
+		r.add<CEmitterPass>("c-emitter", "C code generation");
 	}
 
 	PassRegistry& passRegistry() {
