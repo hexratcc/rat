@@ -35,6 +35,40 @@ namespace rat {
 			return out;
 		}
 
+		void splitTypeToken(const String& after, String& typeStr, String& remainder) {
+			if(!after.empty() && after.front() == '(') {
+				U32 depth = 0;
+				U32 i = 0;
+				for(; i < after.size(); ++i) {
+					if(after[i] == '(')
+						++depth;
+					else if(after[i] == ')') {
+						--depth;
+						if(depth == 0) {
+							++i;
+							break;
+						}
+					}
+				}
+				typeStr = after.substr(0, i);
+				remainder = after.substr(i);
+				return;
+			}
+			U64 sp = after.find(' ');
+			typeStr = after.substr(0, sp);
+			remainder = sp == String::npos ? "" : after.substr(sp);
+		}
+
+		B32 takeQuoted(const String& s, String& name, String& rest) {
+			U64 q1 = s.find('"');
+			U64 q2 = (q1 == String::npos) ? String::npos : s.find('"', q1 + 1);
+			if(q2 == String::npos)
+				return false;
+			name = s.substr(q1 + 1, q2 - q1 - 1);
+			rest = s.substr(q2 + 1);
+			return true;
+		}
+
 		B32 unquoteBytes(const String& s, List<U8>& out) {
 			String t = trim(s);
 			if(t.size() < 2 || t.front() != '"' || t.back() != '"')
@@ -68,15 +102,15 @@ namespace rat {
 		}
 
 		Opcode opcodeForMnemonic(const String& m, B32& ok) {
-			for(U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Alloc; ++i) {
-				Opcode op = (Opcode)i;
-				if(m == getOpcodeMnemonic(op)) {
-					ok = true;
-					return op;
-				}
-			}
-			ok = false;
-			return Opcode::Start;
+			static const Map<String, Opcode> table = [] {
+				Map<String, Opcode> t;
+				for(U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Alloc; ++i)
+					t.emplace(getOpcodeMnemonic((Opcode)i), (Opcode)i);
+				return t;
+			}();
+			auto it = table.find(m);
+			ok = it != table.end();
+			return ok ? it->second : Opcode::Start;
 		}
 
 		Parser::Parser(Module& mod, std::ostream& err)
@@ -279,35 +313,8 @@ namespace rat {
 			if(!ok)
 				return fail("unknown mnemonic '" + mnem + "'");
 
-			// split the type (possibly a parenthesized tuple) from the remainder
-			String after = ltrim(rest.substr(colon + 3));
 			String typeStr, remainder;
-			if(!after.empty() && after.front() == '(') {
-				U32 depth = 0;
-				U32 i = 0;
-				for(; i < after.size(); ++i) {
-					if(after[i] == '(')
-						++depth;
-					else if(after[i] == ')') {
-						--depth;
-						if(depth == 0) {
-							++i;
-							break;
-						}
-					}
-				}
-				typeStr = after.substr(0, i);
-				remainder = after.substr(i);
-			} else {
-				U64 sp = after.find(' ');
-				if(sp == String::npos) {
-					typeStr = after;
-					remainder = "";
-				} else {
-					typeStr = after.substr(0, sp);
-					remainder = after.substr(sp);
-				}
-			}
+			splitTypeToken(ltrim(rest.substr(colon + 3)), typeStr, remainder);
 			pn.ty = parseType(typeStr);
 			if(!pn.ty)
 				return false;
@@ -349,21 +356,17 @@ namespace rat {
 				pn.operands = refs;
 				break;
 			}
-			case Opcode::Call: {
-				U64 q1 = remainder.find('"');
-				U64 q2 = (q1 == String::npos) ? String::npos : remainder.find('"', q1 + 1);
-				if(q1 == String::npos || q2 == String::npos)
-					return fail("call is missing its quoted callee: " + line);
-				pn.callee = remainder.substr(q1 + 1, q2 - q1 - 1);
-				pn.operands = parseVRefs(remainder.substr(q2 + 1));
-				break;
-			}
+			case Opcode::Call:
 			case Opcode::Global: {
-				U64 q1 = remainder.find('"');
-				U64 q2 = (q1 == String::npos) ? String::npos : remainder.find('"', q1 + 1);
-				if(q1 == String::npos || q2 == String::npos)
-					return fail("global node is missing its quoted symbol: " + line);
-				pn.symbol = remainder.substr(q1 + 1, q2 - q1 - 1);
+				String name, rest;
+				if(!takeQuoted(remainder, name, rest))
+					return fail("node is missing its quoted name: " + line);
+				if(pn.op == Opcode::Call) {
+					pn.callee = std::move(name);
+					pn.operands = parseVRefs(rest);
+				} else {
+					pn.symbol = std::move(name);
+				}
 				break;
 			}
 			case Opcode::Alloc: {
@@ -375,14 +378,10 @@ namespace rat {
 				break;
 			}
 			case Opcode::Region: {
-				String body = remainder;
-				std::istringstream ss(body);
-				String first;
-				ss >> first;
-				if(first == "loop") {
+				String body = remainder; // already trimmed
+				if(body.rfind("loop", 0) == 0 && (body.size() == 4 || std::isspace((U8)body[4]))) {
 					pn.loopHeader = true;
-					U64 pos = body.find("loop");
-					body = body.substr(pos + 4);
+					body = body.substr(4);
 				}
 				pn.operands = parseVRefs(body);
 				break;

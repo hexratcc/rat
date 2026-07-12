@@ -129,7 +129,8 @@ namespace rat {
 		return callee->size() <= kInlineNodeBudget;
 	}
 
-	U32 InlinePass::inlineInto(Function& caller, Module& m) {
+	U32 InlinePass::runOnFunction(Function& caller) {
+		Module& m = caller.getModule();
 		U32 count = 0;
 		B32 changed = true;
 		while(changed && count < kMaxInlinesPerFunction) {
@@ -155,11 +156,4 @@ namespace rat {
 	}
 
 	const C8* InlinePass::name() const { return "inline"; }
-
-	B32 InlinePass::run(Module& module) {
-		U32 count = 0;
-		for(Function* fn : module)
-			count += inlineInto(*fn, module);
-		return count != 0;
-	}
 } // namespace rat

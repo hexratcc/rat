@@ -17,12 +17,11 @@ namespace rat {
 	struct Module;
 	struct Node;
 
-	struct GVNPass : Pass {
+	struct GVNPass : FunctionPass {
 		const C8* name() const override;
-		B32 run(Module& module) override;
+		U32 runOnFunction(Function& fn) override;
 	private:
 		static B32 isPureValue(Node* n);
-		U32 runOnFunction(Function& fn);
 	};
 } // namespace rat
 

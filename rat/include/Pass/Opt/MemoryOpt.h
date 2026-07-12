@@ -22,11 +22,10 @@ namespace rat {
 	struct Module;
 	struct Node;
 
-	struct MemoryOptPass : Pass {
+	struct MemoryOptPass : FunctionPass {
 		const C8* name() const override;
-		B32 run(Module& module) override;
+		U32 runOnFunction(Function& fn) override;
 	private:
-		U32 runOnFunction(Function& fn);
 		static U32 forwardStores(const AliasAnalysis& aa,
 														 const Map<LoadNode*, Node*>& defs,
 														 const List<LoadNode*>& loads);

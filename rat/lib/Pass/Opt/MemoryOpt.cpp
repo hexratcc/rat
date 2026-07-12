@@ -67,8 +67,7 @@ namespace rat {
 		struct BucketKeyHash {
 			U64 operator()(const BucketKey& k) const {
 				U64 h = AliasAnalysis::MustAliasKeyHash{}(k.addr);
-				h ^= (U64) reinterpret_cast<std::uintptr_t>(k.def) + 0x9e3779b97f4a7c15ull + (h << 6) +
-						 (h >> 2);
+				h ^= reinterpret_cast<U64>(k.def) + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
 				return h;
 			}
 		};
@@ -117,13 +116,6 @@ namespace rat {
 	}
 
 	const C8* MemoryOptPass::name() const { return "memoryopt"; }
-
-	B32 MemoryOptPass::run(Module& module) {
-		U32 changed = 0;
-		for(Function* fn : module)
-			changed += runOnFunction(*fn);
-		return changed != 0;
-	}
 
 	U32 MemoryOptPass::runOnFunction(Function& fn) {
 		fn.eliminateDeadNodes();

@@ -414,7 +414,7 @@ namespace rat {
 		return n;
 	}
 
-	U32 FoldPass::foldFunction(Function& fn) {
+	U32 FoldPass::runOnFunction(Function& fn) {
 		U32 changed = 0;
 		B32 again = true;
 		while(again) {
@@ -440,11 +440,4 @@ namespace rat {
 	}
 
 	const C8* FoldPass::name() const { return "fold"; }
-
-	B32 FoldPass::run(Module& module) {
-		U32 changed = 0;
-		for(Function* fn : module)
-			changed += foldFunction(*fn);
-		return changed != 0;
-	}
 } // namespace rat

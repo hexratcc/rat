@@ -19,12 +19,12 @@ namespace rat {
 	struct Node;
 	struct CallNode;
 
-	struct InlinePass : Pass {
+	struct InlinePass : FunctionPass {
 		static constexpr U32 kInlineNodeBudget = 64;			 // max callee size to inline
 		static constexpr U32 kMaxInlinesPerFunction = 256; // per-caller fuel
 
 		const C8* name() const override;
-		B32 run(Module& module) override;
+		U32 runOnFunction(Function& caller) override;
 	private:
 		B32 isStartProj(const Function& callee, Node* n);
 
@@ -32,7 +32,6 @@ namespace rat {
 		B32 shouldInline(const Function& caller, CallNode* call, Function* callee);
 
 		B32 inlineCallSite(Function& caller, CallNode* call, Function& callee);
-		U32 inlineInto(Function& caller, Module& m);
 	};
 } // namespace rat
 

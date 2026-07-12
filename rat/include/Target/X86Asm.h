@@ -159,7 +159,6 @@ namespace rat {
 			b(op);
 			modrmReg(src, dst);
 		}
-		void addRR(Reg d, Reg s) { aluRR(0x01, d, s); }
 		void subRR(Reg d, Reg s) { aluRR(0x29, d, s); }
 		void andRR(Reg d, Reg s) { aluRR(0x21, d, s); }
 		void orRR(Reg d, Reg s) { aluRR(0x09, d, s); }
@@ -261,11 +260,6 @@ namespace rat {
 			if(r >= R8)
 				b(0x41);
 			b((U8)(0x50 + (r & 7)));
-		}
-		void pop(Reg r) {
-			if(r >= R8)
-				b(0x41);
-			b((U8)(0x58 + (r & 7)));
 		}
 		void ret() { b(0xc3); }
 		void leave() { b(0xc9); }

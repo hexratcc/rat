@@ -23,12 +23,10 @@ namespace rat {
 	struct PhiNode;
 	struct RegionNode;
 
-	struct SCCPPass : Pass {
+	struct SCCPPass : FunctionPass {
 		const C8* name() const override;
-		B32 run(Module& module) override;
+		U32 runOnFunction(Function& fn) override;
 	private:
-		U32 runOnFunction(Function& fn);
-
 		struct Lattice {
 			enum class Kind : U8 { Top, Constant, Bottom };
 

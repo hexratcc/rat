@@ -35,9 +35,9 @@ namespace rat {
 
 	Node* simplify(Function& fn, Node* n); // dispatch to the matching fold*
 
-	struct FoldPass : Pass {
+	struct FoldPass : FunctionPass {
 		const C8* name() const override;
-		B32 run(Module& module) override;
+		U32 runOnFunction(Function& fn) override;
 
 		static U64 maskW(I64 v, U32 w);									 // zero-extend low w bits
 		static B32 wouldSignedDivOverflow(I64 a, I64 b); // div by 0 or INT_MIN-1
@@ -49,8 +49,6 @@ namespace rat {
 		static B32 isAllOnesConst(Node* n, U32 w);
 		static I32 pow2Log(Node* n, U32 w);
 		static B32 matchVarConst(Node* n, Opcode want, Node*& base, I64& c);
-	private:
-		U32 foldFunction(Function& fn);
 	};
 } // namespace rat
 

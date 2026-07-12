@@ -67,19 +67,12 @@ namespace rat {
 		if(n->getOpcode() == Opcode::Constant) {
 			if(n->getType()->isFloat())
 				return floatLiteral(n);
-			if(n->getType()->isPtr()) {
-				std::ostringstream oss;
-				oss << "((char *)" << cast<ConstantNode>(n)->getValue() << "LL)";
-				return oss.str();
-			}
+			if(n->getType()->isPtr())
+				return "((char *)" + std::to_string(cast<ConstantNode>(n)->getValue()) + "LL)";
 			U32 width = n->getType()->getIntWidth();
 			I64 raw = cast<ConstantNode>(n)->getValue();
 			I64 v = width > 1 ? signExtend(raw, width) : raw;
-			std::ostringstream oss;
-			oss << v;
-			if(width > 32)
-				oss << "LL";
-			return oss.str();
+			return std::to_string(v) + (width > 32 ? "LL" : "");
 		}
 		if(const ProjNode* p = dyn_cast<ProjNode>(n)) {
 			Node* prod = p->getProducer();
@@ -518,7 +511,7 @@ namespace rat {
 	}
 
 	void CEmitterPass::emitExternDecls(const Module& module) {
-		Set<String> defined;
+		Set<String> defined; // function names
 		for(const Function* fn : module)
 			defined.insert(fn->getName());
 		Map<String, const Type*> externs; // name -> return type (null = void)
@@ -546,9 +539,7 @@ namespace rat {
 			*os << "extern " << (externs[name] ? cType(externs[name]) : String("void")) << " " << name
 					<< "();\n";
 
-		Set<String> known;
-		for(const Function* fn : module)
-			known.insert(fn->getName());
+		Set<String>& known = defined;
 		for(const Global* g : module.globals())
 			known.insert(g->getName());
 		Set<String> emitted;

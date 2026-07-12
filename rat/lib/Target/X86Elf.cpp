@@ -164,21 +164,10 @@ namespace rat {
 			strtab.push_back(0);
 		}
 
-		const U32 shText = 1, shRodata = 3, shData = 5, shBss = 7, shSymtab = 8, shStrtab = 9,
-							shShstrtab = 10;
-		auto secShIndex = [&](Section s) -> U32 {
-			switch(s) {
-			case Text:
-				return shText;
-			case Rodata:
-				return shRodata;
-			case Data:
-				return shData;
-			case Bss:
-				return shBss;
-			}
-			return shText;
-		};
+		constexpr U32 shText = 1, shRodata = 3, shData = 5, shBss = 7, shSymtab = 8, shStrtab = 9,
+									shShstrtab = 10;
+		static constexpr U32 kSecShIndex[] = {shText, shRodata, shData, shBss};
+		auto secShIndex = [](Section s) -> U32 { return kSecShIndex[(U32)s]; };
 
 		List<U8> symtab;
 		for(U32 i = 0; i < order.size(); ++i) {
@@ -293,114 +282,49 @@ namespace rat {
 		while(out.size() < offSh)
 			out.push_back(0);
 
-		auto sh = [&](U32 name,
-									U32 type,
-									U64 flags,
-									U64 addr,
-									U64 fileOff,
-									U64 size,
-									U32 link,
-									U32 info,
-									U64 a,
-									U64 entSize) {
-			put32(out, name);
-			put32(out, type);
-			put64(out, flags);
-			put64(out, addr);
-			put64(out, fileOff);
-			put64(out, size);
-			put32(out, link);
-			put32(out, info);
-			put64(out, a);
-			put64(out, entSize);
+		struct ShDesc {
+			U32 name;
+			U32 type;
+			U64 flags;
+			U64 fileOff;
+			U64 size;
+			U32 link;
+			U32 info;
+			U64 align;
+			U64 entSize;
 		};
-
-		sh(0, detail::SHT_NULL, 0, 0, 0, 0, 0, 0, 0, 0); // 0 null
-		sh(nText,
-			 detail::SHT_PROGBITS,
-			 detail::SHF_ALLOC | detail::SHF_EXECINSTR,
-			 0,
-			 offText,
-			 text.size(),
-			 0,
-			 0,
-			 16,
-			 0); // 1 .text
-		sh(nRelaText,
-			 detail::SHT_RELA,
-			 detail::SHF_INFO_LINK,
-			 0,
-			 offRelaText,
-			 relaText.size(),
-			 shSymtab,
-			 shText,
-			 8,
-			 detail::kRelaEntSize); // 2 .rela.text
-		sh(nRodata,
-			 detail::SHT_PROGBITS,
-			 detail::SHF_ALLOC,
-			 0,
-			 offRodata,
-			 rodata.size(),
-			 0,
-			 0,
-			 16,
-			 0); // 3 .rodata
-		sh(nRelaRodata,
-			 detail::SHT_RELA,
-			 detail::SHF_INFO_LINK,
-			 0,
-			 offRelaRodata,
-			 relaRodata.size(),
-			 shSymtab,
-			 shRodata,
-			 8,
-			 detail::kRelaEntSize); // 4 .rela.rodata
-		sh(nData,
-			 detail::SHT_PROGBITS,
-			 detail::SHF_ALLOC | detail::SHF_WRITE,
-			 0,
-			 offData,
-			 data.size(),
-			 0,
-			 0,
-			 16,
-			 0); // 5 .data
-		sh(nRelaData,
-			 detail::SHT_RELA,
-			 detail::SHF_INFO_LINK,
-			 0,
-			 offRelaData,
-			 relaData.size(),
-			 shSymtab,
-			 shData,
-			 8,
-			 detail::kRelaEntSize); // 6 .rela.data
-		sh(nBss,
-			 detail::SHT_NOBITS,
-			 detail::SHF_ALLOC | detail::SHF_WRITE,
-			 0,
-			 0,
-			 bssSize,
-			 0,
-			 0,
-			 16,
-			 0); // 7 .bss
-		sh(nSymtab,
-			 detail::SHT_SYMTAB,
-			 0,
-			 0,
-			 offSymtab,
-			 symtab.size(),
-			 shStrtab,
-			 firstGlobal,
-			 8,
-			 detail::kSymEntSize); // 8 .symtab
-		// 9 .strtab
-		sh(nStrtab, detail::SHT_STRTAB, 0, 0, offStrtab, strtab.size(), 0, 0, 1, 0);
-		// 10 .shstrtab
-		sh(nShstrtab, detail::SHT_STRTAB, 0, 0, offShstr, shstr.size(), 0, 0, 1, 0);
-		sh(nNoteStack, detail::SHT_PROGBITS, 0, 0, 0, 0, 0, 0, 1, 0); // 11 .note.GNU-stack
+		const U64 alloc = detail::SHF_ALLOC;
+		const U64 rela = detail::SHF_INFO_LINK;
+		const ShDesc headers[] = {
+				// clang-format off
+				// name        type                  flags                          offset         size               link      info         align entsize
+				{0,           detail::SHT_NULL,     0,                             0,             0,                 0,        0,           0,    0},                    // 0 null
+				{nText,       detail::SHT_PROGBITS, alloc | detail::SHF_EXECINSTR, offText,       text.size(),       0,        0,           16,   0},                    // 1 .text
+				{nRelaText,   detail::SHT_RELA,     rela,                          offRelaText,   relaText.size(),   shSymtab, shText,      8,    detail::kRelaEntSize}, // 2 .rela.text
+				{nRodata,     detail::SHT_PROGBITS, alloc,                         offRodata,     rodata.size(),     0,        0,           16,   0},                    // 3 .rodata
+				{nRelaRodata, detail::SHT_RELA,     rela,                          offRelaRodata, relaRodata.size(), shSymtab, shRodata,    8,    detail::kRelaEntSize}, // 4 .rela.rodata
+				{nData,       detail::SHT_PROGBITS, alloc | detail::SHF_WRITE,     offData,       data.size(),       0,        0,           16,   0},                    // 5 .data
+				{nRelaData,   detail::SHT_RELA,     rela,                          offRelaData,   relaData.size(),   shSymtab, shData,      8,    detail::kRelaEntSize}, // 6 .rela.data
+				{nBss,        detail::SHT_NOBITS,   alloc | detail::SHF_WRITE,     0,             bssSize,           0,        0,           16,   0},                    // 7 .bss
+				{nSymtab,     detail::SHT_SYMTAB,   0,                             offSymtab,     symtab.size(),     shStrtab, firstGlobal, 8,    detail::kSymEntSize},  // 8 .symtab
+				{nStrtab,     detail::SHT_STRTAB,   0,                             offStrtab,     strtab.size(),     0,        0,           1,    0},                    // 9 .strtab
+				{nShstrtab,   detail::SHT_STRTAB,   0,                             offShstr,      shstr.size(),      0,        0,           1,    0},                    // 10 .shstrtab
+				{nNoteStack,  detail::SHT_PROGBITS, 0,                             0,             0,                 0,        0,           1,    0},                    // 11 .note.GNU-stack
+				// clang-format on
+		};
+		static_assert(sizeof(headers) / sizeof(headers[0]) == shCount, "headers must match shCount");
+		for(const ShDesc& h : headers) {
+			put32(out, h.name);
+			put32(out, h.type);
+			put64(out, h.flags);
+			put64(out, 0); // sh_addr: always 0 in a relocatable object
+			put64(out, h.fileOff);
+			put64(out, h.size);
+			put32(out, h.link);
+			put32(out, h.info);
+			put64(out, h.align);
+			put64(out, h.entSize);
+		}
 
 		os.write(reinterpret_cast<const C8*>(out.data()), (std::streamsize)out.size());
 	}

@@ -6,7 +6,7 @@
 
 namespace rat {
 	String GraphEmitterPass::getNodeId(const Function& fn, const Node* n) {
-		return "n" + std::to_string(reinterpret_cast<uintptr_t>(&fn) & 0xffffff) + "_" +
+		return "n" + std::to_string(reinterpret_cast<U64>(&fn) & 0xffffff) + "_" +
 					 std::to_string(n->getId());
 	}
 

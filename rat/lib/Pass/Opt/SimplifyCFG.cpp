@@ -58,13 +58,6 @@ namespace rat {
 
 	const C8* SimplifyCFGPass::name() const { return "simplifycfg"; }
 
-	B32 SimplifyCFGPass::run(Module& module) {
-		U32 changed = 0;
-		for(Function* fn : module)
-			changed += runOnFunction(*fn);
-		return changed != 0;
-	}
-
 	U32 SimplifyCFGPass::runOnFunction(Function& fn) {
 		U32 changed = 0;
 		B32 again = true;
