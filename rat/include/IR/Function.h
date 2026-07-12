@@ -66,12 +66,8 @@ namespace rat {
 		Node* sub(Node* lhs, Node* rhs);
 		Node* mul(Node* lhs, Node* rhs);
 		Node* sdiv(Node* lhs, Node* rhs);
-		Node* udiv(Node* lhs, Node* rhs);
-		Node* srem(Node* lhs, Node* rhs);
-		Node* urem(Node* lhs, Node* rhs);
 		Node* and_(Node* lhs, Node* rhs);
 		Node* or_(Node* lhs, Node* rhs);
-		Node* xor_(Node* lhs, Node* rhs);
 		Node* shl(Node* lhs, Node* rhs);
 		Node* lshr(Node* lhs, Node* rhs);
 		Node* ashr(Node* lhs, Node* rhs);
@@ -83,14 +79,6 @@ namespace rat {
 		Node* compare(Opcode op, Node* lhs, Node* rhs);
 		Node* eq(Node* lhs, Node* rhs);
 		Node* ne(Node* lhs, Node* rhs);
-		Node* slt(Node* lhs, Node* rhs);
-		Node* sle(Node* lhs, Node* rhs);
-		Node* sgt(Node* lhs, Node* rhs);
-		Node* sge(Node* lhs, Node* rhs);
-		Node* ult(Node* lhs, Node* rhs);
-		Node* ule(Node* lhs, Node* rhs);
-		Node* ugt(Node* lhs, Node* rhs);
-		Node* uge(Node* lhs, Node* rhs);
 
 		Node* convert(Opcode op, Node* operand, Type* destType);
 		Node* trunc(Node* operand, Type* destType);
@@ -115,7 +103,6 @@ namespace rat {
 		Block* createBlock(String name = "");
 		Block* createLoopHeader(String name = "");
 		void setInsertBlock(Block* block);
-		Block* insertBlock() const;
 		B32 blockFinished() const;
 		void seal(Block* block);
 		void jmp(Block* target);
@@ -127,9 +114,6 @@ namespace rat {
 		Var declareLocal(String name, Node* init);
 		Node* get(Var var);
 		void set(Var var, Node* value);
-
-		void loop(const Delegate<void()>& bodyFn);
-		void breakIf(Node* cond);
 
 		void ret(Node* value);
 		void retVoid();
@@ -192,12 +176,6 @@ namespace rat {
 		};
 		List<VarInfo> varInfos;
 		Var memVar = 0; // reserved variable carrying the memory token
-
-		struct LoopCtx {
-			Block* header;
-			Block* exit;
-		};
-		List<LoopCtx> loopStack;
 
 		List<Node*> paramCache;
 	};

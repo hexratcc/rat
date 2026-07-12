@@ -45,7 +45,6 @@ namespace rat {
 
 		Global* createGlobal(
 				const String& name, Type* type, B32 isConst, List<U8> init, List<Reloc> relocs = {});
-		Global* createString(const String& name, const String& bytes);
 		Global* getGlobal(const String& name) const;
 
 		const List<Global*>& globals() const;

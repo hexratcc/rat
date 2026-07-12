@@ -24,10 +24,8 @@ namespace rat {
 
 	U32 Node::getInputCount() const { return (U32)inputs.size(); }
 	Node* Node::getInput(U32 index) const { return inputs[index]; }
-	const List<Node*>& Node::getInputs() const { return inputs; }
 
 	const List<Node*>& Node::getUsers() const { return users; }
-	U32 Node::getUserCount() const { return (U32)users.size(); }
 	B32 Node::hasUsers() const { return !users.empty(); }
 
 	void Node::addInput(Node* value) {
@@ -310,7 +308,7 @@ namespace rat {
 
 	String nodeSignature(const Node* n) {
 		String key =
-				std::to_string((U32)n->getOpcode()) + "|" + std::to_string((uintptr_t)n->getType()) + "|";
+				std::to_string((U32)n->getOpcode()) + "|" + std::to_string(n->getType()->getUid()) + "|";
 
 		// immediate (non-edge) fields, by opcode
 		switch(n->getOpcode()) {
@@ -329,7 +327,7 @@ namespace rat {
 			key += "f" + cast<CallNode>(n)->getCallee();
 			break;
 		case Opcode::Alloc:
-			key += "a" + std::to_string((uintptr_t)cast<AllocNode>(n)->getAllocType());
+			key += "a" + std::to_string(cast<AllocNode>(n)->getAllocType()->getUid());
 			break;
 		default:
 			break;

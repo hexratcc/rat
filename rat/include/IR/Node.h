@@ -24,10 +24,8 @@ namespace rat {
 
 		U32 getInputCount() const;
 		Node* getInput(U32 index) const;
-		const List<Node*>& getInputs() const;
 
 		const List<Node*>& getUsers() const;
-		U32 getUserCount() const;
 		B32 hasUsers() const;
 
 		void addInput(Node* value);

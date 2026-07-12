@@ -47,12 +47,6 @@ namespace rat {
 		return g;
 	}
 
-	Global* Module::createString(const String& name, const String& bytes) {
-		List<U8> init(bytes.begin(), bytes.end());
-		Type* type = getArray(getInt(8), (U32)init.size());
-		return createGlobal(name, type, true, std::move(init));
-	}
-
 	Global* Module::getGlobal(const String& name) const {
 		for(Global* g : globs) {
 			if(g->getName() == name)
