@@ -1,10 +1,10 @@
 #include "Compile.h"
 
-#include <fstream>
 #include "Emit.h"
 #include "Lexer.h"
 #include "Parser.h"
 #include "Preprocess.h"
+#include <fstream>
 
 #include "Support/StringUtil.h"
 #include "rat.h"

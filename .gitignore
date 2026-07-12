@@ -7,3 +7,4 @@ compile_commands.json
 fred.txt
 *.o
 profile.perf
+perf.data

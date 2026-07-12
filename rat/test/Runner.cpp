@@ -129,20 +129,21 @@ namespace {
 			return false;
 		}
 
-		String spec;
-		for(const String& p : tf.passes) {
-			if(!spec.empty())
-				spec += ',';
-			spec += p;
-		}
 		std::ostringstream sink;
-		String perr2;
 		B32 ok = true;
-		runPasses(mod, target, [&](PassManager& pm) { ok = buildPipeline(pm, spec, sink, perr2); });
-		if(!ok) {
-			err = perr2;
+		runPasses(mod, target, [&](PassManager& pm) {
+			for(const String& p : tf.passes) {
+				UniquePtr<Pass> pass = passRegistry().create(p, sink);
+				if(!pass) {
+					err = "unknown pass: " + p;
+					ok = false;
+					return;
+				}
+				pm.add(std::move(pass));
+			}
+		});
+		if(!ok)
 			return false;
-		}
 
 		String actualCanon, expectCanon, cerr;
 		if(!canonicalIR(emitToString(mod), actualCanon, cerr)) {

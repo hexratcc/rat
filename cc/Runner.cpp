@@ -1,14 +1,14 @@
 #include "Compile.h"
 
+#include "Emit.h"
+#include "Lexer.h"
+#include "Parser.h"
+#include "Preprocess.h"
 #include <fstream>
 #include <poll.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include "Emit.h"
-#include "Lexer.h"
-#include "Parser.h"
-#include "Preprocess.h"
 
 #include "Support/StringUtil.h"
 #include "Support/TestHarness.h"
@@ -45,7 +45,7 @@ namespace {
 		if(!p)
 			return out;
 		char buf[kReadBufSize];
-		size_t n;
+		U64 n;
 		while((n = fread(buf, 1, sizeof(buf), p)) > 0)
 			out.append(buf, n);
 		pclose(p);
@@ -254,7 +254,7 @@ namespace {
 		}
 		capturedOut.clear();
 		char buf[kReadBufSize];
-		size_t n;
+		U64 n;
 		while((n = fread(buf, 1, sizeof(buf), p)) > 0)
 			capturedOut.append(buf, n);
 		I32 status = pclose(p);
@@ -408,8 +408,10 @@ B32 runCaseForked(const String& path, String& err) {
 		close(fds[0]);
 		String cerr;
 		B32 ok = runCase(path, cerr);
-		if(!ok && !cerr.empty())
-			(void)write(fds[1], cerr.data(), cerr.size());
+		if(!ok && !cerr.empty()) {
+			I64 ignored = write(fds[1], cerr.data(), cerr.size());
+			(void)ignored;
+		}
 		close(fds[1]);
 		_exit(ok ? 0 : 1);
 	}
@@ -438,9 +440,9 @@ B32 runCaseForked(const String& path, String& err) {
 			break;
 		}
 		char buf[kReadBufSize];
-		ssize_t n = read(fds[0], buf, sizeof(buf));
+		I64 n = read(fds[0], buf, sizeof(buf));
 		if(n > 0)
-			childErr.append(buf, (size_t)n);
+			childErr.append(buf, (U64)n);
 		else
 			break; // EOF (child closed the pipe) or read error
 	}
