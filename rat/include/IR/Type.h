@@ -8,6 +8,7 @@ namespace rat {
 		enum Kind { Control, Memory, Int, Float, Ptr, Tuple, Array };
 
 		Type(Kind kind, U32 bits, List<Type*> elements);
+		U32 getUid() const;
 
 		B32 isControl() const;
 		B32 isMemory() const;
@@ -31,8 +32,11 @@ namespace rat {
 		void print(std::ostream& os) const;
 		String str() const;
 	private:
+		friend struct TypeContext;
+
 		Kind kind;
 		U32 bits;
+		U32 uid = 0;
 		List<Type*> elements;
 	};
 
@@ -50,6 +54,9 @@ namespace rat {
 	protected:
 		Arena arena;
 	private:
+		Type* make(Type::Kind kind, U32 bits, List<Type*> elements);
+
+		U32 nextUid = 0;
 		Type* control = nullptr;
 		Type* memory = nullptr;
 		Type* ptr = nullptr;

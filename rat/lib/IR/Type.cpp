@@ -15,6 +15,7 @@ namespace rat {
 	B32 Type::isArray() const { return kind == Array; }
 	B32 Type::isData() const { return isInt() || isFloat() || isPtr(); }
 
+	U32 Type::getUid() const { return uid; }
 	U32 Type::getIntWidth() const { return bits; }
 	U32 Type::getFloatWidth() const { return bits; }
 
@@ -81,10 +82,16 @@ namespace rat {
 		return os.str();
 	}
 
+	Type* TypeContext::make(Type::Kind kind, U32 bits, List<Type*> elements) {
+		Type* t = arena.make<Type>(kind, bits, std::move(elements));
+		t->uid = nextUid++;
+		return t;
+	}
+
 	TypeContext::TypeContext() {
-		control = arena.make<Type>(Type::Control, 0, List<Type*>{});
-		memory = arena.make<Type>(Type::Memory, 0, List<Type*>{});
-		ptr = arena.make<Type>(Type::Ptr, 0, List<Type*>{});
+		control = make(Type::Control, 0, {});
+		memory = make(Type::Memory, 0, {});
+		ptr = make(Type::Ptr, 0, {});
 	}
 
 	Type* TypeContext::getControl() { return control; }
@@ -97,7 +104,7 @@ namespace rat {
 		auto it = ints.find(bits);
 		if(it != ints.end())
 			return it->second;
-		Type* t = arena.make<Type>(Type::Int, bits, List<Type*>{});
+		Type* t = make(Type::Int, bits, {});
 		ints.emplace(bits, t);
 		return t;
 	}
@@ -106,7 +113,7 @@ namespace rat {
 		auto it = floats.find(bits);
 		if(it != floats.end())
 			return it->second;
-		Type* t = arena.make<Type>(Type::Float, bits, List<Type*>{});
+		Type* t = make(Type::Float, bits, {});
 		floats.emplace(bits, t);
 		return t;
 	}
@@ -117,7 +124,7 @@ namespace rat {
 				return existing;
 		}
 
-		Type* t = arena.make<Type>(Type::Tuple, 0, elements);
+		Type* t = make(Type::Tuple, 0, elements);
 		tuples.push_back(t);
 		return t;
 	}
@@ -128,7 +135,7 @@ namespace rat {
 				return existing;
 		}
 
-		Type* t = arena.make<Type>(Type::Array, count, List<Type*>{element});
+		Type* t = make(Type::Array, count, {element});
 		arrays.push_back(t);
 		return t;
 	}
