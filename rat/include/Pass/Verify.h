@@ -32,6 +32,7 @@ namespace rat {
 
 			B32 run();
 			void err(const Node* n, const String& msg);
+			B32 check(B32 cond, const Node* n, const String& msg);
 			static B32 isCtrl(const Node* n);
 			static B32 isMem(const Node* n);
 			static B32 isData(const Node* n);
