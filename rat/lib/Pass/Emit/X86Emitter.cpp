@@ -202,10 +202,6 @@ namespace rat {
 		return x87SlotOf(n);
 	}
 
-	void X86LowerPass::storeIntTo(VReg addr, VReg src, U32 w) {
-		inst(X86Op::Store, detail::kGp, {}, {MachineOperand::vr(addr), MachineOperand::vr(src, w)});
-	}
-
 	void X86LowerPass::emitStore(StoreNode* s) {
 		Node* val = s->getValue();
 		U32 w = opWidth(val->getType());
@@ -222,7 +218,7 @@ namespace rat {
 			inst(X86Op::FStore, detail::kFp, {}, {MachineOperand::vr(addr), MachineOperand::vr(v, w)});
 		} else {
 			VReg v = gpValue(val);
-			storeIntTo(addr, v, w);
+			inst(X86Op::Store, detail::kGp, {}, {MachineOperand::vr(addr), MachineOperand::vr(v, w)});
 		}
 	}
 
@@ -493,24 +489,17 @@ namespace rat {
 			return;
 		}
 		switch(op) {
-		case Opcode::Trunc: {
-			VReg s = gpValue(src);
-			VReg d = vregFor(n);
-			copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
-			signExtBits(d, intBits(n->getType()));
-			return;
-		}
-		case Opcode::SExt: {
-			VReg s = gpValue(src);
-			VReg d = vregFor(n);
-			copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
-			return;
-		}
+		case Opcode::Trunc:
+		case Opcode::SExt:
 		case Opcode::ZExt: {
+			// values live sign-extended in 64-bit registers
 			VReg s = gpValue(src);
 			VReg d = vregFor(n);
 			copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
-			maskBits(d, intBits(src->getType()));
+			if(op == Opcode::Trunc)
+				signExtBits(d, intBits(n->getType()));
+			else if(op == Opcode::ZExt)
+				maskBits(d, intBits(src->getType()));
 			return;
 		}
 		case Opcode::SIToFP:
@@ -903,6 +892,14 @@ namespace rat {
 	}
 
 	void X86LowerPass::emitPhiCopies(I32 targetBlock, I32 predIdx) {
+		// parallel-move semantics
+		auto mov = [&](VReg dst, VReg src, U32 cls, U32 w) {
+			if(cls == detail::kFp)
+				copy(MachineOperand::vr(dst, w), MachineOperand::vr(src, w), detail::kFp);
+			else
+				copy(MachineOperand::vr(dst), MachineOperand::vr(src), detail::kGp);
+		};
+
 		const Schedule::Block& tb = sched->block(targetBlock);
 		List<PhiNode*> live;
 		List<VReg> tmp;
@@ -921,23 +918,14 @@ namespace rat {
 				continue;
 			}
 			VReg t = fresh(cls);
-			if(cls == detail::kFp) {
-				U32 w = opWidth(phi->getType());
-				copy(MachineOperand::vr(t, w), MachineOperand::vr(sseValue(v), w), detail::kFp);
-			} else
-				copy(MachineOperand::vr(t), MachineOperand::vr(gpValue(v)), detail::kGp);
+			mov(t, cls == detail::kFp ? sseValue(v) : gpValue(v), cls, opWidth(phi->getType()));
 			live.push_back(phi);
 			tmp.push_back(t);
 		}
-		for(size_t i = 0; i < live.size(); i++) {
+		for(U32 i = 0; i < (U32)live.size(); ++i) {
 			PhiNode* phi = live[i];
 			U32 cls = classOf(phi->getType());
-			VReg d = vregFor(phi);
-			if(cls == detail::kFp) {
-				U32 w = opWidth(phi->getType());
-				copy(MachineOperand::vr(d, w), MachineOperand::vr(tmp[i], w), detail::kFp);
-			} else
-				copy(MachineOperand::vr(d), MachineOperand::vr(tmp[i]), detail::kGp);
+			mov(vregFor(phi), tmp[i], cls, opWidth(phi->getType()));
 		}
 	}
 
@@ -1032,6 +1020,7 @@ namespace rat {
 			fn.frameBytes = (fn.frameBytes + 7u) & ~7u;
 			return -(I32)fn.frameBytes;
 		};
+		hooks.isCopy = [](const MachineInstr& in) { return in.op == (MachineOpcode)X86Op::Copy; };
 		return hooks;
 	}
 
@@ -1111,10 +1100,6 @@ namespace rat {
 			a->movRR(d, RSP);
 			return;
 		}
-		a->leaMem(gpOf(in.defs[0]), RBP, (I32)in.imm);
-	}
-
-	void X86EncodePass::emitLoadFrame(const MachineInstr& in) {
 		a->leaMem(gpOf(in.defs[0]), RBP, (I32)in.imm);
 	}
 
@@ -1536,9 +1521,6 @@ namespace rat {
 		case X86Op::LoadSym:
 			emitLoadSym(in);
 			return;
-		case X86Op::LoadFrame:
-			emitLoadFrame(in);
-			return;
 		case X86Op::FrameAddr:
 			emitFrameAddr(in);
 			return;
@@ -1588,9 +1570,6 @@ namespace rat {
 			return;
 		case X86Op::SetCC:
 			emitSetCC(in);
-			return;
-		case X86Op::Movzx:
-			a->movzxByte(gpOf(in.defs[0]), gpOf(in.uses[0]));
 			return;
 		case X86Op::MaskBits:
 			emitMaskBits(in);

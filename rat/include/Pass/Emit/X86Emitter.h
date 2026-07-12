@@ -56,7 +56,6 @@ namespace rat {
 		Copy,			 // dst = src (reg-reg or fill from a fixed phys; RA-coalescable)
 		LoadImm,	 // dst = imm
 		LoadSym,	 // dst = lea rip[sym]  (address of a global)
-		LoadFrame, // dst = lea rbp[slot] (address of a frame slot, e.g. alloc storage)
 		FrameAddr, // dst = lea rbp[imm]  (address of an arbitrary rbp offset; imm = disp)
 		// integer memory: use[0] = address reg, imm = displacement
 		Load,	 // dst = [addr + disp], sign/zero-extended per width/imm2
@@ -79,7 +78,6 @@ namespace rat {
 		URem,				 // RAX/RDX/RCX fixed by lowering via Phys operands
 		Cmp,				 // flag-setting compare of use[0],use[1]
 		SetCC,			 // dst = (cc); condition code in imm
-		Movzx,			 // dst = zero-extend byte src
 		MaskBits,		 // dst &= ((1<<imm)-1)
 		SignExtBits, // dst = sign-extend dst from imm bits to 64
 		// SSE scalar float
@@ -166,7 +164,6 @@ namespace rat {
 		VReg gpValue(Node* n);
 		VReg sseValue(Node* n);
 		I32 x87Value(Node* n);
-		void storeIntTo(VReg addr, VReg src, U32 w);
 		void emitStore(StoreNode* s);
 		void emitLoad(LoadNode* l);
 		void emitAlloc(AllocNode* al);
@@ -233,7 +230,6 @@ namespace rat {
 		void emitLoadImm(const MachineInstr& in);
 		void emitLoadSym(const MachineInstr& in);
 		void emitFrameAddr(const MachineInstr& in);
-		void emitLoadFrame(const MachineInstr& in);
 		void emitLoad(const MachineInstr& in);
 		void emitStore(const MachineInstr& in);
 		void emitFLoad(const MachineInstr& in);
