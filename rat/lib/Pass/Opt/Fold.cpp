@@ -223,6 +223,151 @@ namespace rat {
 		return nullptr;
 	}
 
+	// hacker's delight 10-9: magic number for unsigned 32-bit division by d
+	struct MagicU32 {
+		U32 m;
+		U32 s;
+		B32 a; // "add" indicator: the 33-bit constant case
+	};
+
+	MagicU32 magicU32(U32 d) {
+		MagicU32 mag = {0, 0, false};
+		U32 nc = (U32)-1 - (U32)(-(I64)d) % d;
+		U32 p = 31;
+		U32 q1 = 0x80000000u / nc, r1 = 0x80000000u - q1 * nc;
+		U32 q2 = 0x7FFFFFFFu / d, r2 = 0x7FFFFFFFu - q2 * d;
+		U32 delta;
+		do {
+			p = p + 1;
+			if(r1 >= nc - r1) {
+				q1 = 2 * q1 + 1;
+				r1 = 2 * r1 - nc;
+			} else {
+				q1 = 2 * q1;
+				r1 = 2 * r1;
+			}
+			if(r2 + 1 >= d - r2) {
+				if(q2 >= 0x7FFFFFFFu)
+					mag.a = true;
+				q2 = 2 * q2 + 1;
+				r2 = 2 * r2 + 1 - d;
+			} else {
+				if(q2 >= 0x80000000u)
+					mag.a = true;
+				q2 = 2 * q2;
+				r2 = 2 * r2 + 1;
+			}
+			delta = d - 1 - r2;
+		} while(p < 64 && (q1 < delta || (q1 == delta && r1 == 0)));
+		mag.m = q2 + 1;
+		mag.s = p - 32;
+		return mag;
+	}
+
+	// gacker's delight 10-4: magic number for signed 32-bit division by d
+	struct MagicS32 {
+		I32 m;
+		U32 s;
+	};
+
+	MagicS32 magicS32(I32 d) {
+		const U32 two31 = 0x80000000u;
+		U32 ad = (U32)(d < 0 ? -(I64)d : d);
+		U32 t = two31 + ((U32)d >> 31);
+		U32 anc = t - 1 - t % ad;
+		U32 p = 31;
+		U32 q1 = two31 / anc, r1 = two31 - q1 * anc;
+		U32 q2 = two31 / ad, r2 = two31 - q2 * ad;
+		U32 delta;
+		do {
+			p = p + 1;
+			q1 = 2 * q1;
+			r1 = 2 * r1;
+			if(r1 >= anc) {
+				q1 = q1 + 1;
+				r1 = r1 - anc;
+			}
+			q2 = 2 * q2;
+			r2 = 2 * r2;
+			if(r2 >= ad) {
+				q2 = q2 + 1;
+				r2 = r2 - ad;
+			}
+			delta = ad - r2;
+		} while(q1 < delta || (q1 == delta && r1 == 0));
+		MagicS32 mag;
+		mag.m = (I32)(q2 + 1);
+		if(d < 0)
+			mag.m = -mag.m;
+		mag.s = p - 32;
+		return mag;
+	}
+
+	// x udiv d as a multiply-shift over a 64-bit widening (w == 32, d not a
+	// power of two, d >= 3)
+	Node* buildUDivByConst(Function& fn, Type* ty, Node* x, U32 d) {
+		Type* i64 = fn.types().getInt(64);
+		auto k64 = [&](I64 v) { return constant(fn, i64, v); };
+		auto bin = [&](Opcode o, Node* a, Node* b) { return fn.create<BinaryNode>(o, i64, a, b); };
+		MagicU32 mg = magicU32(d);
+		Node* x64 = fn.create<ConvertNode>(Opcode::ZExt, i64, x);
+		Node* prod = bin(Opcode::Mul, x64, k64((I64)(U64)mg.m));
+		Node* q64;
+		if(!mg.a) {
+			q64 = bin(Opcode::LShr, prod, k64(32 + (I64)mg.s));
+		} else { // 33-bit constant: t = hi32(prod); q = (((x - t) >> 1) + t) >> (s - 1)
+			Node* t = bin(Opcode::LShr, prod, k64(32));
+			Node* half = bin(Opcode::LShr, bin(Opcode::Sub, x64, t), k64(1));
+			q64 = bin(Opcode::LShr, bin(Opcode::Add, half, t), k64((I64)mg.s - 1));
+		}
+		return fn.create<ConvertNode>(Opcode::Trunc, ty, q64);
+	}
+
+	// x sdiv d as a multiply-shift over a 64-bit widening (w == 32, |d| >= 2,
+	// d != INT32_MIN)
+	Node* buildSDivByConst(Function& fn, Type* ty, Node* x, I32 d) {
+		Type* i64 = fn.types().getInt(64);
+		auto k64 = [&](I64 v) { return constant(fn, i64, v); };
+		auto bin = [&](Opcode o, Node* a, Node* b) { return fn.create<BinaryNode>(o, i64, a, b); };
+		MagicS32 mg = magicS32(d);
+		Node* x64 = fn.create<ConvertNode>(Opcode::SExt, i64, x);
+		Node* q0 = bin(Opcode::AShr, bin(Opcode::Mul, x64, k64(mg.m)), k64(32));
+		if(d > 0 && mg.m < 0)
+			q0 = bin(Opcode::Add, q0, x64);
+		else if(d < 0 && mg.m > 0)
+			q0 = bin(Opcode::Sub, q0, x64);
+		Node* q = bin(Opcode::AShr, q0, k64((I64)mg.s));
+		q = bin(Opcode::Add, q, bin(Opcode::LShr, q, k64(63))); // add 1 if the quotient is negative
+		return fn.create<ConvertNode>(Opcode::Trunc, ty, q);
+	}
+
+	// x sdiv 2^k via bias-and-shift (w == 32, k in [1, 30])
+	Node* buildSDivByPow2(Function& fn, Type* ty, Node* x, I32 k) {
+		auto ki = [&](I64 v) { return constant(fn, ty, v); };
+		auto bin = [&](Opcode o, Node* a, Node* b) { return fn.create<BinaryNode>(o, ty, a, b); };
+		Node* sign = bin(Opcode::AShr, x, ki(31));
+		Node* bias = bin(Opcode::LShr, sign, ki(32 - k));
+		return bin(Opcode::AShr, bin(Opcode::Add, x, bias), ki(k));
+	}
+
+	// quotient expansion for any supported constant divisor, or nullptr
+	Node* buildDivByConst(Function& fn, Opcode op, Type* ty, U32 w, Node* x, ConstantNode* c) {
+		if(w != 32)
+			return nullptr;
+		if(op == Opcode::UDiv || op == Opcode::URem) {
+			U32 d = (U32)FoldPass::maskW(c->getValue(), w);
+			if(d < 3 || (d & (d - 1)) == 0)
+				return nullptr; // 0/1/2 and powers of two are handled elsewhere
+			return buildUDivByConst(fn, ty, x, d);
+		}
+		I32 d = (I32)signExtend(c->getValue(), w);
+		if(d == 0 || d == 1 || d == -1 || d == INT32_MIN)
+			return nullptr;
+		if(d > 0 && (d & (d - 1)) == 0)
+			return buildSDivByPow2(fn, ty, x, __builtin_ctz((U32)d));
+		return buildSDivByConst(fn, ty, x, d);
+	}
+
 	Node* foldBinaryStrength(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs) {
 		auto mkBin = [&](Opcode o, Node* x, I64 c) {
 			return fn.create<BinaryNode>(o, ty, x, constant(fn, ty, c));
@@ -235,10 +380,32 @@ namespace rat {
 		case Opcode::UDiv:
 			if(I32 k = FoldPass::pow2Log(rhs, w); k > 0)
 				return mkBin(Opcode::LShr, lhs, k);
+			if(ConstantNode* c = dyn_cast<ConstantNode>(rhs))
+				return buildDivByConst(fn, op, ty, w, lhs, c);
 			break;
 		case Opcode::URem:
 			if(I32 k = FoldPass::pow2Log(rhs, w); k > 0)
 				return mkBin(Opcode::And, lhs, (I64)((1ULL << k) - 1));
+			if(ConstantNode* c = dyn_cast<ConstantNode>(rhs))
+				if(Node* q = buildDivByConst(fn, op, ty, w, lhs, c)) // r = x - (x / d) * d
+					return fn.create<BinaryNode>(
+							Opcode::Sub,
+							ty,
+							lhs,
+							fn.create<BinaryNode>(Opcode::Mul, ty, q, constant(fn, ty, c->getValue())));
+			break;
+		case Opcode::SDiv:
+			if(ConstantNode* c = dyn_cast<ConstantNode>(rhs))
+				return buildDivByConst(fn, op, ty, w, lhs, c);
+			break;
+		case Opcode::SRem:
+			if(ConstantNode* c = dyn_cast<ConstantNode>(rhs))
+				if(Node* q = buildDivByConst(fn, op, ty, w, lhs, c)) // r = x - (x / d) * d
+					return fn.create<BinaryNode>(
+							Opcode::Sub,
+							ty,
+							lhs,
+							fn.create<BinaryNode>(Opcode::Mul, ty, q, constant(fn, ty, c->getValue())));
 			break;
 		default:
 			break;
@@ -361,6 +528,28 @@ namespace rat {
 				return fn.constBool(false);
 			default:
 				return nullptr;
+			}
+		}
+
+		// collapse boolean re-tests: comparing an i1 (possibly zero-extended)
+		// against 0/1 yields the i1 itself or its complement
+		if((op == Opcode::Eq || op == Opcode::Ne) && cr &&
+			 (cr->getValue() == 0 || cr->getValue() == 1)) {
+			Node* boolean = nullptr;
+			if(ty->getIntWidth() == 1) {
+				boolean = lhs;
+			} else if(ConvertNode* cv = dyn_cast<ConvertNode>(lhs)) {
+				if(cv->getOpcode() == Opcode::ZExt && cv->getOperand()->getType()->isInt() &&
+					 cv->getOperand()->getType()->getIntWidth() == 1)
+					boolean = cv->getOperand();
+			}
+			if(boolean) {
+				// (b != 0) == b, (b == 1) == b; the other two are the complement
+				B32 direct = (op == Opcode::Ne) == (cr->getValue() == 0);
+				if(direct)
+					return boolean;
+				Type* i1 = boolean->getType();
+				return fn.create<BinaryNode>(Opcode::Xor, i1, boolean, constant(fn, i1, 1));
 			}
 		}
 		return nullptr;
