@@ -12,6 +12,10 @@ namespace rat {
 } // namespace rat
 
 namespace rat::cc {
+	namespace detail {
+		U32 alignedChunkWidth(U32 offset, U32 size);
+	} // namespace detail
+
 	struct Emitter {
 		explicit Emitter(Module& module);
 
