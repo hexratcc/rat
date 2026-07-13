@@ -142,10 +142,14 @@ namespace rat {
 		static B32 isX87Ty(const Type* t);
 		static B32 isSseTy(const Type* t);
 		static U32 intBits(const Type* t);
+		static B32 isIntCompare(Node* n);
+		static B32 immOf(Node* n, I64& out);
+		static B32 branchOnlyCompare(Node* n);
 		static U32 opWidth(const Type* t);
 		static String libcName(const String& callee);
 
 		I32 reserve(U32 bytes);
+		void needScratch();
 		void layout();
 		void layoutVariadic();
 		U32 classOf(const Type* t) const;
@@ -162,6 +166,8 @@ namespace rat {
 		void copy(MachineOperand dst, MachineOperand src, U32 cls);
 		MachineInstr& def1(X86Op op, VReg dst, U32 cls, List<MachineOperand> uses);
 		VReg gpValue(Node* n);
+		VReg addrValue(Node* ptr, I32& disp);
+		B32 addressOnlyAdd(Node* n);
 		VReg sseValue(Node* n);
 		I32 x87Value(Node* n);
 		void emitStore(StoreNode* s);

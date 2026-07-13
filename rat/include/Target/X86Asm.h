@@ -98,6 +98,12 @@ namespace rat {
 			d64(imm);
 		}
 
+		void movRR32(Reg dst, Reg src) {
+			rex(false, src, 0, dst);
+			b(0x89);
+			modrmReg(src, dst);
+		}
+
 		void movRR(Reg dst, Reg src) {
 			rex(true, src, 0, dst);
 			b(0x89);
@@ -179,9 +185,51 @@ namespace rat {
 			modrmReg(ext, r);
 			d32((U32)imm);
 		}
-		void addRegImm32(Reg r, I32 imm) { groupImm32(0, r, imm); }
-		void subRegImm32(Reg r, I32 imm) { groupImm32(5, r, imm); }
-		void cmpRegImm32(Reg r, I32 imm) { groupImm32(7, r, imm); }
+		void groupImm8(U8 ext, Reg r, I8 imm) {
+			rex(true, 0, 0, r);
+			b(0x83);
+			modrmReg(ext, r);
+			b((U8)imm);
+		}
+		// group-1 ALU op with an immediate, picking the short imm8 form when it fits
+		void aluImm(U8 ext, Reg r, I32 imm) {
+			if(imm >= -128 && imm <= 127)
+				groupImm8(ext, r, (I8)imm);
+			else
+				groupImm32(ext, r, imm);
+		}
+		void addRegImm32(Reg r, I32 imm) { aluImm(0, r, imm); }
+		void subRegImm32(Reg r, I32 imm) { aluImm(5, r, imm); }
+		void cmpRegImm32(Reg r, I32 imm) { aluImm(7, r, imm); }
+
+		// dst = src * imm
+		void imulRRI(Reg dst, Reg src, I32 imm) {
+			rex(true, dst, 0, src);
+			if(imm >= -128 && imm <= 127) {
+				b(0x6b);
+				modrmReg(dst, src);
+				b((U8)imm);
+			} else {
+				b(0x69);
+				modrmReg(dst, src);
+				d32((U32)imm);
+			}
+		}
+
+		// mov r32, imm32
+		void movRegImm32(Reg r, U32 imm) {
+			rex(false, 0, 0, r);
+			b((U8)(0xb8 + (r & 7)));
+			d32(imm);
+		}
+
+		// mov r64, imm32
+		void movRegImmSext32(Reg r, I32 imm) {
+			rex(true, 0, 0, r);
+			b(0xc7);
+			modrmReg(0, r);
+			d32((U32)imm);
+		}
 
 		// dst += [base + disp]  (64-bit)
 		void addRegMem(Reg dst, Reg base, I32 disp) {
