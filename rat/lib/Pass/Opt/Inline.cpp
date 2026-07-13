@@ -114,9 +114,38 @@ namespace rat {
 		return true;
 	}
 
+	B32 InlinePass::reaches(Function* from, Function* target, Set<const Function*>& seen) {
+		if(!seen.insert(from).second)
+			return false;
+		Module& m = from->getModule();
+		for(Node* n : *from) {
+			CallNode* c = dyn_cast<CallNode>(n);
+			if(!c)
+				continue;
+			Function* next = m.getFunction(c->getCallee());
+			if(!next)
+				continue;
+			if(next == target || reaches(next, target, seen))
+				return true;
+		}
+		return false;
+	}
+
+	B32 InlinePass::isCyclic(Function* fn) {
+		auto it = cyclicCache.find(fn);
+		if(it != cyclicCache.end())
+			return it->second;
+		Set<const Function*> seen;
+		B32 cyc = reaches(fn, fn, seen);
+		cyclicCache[fn] = cyc;
+		return cyc;
+	}
+
 	B32 InlinePass::shouldInline(const Function& caller, CallNode* call, Function* callee) {
 		if(!callee || callee == &caller)
 			return false; // missing or directly recursive
+		if(isCyclic(callee))
+			return false; // participates in a recursive cycle
 		if(!callee->hasReturn())
 			return false;
 		if(call->returnsValue() != callee->returnsValue())
@@ -131,9 +160,12 @@ namespace rat {
 
 	U32 InlinePass::runOnFunction(Function& caller) {
 		Module& m = caller.getModule();
+		cyclicCache.clear(); // earlier inlining may have added call edges
 		U32 count = 0;
+		U32 baseline = caller.size();
 		B32 changed = true;
-		while(changed && count < kMaxInlinesPerFunction) {
+		while(changed && count < kMaxInlinesPerFunction &&
+					caller.size() <= baseline + kCallerGrowthBudget) {
 			changed = false;
 			List<CallNode*> calls;
 			for(Node* n : caller)

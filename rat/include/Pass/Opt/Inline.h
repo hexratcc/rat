@@ -22,11 +22,17 @@ namespace rat {
 	struct InlinePass : FunctionPass {
 		static constexpr U32 kInlineNodeBudget = 64;			 // max callee size to inline
 		static constexpr U32 kMaxInlinesPerFunction = 256; // per-caller fuel
+		static constexpr U32 kCallerGrowthBudget = 192;		 // max nodes a caller may gain
 
 		const C8* name() const override;
 		U32 runOnFunction(Function& caller) override;
 	private:
 		B32 isStartProj(const Function& callee, Node* n);
+
+		B32 isCyclic(Function* fn);
+		B32 reaches(Function* from, Function* target, Set<const Function*>& seen);
+
+		Map<const Function*, B32> cyclicCache;
 
 		Node* incomingForStartProj(CallNode* call, U32 startProjIdx);
 		B32 shouldInline(const Function& caller, CallNode* call, Function* callee);
