@@ -149,7 +149,9 @@ namespace rat {
 	}
 
 	Node* Function::attachCallProjections(CallNode* c, Type* retType) {
-		cur->ctrl = proj(c, CallNode::controlProjIndex(), ctrlTy(), "ctrl");
+		Node* ctrlProj = proj(c, CallNode::controlProjIndex(), ctrlTy(), "ctrl");
+		if(cur->ctrl)
+			cur->ctrl = ctrlProj;
 		writeVar(memVar, proj(c, CallNode::memoryProjIndex(), memTy(), "mem"));
 		if(retType)
 			return proj(c, CallNode::valueProjIndex(), retType, "ret");
@@ -400,6 +402,39 @@ namespace rat {
 				} else {
 					++it;
 				}
+			}
+		}
+		return removed;
+	}
+
+	U32 Function::pruneUnreachable() {
+		Set<Node*> dead;
+		List<Node*> work;
+		for(Node* n : nodes) {
+			B32 anchored = isa<LoadNode>(n) || isa<StoreNode>(n) || isa<CallNode>(n);
+			if(anchored && !n->getControlInput()) {
+				dead.insert(n);
+				work.push_back(n);
+			}
+		}
+		while(!work.empty()) {
+			Node* n = work.back();
+			work.pop_back();
+			for(Node* u : n->getUsers())
+				if(dead.insert(u).second)
+					work.push_back(u);
+		}
+		if(dead.empty())
+			return 0;
+		for(Node* n : dead)
+			n->clearInputs();
+		U32 removed = 0;
+		for(auto it = nodes.begin(); it != nodes.end();) {
+			if(dead.count(*it)) {
+				it = nodes.erase(it);
+				++removed;
+			} else {
+				++it;
 			}
 		}
 		return removed;
