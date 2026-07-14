@@ -8,6 +8,7 @@
 #include "Pass/Emit/GraphEmitter.h"
 #include "Pass/Emit/TextEmitter.h"
 
+#include "Pass/Opt/DeadFuncElim.h"
 #include "Pass/Opt/Fold.h"
 #include "Pass/Opt/GVN.h"
 #include "Pass/Opt/Inline.h"
@@ -39,6 +40,7 @@ namespace rat {
 		r.add<SimplifyCFGPass>("simplifycfg", "control-flow simplification");
 		r.add<MemoryOptPass>("memoryopt", "load/store forwarding");
 		r.add<InlinePass>("inline", "function inlining");
+		r.add<DeadFuncElimPass>("dfe", "dead (unreferenced internal) function elimination");
 		r.add<VerifyPass>("verify", "edge consistency + structural invariants");
 		r.add<TextEmitterPass>("text-emitter", "textual IR visualization");
 		r.add<GraphEmitterPass>("graph-emitter", "Graphviz DOT IR visualization");
@@ -55,7 +57,7 @@ namespace rat {
 	}
 
 	List<String> defaultOptPipeline() {
-		return {"sccp", "fold", "simplifycfg", "gvn", "memoryopt", "inline", "fold", "gvn"};
+		return {"sccp", "fold", "simplifycfg", "gvn", "memoryopt", "inline", "fold", "gvn", "dfe"};
 	}
 
 	B32 buildPipeline(PassManager& pm, const String& spec, std::ostream& out, String& err) {
