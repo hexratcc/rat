@@ -8,12 +8,14 @@
 namespace rat {
 	struct TargetInfo;
 
+	// a relocation inside a global's initializer
 	struct Reloc {
 		U32 offset = 0;
 		String symbol;
 		I64 addend = 0;
 	};
 
+	// module-level data symbol
 	struct Global {
 		Global(String name, Type* type, B32 isConst, List<U8> init, List<Reloc> relocs = {});
 

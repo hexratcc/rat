@@ -1,3 +1,11 @@
+// a function owns its nodes and exposes two layers of API:
+// - graph layer:    create<T>() for raw node construction, iteration over all nodes, and
+//                   maintenance helpers (ie. for passes)
+// - builder layer:  blocks, jumps, and named variables, so a frontend can emit straight-line code
+//                   statement by statement and get a valid graph with phis already placed
+// emission always happens into the current insertion block (setInsertBlock). a block collects its
+// predecessor control edges as other blocks jump to it and must be sealed once no further
+// predecessors can appear.
 #ifndef RAT_IR_FUNCTION_H
 #define RAT_IR_FUNCTION_H
 
@@ -40,21 +48,23 @@ namespace rat {
 			return node;
 		}
 
+		// builder until seal() fixes the predecessor set
 		struct Block {
 			RegionNode* region = nullptr;
-			List<Node*> preds;
+			List<Node*> preds;			 // incoming control edges
 			List<Block*> predBlocks; // source block per pred (parallel)
 			Node* ctrl = nullptr;		 // control anchor once active
 			B32 sealed = false;
 			B32 active = false; // ctrl established
 			B32 loopHeader = false;
 			B32 finished = false; // ended in a terminator
-			Map<U32, Node*> defs;
+			Map<U32, Node*> defs; // cache current SSA value of each Var
 			Map<U32, PhiNode*> incompletePhis;
 		};
 
 		using Var = U32;
 
+		// types
 		Type* boolTy() const;
 		Type* ptrTy() const;
 		Type* memTy() const;
@@ -67,6 +77,7 @@ namespace rat {
 		Node* constBool(B32 value);
 		Node* constFloat(Type* type, F64 value);
 
+		// operations
 		Node* binary(Opcode op, Node* lhs, Node* rhs);
 		Node* add(Node* lhs, Node* rhs);
 		Node* sub(Node* lhs, Node* rhs);
@@ -101,15 +112,23 @@ namespace rat {
 		Node* call(const String& callee, Type* retType, const List<Node*>& args);
 		Node* callIndirect(Node* target, Type* retType, const List<Node*>& args);
 
+		// control
 		IfNode* iff(Node* predicate);
 		ProjNode* proj(Node* tuple, U32 index, Type* type, String label = "");
 		RegionNode* region(const List<Node*>& preds);
 		PhiNode* phi(Type* type, RegionNode* region, const List<Node*>& values);
 
+		// block api
 		Block* createBlock(String name = "");
+
+		// activate immediately so the body can be emitted before the back edge exists, and are sealed
+		// after the latch is wired up
 		Block* createLoopHeader(String name = "");
 		void setInsertBlock(Block* block);
 		B32 blockFinished() const;
+
+		// sealing activates the block: zero preds leaves it inactive (unreachable), one pred forwards
+		// that control edge directly, two or more create a region node
 		void seal(Block* block);
 		void jmp(Block* target);
 		void jumpif(Node* cond, Block* target);
@@ -121,6 +140,7 @@ namespace rat {
 		Node* get(Var var);
 		void set(Var var, Node* value);
 
+		// terminators
 		void ret(Node* value);
 		void retVoid();
 
@@ -137,6 +157,7 @@ namespace rat {
 		B32 hasReturn() const;
 
 		U32 eliminateDeadNodes(B32 includeControl = false);
+		U32 pruneUnreachable();
 		void removeNode(Node* n);
 
 		friend struct Node;

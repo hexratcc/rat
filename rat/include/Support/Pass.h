@@ -23,6 +23,8 @@ namespace rat {
 		virtual U32 runOnFunction(Function& fn) = 0;
 	};
 
+	// post-lowering pass over machine state, the pass manager runs all IR passes first, then machine
+	// passes in order
 	struct MachinePass {
 		virtual ~MachinePass();
 

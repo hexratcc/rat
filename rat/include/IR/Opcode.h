@@ -94,9 +94,9 @@ namespace rat {
 		B32 isCFG;
 		B32 hasSideEffects;
 		B32 isCommutative;
-		I8 controlInputIndex;
+		I8 controlInputIndex; // operand slot holding the control (or -1)
 		I8 minInputs;
-		I8 maxInputs;
+		I8 maxInputs; // -1 => variadic
 		OpClass opClass;
 	};
 

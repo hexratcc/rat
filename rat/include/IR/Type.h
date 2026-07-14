@@ -5,7 +5,15 @@
 
 namespace rat {
 	struct Type {
-		enum Kind { Control, Memory, Int, Float, Ptr, Tuple, Array };
+		enum Kind {
+			Control, // For control tokens
+			Memory,	 // For control tokens
+			Int,
+			Float,
+			Ptr,
+			Tuple, //  multi-result producers (Start/If/Call), reached via Proj
+			Array
+		};
 
 		Type(Kind kind, U32 bits, List<Type*> elements);
 		U32 getUid() const;
@@ -40,6 +48,7 @@ namespace rat {
 		List<Type*> elements;
 	};
 
+	// interning context for types
 	struct TypeContext {
 		TypeContext();
 
