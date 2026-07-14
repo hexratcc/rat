@@ -42,6 +42,7 @@ namespace rat {
 
 		Function* createFunction(const String& name, const List<Type*>& params, Type* ret);
 		Function* getFunction(const String& name) const;
+		B32 removeFunction(Function* fn);
 
 		Global* createGlobal(
 				const String& name, Type* type, B32 isConst, List<U8> init, List<Reloc> relocs = {});

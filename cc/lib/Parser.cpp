@@ -356,6 +356,7 @@ namespace rat::cc {
 			}
 			B32 gExtern = sawExtern;
 			B32 gExternInline = sawExtern && sawInline;
+			B32 gStatic = sawStatic;
 			CType first = base;
 			parsePointers(first);
 			if(first.ptr == 0 && peek().kind == TokKind::Semicolon) {
@@ -374,6 +375,7 @@ namespace rat::cc {
 					fn->name = lex.text(nameTok);
 					fn->retType = fpt.func->ret;
 					fn->isVarArgs = fpt.func->isVarArgs;
+					fn->isStatic = gStatic;
 					fn->offset = start.offset;
 					for(U32 i = 0; i < fpt.func->params.size(); ++i) {
 						Param p;
@@ -418,6 +420,7 @@ namespace rat::cc {
 				if(!fn)
 					return nullptr;
 				fn->isExternInline = gExternInline;
+				fn->isStatic = gStatic;
 				if(!registerFuncDef(fn))
 					return nullptr;
 				unit->functions.push_back(fn);

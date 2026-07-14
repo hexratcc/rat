@@ -427,6 +427,7 @@ namespace rat::cc {
 																						 : irType(def->retType);
 		Function* fn = mod.createFunction(def->name, paramTypes, retTy);
 		fn->setVariadic(def->isVarArgs);
+		fn->setLinkage(def->isStatic ? Function::Linkage::Internal : Function::Linkage::External);
 
 		curRet = def->retType;
 		sretSlot = sretReturn ? fn->param(0) : nullptr;

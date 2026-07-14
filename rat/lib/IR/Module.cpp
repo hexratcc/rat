@@ -40,6 +40,16 @@ namespace rat {
 		return nullptr;
 	}
 
+	B32 Module::removeFunction(Function* fn) {
+		for(auto it = funcs.begin(); it != funcs.end(); ++it) {
+			if(*it == fn) {
+				funcs.erase(it);
+				return true;
+			}
+		}
+		return false;
+	}
+
 	Global* Module::createGlobal(
 			const String& name, Type* type, B32 isConst, List<U8> init, List<Reloc> relocs) {
 		Global* g = arena.make<Global>(name, type, isConst, std::move(init), std::move(relocs));

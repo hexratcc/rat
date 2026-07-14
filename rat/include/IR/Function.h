@@ -25,6 +25,12 @@ namespace rat {
 		B32 isVariadic() const;
 		void setVariadic(B32 v);
 
+		// symbol linkage
+		enum class Linkage { External, Internal };
+		Linkage getLinkage() const { return linkage; }
+		void setLinkage(Linkage l) { linkage = l; }
+		B32 isInternal() const { return linkage == Linkage::Internal; }
+
 		StartNode* getStart() const;
 		StopNode* getStop() const;
 
@@ -159,6 +165,7 @@ namespace rat {
 		List<Type*> paramTypes;
 		Type* retType; // null for a void function
 		B32 variadic = false;
+		Linkage linkage = Linkage::External;
 
 		Arena arena;
 		List<Node*> nodes; // in creation order
