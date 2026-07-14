@@ -17,7 +17,7 @@ $ make test   # builds and runs tests
 - [**SimplifyCFG:**](./rat/include/Pass/Opt/SimplifyCFG.h) Control-flow simplification
 - [**MemoryOpt:**](./rat/include/Pass/Opt/MemoryOpt.h) Load/store forwarding
 - [**Inline:**](./rat/include/Pass/Opt/Inline.h) Function inlining
-- [**DeadFuncElimPass:**](./rat/include/Pass/Opt/DeadFuncElimPass.h) Drop static functions that are not referenced
+- [**DeadFuncElimPass:**](./rat/include/Pass/Opt/DeadFuncElim.h) Drop static functions that are not referenced
 
 **codegen**
 - [**X86Lower:**](./rat/include/Pass/Emit/X86Emitter.h) Lower IR to x86 machine instructions
