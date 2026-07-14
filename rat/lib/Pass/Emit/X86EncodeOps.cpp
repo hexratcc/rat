@@ -69,6 +69,12 @@ namespace rat {
 		a->leaMem(gpOf(in.defs[0]), RBP, (I32)in.imm);
 	}
 
+	void X86EncodePass::emitLea(const MachineInstr& in) {
+		Reg base = gpOf(in.uses[0]);
+		Reg index = gpOf(in.uses[1]);
+		a->leaSib(gpOf(in.defs[0]), base, index, (U32)(in.imm2 & 3), (I32)in.imm);
+	}
+
 	void X86EncodePass::emitLoad(const MachineInstr& in) {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& addr = in.uses[0];
@@ -77,8 +83,14 @@ namespace rat {
 			a->load64(gpOf(d), RBP, addr.slot);
 			return;
 		}
+		B32 sign = (in.imm2 & 1) != 0;
 		Reg base = gpOf(addr);
-		a->loadExt(gpOf(d), base, (I32)in.imm, w, in.imm2 != 0);
+		if(in.imm2 & 2) { // scaled index in use[1]
+			Reg index = gpOf(in.uses[1]);
+			a->loadExtSib(gpOf(d), base, index, (U32)((in.imm2 >> 2) & 3), (I32)in.imm, w, sign);
+			return;
+		}
+		a->loadExt(gpOf(d), base, (I32)in.imm, w, sign);
 	}
 
 	void X86EncodePass::emitStore(const MachineInstr& in) {
@@ -103,6 +115,11 @@ namespace rat {
 		}
 		if(addr.kind == MachineOperand::Kind::FrameSlot) {
 			a->loadXmm(xmmOf(d), RBP, addr.slot, w);
+			return;
+		}
+		if(in.imm2 & 2) { // scaled index in use[1]
+			Reg index = gpOf(in.uses[1]);
+			a->loadXmmSib(xmmOf(d), gpOf(addr), index, (U32)((in.imm2 >> 2) & 3), (I32)in.imm, w);
 			return;
 		}
 		a->loadXmm(xmmOf(d), gpOf(addr), (I32)in.imm, w);

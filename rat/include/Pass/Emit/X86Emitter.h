@@ -57,8 +57,9 @@ namespace rat {
 		LoadImm,	 // dst = imm
 		LoadSym,	 // dst = lea rip[sym]  (address of a global)
 		FrameAddr, // dst = lea rbp[imm]  (address of an arbitrary rbp offset; imm = disp)
+		Lea,			 // dst = lea [use[0] + use[1]*(1<<imm2) + imm]
 		// integer memory: use[0] = address reg, imm = displacement
-		Load,	 // dst = [addr + disp], sign/zero-extended per width/imm2
+		Load,	 // dst = [addr + index*scale + disp], sign/zero-extended per width/imm2
 		Store, // [addr + disp] = src, width
 		// integer ALU (two-address on the def reg; def and use[0] are coalesced)
 		Add,
@@ -166,8 +167,29 @@ namespace rat {
 		void copy(MachineOperand dst, MachineOperand src, U32 cls);
 		MachineInstr& def1(X86Op op, VReg dst, U32 cls, List<MachineOperand> uses);
 		VReg gpValue(Node* n);
-		VReg addrValue(Node* ptr, I32& disp);
+
+		struct AddrMatch {
+			Node* base = nullptr;
+			Node* index = nullptr;
+			Node* scaleNode = nullptr;
+			U32 scaleLog2 = 0;
+			I32 disp = 0;
+			B32 hasIndex = false;
+		};
+		struct AddrParts {
+			VReg base = 0;
+			VReg index = 0;
+			U32 scaleLog2 = 0;
+			I32 disp = 0;
+			B32 hasIndex = false;
+		};
+		B32 scaleOf(Node* n, Node*& idx, U32& scaleLog2);
+		AddrMatch decodeAddr(Node* ptr);
+		AddrParts matchAddr(Node* ptr);
 		B32 addressOnlyAdd(Node* n);
+		B32 addressOnlyScale(Node* n);
+		VReg storeAddr(const AddrParts& a);
+		I64 sibBits(I64 sign, const AddrParts& a);
 		VReg sseValue(Node* n);
 		I32 x87Value(Node* n);
 		void emitStore(StoreNode* s);
@@ -236,6 +258,7 @@ namespace rat {
 		void emitLoadImm(const MachineInstr& in);
 		void emitLoadSym(const MachineInstr& in);
 		void emitFrameAddr(const MachineInstr& in);
+		void emitLea(const MachineInstr& in);
 		void emitLoad(const MachineInstr& in);
 		void emitStore(const MachineInstr& in);
 		void emitFLoad(const MachineInstr& in);

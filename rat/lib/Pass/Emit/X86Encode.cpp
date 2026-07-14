@@ -204,6 +204,9 @@ namespace rat {
 		case X86Op::FrameAddr:
 			emitFrameAddr(in);
 			return;
+		case X86Op::Lea:
+			emitLea(in);
+			return;
 		case X86Op::Load:
 			emitLoad(in);
 			return;
@@ -416,7 +419,8 @@ namespace rat {
 
 			elf.align(ElfObject::Text, 16);
 			U32 off = elf.append(ElfObject::Text, code.data(), (U32)code.size());
-			elf.defineSymbol(fn->getName(), ElfObject::Text, off, true, true);
+			B32 global = fn->getLinkage() == Function::Linkage::External;
+			elf.defineSymbol(fn->getName(), ElfObject::Text, off, global, true);
 			for(const AsmReloc& r : relocs)
 				elf.addReloc(ElfObject::Text, off + r.offset, r.symbol, r.kind, r.addend);
 		}

@@ -92,6 +92,13 @@ namespace rat {
 			d32((U32)disp);
 		}
 
+		// [base + index*(1<<scaleLog2) + disp]
+		void modrmMemSib(U32 reg, U32 base, U32 index, U32 scaleLog2, I32 disp) {
+			b((U8)(0x80 | ((reg & 7) << 3) | 4)); // rm=100 => SIB byte follows
+			b((U8)(((scaleLog2 & 3) << 6) | ((index & 7) << 3) | (base & 7)));
+			d32((U32)disp);
+		}
+
 		void movRegImm64(Reg r, U64 imm) {
 			rex(true, 0, 0, r);
 			b((U8)(0xb8 + (r & 7)));
@@ -158,6 +165,34 @@ namespace rat {
 			else
 				b(sign ? 0xbf : 0xb7);
 			modrmMem(dst, base, disp);
+		}
+
+		void loadExtSib(Reg dst, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width, B32 sign) {
+			if(width == 8) {
+				rex(true, dst, index, base);
+				b(0x8b);
+				modrmMemSib(dst, base, index, scaleLog2, disp);
+				return;
+			}
+			if(width == 4) {
+				if(sign) {
+					rex(true, dst, index, base);
+					b(0x63); // movsxd
+				} else {
+					rex(false, dst, index, base);
+					b(0x8b);
+				}
+				modrmMemSib(dst, base, index, scaleLog2, disp);
+				return;
+			}
+			// movzx/movsx
+			rex(true, dst, index, base);
+			b(0x0f);
+			if(width == 1)
+				b(sign ? 0xbe : 0xb6);
+			else
+				b(sign ? 0xbf : 0xb7);
+			modrmMemSib(dst, base, index, scaleLog2, disp);
 		}
 
 		void aluRR(U8 op, Reg dst, Reg src) {
@@ -295,6 +330,13 @@ namespace rat {
 			modrmMem(dst, base, disp);
 		}
 
+		// lea dst, [base + index*(1<<scaleLog2) + disp]
+		void leaSib(Reg dst, Reg base, Reg index, U32 scaleLog2, I32 disp) {
+			rex(true, dst, index, base);
+			b(0x8d);
+			modrmMemSib(dst, base, index, scaleLog2, disp);
+		}
+
 		void leaRipSym(Reg dst, const String& sym, I64 addend) {
 			rex(true, dst, 0, 0);
 			b(0x8d);
@@ -358,6 +400,13 @@ namespace rat {
 		}
 		void loadXmm(U32 xmm, Reg base, I32 disp, U32 width) { movXmm(0x10, xmm, base, disp, width); }
 		void storeXmm(U32 xmm, Reg base, I32 disp, U32 width) { movXmm(0x11, xmm, base, disp, width); }
+		void loadXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width) {
+			ssePrefix(width);
+			rex(false, xmm, index, base);
+			b(0x0f);
+			b(0x10); // movss/movsd load
+			modrmMemSib(xmm, base, index, scaleLog2, disp);
+		}
 		void sseArith(U8 op, U32 width, U32 dst, U32 src) {
 			ssePrefix(width);
 			rex(false, dst, 0, src);

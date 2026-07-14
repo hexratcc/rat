@@ -208,37 +208,114 @@ namespace rat {
 		return vregFor(n);
 	}
 
-	// match ptr = Add(base, C) with C an imm32 constant; fold C into the
-	// addressing displacement and return the base register
-	VReg X86LowerPass::addrValue(Node* ptr, I32& disp) {
-		disp = 0;
-		BinaryNode* add = dyn_cast<BinaryNode>(ptr);
-		if(add && add->getOpcode() == Opcode::Add) {
-			I64 c;
-			if(immOf(add->getRHS(), c)) {
-				disp = (I32)c;
-				return gpValue(add->getLHS());
+	B32 X86LowerPass::scaleOf(Node* n, Node*& idx, U32& scaleLog2) {
+		BinaryNode* b = dyn_cast<BinaryNode>(n);
+		if(!b)
+			return false;
+		if(opWidth(n->getType()) != 8)
+			return false;
+		I64 c;
+		if(b->getOpcode() == Opcode::Shl) {
+			if(immOf(b->getRHS(), c) && c >= 1 && c <= 3) {
+				idx = b->getLHS();
+				scaleLog2 = (U32)c;
+				return true;
 			}
-			if(immOf(add->getLHS(), c)) {
-				disp = (I32)c;
-				return gpValue(add->getRHS());
+			return false;
+		}
+		if(b->getOpcode() == Opcode::Mul) {
+			Node* other = nullptr;
+			if(immOf(b->getRHS(), c))
+				other = b->getLHS();
+			else if(immOf(b->getLHS(), c))
+				other = b->getRHS();
+			if(!other)
+				return false;
+			if(c == 2)
+				scaleLog2 = 1;
+			else if(c == 4)
+				scaleLog2 = 2;
+			else if(c == 8)
+				scaleLog2 = 3;
+			else
+				return false;
+			idx = other;
+			return true;
+		}
+		return false;
+	}
+
+	I64 X86LowerPass::sibBits(I64 sign, const AddrParts& a) {
+		return (sign & 1) | (a.hasIndex ? 2 : 0) | ((I64)(a.scaleLog2 & 3) << 2);
+	}
+
+	X86LowerPass::AddrMatch X86LowerPass::decodeAddr(Node* ptr) {
+		AddrMatch m;
+		m.base = ptr;
+		Node* work = ptr;
+		if(BinaryNode* add = dyn_cast<BinaryNode>(work)) {
+			if(add->getOpcode() == Opcode::Add) {
+				I64 c;
+				if(immOf(add->getRHS(), c)) {
+					m.disp = (I32)c;
+					work = add->getLHS();
+				} else if(immOf(add->getLHS(), c)) {
+					m.disp = (I32)c;
+					work = add->getRHS();
+				}
 			}
 		}
-		return gpValue(ptr);
+		if(BinaryNode* add = dyn_cast<BinaryNode>(work)) {
+			if(add->getOpcode() == Opcode::Add) {
+				Node* idx = nullptr;
+				U32 sc = 0;
+				if(scaleOf(add->getRHS(), idx, sc)) {
+					m.base = add->getLHS();
+					m.index = idx;
+					m.scaleNode = add->getRHS();
+					m.scaleLog2 = sc;
+					m.hasIndex = true;
+					return m;
+				}
+				if(scaleOf(add->getLHS(), idx, sc)) {
+					m.base = add->getRHS();
+					m.index = idx;
+					m.scaleNode = add->getLHS();
+					m.scaleLog2 = sc;
+					m.hasIndex = true;
+					return m;
+				}
+			}
+		}
+		m.base = work;
+		return m;
+	}
+
+	X86LowerPass::AddrParts X86LowerPass::matchAddr(Node* ptr) {
+		AddrMatch m = decodeAddr(ptr);
+		AddrParts a;
+		a.disp = m.disp;
+		a.scaleLog2 = m.scaleLog2;
+		a.hasIndex = m.hasIndex;
+		a.base = gpValue(m.base);
+		if(m.hasIndex)
+			a.index = gpValue(m.index);
+		return a;
 	}
 
 	B32 X86LowerPass::addressOnlyAdd(Node* n) {
 		BinaryNode* add = dyn_cast<BinaryNode>(n);
 		if(!add || add->getOpcode() != Opcode::Add)
 			return false;
+		AddrMatch m = decodeAddr(n);
 		I64 c;
-		if(!immOf(add->getRHS(), c) && !immOf(add->getLHS(), c))
+		if(!m.hasIndex && !immOf(add->getRHS(), c) && !immOf(add->getLHS(), c))
 			return false;
 		if(n->getUsers().empty())
 			return false;
 		for(Node* u : n->getUsers()) {
 			// x87 memory ops carry the operand width in imm and cannot fold a
-			// displacement, so they still need the add materialized
+			// displacement or index, so they still need the add materialized
 			if(LoadNode* ld = dyn_cast<LoadNode>(u)) {
 				if(ld->getPointer() != n || isX87Ty(ld->getType()))
 					return false;
@@ -248,6 +325,25 @@ namespace rat {
 			} else {
 				return false;
 			}
+		}
+		return true;
+	}
+
+	B32 X86LowerPass::addressOnlyScale(Node* n) {
+		Node* idx = nullptr;
+		U32 sc = 0;
+		if(!scaleOf(n, idx, sc))
+			return false;
+		if(n->getUsers().empty())
+			return false;
+		for(Node* u : n->getUsers()) {
+			BinaryNode* add = dyn_cast<BinaryNode>(u);
+			if(!add || add->getOpcode() != Opcode::Add)
+				return false;
+			if(!addressOnlyAdd(add))
+				return false;
+			if(decodeAddr(add).scaleNode != n)
+				return false;
 		}
 		return true;
 	}
@@ -312,7 +408,9 @@ namespace rat {
 		}
 		if(isBinaryOpcode(n->getOpcode())) {
 			if(addressOnlyAdd(n))
-				return; // folded into the displacement of every using load/store
+				return; // folded into base+index*scale+disp of every using load/store
+			if(addressOnlyScale(n))
+				return; // folded into the SIB scale of every using address
 			emitBinary(cast<BinaryNode>(n));
 			return;
 		}

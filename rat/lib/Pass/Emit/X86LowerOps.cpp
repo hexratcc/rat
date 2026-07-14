@@ -13,60 +13,81 @@
 #include "Target/X86Elf.h"
 
 namespace rat {
+	VReg X86LowerPass::storeAddr(const AddrParts& a) {
+		if(!a.hasIndex)
+			return a.base;
+		VReg addr = fresh(detail::kGp);
+		inst(X86Op::Lea,
+				 detail::kGp,
+				 {MachineOperand::vr(addr)},
+				 {MachineOperand::vr(a.base), MachineOperand::vr(a.index)},
+				 0,
+				 (I64)a.scaleLog2);
+		return addr;
+	}
+
 	void X86LowerPass::emitStore(StoreNode* s) {
 		Node* val = s->getValue();
 		U32 w = opWidth(val->getType());
-		I32 disp = 0;
-		VReg addr = isX87Ty(val->getType()) ? gpValue(s->getPointer())					// x87 mem ops carry the
-																				: addrValue(s->getPointer(), disp); // width in imm, no disp
 		if(isX87Ty(val->getType())) {
+			VReg addr = gpValue(s->getPointer()); // x87 mem ops carry width in imm, no disp
 			I32 slot = x87Value(val);
 			inst(X86Op::X87StoreMem,
 					 detail::kX87,
 					 {},
 					 {MachineOperand::vr(addr), MachineOperand::frameSlot(slot)},
 					 detail::kX87MemBits);
-		} else if(isSseTy(val->getType())) {
+			return;
+		}
+		AddrParts a = matchAddr(s->getPointer());
+		VReg addr = storeAddr(a);
+		if(isSseTy(val->getType())) {
 			VReg v = sseValue(val);
 			inst(X86Op::FStore,
 					 detail::kFp,
 					 {},
 					 {MachineOperand::vr(addr), MachineOperand::vr(v, w)},
-					 disp);
+					 a.disp);
 		} else {
 			VReg v = gpValue(val);
 			inst(X86Op::Store,
 					 detail::kGp,
 					 {},
 					 {MachineOperand::vr(addr), MachineOperand::vr(v, w)},
-					 disp);
+					 a.disp);
 		}
 	}
 
 	void X86LowerPass::emitLoad(LoadNode* l) {
 		U32 w = opWidth(l->getType());
-		I32 disp = 0;
-		VReg addr = isX87Ty(l->getType()) ? gpValue(l->getPointer()) : addrValue(l->getPointer(), disp);
 		if(isX87Ty(l->getType())) {
+			VReg addr = gpValue(l->getPointer());
 			inst(X86Op::X87LoadMem,
 					 detail::kX87,
 					 {MachineOperand::frameSlot(x87SlotOf(l))},
 					 {MachineOperand::vr(addr)},
 					 detail::kX87MemBits);
-		} else if(isSseTy(l->getType())) {
+			return;
+		}
+		AddrParts a = matchAddr(l->getPointer());
+		List<MachineOperand> uses = {MachineOperand::vr(a.base)};
+		if(a.hasIndex)
+			uses.push_back(MachineOperand::vr(a.index));
+		if(isSseTy(l->getType())) {
 			inst(X86Op::FLoad,
 					 detail::kFp,
 					 {MachineOperand::vr(vregFor(l), w)},
-					 {MachineOperand::vr(addr)},
-					 disp);
+					 std::move(uses),
+					 a.disp,
+					 sibBits(0, a));
 		} else {
 			B32 sign = l->getType() && l->getType()->isInt();
 			inst(X86Op::Load,
 					 detail::kGp,
 					 {MachineOperand::vr(vregFor(l), w)},
-					 {MachineOperand::vr(addr)},
-					 disp,
-					 sign ? 1 : 0);
+					 std::move(uses),
+					 a.disp,
+					 sibBits(sign ? 1 : 0, a));
 		}
 	}
 
