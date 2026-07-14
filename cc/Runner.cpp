@@ -1,9 +1,9 @@
 #include "Compile.h"
 
-#include "Emit.h"
-#include "Lexer.h"
-#include "Parser.h"
-#include "Preprocess.h"
+#include "Emit/Emit.h"
+#include "Lex/Lexer.h"
+#include "Lex/Preprocess.h"
+#include "Parse/Parser.h"
 #include <fstream>
 #include <poll.h>
 #include <signal.h>
