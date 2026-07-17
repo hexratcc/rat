@@ -256,7 +256,7 @@ namespace {
 			return 1;
 
 		Module mod;
-		Emitter emitter(mod, target.getPointerSizeInBytes());
+		Emitter emitter(mod, target.getPointerSizeInBytes(), hostTargetTriple().isWindows());
 		if(!emitter.emit(*unit)) {
 			std::cerr << path << ": " << emitter.error() << "\n";
 			return 1;

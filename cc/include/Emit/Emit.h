@@ -17,7 +17,7 @@ namespace rat::cc {
 	} // namespace detail
 
 	struct Emitter {
-		Emitter(Module& module, U32 pointerBytes);
+		Emitter(Module& module, U32 pointerBytes, B32 vaListIsPointer = false);
 
 		B32 emit(const TransUnit& unit);
 
@@ -131,6 +131,7 @@ namespace rat::cc {
 		void storeLValue(Function& fn, const LValue& lv, Node* value);
 
 		void emitMemCopy(Function& fn, Node* dst, Node* src, U32 size);
+		Node* vaListRef(Function& fn, const Expr* ap);
 		Node* offsetPtr(Function& fn, Node* base, U64 byteOff);
 		Node* elemStride(Function& fn, CType ptrType);
 		Value emitPtrArith(Function& fn, ExprOp op, Value lhs, Value rhs);
@@ -192,6 +193,7 @@ namespace rat::cc {
 		List<Reloc> relocs;
 		Module& mod;
 		U32 ptrBytes;
+		B32 vaPtr = false;
 		Arena arena;
 		Type* i32 = nullptr;
 		B32 failed = false;

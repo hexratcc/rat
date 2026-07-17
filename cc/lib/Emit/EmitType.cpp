@@ -235,7 +235,7 @@ namespace rat::cc {
 			out = CType{};
 			out.ptr = 1;
 			if(e->str.isWide) {
-				out.bits = 32;
+				out.bits = e->str.charSize * 8;
 			} else {
 				out.bits = 8;
 				out.isPlainChar = true;

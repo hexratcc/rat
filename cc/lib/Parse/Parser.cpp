@@ -1,15 +1,23 @@
 #include "Parse/Parser.h"
 
 namespace rat::cc {
-	Parser::Parser(Lexer& lexer, Arena& arena, U32 pointerBytes)
+	Parser::Parser(Lexer& lexer, Arena& arena, U32 pointerBytes, U32 longBitsC, B32 vaListIsPointer)
 	: lex(lexer),
 		arena(arena),
-		ptrBytes(pointerBytes) {
-		ArrayType* vl = arena.make<ArrayType>();
-		vl->elem = CType{8, true, false, 0}; // unsigned char
-		vl->count = ptrBytes * 4;
+		ptrBytes(pointerBytes),
+		longBits(longBitsC),
+		wcharSize(vaListIsPointer ? 2 : 4) {
 		CType vaList{8, true, false, 0};
-		vaList.array = vl;
+		if(vaListIsPointer) {
+			// Win64 __builtin_va_list is a char*
+			vaList.ptr = 1;
+		} else {
+			// SysV __builtin_va_list decays to a pointer to a 24-byte state record
+			ArrayType* vl = arena.make<ArrayType>();
+			vl->elem = CType{8, true, false, 0}; // unsigned char
+			vl->count = ptrBytes * 4;
+			vaList.array = vl;
+		}
 		typedefs["va_list"] = vaList;
 		typedefs["__builtin_va_list"] = vaList;
 	}

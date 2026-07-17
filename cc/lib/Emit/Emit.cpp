@@ -11,9 +11,10 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
-	Emitter::Emitter(Module& module, U32 pointerBytes)
+	Emitter::Emitter(Module& module, U32 pointerBytes, B32 vaListIsPointer)
 	: mod(module),
-		ptrBytes(pointerBytes) {}
+		ptrBytes(pointerBytes),
+		vaPtr(vaListIsPointer) {}
 
 	U32 Emitter::byteSize(CType t) const { return typeSize(t, ptrBytes); }
 

@@ -236,8 +236,7 @@ namespace rat::cc {
 		}
 
 		if(d.init && d.init->kind == ExprKind::StrLit) {
-			B32 wide = d.init->str.isWide;
-			U32 cw = wide ? 4u : 1u;
+			U32 cw = d.init->str.isWide ? d.init->str.charSize : 1u;
 			if(d.type.ptr != 0 || isStruct(d.type) || d.type.bits != cw * 8) {
 				failStringNeedsCharArray();
 				return false;

@@ -6,7 +6,11 @@
 
 namespace rat::cc {
 	struct Parser {
-		Parser(Lexer& lexer, Arena& arena, U32 pointerBytes);
+		Parser(Lexer& lexer,
+					 Arena& arena,
+					 U32 pointerBytes,
+					 U32 longBitsC = 64,
+					 B32 vaListIsPointer = false);
 
 		TransUnit* parseUnit();
 

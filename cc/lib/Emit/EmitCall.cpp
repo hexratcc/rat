@@ -1,6 +1,19 @@
 #include "Emit/Emit.h"
 
 namespace rat::cc {
+	Node* Emitter::vaListRef(Function& fn, const Expr* ap) {
+		if(!vaPtr)
+			return emitExpr(fn, ap).node;
+		LValue lv;
+		if(!emitLValue(fn, ap, lv))
+			return nullptr;
+		if(lv.isVar || !lv.addr) {
+			fail("va_list operand must be addressable");
+			return nullptr;
+		}
+		return lv.addr;
+	}
+
 	B32 Emitter::emitBuiltinCall(Function& fn, const Expr* e, Value& out) {
 		if(!e->call.callee)
 			return false;
@@ -8,13 +21,38 @@ namespace rat::cc {
 
 		if(b == "__builtin_va_start" || b == "__builtin_va_end") {
 			List<Node*> args;
-			for(const Expr* arg : e->args) {
-				Value a = emitExpr(fn, arg);
-				if(!a.node)
+			for(U32 i = 0; i < e->args.size(); ++i) {
+				Node* n = i == 0 ? vaListRef(fn, e->args[i]) : emitExpr(fn, e->args[i]).node;
+				if(!n)
 					return true;
-				args.push_back(a.node);
+				args.push_back(n);
 			}
 			fn.call(b, nullptr, args);
+			CType v;
+			v.isVoid = true;
+			out = {fn.constInt(i32, 0), v};
+			return true;
+		}
+
+		if(b == "__builtin_va_copy") {
+			if(e->args.size() != 2) {
+				fail("__builtin_va_copy expects two arguments");
+				return true;
+			}
+			Node* dst = vaListRef(fn, e->args[0]);
+			if(!dst)
+				return true;
+			if(vaPtr) {
+				Value src = emitExpr(fn, e->args[1]);
+				if(!src.node)
+					return true;
+				fn.store(dst, src.node);
+			} else {
+				Value src = emitExpr(fn, e->args[1]);
+				if(!src.node)
+					return true;
+				emitMemCopy(fn, dst, src.node, ptrBytes * 3);
+			}
 			CType v;
 			v.isVoid = true;
 			out = {fn.constInt(i32, 0), v};

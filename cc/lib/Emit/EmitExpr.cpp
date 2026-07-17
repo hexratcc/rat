@@ -269,11 +269,11 @@ namespace rat::cc {
 			return emitSizeof(fn, e);
 
 		case ExprKind::VaArg: {
-			Value ap = emitExpr(fn, e->vaArg.ap);
-			if(!ap.node)
+			Node* ap = vaListRef(fn, e->vaArg.ap);
+			if(!ap)
 				return {};
 			Type* fetched = isStruct(e->vaArg.type) ? mod.getPtr() : irType(e->vaArg.type);
-			Node* r = fn.call("__builtin_va_arg", fetched, {ap.node});
+			Node* r = fn.call("__builtin_va_arg", fetched, {ap});
 			return {r, e->vaArg.type};
 		}
 
