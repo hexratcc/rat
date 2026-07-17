@@ -21,6 +21,10 @@ namespace rat::cc {
 		String renameMain;
 	};
 
+	const String& hostCC();
+	const String& hostPredefs();
+	const List<String>& hostIncludeDirs();
+
 	List<UniquePtr<Pass>> defaultOptPasses();
 	void composePipeline(PassManager& pm, CompileOptions& opt, std::ostream& out);
 	void compileModule(Module& mod, const TargetInfo& target, CompileOptions& opt, std::ostream& out);

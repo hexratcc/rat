@@ -135,6 +135,8 @@ namespace rat {
 				rl.begin(), rl.end(), [](const Reloc& a, const Reloc& b) { return a.offset < b.offset; });
 		auto byteAt = [&](U32 i) -> U32 { return i < init.size() ? init[i] : 0u; };
 		String cst = g.isConstant() ? "const " : "";
+		if(g.isInternal())
+			cst = "static " + cst;
 
 		*os << cst << "struct __attribute__((packed)) {\n";
 		U32 pos = 0, fi = 0;
@@ -192,7 +194,8 @@ namespace rat {
 				anyGlobal = true;
 				continue;
 			}
-			*os << (g->isConstant() ? "const " : "") << "unsigned char " << g->getName() << "[" << size
+			*os << (g->isInternal() ? "static " : "") << (g->isConstant() ? "const " : "")
+					<< "unsigned char " << g->getName() << "[" << size
 					<< "] = {";
 			U32 last = 0;
 			for(U32 i = 0; i < size; ++i)

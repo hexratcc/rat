@@ -215,6 +215,7 @@ namespace rat::cc {
 		void collectAddrTakenExpr(const Expr* e);
 
 		U32 strCounter = 0;
+		Map<String, String> strPool; // string-literal bytes -> interned symbol
 		Node* emitStringLiteral(Function& fn, const Expr* e);
 
 		Map<String, Function::Block*> labelBlocks;

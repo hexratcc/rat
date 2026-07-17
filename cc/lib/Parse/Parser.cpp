@@ -400,6 +400,7 @@ namespace rat::cc {
 				}
 				Declarator d;
 				d.isExtern = gExtern;
+				d.isStatic = gStatic;
 				d.name = arena.make<String>(lex.text(nameTok));
 				bindDeclaratorType(d, fpt, nameTok.offset);
 				d.offset = nameTok.offset;
@@ -431,6 +432,7 @@ namespace rat::cc {
 			} else {
 				Declarator d;
 				d.isExtern = gExtern;
+				d.isStatic = gStatic;
 				d.name = arena.make<String>(lex.text(nameTok));
 				d.type = first;
 				d.offset = nameTok.offset;

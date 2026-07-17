@@ -3,13 +3,18 @@
 namespace rat::cc {
 	String Emitter::internString(const Expr* e) {
 		const String& bytes = *e->str.bytes;
+		auto it = strPool.find(bytes);
+		if(it != strPool.end())
+			return it->second;
 		String name = "__ratcc_str" + std::to_string(strCounter++);
 		List<U8> init;
 		init.reserve(bytes.size() + 1);
 		for(char c : bytes)
 			init.push_back((U8)c);
 		init.push_back(0);
-		mod.createGlobal(name, byteArrayType((U32)init.size()), true, std::move(init));
+		Global* g = mod.createGlobal(name, byteArrayType((U32)init.size()), true, std::move(init));
+		g->setLinkage(Global::Linkage::Internal);
+		strPool.emplace(bytes, name);
 		return name;
 	}
 
@@ -50,8 +55,11 @@ namespace rat::cc {
 				ok = initStructInit(sink, 0, ty.strukt, init);
 			else
 				ok = sink.scalar(0, ty, init);
-			if(ok)
-				mod.createGlobal(name, byteArrayType(total), false, std::move(img), std::move(relocs));
+			if(ok) {
+				Global* g =
+						mod.createGlobal(name, byteArrayType(total), false, std::move(img), std::move(relocs));
+				g->setLinkage(Global::Linkage::Internal);
+			}
 		}
 
 		relocs.swap(saved);
@@ -111,8 +119,10 @@ namespace rat::cc {
 		ImageSink sink(*this, img);
 		if(d.init && !initArrayInit(sink, 0, d.type, (U32)count, d.init))
 			return false;
-		mod.createGlobal(
+		Global* g = mod.createGlobal(
 				symbol, byteArrayType((U32)img.size()), false, std::move(img), std::move(relocs));
+		if(d.isStatic)
+			g->setLinkage(Global::Linkage::Internal);
 		bindArrayGlobal(d, symbol, fn, (U32)count);
 		return true;
 	}
@@ -154,8 +164,10 @@ namespace rat::cc {
 			} else if(!initArrayInit(sink, 0, d.type, (U32)count, d.init))
 				return false;
 		}
-		mod.createGlobal(
+		Global* g = mod.createGlobal(
 				symbol, byteArrayType((U32)img.size()), false, std::move(img), std::move(relocs));
+		if(d.isStatic)
+			g->setLinkage(Global::Linkage::Internal);
 		bindArrayGlobal(d, symbol, fn, (U32)count);
 		return true;
 	}
@@ -216,11 +228,13 @@ namespace rat::cc {
 			init.assign((U32)count * elemSize, 0);
 		}
 
-		mod.createGlobal(symbol,
-										 mod.getArray(irType(d.type), (U32)count),
-										 false,
-										 std::move(init),
-										 std::move(relocs));
+		Global* g = mod.createGlobal(symbol,
+																 mod.getArray(irType(d.type), (U32)count),
+																 false,
+																 std::move(init),
+																 std::move(relocs));
+		if(d.isStatic)
+			g->setLinkage(Global::Linkage::Internal);
 		bindArrayGlobal(d, symbol, fn, (U32)count);
 		return true;
 	}
@@ -258,7 +272,10 @@ namespace rat::cc {
 		}
 		flexCount = 0;
 
-		mod.createGlobal(symbol, byteArrayType(total), false, std::move(init), std::move(relocs));
+		Global* g =
+				mod.createGlobal(symbol, byteArrayType(total), false, std::move(init), std::move(relocs));
+		if(d.isStatic)
+			g->setLinkage(Global::Linkage::Internal);
 		bindScalarGlobal(d, symbol, fn);
 		return true;
 	}
@@ -312,7 +329,9 @@ namespace rat::cc {
 			for(U32 i = 0; i < bytes; ++i)
 				init.push_back((U8)(value >> (8 * i)));
 		}
-		mod.createGlobal(symbol, irType(d.type), false, std::move(init), std::move(relocs));
+		Global* g = mod.createGlobal(symbol, irType(d.type), false, std::move(init), std::move(relocs));
+		if(d.isStatic)
+			g->setLinkage(Global::Linkage::Internal);
 		bindScalarGlobal(d, symbol, fn);
 		return true;
 	}

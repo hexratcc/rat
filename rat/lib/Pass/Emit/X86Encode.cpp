@@ -394,7 +394,7 @@ namespace rat {
 			std::copy_n(init.begin(), init.size() < size ? init.size() : size, img.begin());
 			off = elf.append(sec, img.data(), size);
 		}
-		elf.defineSymbol(g->getName(), sec, off, true, false);
+		elf.defineSymbol(g->getName(), sec, off, !g->isInternal(), false);
 
 		for(const Reloc& r : g->getRelocs())
 			elf.addReloc(sec, off + r.offset, r.symbol, ElfReloc::Abs64, r.addend);

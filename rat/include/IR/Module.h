@@ -22,12 +22,18 @@ namespace rat {
 		B32 isConstant() const;
 		const List<U8>& getInit() const;
 		const List<Reloc>& getRelocs() const;
+
+		enum class Linkage { External, Internal };
+		Linkage getLinkage() const { return linkage; }
+		void setLinkage(Linkage l) { linkage = l; }
+		B32 isInternal() const { return linkage == Linkage::Internal; }
 	private:
 		String name;
 		Type* type;
 		B32 isConst;
 		List<U8> init;
 		List<Reloc> relocs;
+		Linkage linkage = Linkage::External;
 	};
 
 	struct Module : TypeContext {

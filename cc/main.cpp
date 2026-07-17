@@ -25,6 +25,8 @@ namespace {
 		List<String> extraPasses; // individual -f<pass> requests (in order)
 		B32 timePasses = false;
 		B32 preprocessOnly = false; // -E
+		B32 noStdInc = false;				// -nostdinc: skip host system include dirs
+		B32 noPredefs = false;			// -undef: skip host predefined macros
 		PpOptions pp;
 	};
 
@@ -106,6 +108,8 @@ namespace {
 					"                        simplifycfg, memoryopt, inline\n"
 					"  -I<dir> -D<m> -U<m>   preprocessor options\n"
 					"  -E                    preprocess only\n"
+					"  -nostdinc             do not search the host compiler's system include dirs\n"
+					"  -undef                do not add the host compiler's predefined macros\n"
 					"  -ftime-passes         print per-pass timing to stderr\n"
 					"  -help                 show this help\n"
 					"  -version              show version and build date\n";
@@ -148,6 +152,10 @@ namespace {
 				opt.extraPasses.push_back(pass);
 			} else if(arg == "-E") {
 				opt.preprocessOnly = true;
+			} else if(arg == "-nostdinc") {
+				opt.noStdInc = true;
+			} else if(arg == "-undef") {
+				opt.noPredefs = true;
 			} else if(arg.rfind("-I", 0) == 0) {
 				opt.pp.includeDirs.push_back(value(2));
 			} else if(arg.rfind("-D", 0) == 0) {
@@ -290,6 +298,12 @@ I32 main(I32 argc, char** argv) {
 	String source, path;
 	if(!readInput(opt, source, path))
 		return 1;
+
+	if(!opt.noStdInc)
+		for(const String& dir : hostIncludeDirs())
+			opt.pp.includeDirs.push_back(dir);
+	if(!opt.noPredefs)
+		source = hostPredefs() + "#line 1 \"" + path + "\"\n" + source;
 
 	String pped, ppErr;
 	if(!preprocess(path, source, opt.pp, pped, ppErr)) {
