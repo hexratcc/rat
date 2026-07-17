@@ -364,7 +364,7 @@ namespace rat {
 		if(d == 0 || d == 1 || d == -1 || d == INT32_MIN)
 			return nullptr;
 		if(d > 0 && (d & (d - 1)) == 0)
-			return buildSDivByPow2(fn, ty, x, __builtin_ctz((U32)d));
+			return buildSDivByPow2(fn, ty, x, countTrailingZeros64((U32)d));
 		return buildSDivByConst(fn, ty, x, d);
 	}
 
