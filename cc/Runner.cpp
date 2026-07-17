@@ -274,7 +274,7 @@ namespace {
 				}
 				X86Target target(hostTargetTriple());
 				compileModule(mod, target, copt, of);
-				art.compileArgs = targetIsWindows() ? "'" + art.path + "'" : "-no-pie '" + art.path + "'";
+				art.compileArgs = targetIsWindows() ? "\"" + art.path + "\"" : "-no-pie \"" + art.path + "\"";
 				return true;
 			};
 			return runBackend("x86", make, out, capturedOut, err);
@@ -289,7 +289,7 @@ namespace {
 			}
 			Generic64 target;
 			compileModule(mod, target, copt, cf);
-			art.compileArgs = "-std=c11 '" + art.path + "'";
+			art.compileArgs = "-std=c11 \"" + art.path + "\"";
 			return true;
 		};
 		return runBackend("oracle", make, out, capturedOut, err);
