@@ -89,12 +89,14 @@ namespace rat::cc {
 		// node builders
 		Expr* makeExpr(ExprKind kind, U32 offset);
 		Stmt* makeStmt(StmtKind kind, U32 offset);
-		Expr* makeInt(const Token& tok, I64 value, B32 isUnsigned, B32 isLong);
+		Expr*
+		makeInt(const Token& tok, I64 value, B32 isUnsigned, U32 bits, B32 isLong = false, B32 isLongLong = false);
 		Expr* makeIdent(const Token& tok);
 		Expr* makeUnary(U32 offset, ExprOp op, Expr* operand);
 		Expr* makeBinary(U32 offset, ExprOp op, Expr* lhs, Expr* rhs);
 
-		B32 parseIntLiteral(const Token& tok, I64& value, B32& isUnsigned, B32& isLong);
+		B32 parseIntLiteral(
+				const Token& tok, I64& value, B32& isUnsigned, U32& bits, B32& isLong, B32& isLongLong);
 		B32 parseCharLiteral(const Token& tok, I64& value);
 		B32 parseStringLiteral(const Token& tok, String& out);
 		B32 decodeEscape(const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U8& out);

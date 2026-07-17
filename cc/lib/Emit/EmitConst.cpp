@@ -126,7 +126,9 @@ namespace rat::cc {
 			out = e->intLit.value;
 			ty = ctInt();
 			ty.isUnsigned = e->intLit.isUnsigned;
-			ty.bits = e->intLit.isLong ? 64 : 32;
+			ty.bits = e->intLit.bits;
+			ty.isLong = e->intLit.isLong;
+			ty.isLongLong = e->intLit.isLongLong;
 			return true;
 		case ExprKind::Sizeof: {
 			if(e->sizeOf.operand) {

@@ -62,9 +62,9 @@ namespace rat::cc {
 		return s;
 	}
 
-	Expr* Parser::makeInt(const Token& tok, I64 value, B32 isUnsigned, B32 isLong) {
+	Expr* Parser::makeInt(const Token& tok, I64 value, B32 isUnsigned, U32 bits, B32 isLong, B32 isLongLong) {
 		Expr* e = makeExpr(ExprKind::IntLit, tok.offset);
-		e->intLit = {value, isUnsigned, isLong};
+		e->intLit = {value, isUnsigned, bits, isLong || isLongLong, isLongLong};
 		return e;
 	}
 

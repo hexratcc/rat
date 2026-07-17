@@ -150,8 +150,8 @@ namespace rat::cc {
 				os << "int " << e->intLit.value;
 				if(e->intLit.isUnsigned)
 					os << "u";
-				if(e->intLit.isLong)
-					os << "l";
+				if(e->intLit.bits == 64)
+					os << (e->intLit.isLongLong ? "ll" : "l");
 				os << "\n";
 				return;
 			case ExprKind::FloatLit:

@@ -83,6 +83,8 @@ namespace rat::cc {
 				return false;
 			if(a.bits == 8 && a.isPlainChar != b.isPlainChar)
 				return false;
+			if(a.bits == 32 && a.isLong != b.isLong)
+				return false;
 			if(a.bits == 64 && a.isLongLong != b.isLongLong)
 				return false;
 		}
@@ -222,7 +224,9 @@ namespace rat::cc {
 		switch(e->kind) {
 		case ExprKind::IntLit:
 			out.isUnsigned = e->intLit.isUnsigned;
-			out.bits = e->intLit.isLong ? 64 : 32;
+			out.bits = e->intLit.bits;
+			out.isLong = e->intLit.isLong;
+			out.isLongLong = e->intLit.isLongLong;
 			out.isVoid = false;
 			return true;
 		case ExprKind::FloatLit:

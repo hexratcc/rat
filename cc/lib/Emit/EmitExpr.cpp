@@ -212,7 +212,9 @@ namespace rat::cc {
 		case ExprKind::IntLit: {
 			CType t;
 			t.isUnsigned = e->intLit.isUnsigned;
-			t.bits = e->intLit.isLong ? 64 : 32;
+			t.bits = e->intLit.bits;
+			t.isLong = e->intLit.isLong;
+			t.isLongLong = e->intLit.isLongLong;
 			return {fn.constInt(irType(t), e->intLit.value), t};
 		}
 

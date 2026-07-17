@@ -56,7 +56,7 @@ namespace rat::cc {
 		}
 		if(!expect(TokKind::RParen, "')'"))
 			return nullptr;
-		return makeInt(kw, off, true, true);
+		return makeInt(kw, off, true, 64, true, longBits < 64);
 	}
 
 	B32 Parser::parseTypeName(CType& out) {
@@ -163,15 +163,16 @@ namespace rat::cc {
 			I64 value;
 			if(!parseCharLiteral(lit, value))
 				return nullptr;
-			return makeInt(lit, value, false, false);
+			return makeInt(lit, value, false, 32);
 		}
 		if(tok.kind == TokKind::IntConstant) {
 			Token lit = advance();
 			I64 value;
-			B32 isUnsigned, isLong;
-			if(!parseIntLiteral(lit, value, isUnsigned, isLong))
+			B32 isUnsigned, isLong, isLongLong;
+			U32 bits;
+			if(!parseIntLiteral(lit, value, isUnsigned, bits, isLong, isLongLong))
 				return nullptr;
-			return makeInt(lit, value, isUnsigned, isLong);
+			return makeInt(lit, value, isUnsigned, bits, isLong, isLongLong);
 		}
 		if(tok.kind == TokKind::FloatConstant) {
 			Token lit = advance();
@@ -207,7 +208,7 @@ namespace rat::cc {
 				return parseBuiltinOffsetof(id);
 			auto ec = enumConstants.find(lex.text(id));
 			if(ec != enumConstants.end())
-				return makeInt(id, ec->second, false, false);
+				return makeInt(id, ec->second, false, 32);
 			return makeIdent(id);
 		}
 		if(tok.kind == TokKind::LParen) {

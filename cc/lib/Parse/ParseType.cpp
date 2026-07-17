@@ -233,10 +233,12 @@ namespace rat::cc {
 				t.bits = 16;
 			else if(longCount >= 2) {
 				t.bits = 64;
+				t.isLong = true;
 				t.isLongLong = true;
-			} else if(longCount == 1)
+			} else if(longCount == 1) {
 				t.bits = longBits; // 64 on LP64 linux, 32 on LLP64 windows
-			else
+				t.isLong = true;
+			} else
 				t.bits = 32;
 		}
 		if(isConst)

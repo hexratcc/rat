@@ -24,10 +24,12 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
-	B32 Parser::parseIntLiteral(const Token& tok, I64& value, B32& isUnsigned, B32& isLong) {
+	B32 Parser::parseIntLiteral(
+			const Token& tok, I64& value, B32& isUnsigned, U32& bits, B32& isLong, B32& isLongLong) {
 		String s = lex.text(tok);
 		isUnsigned = false;
-		isLong = false;
+		isLongLong = false;
+		U32 lCount = 0;
 
 		U32 end = (U32)s.size();
 		while(end > 0) {
@@ -36,7 +38,7 @@ namespace rat::cc {
 				isUnsigned = true;
 				--end;
 			} else if(c == 'l' || c == 'L') {
-				isLong = true;
+				++lCount;
 				--end;
 			} else {
 				break;
@@ -66,30 +68,52 @@ namespace rat::cc {
 		B32 fitsI32 = v <= 0x7fffffffULL;
 		B32 fitsU32 = v <= 0xffffffffULL;
 		B32 fitsI64 = v <= 0x7fffffffffffffffULL;
+		isLong = lCount >= 1;
+		isLongLong = lCount >= 2;
+		U64 longMax = longBits >= 64 ? 0x7fffffffffffffffULL : 0x7fffffffULL;
+		U64 ulongMax = longBits >= 64 ? 0xffffffffffffffffULL : 0xffffffffULL;
+		B32 fitsLong = v <= longMax;
+		B32 fitsULong = v <= ulongMax;
 		if(isUnsigned) {
-			// unsigned int, then unsigned long
-			isLong = isLong || !fitsU32;
-		} else if(isLong) {
-			// long, then unsigned long
+			if(!isLongLong && !fitsULong)
+				isLongLong = true;
+			else if(!isLong && !fitsU32)
+				isLong = true;
+		} else if(isLongLong) {
 			if(!fitsI64)
 				isUnsigned = true;
+		} else if(isLong) {
+			if(!fitsLong && dec)
+				isLongLong = true;
+			else if(!fitsLong && fitsULong)
+				isUnsigned = true;
+			else if(!fitsI64)
+				isLongLong = true;
 		} else if(dec) {
-			if(!fitsI32)
+			if(!fitsI32 && fitsLong)
 				isLong = true;
+			else if(!fitsI32)
+				isLongLong = true;
 		} else {
-			// hex/octal: int, unsigned int, long, unsigned long
+			// hex/octal: int, unsigned int, long, unsigned long, long long, unsigned long long
 			if(fitsI32) {
 				// int
 			} else if(fitsU32) {
-				isUnsigned = true; // unsigned int (32-bit)
-			} else if(fitsI64) {
-				isLong = true; // long
-			} else {
+				isUnsigned = true;
+			} else if(fitsLong) {
 				isLong = true;
-				isUnsigned = true; // unsigned long
+			} else if(fitsULong) {
+				isLong = true;
+				isUnsigned = true;
+			} else if(fitsI64) {
+				isLongLong = true;
+			} else {
+				isLongLong = true;
+				isUnsigned = true;
 			}
 		}
 
+		bits = (isLongLong || (isLong && longBits >= 64)) ? 64 : (isLong ? longBits : 32);
 		value = (I64)v;
 		return true;
 	}

@@ -80,6 +80,7 @@ namespace rat::cc {
 		const FuncType* func = nullptr;
 		U32 quals = 0;
 		B32 isPlainChar = false;
+		B32 isLong = false;
 		B32 isLongLong = false;
 		const Expr* typeofExpr = nullptr;
 	};
@@ -240,7 +241,9 @@ namespace rat::cc {
 			struct {
 				I64 value;
 				B32 isUnsigned;
+				U32 bits;
 				B32 isLong;
+				B32 isLongLong;
 			} intLit;
 			struct {
 				long double value;

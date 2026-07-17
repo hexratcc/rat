@@ -136,7 +136,7 @@ namespace rat::cc {
 			d.type = t.array->elem;
 			if(count > 0) {
 				Expr* len = makeExpr(ExprKind::IntLit, offset);
-				len->intLit = {(I64)count, false, false};
+				len->intLit = {(I64)count, false, 32, false, false};
 				d.arrayLen = len;
 			}
 		} else {

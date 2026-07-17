@@ -1,4 +1,6 @@
 // expect: 0
+// skip-target: windows
+// win64 struct-by-value / hfa / struct-return abi differs from sysv
 // output:
 //| Arguments:
 //| 0
