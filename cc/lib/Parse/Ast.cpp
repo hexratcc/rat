@@ -42,8 +42,12 @@ namespace rat::cc {
 		}
 		a = promote(a);
 		b = promote(b);
-		if(a.bits == b.bits && a.isUnsigned == b.isUnsigned)
-			return a;
+		if(a.bits == b.bits && a.isUnsigned == b.isUnsigned) {
+			// keep the higher integer rank (long long > long > int)
+			U32 ra = a.isLongLong ? 2u : (a.isLong ? 1u : 0u);
+			U32 rb = b.isLongLong ? 2u : (b.isLong ? 1u : 0u);
+			return ra >= rb ? a : b;
+		}
 		if(a.isUnsigned == b.isUnsigned)
 			return a.bits > b.bits ? a : b;
 		CType u = a.isUnsigned ? a : b;
