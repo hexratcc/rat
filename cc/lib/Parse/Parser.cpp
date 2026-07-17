@@ -347,6 +347,10 @@ namespace rat::cc {
 		TransUnit* unit = arena.make<TransUnit>();
 		while(!failed && peek().kind != TokKind::Eof) {
 			Token start = peek();
+			if(peek().kind == TokKind::Semicolon) {
+				advance();
+				continue;
+			}
 			if(peek().kind == TokKind::KwStaticAssert) {
 				if(!parseStaticAssert())
 					return nullptr;
