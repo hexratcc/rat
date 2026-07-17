@@ -71,8 +71,7 @@ namespace rat::cc {
 	void setHostTargetTriple(const TargetTriple& triple) { hostTripleStorage() = triple; }
 
 	U32 targetLongBits(const TargetTriple& triple) {
-		(void)triple;
-		return 64;
+		return triple.isWindows() ? 32 : 64;
 	}
 
 	const String& hostCC() {
@@ -84,9 +83,14 @@ namespace rat::cc {
 	}
 
 	const String& hostPredefs() {
-		static String cache =
-				captureCmd(hostCC() + " -std=c11 -dM -E -xc " + nullDevice() + " 2>" + nullDevice()) +
-				"\n";
+		static String cache = [] {
+			String defs =
+					captureCmd(hostCC() + " -std=c11 -dM -E -xc " + nullDevice() + " 2>" + nullDevice()) +
+					"\n";
+			if(hostTargetTriple().isWindows())
+				defs += "#define __LLP64__ 1\n";
+			return defs;
+		}();
 		return cache;
 	}
 
