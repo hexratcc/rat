@@ -5,8 +5,8 @@
 
 ## build
 ```shell
-$ make        # build
-$ make test   # builds and runs tests
+$ make      # build
+$ make test # builds and runs tests
 ```
 
 ## passes
