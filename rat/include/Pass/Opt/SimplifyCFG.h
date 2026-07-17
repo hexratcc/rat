@@ -21,7 +21,7 @@ namespace rat {
 
 	struct SimplifyCFGPass : FunctionPass {
 		const C8* name() const override;
-		U32 runOnFunction(Function& fn) override;
+		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
 		Set<Node*> reachableControl(Function& fn);
 		List<Node*> nodesOfOpcode(Function& fn, Opcode op);

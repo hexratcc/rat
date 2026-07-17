@@ -158,7 +158,7 @@ namespace rat {
 		return callee->size() <= kInlineNodeBudget;
 	}
 
-	U32 InlinePass::runOnFunction(Function& caller) {
+	U32 InlinePass::runOnFunction(Function& caller, const TargetInfo&) {
 		Module& m = caller.getModule();
 		cyclicCache.clear(); // earlier inlining may have added call edges
 		U32 count = 0;

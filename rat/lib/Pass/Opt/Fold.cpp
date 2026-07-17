@@ -603,7 +603,7 @@ namespace rat {
 		return n;
 	}
 
-	U32 FoldPass::runOnFunction(Function& fn) {
+	U32 FoldPass::runOnFunction(Function& fn, const TargetInfo&) {
 		U32 changed = 0;
 		B32 again = true;
 		while(again) {

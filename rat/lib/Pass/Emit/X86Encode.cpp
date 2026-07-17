@@ -372,9 +372,9 @@ namespace rat {
 			a->patchRel32(f.dispAt, blockOffset[f.targetBlock]);
 	}
 
-	void X86EncodePass::emitGlobal(ElfObject& elf, const Module& mod, const Global* g) {
+	void X86EncodePass::emitGlobal(ElfObject& elf, const Global* g, U32 ptrBytes) {
 		const List<U8>& init = g->getInit();
-		U32 size = g->getType()->byteSize(mod.pointerBytes());
+		U32 size = g->getType()->byteSize(ptrBytes);
 		if(size == 0)
 			size = (U32)init.size();
 		if(size == 0)
@@ -400,11 +400,11 @@ namespace rat {
 			elf.addReloc(sec, off + r.offset, r.symbol, ElfReloc::Abs64, r.addend);
 	}
 
-	B32 X86EncodePass::run(Module& mod, MachineModule& mm, const TargetInfo& /*target*/) {
+	B32 X86EncodePass::run(Module& mod, MachineModule& mm, const TargetInfo& target) {
 		ElfObject elf;
 
 		for(const Global* g : mod.globals())
-			emitGlobal(elf, mod, g);
+			emitGlobal(elf, g, target.getPointerSizeInBytes());
 
 		for(const Function* fn : mod) {
 			MachineFunc& mf = mm.get(fn);

@@ -4,12 +4,12 @@
 #include "IR/Function.h"
 #include "IR/Module.h"
 #include "IR/Node.h"
-#include "Target/Target.h"
 
 namespace rat {
-	CEmitterPass::FunctionEmitter::FunctionEmitter(const Function& fn, std::ostream& os)
+	CEmitterPass::FunctionEmitter::FunctionEmitter(const Function& fn, std::ostream& os, U32 ptrBytes)
 	: fn(fn),
 		os(os),
+		ptrBytes(ptrBytes),
 		sched(fn) {}
 
 	void CEmitterPass::FunctionEmitter::run() {
@@ -193,7 +193,6 @@ namespace rat {
 		}
 
 		// stack allocations become local byte buffers
-		U32 ptrBytes = fn.getModule().pointerBytes();
 		B32 anyAlloc = false;
 		for(const Node* nc : fn) {
 			if(AllocNode* a = dyn_cast<AllocNode>(const_cast<Node*>(nc))) {

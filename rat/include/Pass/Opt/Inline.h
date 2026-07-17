@@ -25,7 +25,7 @@ namespace rat {
 		static constexpr U32 kCallerGrowthBudget = 192;		 // max nodes a caller may gain
 
 		const C8* name() const override;
-		U32 runOnFunction(Function& caller) override;
+		U32 runOnFunction(Function& caller, const TargetInfo& target) override;
 	private:
 		B32 isStartProj(const Function& callee, Node* n);
 

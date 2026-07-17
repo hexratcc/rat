@@ -11,7 +11,7 @@ namespace rat {
 
 	const C8* RenameSymbolPass::name() const { return "rename-symbol"; }
 
-	B32 RenameSymbolPass::run(Module& module) {
+	B32 RenameSymbolPass::run(Module& module, const TargetInfo&) {
 		if(from.empty() || from == to)
 			return false;
 

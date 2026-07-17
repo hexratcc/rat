@@ -63,15 +63,13 @@ namespace rat {
 		os << ")";
 	}
 
-	void CEmitterPass::emitPrologue(const Module& module) {
+	void CEmitterPass::emitPrologue(const TargetInfo& target) {
 		*os << "#include <stdint.h>\n";
 		// verify ptr size
-		if(const TargetInfo* t = module.target()) {
-			*os << "#include <limits.h>\n";
-			*os << "_Static_assert(sizeof(void *) * CHAR_BIT == " << t->getPointerSizeInBits()
-					<< ",\n               \"Rat module built for target '" << t->getName() << "' ("
-					<< t->getPointerSizeInBits() << "-bit pointers)\");\n";
-		}
+		*os << "#include <limits.h>\n";
+		*os << "_Static_assert(sizeof(void *) * CHAR_BIT == " << target.getPointerSizeInBits()
+				<< ",\n               \"rat module built for target '" << target.getName() << "' ("
+				<< target.getPointerSizeInBits() << "-bit pointers)\");\n";
 		*os << "\n";
 	}
 
@@ -182,8 +180,7 @@ namespace rat {
 		*os << "\n};\n";
 	}
 
-	void CEmitterPass::emitGlobals(const Module& module) {
-		U32 ptrBytes = module.pointerBytes();
+	void CEmitterPass::emitGlobals(const Module& module, U32 ptrBytes) {
 		B32 anyGlobal = false;
 		for(const Global* g : module.globals()) {
 			U32 size = g->getType()->byteSize(ptrBytes);
@@ -215,20 +212,23 @@ namespace rat {
 			*os << "\n";
 	}
 
-	void CEmitterPass::emitFunction(const Function& fn) { FunctionEmitter(fn, *os).run(); }
+	void CEmitterPass::emitFunction(const Function& fn, U32 ptrBytes) {
+		FunctionEmitter(fn, *os, ptrBytes).run();
+	}
 
-	void CEmitterPass::emitModule(const Module& module) {
-		emitPrologue(module);
+	void CEmitterPass::emitModule(const Module& module, const TargetInfo& target) {
+		U32 ptrBytes = target.getPointerSizeInBytes();
+		emitPrologue(target);
 		emitForwardDecls(module);
 		emitExternDecls(module);
-		emitGlobals(module);
+		emitGlobals(module, ptrBytes);
 
 		B32 first = true;
 		for(const Function* fn : module) {
 			if(!first)
 				*os << "\n";
 			first = false;
-			emitFunction(*fn);
+			emitFunction(*fn, ptrBytes);
 		}
 	}
 
@@ -237,8 +237,8 @@ namespace rat {
 
 	const C8* CEmitterPass::name() const { return "c emit"; }
 
-	B32 CEmitterPass::run(Module& module) {
-		emitModule(module);
+	B32 CEmitterPass::run(Module& module, const TargetInfo& target) {
+		emitModule(module, target);
 		return false;
 	}
 } // namespace rat

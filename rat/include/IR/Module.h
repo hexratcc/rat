@@ -6,8 +6,6 @@
 #include "IR/Type.h"
 
 namespace rat {
-	struct TargetInfo;
-
 	// a relocation inside a global's initializer
 	struct Reloc {
 		U32 offset = 0;
@@ -37,11 +35,6 @@ namespace rat {
 
 		const String& getName() const;
 
-		const TargetInfo* target() const;
-		void setTarget(const TargetInfo* t);
-
-		U32 pointerBytes() const;
-
 		Function* createFunction(const String& name, const List<Type*>& params, Type* ret);
 		Function* getFunction(const String& name) const;
 		B32 removeFunction(Function* fn);
@@ -64,7 +57,6 @@ namespace rat {
 		FunctionIterator end() const;
 	private:
 		String name;
-		const TargetInfo* tgt = nullptr;
 		List<Function*> funcs;
 		List<Global*> globs;
 	};

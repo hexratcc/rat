@@ -5,6 +5,7 @@
 #include "IR/Module.h"
 #include "IR/Node.h"
 #include "Pass/Opt/AliasAnalysis.h"
+#include "Target/Target.h"
 
 namespace rat {
 	Node* MemoryOptPass::effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size) {
@@ -117,10 +118,10 @@ namespace rat {
 
 	const C8* MemoryOptPass::name() const { return "memoryopt"; }
 
-	U32 MemoryOptPass::runOnFunction(Function& fn) {
+	U32 MemoryOptPass::runOnFunction(Function& fn, const TargetInfo& target) {
 		fn.eliminateDeadNodes();
 
-		AliasAnalysis aa(fn);
+		AliasAnalysis aa(fn, target.getPointerSizeInBytes());
 
 		List<LoadNode*> loads;
 		for(Node* n : fn)

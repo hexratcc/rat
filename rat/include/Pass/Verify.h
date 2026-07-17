@@ -18,7 +18,7 @@ namespace rat {
 		explicit VerifyPass(std::ostream& os);
 
 		const C8* name() const override;
-		B32 run(Module& module) override;
+		B32 run(Module& module, const TargetInfo& target) override;
 
 		struct FunctionVerifier {
 			const Function& fn;

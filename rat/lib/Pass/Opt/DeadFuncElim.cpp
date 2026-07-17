@@ -18,7 +18,7 @@ namespace rat {
 		}
 	}
 
-	B32 DeadFuncElimPass::run(Module& module) {
+	B32 DeadFuncElimPass::run(Module& module, const TargetInfo&) {
 		B32 changed = false;
 		for(;;) {
 			Set<String> referenced;

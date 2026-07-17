@@ -11,14 +11,15 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
-	Emitter::Emitter(Module& module)
-	: mod(module) {}
+	Emitter::Emitter(Module& module, U32 pointerBytes)
+	: mod(module),
+		ptrBytes(pointerBytes) {}
 
-	U32 Emitter::byteSize(CType t) const { return typeSize(t, mod.pointerBytes()); }
+	U32 Emitter::byteSize(CType t) const { return typeSize(t, ptrBytes); }
 
-	CType Emitter::ctSize() const { return CType{mod.pointerBytes() * 8, true, false, 0}; }
+	CType Emitter::ctSize() const { return CType{ptrBytes * 8, true, false, 0}; }
 
-	CType Emitter::ctPtrDiff() const { return CType{mod.pointerBytes() * 8, false, false, 0}; }
+	CType Emitter::ctPtrDiff() const { return CType{ptrBytes * 8, false, false, 0}; }
 
 	Node* Emitter::constSize(Function& fn, U64 value) { return fn.constInt(irType(ctSize()), value); }
 

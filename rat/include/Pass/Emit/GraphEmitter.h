@@ -13,7 +13,7 @@ namespace rat {
 		explicit GraphEmitterPass(std::ostream& os);
 
 		const C8* name() const override;
-		B32 run(Module& module) override;
+		B32 run(Module& module, const TargetInfo& target) override;
 	private:
 		void emitModule(const Module& module);
 		void emitFunctionBody(const Function& fn);

@@ -209,10 +209,9 @@ namespace {
 		}
 	}
 
-	TransUnit*
-	parse(const String& path, const String& source, Arena& arena, const TargetInfo& target) {
+	TransUnit* parse(const String& path, const String& source, Arena& arena, U32 pointerBytes) {
 		Lexer lex(source.data(), (U32)source.size(), path);
-		Parser parser(lex, arena, target);
+		Parser parser(lex, arena, pointerBytes);
 		TransUnit* unit = parser.parseUnit();
 		if(!unit)
 			std::cerr << parser.error() << "\n";
@@ -222,7 +221,7 @@ namespace {
 	I32 emitAstText(const String& path, const String& source, std::ostream& os) {
 		Arena arena;
 		Generic64 target;
-		TransUnit* unit = parse(path, source, arena, target);
+		TransUnit* unit = parse(path, source, arena, target.getPointerSizeInBytes());
 		if(!unit)
 			return 1;
 		dumpAst(*unit, os);
@@ -236,13 +235,12 @@ namespace {
 		const TargetInfo& target = (kind == Emit::X86) ? (const TargetInfo&)x86 : generic;
 
 		Arena arena;
-		TransUnit* unit = parse(path, source, arena, target);
+		TransUnit* unit = parse(path, source, arena, target.getPointerSizeInBytes());
 		if(!unit)
 			return 1;
 
 		Module mod;
-		mod.setTarget(&target);
-		Emitter emitter(mod);
+		Emitter emitter(mod, target.getPointerSizeInBytes());
 		if(!emitter.emit(*unit)) {
 			std::cerr << path << ": " << emitter.error() << "\n";
 			return 1;

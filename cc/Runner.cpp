@@ -333,7 +333,7 @@ namespace {
 		Lexer lex(source.data(), (U32)source.size(), path);
 		Arena arena;
 		Generic64 target;
-		Parser parser(lex, arena, target);
+		Parser parser(lex, arena, target.getPointerSizeInBytes());
 		TransUnit* unit = parser.parseUnit();
 		if(!unit) {
 			err = parser.error();
@@ -341,8 +341,7 @@ namespace {
 		}
 
 		Module mod;
-		mod.setTarget(&target);
-		Emitter emitter(mod);
+		Emitter emitter(mod, target.getPointerSizeInBytes());
 		if(!emitter.emit(*unit)) {
 			err = emitter.error();
 			return false;

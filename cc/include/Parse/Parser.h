@@ -4,11 +4,9 @@
 #include "Lex/Lexer.h"
 #include "Parse/Ast.h"
 
-#include "Target/Target.h"
-
 namespace rat::cc {
 	struct Parser {
-		Parser(Lexer& lexer, Arena& arena, const TargetInfo& target);
+		Parser(Lexer& lexer, Arena& arena, U32 pointerBytes);
 
 		TransUnit* parseUnit();
 
@@ -113,13 +111,13 @@ namespace rat::cc {
 		// typedef support
 		B32 parseTypedef();
 		B32 startsType(const Token& tok);
-		U32 typeSizeBytes(CType t) const { return typeSize(t, target.getPointerSizeInBytes()); }
+		U32 typeSizeBytes(CType t) const { return typeSize(t, ptrBytes); }
 		U32 fieldByteSize(CType t) const { return isAggregate(t) ? t.strukt->size : typeSizeBytes(t); }
 		U32 fieldAlign(CType t) const { return isAggregate(t) ? t.strukt->align : typeSizeBytes(t); }
 
 		Lexer& lex;
 		Arena& arena;
-		const TargetInfo& target;
+		U32 ptrBytes;
 		B32 failed = false;
 		B32 sawStatic = false;
 		B32 sawExtern = false;

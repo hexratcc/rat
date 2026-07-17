@@ -37,7 +37,7 @@ namespace rat {
 			changed = changed || c;
 		};
 		for(auto& pass : passes)
-			runOne(pass->name(), [&] { return pass->run(module); });
+			runOne(pass->name(), [&] { return pass->run(module, *target); });
 		for(auto& pass : machinePasses)
 			runOne(pass->name(), [&] { return pass->run(module, mm, *target); });
 		return changed;

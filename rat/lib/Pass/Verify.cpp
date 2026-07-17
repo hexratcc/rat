@@ -377,7 +377,7 @@ namespace rat {
 
 	const C8* VerifyPass::name() const { return "verify"; }
 
-	B32 VerifyPass::run(Module& module) {
+	B32 VerifyPass::run(Module& module, const TargetInfo&) {
 		verify(module, *os);
 		return false;
 	}

@@ -72,7 +72,6 @@ namespace rat {
 
 	void X86LowerPass::reset(const Function& f, Schedule& s, MachineFunc& o, X86FrameLayout& layout) {
 		fn = &f;
-		mod = &f.getModule();
 		sched = &s;
 		out = &o;
 		fl = &layout;
@@ -97,7 +96,7 @@ namespace rat {
 		for(const Node* n : *fn) {
 			if(const AllocNode* al = dyn_cast<AllocNode>(n)) {
 				if(!al->isVariableSized()) {
-					U32 sz = al->getAllocType()->byteSize(mod->pointerBytes());
+					U32 sz = al->getAllocType()->byteSize(ptrBytes);
 					if(sz == 0)
 						sz = 8;
 					sz = (sz + 7u) & ~7u;
@@ -531,7 +530,10 @@ namespace rat {
 		return changed != 0;
 	}
 
-	U32 X86LowerPass::runOnMachineFunction(const Function& fn, MachineFunc& mf, const TargetInfo&) {
+	U32 X86LowerPass::runOnMachineFunction(const Function& fn,
+																				 MachineFunc& mf,
+																				 const TargetInfo& target) {
+		ptrBytes = target.getPointerSizeInBytes();
 		Schedule sched(fn);
 		X86FrameLayout fl;
 		mf.src = &fn;

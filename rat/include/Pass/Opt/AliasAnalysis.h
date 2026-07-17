@@ -18,7 +18,7 @@ namespace rat {
 	enum class AliasResult { NoAlias, MayAlias, MustAlias };
 
 	struct AliasAnalysis {
-		explicit AliasAnalysis(const Function& fn);
+		AliasAnalysis(const Function& fn, U32 pointerBytes);
 
 		AliasResult alias(Node* addrA, U32 sizeA, Node* addrB, U32 sizeB) const;
 
@@ -67,6 +67,7 @@ namespace rat {
 		static B32 distinctObjects(const Node* a, const Node* b);
 	private:
 		const Function& fn;
+		U32 ptrBytes;
 		mutable Map<Node*, Address> decomposeCache;
 	};
 } // namespace rat

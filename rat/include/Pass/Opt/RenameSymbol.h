@@ -11,7 +11,7 @@ namespace rat {
 		RenameSymbolPass(String from, String to);
 
 		const C8* name() const override;
-		B32 run(Module& module) override;
+		B32 run(Module& module, const TargetInfo& target) override;
 	private:
 		String from;
 		String to;

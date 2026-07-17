@@ -1,13 +1,13 @@
 #include "Parse/Parser.h"
 
 namespace rat::cc {
-	Parser::Parser(Lexer& lexer, Arena& arena, const TargetInfo& target)
+	Parser::Parser(Lexer& lexer, Arena& arena, U32 pointerBytes)
 	: lex(lexer),
 		arena(arena),
-		target(target) {
+		ptrBytes(pointerBytes) {
 		ArrayType* vl = arena.make<ArrayType>();
 		vl->elem = CType{8, true, false, 0}; // unsigned char
-		vl->count = target.getPointerSizeInBytes() * 4;
+		vl->count = ptrBytes * 4;
 		CType vaList{8, true, false, 0};
 		vaList.array = vl;
 		typedefs["va_list"] = vaList;

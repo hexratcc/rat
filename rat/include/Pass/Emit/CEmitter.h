@@ -12,13 +12,14 @@ namespace rat {
 	struct Module;
 	struct Node;
 	struct PhiNode;
+	struct TargetInfo;
 	struct Type;
 
 	struct CEmitterPass : Pass {
 		explicit CEmitterPass(std::ostream& os);
 
 		const C8* name() const override;
-		B32 run(Module& module) override;
+		B32 run(Module& module, const TargetInfo& target) override;
 
 		static void emitSignatureInto(const Function& fn, std::ostream& os);
 		static String intCType(U32 width, B32 isSigned);
@@ -28,12 +29,13 @@ namespace rat {
 		struct FunctionEmitter {
 			const Function& fn;
 			std::ostream& os;
+			U32 ptrBytes;
 			Schedule sched;
 			Set<const Node*> needTemp;
 
 			using TK = Schedule::TermKind;
 
-			FunctionEmitter(const Function& fn, std::ostream& os);
+			FunctionEmitter(const Function& fn, std::ostream& os, U32 ptrBytes);
 
 			void run();
 
@@ -66,13 +68,13 @@ namespace rat {
 			void emitTerminator(I32 b);
 		};
 
-		void emitModule(const Module& module);
-		void emitPrologue(const Module& module);
+		void emitModule(const Module& module, const TargetInfo& target);
+		void emitPrologue(const TargetInfo& target);
 		void emitForwardDecls(const Module& module);
 		void emitExternDecls(const Module& module);
-		void emitGlobals(const Module& module);
+		void emitGlobals(const Module& module, U32 ptrBytes);
 		void emitRelocGlobal(const Global& g, U32 size, U32 ptrBytes);
-		void emitFunction(const Function& fn);
+		void emitFunction(const Function& fn, U32 ptrBytes);
 		void emitSignature(const Function& fn);
 	private:
 		std::ostream* os;

@@ -103,7 +103,6 @@ I32 main(I32 argc, char** argv) {
 
 	Generic64 target;
 	Module module;
-	module.setTarget(&target);
 	if(!parseText(source, module, std::cerr)) {
 		std::cerr << "rat: parse error\n";
 		return 1;

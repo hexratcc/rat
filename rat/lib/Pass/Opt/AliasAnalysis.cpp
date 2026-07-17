@@ -1,13 +1,13 @@
 #include "Pass/Opt/AliasAnalysis.h"
 
 #include "IR/Function.h"
-#include "IR/Module.h"
 #include "IR/Node.h"
 #include "IR/Type.h"
 
 namespace rat {
-	AliasAnalysis::AliasAnalysis(const Function& fn)
-	: fn(fn) {}
+	AliasAnalysis::AliasAnalysis(const Function& fn, U32 pointerBytes)
+	: fn(fn),
+		ptrBytes(pointerBytes) {}
 
 	const AliasAnalysis::Address& AliasAnalysis::decompose(Node* addr) const {
 		auto it = decomposeCache.find(addr);
@@ -48,7 +48,7 @@ namespace rat {
 		else
 			return 0;
 
-		return t->byteSize(fn.getModule().pointerBytes());
+		return t->byteSize(ptrBytes);
 	}
 
 	Node* AliasAnalysis::accessAddress(Node* n) {

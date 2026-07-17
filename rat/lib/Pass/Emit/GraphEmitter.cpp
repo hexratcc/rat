@@ -113,7 +113,7 @@ namespace rat {
 
 	const C8* GraphEmitterPass::name() const { return "graph-emitter"; }
 
-	B32 GraphEmitterPass::run(Module& module) {
+	B32 GraphEmitterPass::run(Module& module, const TargetInfo&) {
 		emitModule(module);
 		return false;
 	}

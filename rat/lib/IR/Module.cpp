@@ -1,7 +1,5 @@
 #include "IR/Module.h"
 
-#include "Target/Target.h"
-
 namespace rat {
 	Global::Global(String name, Type* type, B32 isConst, List<U8> init, List<Reloc> relocs)
 	: name(std::move(name)),
@@ -20,11 +18,6 @@ namespace rat {
 	: name(std::move(name)) {}
 
 	const String& Module::getName() const { return name; }
-
-	const TargetInfo* Module::target() const { return tgt; }
-	void Module::setTarget(const TargetInfo* t) { tgt = t; }
-
-	U32 Module::pointerBytes() const { return tgt ? tgt->getPointerSizeInBytes() : 0; }
 
 	Function* Module::createFunction(const String& name, const List<Type*>& params, Type* ret) {
 		Function* fn = arena.make<Function>(*this, name, params, ret);

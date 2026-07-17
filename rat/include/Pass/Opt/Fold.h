@@ -37,7 +37,7 @@ namespace rat {
 
 	struct FoldPass : FunctionPass {
 		const C8* name() const override;
-		U32 runOnFunction(Function& fn) override;
+		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 
 		static U64 maskW(I64 v, U32 w);									 // zero-extend low w bits
 		static B32 wouldSignedDivOverflow(I64 a, I64 b); // div by 0 or INT_MIN-1

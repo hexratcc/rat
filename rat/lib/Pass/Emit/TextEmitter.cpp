@@ -111,7 +111,7 @@ namespace rat {
 
 	const C8* TextEmitterPass::name() const { return "text-emitter"; }
 
-	B32 TextEmitterPass::run(Module& module) {
+	B32 TextEmitterPass::run(Module& module, const TargetInfo&) {
 		emitModule(module);
 		return false;
 	}

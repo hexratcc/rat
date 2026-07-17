@@ -17,7 +17,7 @@ namespace rat::cc {
 	} // namespace detail
 
 	struct Emitter {
-		explicit Emitter(Module& module);
+		Emitter(Module& module, U32 pointerBytes);
 
 		B32 emit(const TransUnit& unit);
 
@@ -191,6 +191,7 @@ namespace rat::cc {
 		CType funcPtrType(const FnSig& sig);
 		List<Reloc> relocs;
 		Module& mod;
+		U32 ptrBytes;
 		Arena arena;
 		Type* i32 = nullptr;
 		B32 failed = false;

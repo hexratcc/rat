@@ -36,9 +36,7 @@ namespace {
 	}
 
 	B32 canonicalIR(const String& text, String& out, String& err) {
-		Generic64 target;
 		Module m;
-		m.setTarget(&target);
 		std::ostringstream es;
 		if(!parseText(text, m, es)) {
 			err = es.str();
@@ -122,7 +120,6 @@ namespace {
 
 		Generic64 target;
 		Module mod;
-		mod.setTarget(&target);
 		std::ostringstream perr;
 		if(!parseText(tf.input, mod, perr)) {
 			err = "input parse error\n    " + trim(perr.str());

@@ -221,7 +221,7 @@ namespace rat {
 		void emitTerminator(I32 b);
 	private:
 		const Function* fn = nullptr;
-		const Module* mod = nullptr;
+		U32 ptrBytes = 8;
 		Schedule* sched = nullptr;
 		MachineFunc* out = nullptr;
 		X86FrameLayout* fl = nullptr;
@@ -243,7 +243,7 @@ namespace rat {
 			I32 targetBlock; // block the jump targets
 		};
 
-		void emitGlobal(ElfObject& elf, const Module& mod, const Global* g);
+		void emitGlobal(ElfObject& elf, const Global* g, U32 ptrBytes);
 
 		void reset(const MachineFunc& f, const X86FrameLayout& layout, Asm& asm_, List<PhysReg> callee);
 		void encodeFunction();

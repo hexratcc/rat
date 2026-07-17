@@ -12,7 +12,7 @@ namespace rat {
 
 	const C8* GVNPass::name() const { return "gvn"; }
 
-	U32 GVNPass::runOnFunction(Function& fn) {
+	U32 GVNPass::runOnFunction(Function& fn, const TargetInfo&) {
 		U32 removed = 0;
 
 		B32 changed = true;

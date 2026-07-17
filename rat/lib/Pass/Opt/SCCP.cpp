@@ -205,7 +205,7 @@ namespace rat {
 
 	const C8* SCCPPass::name() const { return "sccp"; }
 
-	U32 SCCPPass::runOnFunction(Function& fn) {
+	U32 SCCPPass::runOnFunction(Function& fn, const TargetInfo&) {
 		values.clear();
 		exec.clear();
 		flowWork.clear();

@@ -24,7 +24,7 @@ namespace rat {
 
 	struct MemoryOptPass : FunctionPass {
 		const C8* name() const override;
-		U32 runOnFunction(Function& fn) override;
+		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
 		static U32 forwardStores(const AliasAnalysis& aa,
 														 const Map<LoadNode*, Node*>& defs,
