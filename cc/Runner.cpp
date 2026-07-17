@@ -4,11 +4,16 @@
 #include "Lex/Lexer.h"
 #include "Lex/Preprocess.h"
 #include "Parse/Parser.h"
+#include <atomic>
 #include <fstream>
+#if defined(_WIN32)
+#include <process.h>
+#else
 #include <poll.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 #include "Support/StringUtil.h"
 #include "Support/TestHarness.h"
@@ -21,15 +26,28 @@ using namespace rat::cc;
 namespace {
 	constexpr U32 kReadBufSize = 4096;
 
-	U32 oracleCounter = 0;
+	std::atomic<U32> oracleCounter{0};
 
 	String tempDir() {
 		const char* env = std::getenv("TMPDIR");
+#if defined(_WIN32)
+		if(!env || !*env)
+			env = std::getenv("TEMP");
+		if(!env || !*env)
+			env = std::getenv("TMP");
+		String dir = env && *env ? env : ".";
+#else
 		String dir = env && *env ? env : "/tmp";
-		if(!dir.empty() && dir.back() == '/')
+#endif
+		while(!dir.empty() && (dir.back() == '/' || dir.back() == '\\'))
 			dir.pop_back();
+		for(char& c : dir)
+			if(c == '\\')
+				c = '/';
 		return dir;
 	}
+
+	B32 targetIsWindows() { return hostTargetTriple().isWindows(); }
 
 	String defaultPasses() {
 		String spec;
@@ -44,6 +62,7 @@ namespace {
 		String passes = defaultPasses();
 		B32 hasOutput = false;
 		String output;
+		B32 skip = false;
 	};
 
 	String trim(const String& s) {
@@ -98,6 +117,13 @@ namespace {
 			} else if(key == "output") {
 				exp.hasOutput = true;
 				inOutput = true;
+			} else if(key == "skip-target") {
+				TargetTriple t;
+				String terr;
+				B32 match = TargetTriple::parse(val, t, terr) ? t.os == hostTargetTriple().os
+																											: val == String(hostTargetTriple().osName());
+				if(match)
+					exp.skip = true;
 			}
 		}
 		if(!exp.hasValue) {
@@ -147,10 +173,15 @@ namespace {
 								 String& capturedOut,
 								 String& err) {
 		std::ostringstream basess;
-		basess << tempDir() << "/ratcc_" << tag << "_" << (long)getpid() << "_" << oracleCounter++;
+#if defined(_WIN32)
+		long pid = (long)_getpid();
+#else
+		long pid = (long)getpid();
+#endif
+		basess << tempDir() << "/ratcc_" << tag << "_" << pid << "_" << oracleCounter++;
 		String base = basess.str();
 		String wpath = base + ".wrap.c";
-		String xpath = base + ".out";
+		String xpath = base + (targetIsWindows() ? ".exe" : ".out");
 		String rpath = base + ".ret";
 
 		Artifact art;
@@ -172,24 +203,34 @@ namespace {
 				return false;
 			}
 			wf << "#include <stdio.h>\n"
-				 << "extern int __ratcc_user_main(void);\n"
+				 << "#ifdef _WIN32\n"
+				 << "#include <fcntl.h>\n"
+				 << "#include <io.h>\n"
+				 << "#endif\n"
+				 << "extern int __ratcc_user_main();\n"
+				 << "static char* __ratcc_argv[] = { (char*)\"a.out\", 0 };\n"
 				 << "int main(void) {\n"
-				 << "  int __r = (int)__ratcc_user_main();\n"
+				 << "#ifdef _WIN32\n"
+				 << "  _setmode(_fileno(stdout), _O_BINARY);\n"
+				 << "#endif\n"
+				 << "  int __r = (int)__ratcc_user_main(1, __ratcc_argv);\n"
+				 << "  fflush(stdout);\n"
 				 << "  FILE* __rf = fopen(\"" << rpath << "\", \"w\");\n"
 				 << "  if (__rf) { fprintf(__rf, \"%d\", __r); fclose(__rf); }\n"
 				 << "  return __r;\n"
 				 << "}\n";
 		}
 
-		String cmd =
-				hostCC() + " -w -O0 " + art.compileArgs + " '" + wpath + "' -o '" + xpath + "' -lm";
+		String cmd = hostCC() + " -w -O0 " + art.compileArgs + " \"" + wpath + "\" -o \"" + xpath +
+								 "\" -lm";
 		if(std::system(cmd.c_str()) != 0) {
 			cleanup();
 			err = String(tag) + ": compilation/link failed";
 			return false;
 		}
 
-		FILE* p = popen(xpath.c_str(), "r");
+		String runCmd = "\"" + xpath + "\" 2>" + nullDevice();
+		FILE* p = shellOpen(runCmd.c_str());
 		if(!p) {
 			cleanup();
 			err = String(tag) + ": cannot execute program";
@@ -200,16 +241,21 @@ namespace {
 		U64 n;
 		while((n = fread(buf, 1, sizeof(buf), p)) > 0)
 			capturedOut.append(buf, n);
-		I32 status = pclose(p);
+		I32 status = shellClose(p);
 
 		std::ifstream rf(rpath);
 		String rv;
 		if(rf && std::getline(rf, rv) && !rv.empty())
 			out = (I32)std::strtol(rv.c_str(), nullptr, 10);
 		else
+#if defined(_WIN32)
+			out = status;
+#else
 			out = WIFEXITED(status) ? (I32)WEXITSTATUS(status) : -1;
+#endif
 
-		cleanup();
+		if(!std::getenv("RATCC_KEEP"))
+			cleanup();
 		return true;
 	}
 
@@ -226,9 +272,9 @@ namespace {
 					e = "x86: cannot write temp object";
 					return false;
 				}
-				X86Target target;
+				X86Target target(hostTargetTriple());
 				compileModule(mod, target, copt, of);
-				art.compileArgs = "-no-pie '" + art.path + "'";
+				art.compileArgs = targetIsWindows() ? "'" + art.path + "'" : "-no-pie '" + art.path + "'";
 				return true;
 			};
 			return runBackend("x86", make, out, capturedOut, err);
@@ -264,6 +310,8 @@ namespace {
 		Expectation exp;
 		if(!parseDirectives(source, exp, err))
 			return false;
+		if(exp.skip)
+			return true;
 
 		PpOptions pp;
 		pp.includeDirs = hostIncludeDirs();
@@ -276,7 +324,11 @@ namespace {
 		Lexer lex(source.data(), (U32)source.size(), path);
 		Arena arena;
 		Generic64 target;
-		Parser parser(lex, arena, target.getPointerSizeInBytes());
+		Parser parser(lex,
+									arena,
+									target.getPointerSizeInBytes(),
+									targetLongBits(hostTargetTriple()),
+									targetIsWindows());
 		TransUnit* unit = parser.parseUnit();
 		if(!unit) {
 			err = parser.error();
@@ -284,7 +336,7 @@ namespace {
 		}
 
 		Module mod;
-		Emitter emitter(mod, target.getPointerSizeInBytes());
+		Emitter emitter(mod, target.getPointerSizeInBytes(), targetIsWindows());
 		if(!emitter.emit(*unit)) {
 			err = emitter.error();
 			return false;
@@ -333,6 +385,9 @@ namespace {
 
 const I32 kCaseTimeoutSec = 20;
 
+#if defined(_WIN32)
+B32 runCaseForked(const String& path, String& err) { return runCase(path, err); }
+#else
 B32 runCaseForked(const String& path, String& err) {
 	I32 fds[2];
 	if(pipe(fds) != 0)
@@ -413,6 +468,7 @@ B32 runCaseForked(const String& path, String& err) {
 	err = childErr.empty() ? "failed" : childErr;
 	return false;
 }
+#endif
 
 I32 main(I32 argc, char** argv) {
 	TestSuiteSpec spec;
@@ -420,7 +476,7 @@ I32 main(I32 argc, char** argv) {
 	spec.extension = ".c";
 	spec.dirCandidates = {"cc/test", "test"};
 	spec.run = [](const String& path, String& err) { return runCaseForked(path, err); };
-	// Warm the lazily-initialized host/config caches before threads spawn so
+	// warm the lazily-initialized host/config caches before threads spawn so
 	// their first access does not race.
 	spec.prewarm = [] {
 		(void)hostCC();
