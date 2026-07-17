@@ -223,7 +223,11 @@ namespace {
 
 	TransUnit* parse(const String& path, const String& source, Arena& arena, U32 pointerBytes) {
 		Lexer lex(source.data(), (U32)source.size(), path);
-		Parser parser(lex, arena, pointerBytes);
+		Parser parser(lex,
+									arena,
+									pointerBytes,
+									targetLongBits(hostTargetTriple()),
+									hostTargetTriple().isWindows());
 		TransUnit* unit = parser.parseUnit();
 		if(!unit)
 			std::cerr << parser.error() << "\n";

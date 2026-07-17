@@ -106,6 +106,27 @@ namespace rat::cc {
 			}
 			return w;
 		}
+
+		String decodeUtf8ToUtf16LE(const String& bytes) {
+			String u32 = decodeUtf8ToUtf32LE(bytes);
+			String w;
+			for(U32 i = 0; i + 3 < (U32)u32.size(); i += 4) {
+				U32 cp = (U8)u32[i] | ((U32)(U8)u32[i + 1] << 8) | ((U32)(U8)u32[i + 2] << 16) |
+								 ((U32)(U8)u32[i + 3] << 24);
+				if(cp >= 0x10000) {
+					U32 v = cp - 0x10000;
+					U32 hi = 0xD800 + (v >> 10), lo = 0xDC00 + (v & 0x3FF);
+					w.push_back((char)(U8)hi);
+					w.push_back((char)(U8)(hi >> 8));
+					w.push_back((char)(U8)lo);
+					w.push_back((char)(U8)(lo >> 8));
+				} else {
+					w.push_back((char)(U8)cp);
+					w.push_back((char)(U8)(cp >> 8));
+				}
+			}
+			return w;
+		}
 	} // namespace detail
 
 	Expr* Parser::parseUnary() {

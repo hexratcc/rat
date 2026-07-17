@@ -146,10 +146,11 @@ namespace rat::cc {
 			}
 			Expr* e = makeExpr(ExprKind::StrLit, first.offset);
 			if(wide) {
-				String w = detail::decodeUtf8ToUtf32LE(bytes);
+				String w = wcharSize == 2 ? detail::decodeUtf8ToUtf16LE(bytes)
+																	: detail::decodeUtf8ToUtf32LE(bytes);
 				e->str.bytes = arena.make<String>(std::move(w));
 				e->str.isWide = true;
-				e->str.charSize = 4;
+				e->str.charSize = wcharSize;
 			} else {
 				e->str.bytes = arena.make<String>(std::move(bytes));
 				e->str.isWide = false;

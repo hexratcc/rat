@@ -235,7 +235,7 @@ namespace rat::cc {
 				t.bits = 64;
 				t.isLongLong = true;
 			} else if(longCount == 1)
-				t.bits = 64;
+				t.bits = longBits; // 64 on LP64 linux, 32 on LLP64 windows
 			else
 				t.bits = 32;
 		}

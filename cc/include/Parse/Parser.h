@@ -118,6 +118,8 @@ namespace rat::cc {
 		Lexer& lex;
 		Arena& arena;
 		U32 ptrBytes;
+		U32 longBits;
+		U32 wcharSize;
 		B32 failed = false;
 		B32 sawStatic = false;
 		B32 sawExtern = false;
