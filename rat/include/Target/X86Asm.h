@@ -3,7 +3,7 @@
 
 #include "Core.h"
 
-#include "Target/X86Elf.h"
+#include "Target/ObjectFile.h"
 
 namespace rat {
 	enum Reg : U8 {
@@ -48,7 +48,7 @@ namespace rat {
 	struct AsmReloc {
 		U32 offset;
 		String symbol;
-		ElfReloc kind;
+		RelocKind kind;
 		I64 addend;
 	};
 
@@ -342,7 +342,7 @@ namespace rat {
 			b(0x8d);
 			b((U8)(0x05 | ((dst & 7) << 3))); // rip-relative
 			U32 at = here();
-			relocs.push_back({at, sym, ElfReloc::Pc32, addend - 4});
+			relocs.push_back({at, sym, RelocKind::Pc32, addend - 4});
 			d32(0);
 		}
 
@@ -378,7 +378,7 @@ namespace rat {
 		void callSym(const String& sym) {
 			b(0xe8);
 			U32 at = here();
-			relocs.push_back({at, sym, ElfReloc::Plt32, -4});
+			relocs.push_back({at, sym, RelocKind::Plt32, -4});
 			d32(0);
 		}
 

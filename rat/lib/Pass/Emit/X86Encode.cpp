@@ -8,9 +8,9 @@
 #include "IR/Node.h"
 #include "IR/Opcode.h"
 #include "IR/Type.h"
+#include "Target/ObjectFile.h"
 #include "Target/Target.h"
 #include "Target/X86Asm.h"
-#include "Target/X86Elf.h"
 
 namespace rat {
 	Reg X86EncodePass::toGp(PhysReg p) { return (Reg)(p - X86Target::kGpBase); }
@@ -372,7 +372,7 @@ namespace rat {
 			a->patchRel32(f.dispAt, blockOffset[f.targetBlock]);
 	}
 
-	void X86EncodePass::emitGlobal(ElfObject& elf, const Global* g, U32 ptrBytes) {
+	void X86EncodePass::emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes) {
 		const List<U8>& init = g->getInit();
 		U32 size = g->getType()->byteSize(ptrBytes);
 		if(size == 0)
@@ -382,29 +382,29 @@ namespace rat {
 
 		B32 allZero = g->getRelocs().empty() &&
 									std::all_of(init.begin(), init.end(), [](U8 v) { return v == 0; });
-		ElfObject::Section sec =
-				allZero ? ElfObject::Bss : (g->isConstant() ? ElfObject::Rodata : ElfObject::Data);
-		elf.align(sec, 8);
+		ObjectFile::Section sec =
+				allZero ? ObjectFile::Bss : (g->isConstant() ? ObjectFile::Rodata : ObjectFile::Data);
+		obj.align(sec, 8);
 
 		U32 off;
 		if(allZero) {
-			off = elf.appendZero(sec, size);
+			off = obj.appendZero(sec, size);
 		} else {
 			List<U8> img(size, 0);
 			std::copy_n(init.begin(), init.size() < size ? init.size() : size, img.begin());
-			off = elf.append(sec, img.data(), size);
+			off = obj.append(sec, img.data(), size);
 		}
-		elf.defineSymbol(g->getName(), sec, off, !g->isInternal(), false);
+		obj.defineSymbol(g->getName(), sec, off, !g->isInternal(), false);
 
 		for(const Reloc& r : g->getRelocs())
-			elf.addReloc(sec, off + r.offset, r.symbol, ElfReloc::Abs64, r.addend);
+			obj.addReloc(sec, off + r.offset, r.symbol, RelocKind::Abs64, r.addend);
 	}
 
 	B32 X86EncodePass::run(Module& mod, MachineModule& mm, const TargetInfo& target) {
-		ElfObject elf;
+		UniquePtr<ObjectFile> obj = createObjectFile(target.getTriple().os);
 
 		for(const Global* g : mod.globals())
-			emitGlobal(elf, g, target.getPointerSizeInBytes());
+			emitGlobal(*obj, g, target.getPointerSizeInBytes());
 
 		for(const Function* fn : mod) {
 			MachineFunc& mf = mm.get(fn);
@@ -417,15 +417,15 @@ namespace rat {
 			reset(mf, fl, a, mf.usedCalleeSaved);
 			encodeFunction();
 
-			elf.align(ElfObject::Text, 16);
-			U32 off = elf.append(ElfObject::Text, code.data(), (U32)code.size());
+			obj->align(ObjectFile::Text, 16);
+			U32 off = obj->append(ObjectFile::Text, code.data(), (U32)code.size());
 			B32 global = fn->getLinkage() == Function::Linkage::External;
-			elf.defineSymbol(fn->getName(), ElfObject::Text, off, global, true);
+			obj->defineSymbol(fn->getName(), ObjectFile::Text, off, global, true);
 			for(const AsmReloc& r : relocs)
-				elf.addReloc(ElfObject::Text, off + r.offset, r.symbol, r.kind, r.addend);
+				obj->addReloc(ObjectFile::Text, off + r.offset, r.symbol, r.kind, r.addend);
 		}
 
-		elf.write(*os);
+		obj->write(*os);
 		return false;
 	}
 

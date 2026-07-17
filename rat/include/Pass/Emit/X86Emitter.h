@@ -15,7 +15,7 @@ namespace rat {
 	struct CallNode;
 	struct CompareNode;
 	struct ConvertNode;
-	struct ElfObject;
+	struct ObjectFile;
 	struct Function;
 	struct Global;
 	struct IfNode;
@@ -243,7 +243,7 @@ namespace rat {
 			I32 targetBlock; // block the jump targets
 		};
 
-		void emitGlobal(ElfObject& elf, const Global* g, U32 ptrBytes);
+		void emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes);
 
 		void reset(const MachineFunc& f, const X86FrameLayout& layout, Asm& asm_, List<PhysReg> callee);
 		void encodeFunction();

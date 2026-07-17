@@ -8,9 +8,9 @@
 #include "IR/Node.h"
 #include "IR/Opcode.h"
 #include "IR/Type.h"
+#include "Target/ObjectFile.h"
 #include "Target/Target.h"
 #include "Target/X86Asm.h"
-#include "Target/X86Elf.h"
 
 namespace rat {
 	List<PhysReg> X86LowerPass::callerSavedClobbers() const {
