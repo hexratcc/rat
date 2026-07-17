@@ -1,0 +1,34 @@
+name: test (windows-latest)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: toolchain versions
+        shell: cmd
+        run: |
+          cmake --version
+          gcc --version
+
+      - name: configure (Visual Studio)
+        shell: cmd
+        run: cmake -B build
+
+      - name: build
+        shell: cmd
+        run: cmake --build build --config Release -j
+
+      - name: test
+        shell: cmd
+        working-directory: build
+        run: ctest -C Release --output-on-failure
