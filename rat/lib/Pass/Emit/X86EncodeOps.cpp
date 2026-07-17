@@ -357,7 +357,7 @@ namespace rat {
 	void X86EncodePass::emitX87Binary(const MachineInstr& in, U32 idx) {
 		fldSlot(in.uses[0].slot);
 		fldSlot(in.uses[1].slot);
-		static void (Asm::* const kArith[])() = {&Asm::faddp, &Asm::fsubp, &Asm::fmulp, &Asm::fdivp};
+		static void (Asm::*const kArith[])() = {&Asm::faddp, &Asm::fsubp, &Asm::fmulp, &Asm::fdivp};
 		(a->*kArith[idx])();
 		fstpSlot(in.defs[0].slot);
 	}

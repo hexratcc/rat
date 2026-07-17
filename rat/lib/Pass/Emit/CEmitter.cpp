@@ -195,8 +195,7 @@ namespace rat {
 				continue;
 			}
 			*os << (g->isInternal() ? "static " : "") << (g->isConstant() ? "const " : "")
-					<< "unsigned char " << g->getName() << "[" << size
-					<< "] = {";
+					<< "unsigned char " << g->getName() << "[" << size << "] = {";
 			U32 last = 0;
 			for(U32 i = 0; i < size; ++i)
 				if(i < init.size() && init[i] != 0)
