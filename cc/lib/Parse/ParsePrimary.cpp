@@ -2,6 +2,8 @@
 
 #include "Parse/ParserDetail.h"
 
+#include <cerrno>
+
 namespace rat::cc {
 	Expr* Parser::parseBuiltinOffsetof(const Token& kw) {
 		if(!expect(TokKind::LParen, "'('"))
@@ -190,7 +192,13 @@ namespace rat::cc {
 					break;
 				text.pop_back();
 			}
-			long double value = std::stold(text);
+			errno = 0;
+			char* end = nullptr;
+			long double value = std::strtold(text.c_str(), &end);
+			if(end == text.c_str() || *end != '\0') {
+				fail(lit, "invalid floating constant '" + text + "'");
+				return nullptr;
+			}
 			Expr* e = makeExpr(ExprKind::FloatLit, lit.offset);
 			e->floatLit = {value, isFloat, isLongDouble, isImaginary};
 			return e;
