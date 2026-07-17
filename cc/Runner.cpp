@@ -207,7 +207,7 @@ namespace {
 				 << "#include <fcntl.h>\n"
 				 << "#include <io.h>\n"
 				 << "#endif\n"
-				 << "extern int __ratcc_user_main();\n"
+				 << "extern int __ratcc_user_main(int, char**);\n"
 				 << "static char* __ratcc_argv[] = { (char*)\"a.out\", 0 };\n"
 				 << "int main(void) {\n"
 				 << "#ifdef _WIN32\n"
