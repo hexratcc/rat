@@ -29,3 +29,35 @@ $ make test # builds and runs tests
 - [**RenameSymbol:**](./rat/include/Pass/Opt/RenameSymbol.h) Rename a given symbol
 - [**TextEmitter:**](./rat/include/Pass/Emit/TextEmitter.h) Textual IR viz
 - [**GraphEmitter:**](./rat/include/Pass/Emit/GraphEmitter.h) Graphviz DOT IR viz
+
+## example
+```cpp
+Module mod("demo");
+
+// int clamp0(int x) { if (x < 0) x = 0; return x; }
+Type* i32 = mod.getInt(32);
+Function* fn = mod.createFunction("clamp0", {i32}, i32);
+
+Function::Var x = fn->declareLocal("x", fn->param(0));
+Function::Block* then = fn->createBlock();
+Function::Block* join = fn->createBlock();
+
+fn->jumpif(fn->compare(Opcode::Slt, fn->get(x), fn->constInt(i32, 0)), then);
+fn->jmp(join);
+
+fn->seal(then);
+fn->setInsertBlock(then);
+fn->set(x, fn->constInt(i32, 0));
+fn->jmp(join);
+
+fn->seal(join);
+fn->setInsertBlock(join);
+fn->ret(fn->get(x));
+
+X86Target target;
+PassManager pm(target);
+pm.add<VerifyPass>(std::cerr);      // structural invariants
+pm.add<TextEmitterPass>(std::cout); // print the graph
+pm.run(mod);
+```
+
