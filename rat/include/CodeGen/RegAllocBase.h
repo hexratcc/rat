@@ -32,7 +32,7 @@ namespace rat {
 		template <typename F> void forEach(F f) const { // ascending vreg order
 			for(U32 wi = 0; wi < (U32)words.size(); ++wi)
 				for(U64 w = words[wi]; w; w &= w - 1)
-					f((VReg)(wi * 64 + (U32)__builtin_ctzll(w)));
+					f((VReg)(wi * 64 + (U32)countTrailingZeros64(w)));
 		}
 	private:
 		List<U64> words;

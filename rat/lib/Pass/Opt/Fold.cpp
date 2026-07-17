@@ -42,7 +42,7 @@ namespace rat {
 		U64 u = maskW(c->getValue(), w);
 		if(u == 0 || (u & (u - 1)) != 0)
 			return -1;
-		I32 k = __builtin_ctzll(u);
+		I32 k = countTrailingZeros64(u);
 		return (k >= 1 && k < (I32)w) ? k : -1;
 	}
 

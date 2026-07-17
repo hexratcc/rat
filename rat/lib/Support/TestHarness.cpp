@@ -1,9 +1,8 @@
 #include "Support/TestHarness.h"
 
 #include <atomic>
-#include <dirent.h>
+#include <filesystem>
 #include <mutex>
-#include <sys/stat.h>
 #include <thread>
 
 namespace rat {
@@ -14,25 +13,16 @@ namespace rat {
 		}
 
 		void collectCases(const String& dir, const char* ext, List<String>& out) {
-			DIR* d = opendir(dir.c_str());
-			if(!d)
-				return;
+			std::error_code ec;
 			List<String> subdirs;
 			List<String> files;
-			for(struct dirent* e; (e = readdir(d));) {
-				String name = e->d_name;
-				if(name == "." || name == "..")
-					continue;
-				String path = dir + "/" + name;
-				struct stat st;
-				if(stat(path.c_str(), &st) != 0)
-					continue;
-				if(S_ISDIR(st.st_mode))
+			for(const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+				String path = e.path().generic_string();
+				if(e.is_directory(ec))
 					subdirs.push_back(path);
-				else if(hasSuffix(name, ext))
+				else if(hasSuffix(path, ext))
 					files.push_back(path);
 			}
-			closedir(d);
 			std::sort(files.begin(), files.end());
 			std::sort(subdirs.begin(), subdirs.end());
 			for(const String& f : files)
@@ -42,11 +32,10 @@ namespace rat {
 		}
 
 		String findDir(const List<String>& candidates) {
-			for(const String& c : candidates) {
-				struct stat st;
-				if(stat(c.c_str(), &st) == 0 && S_ISDIR(st.st_mode))
+			std::error_code ec;
+			for(const String& c : candidates)
+				if(std::filesystem::is_directory(c, ec))
 					return c;
-			}
 			return "";
 		}
 	} // namespace
