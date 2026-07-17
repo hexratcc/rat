@@ -124,6 +124,7 @@ namespace rat {
 		I32 overflowOff = 16;
 		U32 namedGp = 0;
 		U32 namedFp = 0;
+		I32 sretSlot = 0;
 	};
 
 	RegAllocHooks x86RegAllocHooks();
@@ -153,6 +154,7 @@ namespace rat {
 		void needScratch();
 		void layout();
 		void layoutVariadic();
+		void layoutVariadicWin64();
 		U32 classOf(const Type* t) const;
 		VReg fresh(U32 cls);
 		I32 x87SlotOf(const Node* n);
@@ -211,7 +213,12 @@ namespace rat {
 		void emitConvertX87(ConvertNode* n, Node* src, Opcode op);
 		List<PhysReg> callerSavedClobbers() const;
 		void emitCall(CallNode* c);
+		void emitCallSysV(CallNode* c);
+		void emitCallWin64(CallNode* c);
+		VReg x87ByRefArg(Node* arg);
 		void emitPrologue();
+		void emitPrologueSysV();
+		void emitPrologueWin64();
 		void loadStackParam(ProjNode* p, Type* t, I32 disp);
 		void emitVaStart(CallNode* c);
 		void emitVaArg(CallNode* c);
@@ -221,6 +228,7 @@ namespace rat {
 		void emitTerminator(I32 b);
 	private:
 		const Function* fn = nullptr;
+		B32 winAbi = false;
 		U32 ptrBytes = 8;
 		Schedule* sched = nullptr;
 		MachineFunc* out = nullptr;
@@ -292,7 +300,10 @@ namespace rat {
 		void vaFetchOverflow(I32 step);
 		void vaFetch(I32 offDisp, U32 limit, I32 regStep);
 		void emitVaArg(const MachineInstr& in);
+		void emitVaStartWin64(const MachineInstr& in);
+		void emitVaArgWin64(const MachineInstr& in);
 		void emitCall(const MachineInstr& in);
+		void emitCallWin64(const MachineInstr& in);
 		void recordFix(U32 dispAt, I32 targetBlock);
 		void emitRet(const MachineInstr&);
 		void emitJmp(const MachineInstr& in, I32 fallthrough);
@@ -301,6 +312,7 @@ namespace rat {
 		void prologue();
 	private:
 		std::ostream* os;
+		B32 winAbi = false;
 		const MachineFunc* fn = nullptr;
 		const X86FrameLayout* fl = nullptr;
 		Asm* a = nullptr;

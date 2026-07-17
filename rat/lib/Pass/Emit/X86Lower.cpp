@@ -104,11 +104,23 @@ namespace rat {
 				}
 			}
 		}
+		if(winAbi && isX87Ty(fn->getReturnType()))
+			fl->sretSlot = reserve(8); // stash for the hidden x87 sret pointer
 		fl->variadic = fn->isVariadic();
 		if(fl->variadic) {
 			needScratch(); // va_arg fetch sequences stash through the scratch slot
-			layoutVariadic();
+			if(winAbi)
+				layoutVariadicWin64();
+			else
+				layoutVariadic();
 		}
+	}
+
+	void X86LowerPass::layoutVariadicWin64() {
+		U32 named = isX87Ty(fn->getReturnType()) ? 1 : 0; // hidden sret slot
+		named += fn->getParamCount();
+		fl->namedGp = named;
+		fl->overflowOff = win64::kHomeOff + 8 * (I32)named;
 	}
 
 	void X86LowerPass::layoutVariadic() {
@@ -533,6 +545,7 @@ namespace rat {
 	U32 X86LowerPass::runOnMachineFunction(const Function& fn,
 																				 MachineFunc& mf,
 																				 const TargetInfo& target) {
+		winAbi = target.getTriple().os == OS::Windows;
 		ptrBytes = target.getPointerSizeInBytes();
 		Schedule sched(fn);
 		X86FrameLayout fl;
