@@ -9,23 +9,23 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: checkout
         uses: actions/checkout@v4
 
       - name: toolchain versions
         run: |
+          cmake --version
           g++ --version
-          make --version
           cc --version
 
+      - name: configure
+        run: cmake -B build
+
       - name: build
-        run: |
-          make -j -C rat all
-          make -j -C cc all
+        run: cmake --build build -j
 
-      - name: test (x86-64 backend)
-        run: make test-x86
-
-      - name: test (c backend)
-        run: make test-c
+      - name: test
+        working-directory: build
+        run: ctest --output-on-failure

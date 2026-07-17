@@ -5,8 +5,9 @@
 
 ## build
 ```shell
-$ make      # build
-$ make test # builds and runs tests
+$ cmake -B build
+$ cmake --build build -j  # build
+$ ctest --test-dir build  # run tests
 ```
 
 ## passes
