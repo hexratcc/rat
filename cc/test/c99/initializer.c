@@ -1,4 +1,6 @@
 // expect: 0
+// skip-target: windows
+// long holds a pointer (g29); truncated on llp64
 #include "test.h"
 
 char g3 = 3;

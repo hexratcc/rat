@@ -1,4 +1,6 @@
 // expect: 0
+// skip-target: windows
+// windows crt printf %f differs from the oracle
 // output:
 //| char: a
 //| char: b
