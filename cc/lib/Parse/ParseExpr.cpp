@@ -130,6 +130,9 @@ namespace rat::cc {
 	} // namespace detail
 
 	Expr* Parser::parseUnary() {
+		DepthScope scope(*this);
+		if(!enterDepth())
+			return nullptr;
 		if(peek().kind == TokKind::KwSizeof) {
 			Token kw = advance(); // sizeof
 			Expr* e = makeExpr(ExprKind::Sizeof, kw.offset);

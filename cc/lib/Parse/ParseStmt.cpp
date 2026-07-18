@@ -284,6 +284,9 @@ namespace rat::cc {
 	}
 
 	Stmt* Parser::parseStatement() {
+		DepthScope scope(*this);
+		if(!enterDepth())
+			return nullptr;
 		const Token& tok = peek();
 		if(tok.kind == TokKind::LBrace)
 			return parseCompound();
