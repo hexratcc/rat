@@ -1,5 +1,5 @@
 // expect: 0
-// skip-x86-target: windows
+// skip-target: windows
 // output:
 //| Arguments:
 //| 0
