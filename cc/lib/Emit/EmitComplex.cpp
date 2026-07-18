@@ -4,29 +4,9 @@ namespace rat::cc {
 	CType Emitter::completeComplex(CType t) {
 		if(!isComplexType(t) || t.strukt != nullptr)
 			return t;
-		auto it = complexLayouts.find(t.bits);
-		StructType* st;
-		if(it != complexLayouts.end())
-			st = it->second;
-		else {
-			U32 elemBytes = (t.bits + 7) / 8;
-			CType elem = t;
-			elem.isComplex = false;
-			elem.strukt = nullptr;
-			st = arena.make<StructType>();
-			st->size = 2 * elemBytes;
-			st->align = elemBytes;
-			st->complete = true;
-			Field re;
-			re.type = elem;
-			re.offset = 0;
-			Field im;
-			im.type = elem;
-			im.offset = elemBytes;
-			st->fields.push_back(re);
-			st->fields.push_back(im);
-			complexLayouts[t.bits] = st;
-		}
+		StructType*& st = complexLayouts[t.bits];
+		if(!st)
+			st = makeComplexLayout(arena, t);
 		t.strukt = st;
 		return t;
 	}
