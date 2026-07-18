@@ -65,6 +65,7 @@ namespace rat {
 
 		static B32 isHeadNode(const Node* n);
 		Node* headOf(Node* ctrl) const;
+		mutable Map<Node*, Node*> headMemo;
 
 		I32 intersectWith(const List<I32>& idom, I32 a, I32 b) const;
 		I32 lca(I32 a, I32 b) const;
