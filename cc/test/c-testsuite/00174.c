@@ -1,7 +1,5 @@
 // expect: 0
-// skip-target: windows
-// windows crt printf %f differs from the oracle
-// output:
+// output: oracle
 //| 69.120003
 //| 69.120000
 //| -44.440000

@@ -1,6 +1,6 @@
 // expect: 16
-// skip-target: windows
-// Natural alignment: char, then long forces 8-byte alignment + padding.
+// expect-windows: 8
+// Natural alignment: char, then long pads to the long's alignment.
 struct Mixed { char c; long v; };
 
 int main(void) {

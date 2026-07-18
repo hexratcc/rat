@@ -1,7 +1,6 @@
 // expect: 12
-// skip-target: windows
-// sizeof of an expression uses its type without evaluating it: a long (8) plus
-// the promoted type of a char+char addition (int, 4).
+// expect-windows: 8
+// sizeof of an expression uses its type without evaluating it.
 int main(void) {
 	long a = 0;
 	char b = 0;

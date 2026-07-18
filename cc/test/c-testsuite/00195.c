@@ -1,7 +1,5 @@
 // expect: 0
-// skip-target: windows
-// windows crt printf %f differs from the oracle
-// output:
+// output: oracle
 //| 12.340000, 56.780000
 #include <stdio.h>
 
