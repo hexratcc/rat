@@ -1,4 +1,5 @@
 #include "Compile.h"
+#include "Host.h"
 
 #include "Emit/Emit.h"
 #include "Lex/Lexer.h"
@@ -221,13 +222,9 @@ namespace {
 		}
 	}
 
-	TransUnit* parse(const String& path, const String& source, Arena& arena, U32 pointerBytes) {
+	TransUnit* parse(const String& path, const String& source, Arena& arena) {
 		Lexer lex(source.data(), (U32)source.size(), path);
-		Parser parser(lex,
-									arena,
-									pointerBytes,
-									targetLongBits(hostTargetTriple()),
-									hostTargetTriple().isWindows());
+		Parser parser(lex, arena, TargetLayout::forTriple(hostTargetTriple()));
 		TransUnit* unit = parser.parseUnit();
 		if(!unit)
 			std::cerr << parser.error() << "\n";
@@ -237,7 +234,7 @@ namespace {
 	I32 emitAstText(const String& path, const String& source, std::ostream& os) {
 		Arena arena;
 		Generic64 target;
-		TransUnit* unit = parse(path, source, arena, target.getPointerSizeInBytes());
+		TransUnit* unit = parse(path, source, arena);
 		if(!unit)
 			return 1;
 		dumpAst(*unit, os);
@@ -251,12 +248,12 @@ namespace {
 		const TargetInfo& target = (kind == Emit::X86) ? (const TargetInfo&)x86 : generic;
 
 		Arena arena;
-		TransUnit* unit = parse(path, source, arena, target.getPointerSizeInBytes());
+		TransUnit* unit = parse(path, source, arena);
 		if(!unit)
 			return 1;
 
 		Module mod;
-		Emitter emitter(mod, target.getPointerSizeInBytes(), hostTargetTriple().isWindows());
+		Emitter emitter(mod, TargetLayout::forTriple(hostTargetTriple()));
 		if(!emitter.emit(*unit)) {
 			std::cerr << path << ": " << emitter.error() << "\n";
 			return 1;
@@ -297,7 +294,7 @@ namespace {
 	}
 } // namespace
 
-I32 main(I32 argc, char** argv) {
+static I32 run(I32 argc, char** argv) {
 	Options opt;
 	B32 stop = false;
 	if(I32 rc = parseArgs(argc, argv, opt, stop); stop)
@@ -339,4 +336,16 @@ I32 main(I32 argc, char** argv) {
 		if(I32 rc = emitOne(opt, path, source, kind))
 			return rc;
 	return 0;
+}
+
+I32 main(I32 argc, char** argv) {
+	try {
+		return run(argc, argv);
+	} catch(const std::exception& e) {
+		std::cerr << "ratcc: internal error: " << e.what() << "\n";
+		return 3;
+	} catch(...) {
+		std::cerr << "ratcc: internal error\n";
+		return 3;
+	}
 }

@@ -1,4 +1,5 @@
 #include "Compile.h"
+#include "Host.h"
 
 #include "Emit/Emit.h"
 #include "Lex/Lexer.h"
@@ -49,30 +50,42 @@ namespace {
 
 	B32 targetIsWindows() { return hostTargetTriple().isWindows(); }
 
-	String defaultPasses() {
-		String spec;
-		for(const String& p : defaultOptPipeline())
-			spec += (spec.empty() ? "" : ",") + p;
+	const String& defaultPasses() {
+		static const String spec = [] {
+			String joined;
+			for(const String& p : defaultOptPipeline())
+				joined += (joined.empty() ? "" : ",") + p;
+			return joined;
+		}();
 		return spec;
+	}
+
+	B32 useX86Backend() {
+		static B32 on = [] {
+			const char* e = std::getenv("RATCC_X86");
+			return (B32)(!e || !*e || String(e) != "0");
+		}();
+		return on;
+	}
+
+	B32 useGraphRegAlloc() {
+		static B32 on = [] {
+			const char* e = std::getenv("RATCC_REGALLOC");
+			return (B32)(e && String(e) == "graph");
+		}();
+		return on;
 	}
 
 	struct Expectation {
 		B32 hasValue = false;
+		B32 hasOsValue = false;
 		I32 value = 0;
 		String passes = defaultPasses();
 		B32 hasOutput = false;
+		B32 oracleOutput = false;
 		String output;
 		B32 skip = false;
 	};
-
-	String trim(const String& s) {
-		U32 b = 0, e = (U32)s.size();
-		while(b < e && (s[b] == ' ' || s[b] == '\t' || s[b] == '\r'))
-			++b;
-		while(e > b && (s[e - 1] == ' ' || s[e - 1] == '\t' || s[e - 1] == '\r'))
-			--e;
-		return s.substr(b, e - b);
-	}
 
 	B32 commentBody(const String& line, String& body) {
 		U32 b = 0;
@@ -109,20 +122,37 @@ namespace {
 				continue;
 			String key = trim(t.substr(0, colon));
 			String val = trim(t.substr(colon + 1));
+			auto osMatches = [](const String& spec) {
+				TargetTriple t;
+				String terr;
+				return TargetTriple::parse(spec, t, terr) ? t.os == hostTargetTriple().os
+																									: spec == String(hostTargetTriple().osName());
+			};
 			if(key == "expect") {
-				exp.hasValue = true;
-				exp.value = (I32)std::strtol(val.c_str(), nullptr, 0);
+				if(!exp.hasOsValue) {
+					exp.hasValue = true;
+					exp.value = (I32)std::strtol(val.c_str(), nullptr, 0);
+				}
+			} else if(key.rfind("expect-", 0) == 0) {
+				if(osMatches(key.substr(7))) {
+					exp.hasValue = true;
+					exp.hasOsValue = true;
+					exp.value = (I32)std::strtol(val.c_str(), nullptr, 0);
+				}
 			} else if(key == "passes") {
 				exp.passes = val;
 			} else if(key == "output") {
-				exp.hasOutput = true;
-				inOutput = true;
+				if(val == "oracle") {
+					exp.oracleOutput = true;
+				} else {
+					exp.hasOutput = true;
+					inOutput = true;
+				}
 			} else if(key == "skip-target") {
-				TargetTriple t;
-				String terr;
-				B32 match = TargetTriple::parse(val, t, terr) ? t.os == hostTargetTriple().os
-																											: val == String(hostTargetTriple().osName());
-				if(match)
+				if(osMatches(val))
+					exp.skip = true;
+			} else if(key == "skip-x86-target") {
+				if(useX86Backend() && osMatches(val))
 					exp.skip = true;
 			}
 		}
@@ -144,22 +174,6 @@ namespace {
 			only = r;
 		}
 		return only ? dyn_cast<ConstantNode>(only->getValue()) : nullptr;
-	}
-
-	B32 useX86Backend() {
-		static B32 on = [] {
-			const char* e = std::getenv("RATCC_X86");
-			return (B32)(!e || !*e || String(e) != "0");
-		}();
-		return on;
-	}
-
-	B32 useGraphRegAlloc() {
-		static B32 on = [] {
-			const char* e = std::getenv("RATCC_REGALLOC");
-			return (B32)(e && String(e) == "graph");
-		}();
-		return on;
 	}
 
 	struct Artifact {
@@ -259,10 +273,10 @@ namespace {
 		return true;
 	}
 
-	B32 runOracle(Module& mod, I32& out, String& capturedOut, String& err) {
+	B32 runOracle(Module& mod, B32 x86, I32& out, String& capturedOut, String& err) {
 		CompileOptions copt;
 		copt.renameMain = "__ratcc_user_main";
-		if(useX86Backend()) {
+		if(x86) {
 			copt.backend = Backend::X86;
 			copt.regAlloc = useGraphRegAlloc() ? RegAlloc::Graph : RegAlloc::Linear;
 			auto make = [&](const String& base, Artifact& art, String& e) -> B32 {
@@ -324,34 +338,36 @@ namespace {
 		Lexer lex(source.data(), (U32)source.size(), path);
 		Arena arena;
 		Generic64 target;
-		Parser parser(lex,
-									arena,
-									target.getPointerSizeInBytes(),
-									targetLongBits(hostTargetTriple()),
-									targetIsWindows());
+		const TargetLayout lay = TargetLayout::forTriple(hostTargetTriple());
+		Parser parser(lex, arena, lay);
 		TransUnit* unit = parser.parseUnit();
 		if(!unit) {
 			err = parser.error();
 			return false;
 		}
 
-		Module mod;
-		Emitter emitter(mod, target.getPointerSizeInBytes(), targetIsWindows());
-		if(!emitter.emit(*unit)) {
-			err = emitter.error();
-			return false;
-		}
-
-		if(!exp.passes.empty()) {
-			std::ostringstream sink;
-			String perr;
-			PassManager pm(target);
-			if(!buildPipeline(pm, exp.passes, sink, perr)) {
-				err = "bad pass spec: " + perr;
+		auto buildModule = [&](Module& m) -> B32 {
+			Emitter emitter(m, lay);
+			if(!emitter.emit(*unit)) {
+				err = emitter.error();
 				return false;
 			}
-			pm.run(mod);
-		}
+			if(!exp.passes.empty()) {
+				std::ostringstream sink;
+				String perr;
+				PassManager pm(target);
+				if(!buildPipeline(pm, exp.passes, sink, perr)) {
+					err = "bad pass spec: " + perr;
+					return false;
+				}
+				pm.run(m);
+			}
+			return true;
+		};
+
+		Module mod;
+		if(!buildModule(mod))
+			return false;
 
 		Function* main = mod.getFunction("main");
 		if(!main) {
@@ -361,10 +377,11 @@ namespace {
 
 		I32 got;
 		String capturedOut;
-		const ConstantNode* result = exp.hasOutput ? nullptr : returnConstant(*main);
+		B32 wantOutput = exp.hasOutput || exp.oracleOutput;
+		const ConstantNode* result = wantOutput ? nullptr : returnConstant(*main);
 		if(result)
 			got = (I32)result->getValue();
-		else if(!runOracle(mod, got, capturedOut, err))
+		else if(!runOracle(mod, useX86Backend(), got, capturedOut, err))
 			return false;
 
 		if(got != exp.value) {
@@ -372,6 +389,27 @@ namespace {
 			os << "expected " << exp.value << ", got " << got;
 			err = os.str();
 			return false;
+		}
+
+		if(exp.oracleOutput && useX86Backend()) {
+			Module ref;
+			if(!buildModule(ref))
+				return false;
+			I32 refGot;
+			String refOut;
+			if(!runOracle(ref, false, refGot, refOut, err))
+				return false;
+			if(got != refGot) {
+				std::ostringstream os;
+				os << "x86 returned " << got << " but the C oracle returned " << refGot;
+				err = os.str();
+				return false;
+			}
+			if(capturedOut != refOut) {
+				err = "stdout differs from the C oracle:\n--- oracle ---\n" + refOut +
+							"\n--- x86 ---\n" + capturedOut + "\n---";
+				return false;
+			}
 		}
 
 		if(exp.hasOutput && capturedOut != exp.output) {
