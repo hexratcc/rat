@@ -4,6 +4,14 @@
 
 namespace rat {
 	void LinearScanRegAllocPass::solve() {
+		pinsByPoint.clear();
+		pinsByPoint.reserve(fixedAt.size());
+		for(const auto& kv : fixedAt)
+			pinsByPoint.emplace_back(kv.first, &kv.second);
+		std::sort(pinsByPoint.begin(), pinsByPoint.end(), [](const auto& a, const auto& b) {
+			return a.first < b.first;
+		});
+
 		buildIntervals();
 		assignRegs();
 		assignSpillSlots();
@@ -128,11 +136,16 @@ namespace rat {
 
 	Set<PhysReg> LinearScanRegAllocPass::forbidden(const Interval& iv) const {
 		Set<PhysReg> bad;
-		for(const auto& kv : fixedAt)
-			if(coversPoint(iv, kv.first))
-				for(PhysReg p : kv.second)
-					if(!pinExempt(iv.vreg, kv.first, p))
+		for(const Seg& sg : iv.segs) {
+			auto lo = std::lower_bound(pinsByPoint.begin(),
+																 pinsByPoint.end(),
+																 sg.start,
+																 [](const auto& a, I32 pt) { return a.first < pt; });
+			for(auto it = lo; it != pinsByPoint.end() && it->first <= sg.end; ++it)
+				for(PhysReg p : *it->second)
+					if(!pinExempt(iv.vreg, it->first, p))
 						bad.insert(p);
+		}
 		return bad;
 	}
 
