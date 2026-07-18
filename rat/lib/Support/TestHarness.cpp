@@ -85,10 +85,22 @@ namespace rat {
 			}
 		};
 
+		auto runContained = [&](const String& path, String& err) -> B32 {
+			try {
+				return spec.run(path, err);
+			} catch(const std::exception& e) {
+				err = String("unhandled exception: ") + e.what();
+				return false;
+			} catch(...) {
+				err = "unhandled exception";
+				return false;
+			}
+		};
+
 		if(jobs <= 1) {
 			for(const String& path : cases) {
 				String err;
-				B32 ok = spec.run(path, err);
+				B32 ok = runContained(path, err);
 				record(path, ok, err);
 			}
 		} else {
@@ -103,7 +115,7 @@ namespace rat {
 						break;
 					const String& path = cases[i];
 					String err;
-					B32 ok = spec.run(path, err);
+					B32 ok = runContained(path, err);
 					std::lock_guard<std::mutex> lk(ioMtx);
 					record(path, ok, err);
 				}
