@@ -25,6 +25,7 @@ namespace rat {
 		static String intCType(U32 width, B32 isSigned);
 		static String cType(const Type* t, B32 isSigned = true);
 		static B32 isCompilerBuiltin(const String& name);
+		static const C8* variadicExternProto(const String& name);
 	private:
 		struct FunctionEmitter {
 			const Function& fn;
