@@ -136,7 +136,7 @@ namespace rat::cc {
 			d.type = t.array->elem;
 			if(count > 0) {
 				Expr* len = makeExpr(ExprKind::IntLit, offset);
-				len->intLit = {(I64)count, false, 32, false, false};
+				len->intLit = {(I64)count, 32, 0};
 				d.arrayLen = len;
 			}
 		} else {
@@ -155,82 +155,104 @@ namespace rat::cc {
 		return false;
 	}
 
-	Parser::TypeBuilder Parser::parseDeclaratorSuffixes() {
-		List<TypeBuilder> sfx;
+	CType Parser::applyDeclOps(CType base, const List<DeclOp>& ops) {
+		CType b = base;
+		for(const DeclOp& op : ops) {
+			switch(op.kind) {
+			case DeclOp::Kind::Pointer:
+				for(U32 i = 0; i < op.count; ++i)
+					b = pointerTo(b);
+				break;
+			case DeclOp::Kind::Array: {
+				ArrayType* at = arena.make<ArrayType>();
+				at->elem = b;
+				at->count = op.count;
+				at->countExpr = op.countExpr;
+				CType a;
+				a.array = at;
+				b = a;
+				break;
+			}
+			case DeclOp::Kind::Func: {
+				op.func->ret = b;
+				CType t;
+				t.func = op.func;
+				b = t;
+				break;
+			}
+			}
+		}
+		return b;
+	}
+
+	B32 Parser::parseDeclaratorSuffixes(List<DeclOp>& ops) {
+		List<DeclOp> sfx;
 		for(;;) {
 			if(peek().kind == TokKind::LBracket) {
 				advance(); // [
 				skipArrayQualifiers();
-				U32 count = 0;
-				Expr* countExpr = nullptr;
+				DeclOp op;
+				op.kind = DeclOp::Kind::Array;
 				if(peek().kind == TokKind::Star && peek2().kind == TokKind::RBracket) {
 					advance(); // [*]
 				} else if(peek().kind != TokKind::RBracket) {
 					Expr* e = parseConditional();
 					if(!e)
-						return {};
+						return false;
 					I64 n = 0;
 					if(tryEvalIntConst(e, n) && n > 0)
-						count = (U32)n;
+						op.count = (U32)n;
 					else
-						countExpr = e; // VLA
+						op.countExpr = e; // VLA
 				}
 				if(!expect(TokKind::RBracket, "']'"))
-					return {};
-				sfx.push_back([this, count, countExpr](CType b) {
-					ArrayType* at = arena.make<ArrayType>();
-					at->elem = b;
-					at->count = count;
-					at->countExpr = countExpr;
-					CType a;
-					a.array = at;
-					return a;
-				});
+					return false;
+				sfx.push_back(op);
 			} else if(peek().kind == TokKind::LParen) {
 				advance(); // '('
-				FuncType* ft = arena.make<FuncType>();
-				if(!parseParamTypeList(ft))
-					return {};
-				sfx.push_back([ft](CType b) {
-					ft->ret = b;
-					CType t;
-					t.func = ft;
-					return t;
-				});
+				DeclOp op;
+				op.kind = DeclOp::Kind::Func;
+				op.func = arena.make<FuncType>();
+				if(!parseParamTypeList(op.func))
+					return false;
+				sfx.push_back(op);
 			} else {
 				break;
 			}
 		}
-		return [sfx](CType base) {
-			CType b = base;
-			for(U32 i = (U32)sfx.size(); i-- > 0;)
-				b = sfx[i](b);
-			return b;
-		};
+		for(U32 i = (U32)sfx.size(); i-- > 0;)
+			ops.push_back(sfx[i]);
+		return true;
 	}
 
-	Parser::TypeBuilder Parser::parseDirectDeclarator(Token& nameOut, B32& haveName) {
-		TypeBuilder core;
+	B32 Parser::parseDirectDeclarator(List<DeclOp>& ops, Token& nameOut, B32& haveName) {
+		B32 grouped = false;
+		List<DeclOp> inner;
 		if(looksLikeGroupingParen()) {
 			advance(); // (
-			core = parseDeclaratorBuilder(nameOut, haveName);
+			grouped = true;
+			if(!parseDeclaratorOps(inner, nameOut, haveName))
+				return false;
 			if(!expect(TokKind::RParen, "')'"))
-				return {};
+				return false;
 		} else if(peek().kind == TokKind::Identifier) {
 			nameOut = advance();
 			haveName = true;
-			core = [](CType b) { return b; };
-		} else {
-			// abstract decl
-			core = [](CType b) { return b; };
 		}
-		TypeBuilder suf = parseDeclaratorSuffixes();
+		if(!parseDeclaratorSuffixes(ops))
+			return false;
 		if(failed)
-			return {};
-		return [core, suf](CType base) { return core(suf(base)); };
+			return false;
+		if(grouped)
+			for(const DeclOp& op : inner)
+				ops.push_back(op);
+		return true;
 	}
 
-	Parser::TypeBuilder Parser::parseDeclaratorBuilder(Token& nameOut, B32& haveName) {
+	B32 Parser::parseDeclaratorOps(List<DeclOp>& ops, Token& nameOut, B32& haveName) {
+		DepthScope scope(*this);
+		if(!enterDepth())
+			return false;
 		U32 stars = 0;
 		for(;;) {
 			while(detail::isTypeQualifier(peek().kind))
@@ -239,23 +261,21 @@ namespace rat::cc {
 				break;
 			++stars;
 		}
-		TypeBuilder inner = parseDirectDeclarator(nameOut, haveName);
-		if(failed)
-			return {};
-		return [stars, inner](CType base) {
-			CType b = base;
-			for(U32 i = 0; i < stars; ++i)
-				b = pointerTo(b);
-			return inner(b);
-		};
+		if(stars) {
+			DeclOp op;
+			op.kind = DeclOp::Kind::Pointer;
+			op.count = stars;
+			ops.push_back(op);
+		}
+		return parseDirectDeclarator(ops, nameOut, haveName);
 	}
 
 	B32 Parser::parseDeclaratorType(CType base, Token& nameOut, B32& haveName, CType& out) {
 		haveName = false;
-		TypeBuilder b = parseDeclaratorBuilder(nameOut, haveName);
-		if(failed)
+		List<DeclOp> ops;
+		if(!parseDeclaratorOps(ops, nameOut, haveName) || failed)
 			return false;
-		out = b(base);
+		out = applyDeclOps(base, ops);
 		return true;
 	}
 
