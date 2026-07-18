@@ -1,14 +1,20 @@
 #include "Compile.h"
+#include "Host.h"
 
 #include "Emit/Emit.h"
 #include "Lex/Lexer.h"
 #include "Lex/Preprocess.h"
 #include "Parse/Parser.h"
+#include <atomic>
 #include <fstream>
+#if defined(_WIN32)
+#include <process.h>
+#else
 #include <poll.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 #include "Support/StringUtil.h"
 #include "Support/TestHarness.h"
@@ -21,39 +27,65 @@ using namespace rat::cc;
 namespace {
 	constexpr U32 kReadBufSize = 4096;
 
-	U32 oracleCounter = 0;
+	std::atomic<U32> oracleCounter{0};
 
 	String tempDir() {
 		const char* env = std::getenv("TMPDIR");
+#if defined(_WIN32)
+		if(!env || !*env)
+			env = std::getenv("TEMP");
+		if(!env || !*env)
+			env = std::getenv("TMP");
+		String dir = env && *env ? env : ".";
+#else
 		String dir = env && *env ? env : "/tmp";
-		if(!dir.empty() && dir.back() == '/')
+#endif
+		while(!dir.empty() && (dir.back() == '/' || dir.back() == '\\'))
 			dir.pop_back();
+		for(char& c : dir)
+			if(c == '\\')
+				c = '/';
 		return dir;
 	}
 
-	String defaultPasses() {
-		String spec;
-		for(const String& p : defaultOptPipeline())
-			spec += (spec.empty() ? "" : ",") + p;
+	B32 targetIsWindows() { return hostTargetTriple().isWindows(); }
+
+	const String& defaultPasses() {
+		static const String spec = [] {
+			String joined;
+			for(const String& p : defaultOptPipeline())
+				joined += (joined.empty() ? "" : ",") + p;
+			return joined;
+		}();
 		return spec;
+	}
+
+	B32 useX86Backend() {
+		static B32 on = [] {
+			const char* e = std::getenv("RATCC_X86");
+			return (B32)(!e || !*e || String(e) != "0");
+		}();
+		return on;
+	}
+
+	B32 useGraphRegAlloc() {
+		static B32 on = [] {
+			const char* e = std::getenv("RATCC_REGALLOC");
+			return (B32)(e && String(e) == "graph");
+		}();
+		return on;
 	}
 
 	struct Expectation {
 		B32 hasValue = false;
+		B32 hasOsValue = false;
 		I32 value = 0;
 		String passes = defaultPasses();
 		B32 hasOutput = false;
+		B32 oracleOutput = false;
 		String output;
+		B32 skip = false;
 	};
-
-	String trim(const String& s) {
-		U32 b = 0, e = (U32)s.size();
-		while(b < e && (s[b] == ' ' || s[b] == '\t' || s[b] == '\r'))
-			++b;
-		while(e > b && (s[e - 1] == ' ' || s[e - 1] == '\t' || s[e - 1] == '\r'))
-			--e;
-		return s.substr(b, e - b);
-	}
 
 	B32 commentBody(const String& line, String& body) {
 		U32 b = 0;
@@ -90,14 +122,38 @@ namespace {
 				continue;
 			String key = trim(t.substr(0, colon));
 			String val = trim(t.substr(colon + 1));
+			auto osMatches = [](const String& spec) {
+				TargetTriple t;
+				String terr;
+				return TargetTriple::parse(spec, t, terr) ? t.os == hostTargetTriple().os
+																									: spec == String(hostTargetTriple().osName());
+			};
 			if(key == "expect") {
-				exp.hasValue = true;
-				exp.value = (I32)std::strtol(val.c_str(), nullptr, 0);
+				if(!exp.hasOsValue) {
+					exp.hasValue = true;
+					exp.value = (I32)std::strtol(val.c_str(), nullptr, 0);
+				}
+			} else if(key.rfind("expect-", 0) == 0) {
+				if(osMatches(key.substr(7))) {
+					exp.hasValue = true;
+					exp.hasOsValue = true;
+					exp.value = (I32)std::strtol(val.c_str(), nullptr, 0);
+				}
 			} else if(key == "passes") {
 				exp.passes = val;
 			} else if(key == "output") {
-				exp.hasOutput = true;
-				inOutput = true;
+				if(val == "oracle") {
+					exp.oracleOutput = true;
+				} else {
+					exp.hasOutput = true;
+					inOutput = true;
+				}
+			} else if(key == "skip-target") {
+				if(osMatches(val))
+					exp.skip = true;
+			} else if(key == "skip-x86-target") {
+				if(useX86Backend() && osMatches(val))
+					exp.skip = true;
 			}
 		}
 		if(!exp.hasValue) {
@@ -120,22 +176,6 @@ namespace {
 		return only ? dyn_cast<ConstantNode>(only->getValue()) : nullptr;
 	}
 
-	B32 useX86Backend() {
-		static B32 on = [] {
-			const char* e = std::getenv("RATCC_X86");
-			return (B32)(!e || !*e || String(e) != "0");
-		}();
-		return on;
-	}
-
-	B32 useGraphRegAlloc() {
-		static B32 on = [] {
-			const char* e = std::getenv("RATCC_REGALLOC");
-			return (B32)(e && String(e) == "graph");
-		}();
-		return on;
-	}
-
 	struct Artifact {
 		String path;
 		String compileArgs;
@@ -147,10 +187,15 @@ namespace {
 								 String& capturedOut,
 								 String& err) {
 		std::ostringstream basess;
-		basess << tempDir() << "/ratcc_" << tag << "_" << (long)getpid() << "_" << oracleCounter++;
+#if defined(_WIN32)
+		long pid = (long)_getpid();
+#else
+		long pid = (long)getpid();
+#endif
+		basess << tempDir() << "/ratcc_" << tag << "_" << pid << "_" << oracleCounter++;
 		String base = basess.str();
 		String wpath = base + ".wrap.c";
-		String xpath = base + ".out";
+		String xpath = base + (targetIsWindows() ? ".exe" : ".out");
 		String rpath = base + ".ret";
 
 		Artifact art;
@@ -172,24 +217,34 @@ namespace {
 				return false;
 			}
 			wf << "#include <stdio.h>\n"
-				 << "extern int __ratcc_user_main(void);\n"
+				 << "#ifdef _WIN32\n"
+				 << "#include <fcntl.h>\n"
+				 << "#include <io.h>\n"
+				 << "#endif\n"
+				 << "extern int __ratcc_user_main(int, char**);\n"
+				 << "static char* __ratcc_argv[] = { (char*)\"a.out\", 0 };\n"
 				 << "int main(void) {\n"
-				 << "  int __r = (int)__ratcc_user_main();\n"
+				 << "#ifdef _WIN32\n"
+				 << "  _setmode(_fileno(stdout), _O_BINARY);\n"
+				 << "#endif\n"
+				 << "  int __r = (int)__ratcc_user_main(1, __ratcc_argv);\n"
+				 << "  fflush(stdout);\n"
 				 << "  FILE* __rf = fopen(\"" << rpath << "\", \"w\");\n"
 				 << "  if (__rf) { fprintf(__rf, \"%d\", __r); fclose(__rf); }\n"
 				 << "  return __r;\n"
 				 << "}\n";
 		}
 
-		String cmd =
-				hostCC() + " -w -O0 " + art.compileArgs + " '" + wpath + "' -o '" + xpath + "' -lm";
+		String cmd = hostCC() + " -w -O0 " + art.compileArgs + " \"" + wpath + "\" -o \"" + xpath +
+								 "\" -lm";
 		if(std::system(cmd.c_str()) != 0) {
 			cleanup();
 			err = String(tag) + ": compilation/link failed";
 			return false;
 		}
 
-		FILE* p = popen(xpath.c_str(), "r");
+		String runCmd = "\"" + xpath + "\" 2>" + nullDevice();
+		FILE* p = shellOpen(runCmd.c_str());
 		if(!p) {
 			cleanup();
 			err = String(tag) + ": cannot execute program";
@@ -200,23 +255,28 @@ namespace {
 		U64 n;
 		while((n = fread(buf, 1, sizeof(buf), p)) > 0)
 			capturedOut.append(buf, n);
-		I32 status = pclose(p);
+		I32 status = shellClose(p);
 
 		std::ifstream rf(rpath);
 		String rv;
 		if(rf && std::getline(rf, rv) && !rv.empty())
 			out = (I32)std::strtol(rv.c_str(), nullptr, 10);
 		else
+#if defined(_WIN32)
+			out = status;
+#else
 			out = WIFEXITED(status) ? (I32)WEXITSTATUS(status) : -1;
+#endif
 
-		cleanup();
+		if(!std::getenv("RATCC_KEEP"))
+			cleanup();
 		return true;
 	}
 
-	B32 runOracle(Module& mod, I32& out, String& capturedOut, String& err) {
+	B32 runOracle(Module& mod, B32 x86, I32& out, String& capturedOut, String& err) {
 		CompileOptions copt;
 		copt.renameMain = "__ratcc_user_main";
-		if(useX86Backend()) {
+		if(x86) {
 			copt.backend = Backend::X86;
 			copt.regAlloc = useGraphRegAlloc() ? RegAlloc::Graph : RegAlloc::Linear;
 			auto make = [&](const String& base, Artifact& art, String& e) -> B32 {
@@ -226,9 +286,9 @@ namespace {
 					e = "x86: cannot write temp object";
 					return false;
 				}
-				X86Target target;
+				X86Target target(hostTargetTriple());
 				compileModule(mod, target, copt, of);
-				art.compileArgs = "-no-pie '" + art.path + "'";
+				art.compileArgs = targetIsWindows() ? "\"" + art.path + "\"" : "-no-pie \"" + art.path + "\"";
 				return true;
 			};
 			return runBackend("x86", make, out, capturedOut, err);
@@ -243,7 +303,7 @@ namespace {
 			}
 			Generic64 target;
 			compileModule(mod, target, copt, cf);
-			art.compileArgs = "-std=c11 '" + art.path + "'";
+			art.compileArgs = "-std=c11 \"" + art.path + "\"";
 			return true;
 		};
 		return runBackend("oracle", make, out, capturedOut, err);
@@ -264,6 +324,8 @@ namespace {
 		Expectation exp;
 		if(!parseDirectives(source, exp, err))
 			return false;
+		if(exp.skip)
+			return true;
 
 		PpOptions pp;
 		pp.includeDirs = hostIncludeDirs();
@@ -276,30 +338,36 @@ namespace {
 		Lexer lex(source.data(), (U32)source.size(), path);
 		Arena arena;
 		Generic64 target;
-		Parser parser(lex, arena, target.getPointerSizeInBytes());
+		const TargetLayout lay = TargetLayout::forTriple(hostTargetTriple());
+		Parser parser(lex, arena, lay);
 		TransUnit* unit = parser.parseUnit();
 		if(!unit) {
 			err = parser.error();
 			return false;
 		}
 
-		Module mod;
-		Emitter emitter(mod, target.getPointerSizeInBytes());
-		if(!emitter.emit(*unit)) {
-			err = emitter.error();
-			return false;
-		}
-
-		if(!exp.passes.empty()) {
-			std::ostringstream sink;
-			String perr;
-			PassManager pm(target);
-			if(!buildPipeline(pm, exp.passes, sink, perr)) {
-				err = "bad pass spec: " + perr;
+		auto buildModule = [&](Module& m) -> B32 {
+			Emitter emitter(m, lay);
+			if(!emitter.emit(*unit)) {
+				err = emitter.error();
 				return false;
 			}
-			pm.run(mod);
-		}
+			if(!exp.passes.empty()) {
+				std::ostringstream sink;
+				String perr;
+				PassManager pm(target);
+				if(!buildPipeline(pm, exp.passes, sink, perr)) {
+					err = "bad pass spec: " + perr;
+					return false;
+				}
+				pm.run(m);
+			}
+			return true;
+		};
+
+		Module mod;
+		if(!buildModule(mod))
+			return false;
 
 		Function* main = mod.getFunction("main");
 		if(!main) {
@@ -309,10 +377,11 @@ namespace {
 
 		I32 got;
 		String capturedOut;
-		const ConstantNode* result = exp.hasOutput ? nullptr : returnConstant(*main);
+		B32 wantOutput = exp.hasOutput || exp.oracleOutput;
+		const ConstantNode* result = wantOutput ? nullptr : returnConstant(*main);
 		if(result)
 			got = (I32)result->getValue();
-		else if(!runOracle(mod, got, capturedOut, err))
+		else if(!runOracle(mod, useX86Backend(), got, capturedOut, err))
 			return false;
 
 		if(got != exp.value) {
@@ -320,6 +389,27 @@ namespace {
 			os << "expected " << exp.value << ", got " << got;
 			err = os.str();
 			return false;
+		}
+
+		if(exp.oracleOutput && useX86Backend()) {
+			Module ref;
+			if(!buildModule(ref))
+				return false;
+			I32 refGot;
+			String refOut;
+			if(!runOracle(ref, false, refGot, refOut, err))
+				return false;
+			if(got != refGot) {
+				std::ostringstream os;
+				os << "x86 returned " << got << " but the C oracle returned " << refGot;
+				err = os.str();
+				return false;
+			}
+			if(capturedOut != refOut) {
+				err = "stdout differs from the C oracle:\n--- oracle ---\n" + refOut +
+							"\n--- x86 ---\n" + capturedOut + "\n---";
+				return false;
+			}
 		}
 
 		if(exp.hasOutput && capturedOut != exp.output) {
@@ -333,6 +423,19 @@ namespace {
 
 const I32 kCaseTimeoutSec = 20;
 
+#if defined(_WIN32)
+B32 runCaseForked(const String& path, String& err) {
+	try {
+		return runCase(path, err);
+	} catch(const std::exception& e) {
+		err = String("unhandled exception: ") + e.what();
+		return false;
+	} catch(...) {
+		err = "unhandled exception";
+		return false;
+	}
+}
+#else
 B32 runCaseForked(const String& path, String& err) {
 	I32 fds[2];
 	if(pipe(fds) != 0)
@@ -413,6 +516,7 @@ B32 runCaseForked(const String& path, String& err) {
 	err = childErr.empty() ? "failed" : childErr;
 	return false;
 }
+#endif
 
 I32 main(I32 argc, char** argv) {
 	TestSuiteSpec spec;
@@ -420,7 +524,7 @@ I32 main(I32 argc, char** argv) {
 	spec.extension = ".c";
 	spec.dirCandidates = {"cc/test", "test"};
 	spec.run = [](const String& path, String& err) { return runCaseForked(path, err); };
-	// Warm the lazily-initialized host/config caches before threads spawn so
+	// warm the lazily-initialized host/config caches before threads spawn so
 	// their first access does not race.
 	spec.prewarm = [] {
 		(void)hostCC();

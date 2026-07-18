@@ -19,6 +19,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
 namespace rat {
 	using U8 = uint8_t;
 	using U16 = uint16_t;
@@ -35,6 +39,24 @@ namespace rat {
 
 	using C8 = char;
 	using B32 = uint32_t;
+
+	inline int32_t countTrailingZeros64(uint64_t v) {
+#if defined(_MSC_VER)
+		unsigned long index;
+		_BitScanForward64(&index, v);
+		return (int32_t)index;
+#else
+		return __builtin_ctzll(v);
+#endif
+	}
+
+	[[noreturn]] inline void unreachableCode() {
+#if defined(_MSC_VER)
+		__assume(0);
+#else
+		__builtin_unreachable();
+#endif
+	}
 
 	using String = std::string;
 	template <typename Type> using List = std::vector<Type>;

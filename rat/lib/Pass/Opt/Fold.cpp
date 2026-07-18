@@ -42,7 +42,7 @@ namespace rat {
 		U64 u = maskW(c->getValue(), w);
 		if(u == 0 || (u & (u - 1)) != 0)
 			return -1;
-		I32 k = __builtin_ctzll(u);
+		I32 k = countTrailingZeros64(u);
 		return (k >= 1 && k < (I32)w) ? k : -1;
 	}
 
@@ -73,11 +73,11 @@ namespace rat {
 		auto k = [&](I64 v) { return constant(fn, ty, v); };
 		switch(op) {
 		case Opcode::Add:
-			return k(a + b);
+			return k((I64)((U64)a + (U64)b));
 		case Opcode::Sub:
-			return k(a - b);
+			return k((I64)((U64)a - (U64)b));
 		case Opcode::Mul:
-			return k(a * b);
+			return k((I64)((U64)a * (U64)b));
 		case Opcode::And:
 			return k(a & b);
 		case Opcode::Or:
@@ -364,7 +364,7 @@ namespace rat {
 		if(d == 0 || d == 1 || d == -1 || d == INT32_MIN)
 			return nullptr;
 		if(d > 0 && (d & (d - 1)) == 0)
-			return buildSDivByPow2(fn, ty, x, __builtin_ctz((U32)d));
+			return buildSDivByPow2(fn, ty, x, countTrailingZeros64((U32)d));
 		return buildSDivByConst(fn, ty, x, d);
 	}
 

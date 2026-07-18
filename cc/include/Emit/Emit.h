@@ -2,6 +2,7 @@
 #define RAT_CC_EMIT_H
 
 #include "Parse/Ast.h"
+#include "TargetLayout.h"
 
 #include "IR/Function.h"
 #include "IR/Module.h"
@@ -17,7 +18,7 @@ namespace rat::cc {
 	} // namespace detail
 
 	struct Emitter {
-		Emitter(Module& module, U32 pointerBytes);
+		Emitter(Module& module, const TargetLayout& layout);
 
 		B32 emit(const TransUnit& unit);
 
@@ -112,7 +113,8 @@ namespace rat::cc {
 		Node* emitArrayByteSize(Function& fn, CType t);
 
 		struct LValue {
-			B32 isVar = false;
+			enum class Kind : U8 { Var, Addr };
+			Kind kind = Kind::Addr;
 			Function::Var var = 0;
 			Node* addr = nullptr;
 			CType type;
@@ -120,6 +122,8 @@ namespace rat::cc {
 			B32 isBitfield = false;
 			U32 bitWidth = 0;
 			U32 bitOffset = 0;
+
+			B32 isVar() const { return kind == Kind::Var; }
 		};
 
 		B32 emitLValue(Function& fn, const Expr* e, LValue& out);
@@ -131,6 +135,7 @@ namespace rat::cc {
 		void storeLValue(Function& fn, const LValue& lv, Node* value);
 
 		void emitMemCopy(Function& fn, Node* dst, Node* src, U32 size);
+		Node* vaListRef(Function& fn, const Expr* ap);
 		Node* offsetPtr(Function& fn, Node* base, U64 byteOff);
 		Node* elemStride(Function& fn, CType ptrType);
 		Value emitPtrArith(Function& fn, ExprOp op, Value lhs, Value rhs);
@@ -140,13 +145,35 @@ namespace rat::cc {
 		Node* emitCondPred(Function& fn, const Expr* cond);
 
 		struct Local {
+			enum class Kind : U8 { Var, Mem };
+			Kind kind = Kind::Var;
 			Function::Var var = 0;
 			Node* addr = nullptr;
 			CType type;
-			B32 inMem = false;
 			B32 isArray = false;
 			U32 count = 0;
 			Node* lengthNode = nullptr; // runtime byte size for a VLA
+
+			B32 inMem() const { return kind == Kind::Mem; }
+			static Local inVar(Function::Var v, CType t) {
+				Local l;
+				l.var = v;
+				l.type = t;
+				return l;
+			}
+			static Local mem(Node* addr, CType t) {
+				Local l;
+				l.kind = Kind::Mem;
+				l.addr = addr;
+				l.type = t;
+				return l;
+			}
+			static Local memArray(Node* addr, CType t, U32 count = 0) {
+				Local l = mem(addr, t);
+				l.isArray = true;
+				l.count = count;
+				return l;
+			}
 		};
 		void pushScope();
 		void popScope();
@@ -191,7 +218,7 @@ namespace rat::cc {
 		CType funcPtrType(const FnSig& sig);
 		List<Reloc> relocs;
 		Module& mod;
-		U32 ptrBytes;
+		TargetLayout lay;
 		Arena arena;
 		Type* i32 = nullptr;
 		B32 failed = false;
@@ -203,9 +230,12 @@ namespace rat::cc {
 		List<LoopFrame> loops;
 		List<Map<const Stmt*, Function::Block*>> switches;
 		Map<String, FnSig> funcs;
-		Map<String, CType> globals;
-		Map<String, CType> globalArrays;
-		Map<String, U32> globalArrayCounts;
+		struct GlobalVar {
+			CType type;
+			B32 isArray = false;
+			U32 count = 0;
+		};
+		Map<String, GlobalVar> globalVars;
 		Map<U32, StructType*> complexLayouts;
 		CType curRet;
 		Node* sretSlot = nullptr;

@@ -22,7 +22,7 @@ $ ctest --test-dir build  # run tests
 
 **codegen**
 - [**X86Lower:**](./rat/include/Pass/Emit/X86Emitter.h) Lower IR to x86 machine instructions
-- [**X86Encode:**](./rat/include/Pass/Emit/X86Emitter.h) Encode x86 to an ELF object
+- [**X86Encode:**](./rat/include/Pass/Emit/X86Emitter.h) Encode x86 to an ELF or COFF object
 - [**CEmitter:**](./rat/include/Pass/Emit/CEmitter.h) Emit C code
 
 **utility**

@@ -22,9 +22,9 @@ namespace rat::cc {
 				out = loc.count * byteSize(loc.type);
 				return true;
 			}
-			auto gc = globalArrayCounts.find(*operand->ident.name);
-			if(gc != globalArrayCounts.end()) {
-				out = gc->second * byteSize(globalArrays[*operand->ident.name]);
+			auto gv = globalVars.find(*operand->ident.name);
+			if(gv != globalVars.end() && gv->second.isArray) {
+				out = gv->second.count * byteSize(gv->second.type);
 				return true;
 			}
 		}
@@ -35,7 +35,7 @@ namespace rat::cc {
 			CType st = operand->member.arrow ? pointee(base) : base;
 			if(isStruct(st)) {
 				const Field* f = st.strukt->find(*operand->member.name);
-				if(f && f->isArray) {
+				if(f && f->isArray()) {
 					out = f->count * byteSize(f->type);
 					return true;
 				}
@@ -72,18 +72,20 @@ namespace rat::cc {
 			return false;
 		if(a.strukt && b.strukt)
 			return a.strukt == b.strukt;
-		if(a.isVoid != b.isVoid)
+		if(a.isVoid() != b.isVoid())
 			return false;
-		if(a.isFloat != b.isFloat)
+		if(a.isFloat() != b.isFloat())
 			return false;
 		if(a.bits != b.bits)
 			return false;
-		if(!a.isFloat && !a.isVoid) {
-			if(a.isUnsigned != b.isUnsigned)
+		if(!a.isFloat() && !a.isVoid()) {
+			if(a.isUnsigned() != b.isUnsigned())
 				return false;
-			if(a.bits == 8 && a.isPlainChar != b.isPlainChar)
+			if(a.bits == 8 && a.isPlainChar() != b.isPlainChar())
 				return false;
-			if(a.bits == 64 && a.isLongLong != b.isLongLong)
+			if(a.bits == 32 && a.isLong() != b.isLong())
+				return false;
+			if(a.bits == 64 && a.isLongLong() != b.isLongLong())
 				return false;
 		}
 		return true;
@@ -108,7 +110,7 @@ namespace rat::cc {
 			return nullptr;
 		if(ctrl.array != nullptr && ctrl.ptr == 0)
 			ctrl = decay(ctrl);
-		ctrl.quals &= ~(1u << ctrl.ptr);
+		clearTopConst(ctrl);
 
 		const Expr* fallback = nullptr;
 		for(const GenericAssoc& a : e->assocs) {
@@ -221,24 +223,24 @@ namespace rat::cc {
 		curOffset = e->offset;
 		switch(e->kind) {
 		case ExprKind::IntLit:
-			out.isUnsigned = e->intLit.isUnsigned;
-			out.bits = e->intLit.isLong ? 64 : 32;
-			out.isVoid = false;
+			out.bits = e->intLit.bits;
+			out.mods = e->intLit.mods;
+			out.base = CType::Base::Int;
 			return true;
 		case ExprKind::FloatLit:
 			out = CType{};
-			out.isFloat = true;
-			out.bits = e->floatLit.isFloat ? 32 : (e->floatLit.isLongDouble ? 128 : 64);
-			out.isComplex = e->floatLit.isImaginary;
+			out.base = CType::Base::Float;
+			out.bits = e->floatLit.bits;
+			out.set(CType::Complex, e->floatLit.imaginary);
 			return true;
 		case ExprKind::StrLit:
 			out = CType{};
 			out.ptr = 1;
 			if(e->str.isWide) {
-				out.bits = 32;
+				out.bits = e->str.charSize * 8;
 			} else {
 				out.bits = 8;
-				out.isPlainChar = true;
+				out.set(CType::PlainChar);
 			}
 			return true;
 		case ExprKind::Ident: {
@@ -247,14 +249,9 @@ namespace rat::cc {
 				out = loc.isArray ? pointerTo(loc.type) : loc.type;
 				return true;
 			}
-			auto g = globals.find(*e->ident.name);
-			if(g != globals.end()) {
-				out = g->second;
-				return true;
-			}
-			auto ga = globalArrays.find(*e->ident.name);
-			if(ga != globalArrays.end()) {
-				out = pointerTo(ga->second);
+			auto g = globalVars.find(*e->ident.name);
+			if(g != globalVars.end()) {
+				out = g->second.isArray ? pointerTo(g->second.type) : g->second.type;
 				return true;
 			}
 			auto f = funcs.find(*e->ident.name);
@@ -268,7 +265,8 @@ namespace rat::cc {
 		case ExprKind::Call: {
 			if(e->call.callee) {
 				if(*e->call.callee == "__builtin_expect") {
-					out = CType{64, false, false, 0};
+					out = CType{};
+					out.bits = 64;
 					return true;
 				}
 				if(*e->call.callee == "__builtin_constant_p") {
@@ -285,9 +283,9 @@ namespace rat::cc {
 					out = loc.type.func->ret;
 					return true;
 				}
-				auto g = globals.find(*e->call.callee);
-				if(g != globals.end() && isFuncPtr(g->second)) {
-					out = g->second.func->ret;
+				auto g = globalVars.find(*e->call.callee);
+				if(g != globalVars.end() && !g->second.isArray && isFuncPtr(g->second.type)) {
+					out = g->second.type.func->ret;
 					return true;
 				}
 				out = ctInt();
@@ -335,7 +333,7 @@ namespace rat::cc {
 				fail("no member named '" + *e->member.name + "' in '" + typeName(st) + "'");
 				return false;
 			}
-			out = f->isArray ? pointerTo(f->type) : f->type;
+			out = f->isArray() ? pointerTo(f->type) : f->type;
 			return true;
 		}
 		case ExprKind::InitList:
@@ -352,7 +350,7 @@ namespace rat::cc {
 					return typeOf(last->expr, out);
 			}
 			out = CType{};
-			out.isVoid = true;
+			out.base = CType::Base::Void;
 			return true;
 		}
 		case ExprKind::Generic: {

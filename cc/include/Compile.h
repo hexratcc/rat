@@ -3,6 +3,8 @@
 
 #include "Core.h"
 
+#include "Target/Target.h"
+
 namespace rat {
 	struct Module;
 	struct Pass;
@@ -20,10 +22,6 @@ namespace rat::cc {
 		List<UniquePtr<Pass>> optPasses;
 		String renameMain;
 	};
-
-	const String& hostCC();
-	const String& hostPredefs();
-	const List<String>& hostIncludeDirs();
 
 	List<UniquePtr<Pass>> defaultOptPasses();
 	void composePipeline(PassManager& pm, CompileOptions& opt, std::ostream& out);

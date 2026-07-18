@@ -52,9 +52,9 @@ namespace rat::cc {
 				break;
 			first = false;
 			const Field& f = st->fields[fi];
-			if(f.anonMember && !f.anonFirst)
+			if(f.anonMember() && !f.anonFirst())
 				continue;
-			if(f.isArray) {
+			if(f.isArray()) {
 				const Expr* e = els[pos];
 				if(e->kind == ExprKind::InitList) {
 					++pos;
@@ -70,7 +70,7 @@ namespace rat::cc {
 					break;
 				continue;
 			}
-			if(f.isBitfield) {
+			if(f.isBitfield()) {
 				if(!sink.bitfield(base + f.offset, f.type, f.bitWidth, f.bitOffset, els[pos]))
 					return false;
 				++pos;
@@ -240,16 +240,16 @@ namespace rat::cc {
 
 	const StructType* Emitter::anonGroupType(const StructType* st, U32 firstIdx) {
 		StructType* g = arena.make<StructType>();
-		g->isUnion = st->fields[firstIdx].anonUnion;
+		g->isUnion = st->fields[firstIdx].anonUnion();
 		U32 baseOff = st->fields[firstIdx].offset;
 		for(U32 i = firstIdx; i < st->fields.size(); ++i) {
 			const Field& f = st->fields[i];
-			if(i != firstIdx && !(f.anonMember && !f.anonFirst))
+			if(i != firstIdx && !(f.anonMember() && !f.anonFirst()))
 				break;
 			Field nf = f;
 			nf.offset = f.offset - baseOff;
-			nf.anonMember = false;
-			nf.anonFirst = false;
+			nf.set(Field::AnonMember, false);
+			nf.set(Field::AnonFirst, false);
 			g->fields.push_back(nf);
 		}
 		g->size = 0;
@@ -262,9 +262,9 @@ namespace rat::cc {
 			U32 n = 0;
 			for(U32 i = 0; i < ty.strukt->fields.size(); ++i) {
 				const Field& f = ty.strukt->fields[i];
-				if(f.anonMember && !f.anonFirst)
+				if(f.anonMember() && !f.anonFirst())
 					continue;
-				if(f.isArray)
+				if(f.isArray())
 					n += f.count * scalarLeaves(f.type);
 				else
 					n += scalarLeaves(f.type);
@@ -289,10 +289,10 @@ namespace rat::cc {
 			}
 			for(U32 fi = 0; fi < ty.strukt->fields.size() && pos < els.size(); ++fi) {
 				const Field& f = ty.strukt->fields[fi];
-				if(f.anonMember && !f.anonFirst)
+				if(f.anonMember() && !f.anonFirst())
 					continue;
 				CType fty = f.type;
-				if(f.isArray) {
+				if(f.isArray()) {
 					for(U32 i = 0; i < f.count && pos < els.size(); ++i)
 						flatConsumeObject(fty, els, pos);
 				} else
@@ -329,7 +329,7 @@ namespace rat::cc {
 		if(st->isUnion || st->fields.empty() || !init || init->kind != ExprKind::InitList)
 			return 0;
 		const Field& flex = st->fields.back();
-		if(!flex.isArray || flex.count != 0)
+		if(!flex.isArray() || flex.count != 0)
 			return 0;
 		const List<Expr*>& els = init->args;
 		U32 cur = 0, flexFi = st->fields.size() - 1;
@@ -341,7 +341,7 @@ namespace rat::cc {
 					return 0;
 				cur = (U32)fi;
 			}
-			while(cur < st->fields.size() && st->fields[cur].anonMember && !st->fields[cur].anonFirst)
+			while(cur < st->fields.size() && st->fields[cur].anonMember() && !st->fields[cur].anonFirst())
 				++cur;
 			if(cur >= st->fields.size())
 				break;
@@ -357,9 +357,9 @@ namespace rat::cc {
 			const Field& f = st->fields[cur];
 			const Expr* el = els[i];
 			if(el->kind == ExprKind::InitList ||
-				 (f.isArray && isCharType(f.type) && el->kind == ExprKind::StrLit)) {
+				 (f.isArray() && isCharType(f.type) && el->kind == ExprKind::StrLit)) {
 				++i;
-			} else if(f.isArray) {
+			} else if(f.isArray()) {
 				for(U32 k = 0; k < f.count && i < els.size(); ++k)
 					flatConsumeObject(f.type, els, i);
 			} else

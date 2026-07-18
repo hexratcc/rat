@@ -1,4 +1,4 @@
-#include "Pass/Emit/X86Emitter.h"
+#include "Pass/Emit/X86Lower.h"
 
 #include "CodeGen/MachineFunction.h"
 #include "CodeGen/MachineModule.h"
@@ -8,9 +8,9 @@
 #include "IR/Node.h"
 #include "IR/Opcode.h"
 #include "IR/Type.h"
+#include "Target/ObjectFile.h"
 #include "Target/Target.h"
 #include "Target/X86Asm.h"
-#include "Target/X86Elf.h"
 
 namespace rat {
 	VReg X86LowerPass::storeAddr(const AddrParts& a) {

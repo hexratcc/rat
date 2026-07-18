@@ -59,13 +59,24 @@ namespace rat {
 	}
 
 	Node* Schedule::headOf(Node* ctrl) const {
+		List<Node*> path;
+		Node* c = ctrl;
 		while(true) {
-			if(isHeadNode(ctrl))
-				return ctrl;
-			ProjNode* p = cast<ProjNode>(ctrl);
-			CallNode* c = cast<CallNode>(p->getProducer());
-			ctrl = c->getControlInput();
+			auto it = headMemo.find(c);
+			if(it != headMemo.end()) {
+				c = it->second;
+				break;
+			}
+			if(isHeadNode(c))
+				break;
+			path.push_back(c);
+			ProjNode* p = cast<ProjNode>(c);
+			CallNode* call = cast<CallNode>(p->getProducer());
+			c = call->getControlInput();
 		}
+		for(Node* n : path)
+			headMemo[n] = c;
+		return c;
 	}
 
 	void Schedule::buildCFG() {
@@ -363,7 +374,8 @@ namespace rat {
 		B32 changed = true;
 		while(changed) {
 			changed = false;
-			for(Node* n : work) {
+			for(U32 wi = (U32)work.size(); wi > 0; --wi) {
+				Node* n = work[wi - 1];
 				I32 late;
 				if(isa<LoadNode>(n)) {
 					// floating loads move up from where they were built but never

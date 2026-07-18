@@ -69,52 +69,85 @@ namespace rat::cc {
 	struct Expr;
 
 	struct CType {
+		enum class Base : U8 { Int, Float, Void };
+		enum Mods : U8 {
+			Unsigned = 1u << 0,	 // unsigned integer
+			PlainChar = 1u << 1, // 'char' spelled without an explicit sign
+			Long = 1u << 2,			 // spelled with 'long'
+			LongLong = 1u << 3,	 // spelled with 'long long'
+			Complex = 1u << 4,	 // _Complex over Base::Float
+		};
+
 		U32 bits = 32;
-		B32 isUnsigned = false;
-		B32 isVoid = false;
 		U32 ptr = 0;
+		U32 quals = 0;
+		Base base = Base::Int;
+		U8 mods = 0;
 		const StructType* strukt = nullptr;
 		const ArrayType* array = nullptr;
-		B32 isFloat = false;
-		B32 isComplex = false;
 		const FuncType* func = nullptr;
-		U32 quals = 0;
-		B32 isPlainChar = false;
-		B32 isLongLong = false;
 		const Expr* typeofExpr = nullptr;
+
+		constexpr B32 has(Mods m) const { return (mods & (U8)m) != 0; }
+		constexpr void set(Mods m, B32 on = true) {
+			mods = on ? (U8)(mods | (U8)m) : (U8)(mods & ~(U8)m);
+		}
+		constexpr B32 isUnsigned() const { return has(Unsigned); }
+		constexpr B32 isPlainChar() const { return has(PlainChar); }
+		constexpr B32 isLong() const { return has(Long); }
+		constexpr B32 isLongLong() const { return has(LongLong); }
+		constexpr B32 isComplex() const { return has(Complex); }
+		constexpr B32 isFloat() const { return base == Base::Float; }
+		constexpr B32 isVoid() const { return base == Base::Void; }
 	};
 
-	constexpr CType ctInt() { return CType{32, false, false, 0}; }
+	constexpr CType ctInt() { return CType{}; }
 	constexpr B32 isPointer(CType t) { return t.ptr > 0; }
 	constexpr B32 isTopConst(CType t) { return (t.quals & (1u << t.ptr)) != 0; }
-	constexpr B32 isFloating(CType t) { return t.isFloat && !t.isComplex && t.ptr == 0; }
-	constexpr B32 isComplexType(CType t) { return t.isComplex && t.ptr == 0; }
+	constexpr void setTopConst(CType& t) { t.quals |= (1u << t.ptr); }
+	constexpr void clearTopConst(CType& t) { t.quals &= ~(1u << t.ptr); }
+	constexpr B32 isFloating(CType t) { return t.isFloat() && !t.isComplex() && t.ptr == 0; }
+	constexpr B32 isComplexType(CType t) { return t.isComplex() && t.ptr == 0; }
 	constexpr CType complexElem(CType t) {
-		t.isComplex = false;
+		t.set(CType::Complex, false);
 		t.ptr = 0;
 		t.strukt = nullptr;
 		return t;
 	}
-	constexpr B32 isStruct(CType t) { return t.strukt != nullptr && t.ptr == 0 && !t.isComplex; }
+	constexpr B32 isStruct(CType t) { return t.strukt != nullptr && t.ptr == 0 && !t.isComplex(); }
 	constexpr B32 isCharType(CType t) { return t.bits == 8 && t.ptr == 0 && !isStruct(t); }
 	constexpr B32 isAggregate(CType t) { return t.strukt != nullptr && t.ptr == 0; }
-	constexpr B32 isVoidType(CType t) { return t.isVoid && t.ptr == 0; }
+	constexpr B32 isVoidType(CType t) { return t.isVoid() && t.ptr == 0; }
 	constexpr B32 isInteger(CType t) {
-		return t.ptr == 0 && !t.isFloat && !t.isComplex && !t.isVoid && t.strukt == nullptr;
+		return t.ptr == 0 && t.base == CType::Base::Int && !t.isComplex() && t.strukt == nullptr;
 	}
 
 	struct Field {
+		enum Mods : U8 {
+			Array = 1u << 0,		   // count is the element count
+			Bitfield = 1u << 1,	   // bitWidth/bitOffset are meaningful
+			AnonMember = 1u << 2,  // lifted out of an anonymous struct/union
+			AnonFirst = 1u << 3,	 // first field of its anonymous group
+			AnonUnion = 1u << 4,	 // the anonymous group is a union
+		};
+
 		const String* name = nullptr;
 		CType type;
 		U32 offset = 0;
-		B32 isArray = false;
 		U32 count = 0;
-		B32 isBitfield = false;
 		U32 bitWidth = 0;
 		U32 bitOffset = 0;
-		B32 anonMember = false;
-		B32 anonFirst = false;
-		B32 anonUnion = false;
+		U8 mods = 0;
+
+		constexpr B32 has(Mods m) const { return (mods & (U8)m) != 0; }
+		constexpr void set(Mods m, B32 on = true) {
+			mods = on ? (U8)(mods | (U8)m) : (U8)(mods & ~(U8)m);
+		}
+		constexpr B32 isArray() const { return has(Array); }
+		constexpr B32 isBitfield() const { return has(Bitfield); }
+		constexpr B32 anonMember() const { return has(AnonMember); }
+		constexpr B32 anonFirst() const { return has(AnonFirst); }
+		constexpr B32 anonUnion() const { return has(AnonUnion); }
 	};
 
 	struct StructType {
@@ -157,6 +190,8 @@ namespace rat::cc {
 		B32 unprototyped = false;
 	};
 
+	StructType* makeComplexLayout(Arena& arena, CType complexType);
+
 	constexpr B32 isFuncPtr(CType t) { return t.func != nullptr && t.ptr > 0; }
 	constexpr B32 isArrayType(CType t) { return t.array != nullptr && t.ptr == 0; }
 	constexpr CType arrayElem(CType t) { return t.array->elem; }
@@ -184,11 +219,11 @@ namespace rat::cc {
 			return t.array->count * typeSize(t.array->elem, pointerBytes);
 		if(t.strukt)
 			return t.strukt->size;
-		if(t.isVoid)
+		if(t.isVoid())
 			return 1;
 		// C99 6.2.5p13: a complex type has the same representation as an array of
 		// two of its corresponding real type (real part first).
-		if(t.isComplex)
+		if(t.isComplex())
 			return 2 * ((t.bits + 7) / 8);
 		return (t.bits + 7) / 8;
 	}
@@ -239,14 +274,13 @@ namespace rat::cc {
 		union {
 			struct {
 				I64 value;
-				B32 isUnsigned;
-				B32 isLong;
+				U32 bits;
+				U8 mods;
 			} intLit;
 			struct {
 				long double value;
-				B32 isFloat;
-				B32 isLongDouble;
-				B32 isImaginary;
+				U32 bits;
+				B32 imaginary;
 			} floatLit;
 			struct {
 				const String* bytes;

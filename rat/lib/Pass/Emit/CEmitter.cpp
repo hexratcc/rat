@@ -46,6 +46,25 @@ namespace rat {
 					 name.rfind("__sync_", 0) == 0;
 	}
 
+	const C8* CEmitterPass::variadicExternProto(const String& name) {
+		static const struct {
+			const C8* name;
+			const C8* proto;
+		} kTable[] = {
+				{"printf", "extern int printf(const char *, ...);\n"},
+				{"fprintf", "extern int fprintf(void *, const char *, ...);\n"},
+				{"sprintf", "extern int sprintf(char *, const char *, ...);\n"},
+				{"snprintf", "extern int snprintf(char *, unsigned long, const char *, ...);\n"},
+				{"scanf", "extern int scanf(const char *, ...);\n"},
+				{"fscanf", "extern int fscanf(void *, const char *, ...);\n"},
+				{"sscanf", "extern int sscanf(const char *, const char *, ...);\n"},
+		};
+		for(const auto& e : kTable)
+			if(name == e.name)
+				return e.proto;
+		return nullptr;
+	}
+
 	void CEmitterPass::emitSignature(const Function& fn) { emitSignatureInto(fn, *os); }
 
 	void CEmitterPass::emitSignatureInto(const Function& fn, std::ostream& os) {
@@ -105,9 +124,14 @@ namespace rat {
 				}
 			}
 		}
-		for(const String& name : order)
+		for(const String& name : order) {
+			if(const C8* proto = variadicExternProto(name)) {
+				*os << proto;
+				continue;
+			}
 			*os << "extern " << (externs[name] ? cType(externs[name]) : String("void")) << " " << name
 					<< "();\n";
+		}
 
 		Set<String>& known = defined;
 		for(const Global* g : module.globals())
@@ -195,8 +219,7 @@ namespace rat {
 				continue;
 			}
 			*os << (g->isInternal() ? "static " : "") << (g->isConstant() ? "const " : "")
-					<< "unsigned char " << g->getName() << "[" << size
-					<< "] = {";
+					<< "unsigned char " << g->getName() << "[" << size << "] = {";
 			U32 last = 0;
 			for(U32 i = 0; i < size; ++i)
 				if(i < init.size() && init[i] != 0)

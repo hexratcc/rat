@@ -100,7 +100,7 @@ namespace rat::cc {
 				advance();
 			}
 			if(sawConst && t.ptr < 32)
-				t.quals |= (1u << t.ptr);
+				setTopConst(t);
 			if(!accept(TokKind::Star))
 				break;
 			++t.ptr;
@@ -214,29 +214,31 @@ namespace rat::cc {
 		}
 		CType t;
 		if(isVoid) {
-			t.isVoid = true;
+			t.base = CType::Base::Void;
 		} else if(isFloat || isDouble || isComplex) {
-			t.isFloat = true;
+			t.base = CType::Base::Float;
 			t.bits = isFloat ? 32 : (isDouble && longCount >= 1 ? 128 : 64);
-			t.isComplex = isComplex;
+			t.set(CType::Complex, isComplex);
 			if(isComplex)
 				t.strukt = complexStruct(t);
 		} else if(isBool) {
 			t.bits = 1;
-			t.isUnsigned = true;
+			t.set(CType::Unsigned);
 		} else {
-			t.isUnsigned = isUnsigned;
+			t.set(CType::Unsigned, isUnsigned);
 			if(isChar) {
 				t.bits = 8;
-				t.isPlainChar = !isUnsigned && !isSigned;
+				t.set(CType::PlainChar, !isUnsigned && !isSigned);
 			} else if(isShort)
 				t.bits = 16;
 			else if(longCount >= 2) {
 				t.bits = 64;
-				t.isLongLong = true;
-			} else if(longCount == 1)
-				t.bits = 64;
-			else
+				t.set(CType::Long);
+				t.set(CType::LongLong);
+			} else if(longCount == 1) {
+				t.bits = lay.longBits; // 64 on LP64 linux, 32 on LLP64 windows
+				t.set(CType::Long);
+			} else
 				t.bits = 32;
 		}
 		if(isConst)

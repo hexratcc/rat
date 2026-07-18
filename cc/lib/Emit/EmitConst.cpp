@@ -7,7 +7,7 @@ namespace rat::cc {
 			return v;
 		U64 mask = ((U64)1 << bits) - 1;
 		U64 low = (U64)v & mask;
-		if(!ty.isUnsigned && (low & ((U64)1 << (bits - 1))))
+		if(!ty.isUnsigned() && (low & ((U64)1 << (bits - 1))))
 			low |= ~mask; // sign-extend
 		return (I64)low;
 	}
@@ -17,12 +17,12 @@ namespace rat::cc {
 		r.bits = a.bits >= b.bits ? a.bits : b.bits;
 		if(r.bits < 32)
 			r.bits = 32; // int promotion of sub-int operands
-		B32 au = a.isUnsigned && a.bits >= 32;
-		B32 bu = b.isUnsigned && b.bits >= 32;
+		B32 au = a.isUnsigned() && a.bits >= 32;
+		B32 bu = b.isUnsigned() && b.bits >= 32;
 		if(a.bits == b.bits)
-			r.isUnsigned = au || bu;
+			r.set(CType::Unsigned, au || bu);
 		else
-			r.isUnsigned = (a.bits > b.bits) ? au : bu;
+			r.set(CType::Unsigned, (a.bits > b.bits) ? au : bu);
 		return r;
 	}
 
@@ -31,7 +31,7 @@ namespace rat::cc {
 		switch(op) {
 			// clang-format off
 		case ExprOp::Pos:    out = v;  return true;
-		case ExprOp::Neg:    out = -v; return true;
+		case ExprOp::Neg:    out = (I64)(0 - (U64)v); return true; // wraps at INT64_MIN
 		case ExprOp::BitNot: out = ~v; return true;
 		case ExprOp::Not:    out = !v; return true;
 		// clang-format on
@@ -49,7 +49,7 @@ namespace rat::cc {
 					return false;
 				out = (a - b) / (I64)esz;
 				ty = ctSize();
-				ty.isUnsigned = false; // ptrdiff_t is signed
+				ty.set(CType::Unsigned, false); // ptrdiff_t is signed
 				return true;
 			}
 			CType pTy = ap ? aTy : bTy;
@@ -77,7 +77,7 @@ namespace rat::cc {
 				return false;
 			if(op == ExprOp::Shl)
 				out = narrowToType((I64)((U64)a << (U64)b), ty);
-			else if(ty.isUnsigned)
+			else if(ty.isUnsigned())
 				out = (I64)((U64)narrowToType(a, ty) >> (U64)b);
 			else
 				out = a >> b;
@@ -88,13 +88,13 @@ namespace rat::cc {
 		}
 		CType rt = arithResultType(aTy, bTy);
 		U64 ua = (U64)narrowToType(a, rt), ub = (U64)narrowToType(b, rt);
-		B32 u = rt.isUnsigned;
+		B32 u = rt.isUnsigned();
 		ty = (op >= ExprOp::Lt && op <= ExprOp::Ne) ? ctInt() : rt;
 		switch(op) {
 			// clang-format off
-		case ExprOp::Add:    out = narrowToType(a + b, rt); return true;
-		case ExprOp::Sub:    out = narrowToType(a - b, rt); return true;
-		case ExprOp::Mul:    out = narrowToType(a * b, rt); return true;
+		case ExprOp::Add:    out = narrowToType((I64)((U64)a + (U64)b), rt); return true;
+		case ExprOp::Sub:    out = narrowToType((I64)((U64)a - (U64)b), rt); return true;
+		case ExprOp::Mul:    out = narrowToType((I64)((U64)a * (U64)b), rt); return true;
 		case ExprOp::BitAnd: out = narrowToType(a & b, rt); return true;
 		case ExprOp::BitOr:  out = narrowToType(a | b, rt); return true;
 		case ExprOp::BitXor: out = narrowToType(a ^ b, rt); return true;
@@ -108,10 +108,14 @@ namespace rat::cc {
 		case ExprOp::Div:
 			if(!b)
 				return false;
+			if(!u && a == INT64_MIN && b == -1)
+				return false;
 			out = u ? (I64)(ua / ub) : narrowToType(a / b, rt);
 			return true;
 		case ExprOp::Rem:
 			if(!b)
+				return false;
+			if(!u && a == INT64_MIN && b == -1)
 				return false;
 			out = u ? (I64)(ua % ub) : narrowToType(a % b, rt);
 			return true;
@@ -125,8 +129,8 @@ namespace rat::cc {
 		case ExprKind::IntLit:
 			out = e->intLit.value;
 			ty = ctInt();
-			ty.isUnsigned = e->intLit.isUnsigned;
-			ty.bits = e->intLit.isLong ? 64 : 32;
+			ty.bits = e->intLit.bits;
+			ty.mods = e->intLit.mods;
 			return true;
 		case ExprKind::Sizeof: {
 			if(e->sizeOf.operand) {
@@ -147,7 +151,7 @@ namespace rat::cc {
 			CType opTy;
 			if(!evalConstTyped(e->cast.operand, out, opTy)) {
 				long double fv;
-				if(isFloating(ty) || isPointer(ty) || isAggregate(ty) || ty.isVoid)
+				if(isFloating(ty) || isPointer(ty) || isAggregate(ty) || ty.isVoid())
 					return false;
 				if(!evalFloatConst(e->cast.operand, fv))
 					return false;
@@ -257,7 +261,7 @@ namespace rat::cc {
 		switch(lv->kind) {
 		case ExprKind::Ident: {
 			const String& n = *lv->ident.name;
-			if(globals.count(n) || globalArrays.count(n) || funcs.count(n)) {
+			if(globalVars.count(n) || funcs.count(n)) {
 				sym = n;
 				addend = 0;
 				return true;
@@ -313,13 +317,16 @@ namespace rat::cc {
 			return true;
 		case ExprKind::Cast:
 			return evalAddrConst(e->cast.operand, sym, addend);
-		case ExprKind::Ident:
-			if(funcs.count(*e->ident.name) || globalArrays.count(*e->ident.name)) {
+		case ExprKind::Ident: {
+			auto gv = globalVars.find(*e->ident.name);
+			B32 globalArr = gv != globalVars.end() && gv->second.isArray;
+			if(funcs.count(*e->ident.name) || globalArr) {
 				sym = *e->ident.name;
 				addend = 0;
 				return true;
 			}
 			return false;
+		}
 		case ExprKind::Member: {
 			CType base;
 			if(!typeOf(e->member.base, base))
@@ -328,7 +335,7 @@ namespace rat::cc {
 			if(!isStruct(st))
 				return false;
 			const Field* f = st.strukt->find(*e->member.name);
-			if(!f || !f->isArray)
+			if(!f || !f->isArray())
 				return false;
 			return addrConstOf(e, sym, addend);
 		}

@@ -44,7 +44,10 @@ namespace rat {
 			B32 crossesCall = false;
 		};
 
-		void resetState() override { intervals.clear(); }
+		void resetState() override {
+			intervals.clear();
+			pinsByPoint.clear();
+		}
 		void solve() override;
 		Assignment assignmentOf(VReg v) override;
 		void buildIntervals();
@@ -57,6 +60,7 @@ namespace rat {
 		void spillAt(Interval* cur, List<Interval*>& active);
 	private:
 		Map<VReg, Interval> intervals;
+		List<std::pair<I32, const Set<PhysReg>*>> pinsByPoint;
 	};
 } // namespace rat
 

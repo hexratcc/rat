@@ -1,16 +1,36 @@
 #include "Parse/Ast.h"
 
 namespace rat::cc {
+	StructType* makeComplexLayout(Arena& arena, CType complexType) {
+		U32 elemBytes = (complexType.bits + 7) / 8;
+		CType elem = complexElem(complexType);
+		StructType* st = arena.make<StructType>();
+		st->size = 2 * elemBytes;
+		st->align = elemBytes;
+		st->complete = true;
+		Field re;
+		re.name = arena.make<String>("__real");
+		re.type = elem;
+		re.offset = 0;
+		Field im;
+		im.name = arena.make<String>("__imag");
+		im.type = elem;
+		im.offset = elemBytes;
+		st->fields.push_back(re);
+		st->fields.push_back(im);
+		return st;
+	}
+
 	CType promote(CType t) {
-		if(t.isVoid)
+		if(t.isVoid())
 			return t;
 		if(t.bits < 32)
-			return CType{32, false, false};
+			return CType{};
 		return t;
 	}
 
 	CType defaultArgPromote(CType t) {
-		if(t.isFloat && t.ptr == 0 && t.bits < 64) {
+		if(t.isFloat() && t.ptr == 0 && t.bits < 64) {
 			CType r = t;
 			r.bits = 64;
 			return r;
@@ -23,8 +43,8 @@ namespace rat::cc {
 			CType ra = isComplexType(a) ? complexElem(a) : a;
 			CType rb = isComplexType(b) ? complexElem(b) : b;
 			CType r = usualArithmetic(ra, rb);
-			r.isComplex = true;
-			r.isFloat = true;
+			r.set(CType::Complex);
+			r.base = CType::Base::Float;
 			return r;
 		}
 		if(isFloating(a) || isFloating(b)) {
@@ -37,17 +57,21 @@ namespace rat::cc {
 				bits = b.bits;
 			CType r;
 			r.bits = bits;
-			r.isFloat = true;
+			r.base = CType::Base::Float;
 			return r;
 		}
 		a = promote(a);
 		b = promote(b);
-		if(a.bits == b.bits && a.isUnsigned == b.isUnsigned)
-			return a;
-		if(a.isUnsigned == b.isUnsigned)
+		if(a.bits == b.bits && a.isUnsigned() == b.isUnsigned()) {
+			// keep the higher integer rank (long long > long > int)
+			U32 ra = a.isLongLong() ? 2u : (a.isLong() ? 1u : 0u);
+			U32 rb = b.isLongLong() ? 2u : (b.isLong() ? 1u : 0u);
+			return ra >= rb ? a : b;
+		}
+		if(a.isUnsigned() == b.isUnsigned())
 			return a.bits > b.bits ? a : b;
-		CType u = a.isUnsigned ? a : b;
-		CType s = a.isUnsigned ? b : a;
+		CType u = a.isUnsigned() ? a : b;
+		CType s = a.isUnsigned() ? b : a;
 		if(u.bits >= s.bits)
 			return u;
 		return s;
@@ -80,7 +104,7 @@ namespace rat::cc {
 			appendStars(s, t.ptr);
 			return s;
 		}
-		if(t.isComplex) {
+		if(t.isComplex()) {
 			String s = (t.bits == 32 ? "float" : t.bits == 128 ? "long double" : "double");
 			s += " _Complex";
 			appendStars(s, t.ptr);
@@ -91,12 +115,12 @@ namespace rat::cc {
 			appendStars(s, t.ptr);
 			return s;
 		}
-		if(t.isVoid) {
+		if(t.isVoid()) {
 			String s = "void";
 			appendStars(s, t.ptr);
 			return s;
 		}
-		if(t.isFloat) {
+		if(t.isFloat()) {
 			String s = t.bits == 32 ? "float" : t.bits == 128 ? "long double" : "double";
 			appendStars(s, t.ptr);
 			return s;
@@ -118,7 +142,7 @@ namespace rat::cc {
 			base = "long";
 			break;
 		}
-		String s = t.isUnsigned ? "unsigned " + base : base;
+		String s = t.isUnsigned() ? "unsigned " + base : base;
 		appendStars(s, t.ptr);
 		return s;
 	}
@@ -148,14 +172,14 @@ namespace rat::cc {
 			switch(e->kind) {
 			case ExprKind::IntLit:
 				os << "int " << e->intLit.value;
-				if(e->intLit.isUnsigned)
+				if(e->intLit.mods & CType::Unsigned)
 					os << "u";
-				if(e->intLit.isLong)
-					os << "l";
+				if(e->intLit.bits == 64)
+					os << ((e->intLit.mods & CType::LongLong) ? "ll" : "l");
 				os << "\n";
 				return;
 			case ExprKind::FloatLit:
-				os << (e->floatLit.isFloat ? "float " : "double ") << e->floatLit.value << "\n";
+				os << (e->floatLit.bits == 32 ? "float " : "double ") << e->floatLit.value << "\n";
 				return;
 			case ExprKind::StrLit:
 				os << "str \"" << *e->str.bytes << "\"\n";

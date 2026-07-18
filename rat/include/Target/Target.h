@@ -10,6 +10,28 @@ namespace rat {
 	using PhysReg = U32;
 	constexpr PhysReg kNoReg = 0;
 
+	enum class Arch : U32 { X86_64 };
+	enum class OS : U32 { Linux, Windows };
+
+	struct TargetTriple {
+		Arch arch = Arch::X86_64;
+		OS os = OS::Linux;
+
+		TargetTriple() = default;
+		TargetTriple(Arch a, OS o)
+		: arch(a),
+			os(o) {}
+
+		B32 isWindows() const { return os == OS::Windows; }
+		B32 isLinux() const { return os == OS::Linux; }
+
+		const C8* archName() const;
+		const C8* osName() const;
+		String str() const;
+
+		static B32 parse(const String& spec, TargetTriple& out, String& err);
+	};
+
 	struct RegClass {
 		U32 id = 0;
 		List<PhysReg> allocatable;
@@ -34,6 +56,7 @@ namespace rat {
 
 		virtual const C8* getName() const = 0;
 		virtual U32 getPointerSizeInBits() const = 0;
+		virtual const TargetTriple& getTriple() const;
 		virtual const RegisterInfo* registers() const { return nullptr; }
 		virtual RegAllocHooks regAllocHooks() const;
 
@@ -58,50 +81,32 @@ namespace rat {
 			kX87Class = 2,
 		};
 
+		explicit X86Target(OS os = OS::Linux)
+		: triple(Arch::X86_64, os),
+			info(build(os)) {}
+
+		explicit X86Target(const TargetTriple& t)
+		: triple(t),
+			info(build(t.os)) {}
+
 		const C8* getName() const override { return "x86-64"; }
 		U32 getPointerSizeInBits() const override { return 64; }
+		const TargetTriple& getTriple() const override { return triple; }
 
-		const RegisterInfo* registers() const override {
-			static const RegisterInfo info = build();
-			return &info;
-		}
+		const RegisterInfo* registers() const override { return &info; }
 
 		RegAllocHooks regAllocHooks() const override;
 
 		// classify a physical register by its encoding range.
 		static B32 isXmm(PhysReg p) { return p >= kXmmBase && p < kStBase; }
 	private:
-		static RegisterInfo build() {
-			auto gp = [](U32 reg) -> PhysReg { return kGpBase + reg; };
-			auto xmm = [](U32 n) -> PhysReg { return kXmmBase + n; };
-			auto st = [](U32 n) -> PhysReg { return kStBase + n; };
+		static RegisterInfo build(OS os);
 
-			RegClass gpc;
-			gpc.id = kGpClass;
-			gpc.allocatable = {
-					gp(0), gp(1), gp(2), gp(6), gp(7), gp(8), gp(9), gp(3), gp(12), gp(13), gp(14), gp(15)};
-			gpc.calleeSaved = {gp(3), gp(12), gp(13), gp(14), gp(15)};
-			gpc.scratch = {gp(10), gp(11)};
-
-			RegClass fpc;
-			fpc.id = kFpClass;
-			for(U32 i = 0; i < 14; ++i)
-				fpc.allocatable.push_back(xmm(i));
-			fpc.scratch = {xmm(14), xmm(15)};
-
-			RegClass x87c;
-			x87c.id = kX87Class;
-			for(U32 i = 0; i < 8; ++i) {
-				x87c.allocatable.push_back(st(i));
-				x87c.calleeSaved.push_back(st(i));
-			}
-
-			RegisterInfo info;
-			info.classes = {gpc, fpc, x87c};
-			info.spillSlotBytes = 8;
-			return info;
-		}
+		TargetTriple triple;
+		RegisterInfo info;
 	};
+
+	UniquePtr<TargetInfo> createTarget(const TargetTriple& triple);
 } // namespace rat
 
 #endif

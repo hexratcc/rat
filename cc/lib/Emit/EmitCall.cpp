@@ -1,6 +1,19 @@
 #include "Emit/Emit.h"
 
 namespace rat::cc {
+	Node* Emitter::vaListRef(Function& fn, const Expr* ap) {
+		if(!lay.win64VaList)
+			return emitExpr(fn, ap).node;
+		LValue lv;
+		if(!emitLValue(fn, ap, lv))
+			return nullptr;
+		if(lv.isVar() || !lv.addr) {
+			fail("va_list operand must be addressable");
+			return nullptr;
+		}
+		return lv.addr;
+	}
+
 	B32 Emitter::emitBuiltinCall(Function& fn, const Expr* e, Value& out) {
 		if(!e->call.callee)
 			return false;
@@ -8,15 +21,40 @@ namespace rat::cc {
 
 		if(b == "__builtin_va_start" || b == "__builtin_va_end") {
 			List<Node*> args;
-			for(const Expr* arg : e->args) {
-				Value a = emitExpr(fn, arg);
-				if(!a.node)
+			for(U32 i = 0; i < e->args.size(); ++i) {
+				Node* n = i == 0 ? vaListRef(fn, e->args[i]) : emitExpr(fn, e->args[i]).node;
+				if(!n)
 					return true;
-				args.push_back(a.node);
+				args.push_back(n);
 			}
 			fn.call(b, nullptr, args);
 			CType v;
-			v.isVoid = true;
+			v.base = CType::Base::Void;
+			out = {fn.constInt(i32, 0), v};
+			return true;
+		}
+
+		if(b == "__builtin_va_copy") {
+			if(e->args.size() != 2) {
+				fail("__builtin_va_copy expects two arguments");
+				return true;
+			}
+			Node* dst = vaListRef(fn, e->args[0]);
+			if(!dst)
+				return true;
+			if(lay.win64VaList) {
+				Value src = emitExpr(fn, e->args[1]);
+				if(!src.node)
+					return true;
+				fn.store(dst, src.node);
+			} else {
+				Value src = emitExpr(fn, e->args[1]);
+				if(!src.node)
+					return true;
+				emitMemCopy(fn, dst, src.node, lay.ptrBytes * 3);
+			}
+			CType v;
+			v.base = CType::Base::Void;
 			out = {fn.constInt(i32, 0), v};
 			return true;
 		}
@@ -49,7 +87,7 @@ namespace rat::cc {
 		}
 		if(b == "__builtin_unreachable") {
 			CType vd;
-			vd.isVoid = true;
+			vd.base = CType::Base::Void;
 			out = {fn.constInt(i32, 0), vd};
 			return true;
 		}
@@ -70,14 +108,14 @@ namespace rat::cc {
 			B32 isObject = false;
 			Local loc;
 			if(lookup(*e->call.callee, loc) && !loc.isArray) {
-				val = loc.inMem ? fn.load(irType(loc.type), loc.addr) : fn.get(loc.var);
+				val = loc.inMem() ? fn.load(irType(loc.type), loc.addr) : fn.get(loc.var);
 				ct = loc.type;
 				isObject = true;
 			} else {
-				auto g = globals.find(*e->call.callee);
-				if(g != globals.end()) {
-					val = fn.load(irType(g->second), fn.global(*e->call.callee));
-					ct = g->second;
+				auto g = globalVars.find(*e->call.callee);
+				if(g != globalVars.end() && !g->second.isArray) {
+					val = fn.load(irType(g->second.type), fn.global(*e->call.callee));
+					ct = g->second.type;
 					isObject = true;
 				}
 			}

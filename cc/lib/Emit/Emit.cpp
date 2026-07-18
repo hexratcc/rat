@@ -11,15 +11,24 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
-	Emitter::Emitter(Module& module, U32 pointerBytes)
+	Emitter::Emitter(Module& module, const TargetLayout& layout)
 	: mod(module),
-		ptrBytes(pointerBytes) {}
+		lay(layout) {}
 
-	U32 Emitter::byteSize(CType t) const { return typeSize(t, ptrBytes); }
+	U32 Emitter::byteSize(CType t) const { return typeSize(t, lay.ptrBytes); }
 
-	CType Emitter::ctSize() const { return CType{ptrBytes * 8, true, false, 0}; }
+	CType Emitter::ctSize() const {
+		CType t;
+		t.bits = lay.ptrBytes * 8;
+		t.set(CType::Unsigned);
+		return t;
+	}
 
-	CType Emitter::ctPtrDiff() const { return CType{ptrBytes * 8, false, false, 0}; }
+	CType Emitter::ctPtrDiff() const {
+		CType t;
+		t.bits = lay.ptrBytes * 8;
+		return t;
+	}
 
 	Node* Emitter::constSize(Function& fn, U64 value) { return fn.constInt(irType(ctSize()), value); }
 
@@ -123,7 +132,7 @@ namespace rat::cc {
 			return n;
 		B32 fromF = isFloating(from), toF = isFloating(to);
 		if(fromF || toF) {
-			if(to.isVoid)
+			if(to.isVoid())
 				return n;
 			if(fromF && toF) { // float <-> float
 				if(from.bits == to.bits)
@@ -133,19 +142,19 @@ namespace rat::cc {
 			if(fromF) { // float -> integer
 				if(to.bits == 1)
 					return fn.compare(Opcode::FNe, n, fn.constFloat(irType(from), 0.0));
-				return fn.convert(to.isUnsigned ? Opcode::FPToUI : Opcode::FPToSI, n, irType(to));
+				return fn.convert(to.isUnsigned() ? Opcode::FPToUI : Opcode::FPToSI, n, irType(to));
 			}
 			// integer -> float
-			return fn.convert(from.isUnsigned ? Opcode::UIToFP : Opcode::SIToFP, n, irType(to));
+			return fn.convert(from.isUnsigned() ? Opcode::UIToFP : Opcode::SIToFP, n, irType(to));
 		}
-		if(to.isVoid || from.bits == to.bits)
+		if(to.isVoid() || from.bits == to.bits)
 			return n;
 		if(to.bits == 1)
 			return fn.ne(n, fn.constInt(irType(from), 0));
 		Type* dst = irType(to);
 		if(to.bits < from.bits)
 			return fn.trunc(n, dst);
-		return from.isUnsigned ? fn.zext(n, dst) : fn.sext(n, dst);
+		return from.isUnsigned() ? fn.zext(n, dst) : fn.sext(n, dst);
 	}
 
 	Node* Emitter::toBool(Function& fn, const Value& v) {
@@ -180,7 +189,7 @@ namespace rat::cc {
 			LValue base;
 			if(!emitLValue(fn, e->member.base, base))
 				return false;
-			if(base.isVar || !isStruct(base.type)) {
+			if(base.isVar() || !isStruct(base.type)) {
 				fail("'.' requires a struct or union value");
 				return false;
 			}
@@ -192,11 +201,11 @@ namespace rat::cc {
 			fail("no member named '" + *e->member.name + "' in '" + typeName(structType) + "'");
 			return false;
 		}
-		out.isVar = false;
+		out.kind = LValue::Kind::Addr;
 		out.addr = f->offset ? fn.add(baseAddr, constSize(fn, f->offset)) : baseAddr;
 		out.type = f->type;
-		out.isArray = f->isArray;
-		out.isBitfield = f->isBitfield;
+		out.isArray = f->isArray();
+		out.isBitfield = f->isBitfield();
 		out.bitWidth = f->bitWidth;
 		out.bitOffset = f->bitOffset;
 		return true;
@@ -206,7 +215,7 @@ namespace rat::cc {
 		Value v = emitExpr(fn, e);
 		if(!v.node)
 			return false;
-		out.isVar = false;
+		out.kind = LValue::Kind::Addr;
 		if(e->compound.isArray) {
 			out.addr = v.node;
 			out.type = e->compound.type;
@@ -232,24 +241,25 @@ namespace rat::cc {
 					fail("array '" + *e->ident.name + "' is not assignable");
 					return false;
 				}
-				if(loc.inMem) {
-					out.isVar = false;
+				if(loc.inMem()) {
+					out.kind = LValue::Kind::Addr;
 					out.addr = loc.addr;
 				} else {
-					out.isVar = true;
+					out.kind = LValue::Kind::Var;
 					out.var = loc.var;
 				}
 				out.type = loc.type;
 				return true;
 			}
-			auto g = globals.find(*e->ident.name);
-			if(g != globals.end()) {
-				out.isVar = false;
+			auto g = globalVars.find(*e->ident.name);
+			if(g != globalVars.end() && !g->second.isArray) {
+				out.kind = LValue::Kind::Addr;
 				out.addr = fn.global(*e->ident.name);
-				out.type = g->second;
+				out.type = g->second.type;
 				return true;
 			}
-			if(globalArrays.count(*e->ident.name)) {
+			auto gv = globalVars.find(*e->ident.name);
+			if(gv != globalVars.end() && gv->second.isArray) {
 				fail("array '" + *e->ident.name + "' is not assignable");
 				return false;
 			}
@@ -265,7 +275,7 @@ namespace rat::cc {
 				fail("indirection requires a pointer operand");
 				return false;
 			}
-			out.isVar = false;
+			out.kind = LValue::Kind::Addr;
 			out.addr = p.node;
 			out.type = pointee(p.type);
 			out.isArray = isArrayType(out.type);
@@ -275,12 +285,12 @@ namespace rat::cc {
 			LValue base;
 			if(!emitLValue(fn, e->unary.operand, base))
 				return false;
-			if(!isComplexType(base.type) || base.isVar) {
+			if(!isComplexType(base.type) || base.isVar()) {
 				fail("'__real__'/'__imag__' require a complex lvalue");
 				return false;
 			}
 			CType re = complexElem(base.type);
-			out.isVar = false;
+			out.kind = LValue::Kind::Addr;
 			out.addr = e->unary.op == ExprOp::Imag ? offsetPtr(fn, base.addr, byteSize(re)) : base.addr;
 			out.type = re;
 			return true;
@@ -295,7 +305,7 @@ namespace rat::cc {
 				Value v = emitExpr(fn, e);
 				if(!v.node)
 					return false;
-				out.isVar = false;
+				out.kind = LValue::Kind::Addr;
 				out.addr = v.node;
 				out.type = st;
 				return true;
@@ -306,7 +316,7 @@ namespace rat::cc {
 	}
 
 	Node* Emitter::loadLValue(Function& fn, const LValue& lv) {
-		if(lv.isVar)
+		if(lv.isVar())
 			return fn.get(lv.var);
 		if(lv.isBitfield) {
 			Type* ty = irType(lv.type);
@@ -318,14 +328,14 @@ namespace rat::cc {
 			if(hi)
 				n = fn.shl(n, fn.constInt(ty, hi));
 			if(lo)
-				n = lv.type.isUnsigned ? fn.lshr(n, fn.constInt(ty, lo)) : fn.ashr(n, fn.constInt(ty, lo));
+				n = lv.type.isUnsigned() ? fn.lshr(n, fn.constInt(ty, lo)) : fn.ashr(n, fn.constInt(ty, lo));
 			return n;
 		}
 		return fn.load(irType(lv.type), lv.addr);
 	}
 
 	void Emitter::storeLValue(Function& fn, const LValue& lv, Node* value) {
-		if(lv.isVar) {
+		if(lv.isVar()) {
 			fn.set(lv.var, value);
 			return;
 		}
@@ -404,13 +414,13 @@ namespace rat::cc {
 				continue;
 			Node* arg = fn.param(paramBase + i);
 			if(isAggregate(p.type)) {
-				declare(*p.name, Local{0, arg, p.type, true, false});
+				declare(*p.name, Local::mem(arg, p.type));
 			} else if(memVars.count(*p.name)) {
 				Node* slot = fn.alloc(irType(p.type));
 				fn.store(slot, arg);
-				declare(*p.name, Local{0, slot, p.type, true, false});
+				declare(*p.name, Local::mem(slot, p.type));
 			} else {
-				declare(*p.name, Local{fn.declareLocal(*p.name, arg), nullptr, p.type, false, false});
+				declare(*p.name, Local::inVar(fn.declareLocal(*p.name, arg), p.type));
 			}
 		}
 	}

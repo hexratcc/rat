@@ -4,28 +4,9 @@
 
 namespace rat::cc {
 	StructType* Parser::complexStruct(CType realType) {
-		auto it = complexLayouts.find(realType.bits);
-		if(it != complexLayouts.end())
-			return it->second;
-		U32 elemBytes = (realType.bits + 7) / 8;
-		CType elem = realType;
-		elem.isComplex = false;
-		StructType* st = arena.make<StructType>();
-		st->size = 2 * elemBytes;
-		st->align = elemBytes;
-		st->isUnion = false;
-		st->complete = true;
-		Field re;
-		re.name = arena.make<String>("__real");
-		re.type = elem;
-		re.offset = 0;
-		Field im;
-		im.name = arena.make<String>("__imag");
-		im.type = elem;
-		im.offset = elemBytes;
-		st->fields.push_back(re);
-		st->fields.push_back(im);
-		complexLayouts[realType.bits] = st;
+		StructType*& st = complexLayouts[realType.bits];
+		if(!st)
+			st = makeComplexLayout(arena, realType);
 		return st;
 	}
 
@@ -50,9 +31,9 @@ namespace rat::cc {
 				for(const Field& sub : inner->fields) {
 					Field f = sub;
 					f.offset = isUnion ? sub.offset : mbase + sub.offset;
-					f.anonMember = true;
-					f.anonFirst = first;
-					f.anonUnion = inner->isUnion;
+					f.set(Field::AnonMember);
+					f.set(Field::AnonFirst, first);
+					f.set(Field::AnonUnion, inner->isUnion);
 					first = false;
 					st->fields.push_back(f);
 				}
@@ -108,7 +89,7 @@ namespace rat::cc {
 				}
 				// optional bitfield : width
 				if(accept(TokKind::Colon)) {
-					if(isArr || ft.ptr != 0 || ft.isFloat || ft.isComplex || ft.isVoid || isStruct(ft) ||
+					if(isArr || ft.ptr != 0 || ft.isFloat() || ft.isComplex() || ft.isVoid() || isStruct(ft) ||
 						 ft.func != nullptr) {
 						fail(nameTok, "bit-field has invalid type");
 						return false;
@@ -138,7 +119,7 @@ namespace rat::cc {
 						Field f;
 						f.name = arena.make<String>(lex.text(nameTok));
 						f.type = ft;
-						f.isBitfield = true;
+						f.set(Field::Bitfield);
 						f.bitWidth = (U32)w;
 						f.bitOffset = bitUnitUsed;
 						f.offset = bitUnitOffset;
@@ -181,7 +162,7 @@ namespace rat::cc {
 				Field f;
 				f.name = arena.make<String>(lex.text(nameTok));
 				f.type = ft;
-				f.isArray = isArr;
+				f.set(Field::Array, isArr);
 				f.count = count;
 				f.offset = isUnion ? 0 : detail::alignUp(offset, falign);
 				st->fields.push_back(f);
@@ -303,7 +284,7 @@ namespace rat::cc {
 		}
 		out = ctInt();
 		if(!anyNegative)
-			out.isUnsigned = true;
+			out.set(CType::Unsigned);
 		return true;
 	}
 } // namespace rat::cc

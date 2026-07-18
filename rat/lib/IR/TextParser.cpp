@@ -1,5 +1,7 @@
 #include "IR/TextParser.h"
 
+#include <cerrno>
+
 #include "IR/Function.h"
 #include "IR/Module.h"
 #include "IR/Node.h"
@@ -301,7 +303,11 @@ namespace rat {
 			String lhs = trim(line.substr(0, eq));
 			if(lhs.empty() || lhs[0] != 'v' || !allDigits(lhs.substr(1)))
 				return fail("bad result name '" + lhs + "'");
-			pn.id = (U32)std::stoul(lhs.substr(1));
+			errno = 0;
+			unsigned long idv = std::strtoul(lhs.c_str() + 1, nullptr, 10);
+			if(errno == ERANGE || idv > 0xffffffffUL)
+				return fail("result id out of range '" + lhs + "'");
+			pn.id = (U32)idv;
 
 			String rest = line.substr(eq + 3);
 			U64 colon = rest.find(" : ");
@@ -325,11 +331,11 @@ namespace rat {
 			case Opcode::Constant: {
 				if(remainder.empty())
 					return fail("constant is missing its value: " + line);
-				try {
-					pn.cval = (I64)std::stoll(remainder);
-				} catch(...) {
+				errno = 0;
+				char* cend = nullptr;
+				pn.cval = (I64)std::strtoll(remainder.c_str(), &cend, 10);
+				if(cend == remainder.c_str() || errno == ERANGE)
 					return fail("bad constant value '" + remainder + "'");
-				}
 				break;
 			}
 			case Opcode::Proj: {
@@ -342,7 +348,11 @@ namespace rat {
 					return fail("malformed proj (expected #index): " + line);
 				if(!allDigits(toks[0].substr(1)))
 					return fail("bad proj index '" + toks[0] + "'");
-				pn.projIndex = (U32)std::stoul(toks[0].substr(1));
+				errno = 0;
+				unsigned long pj = std::strtoul(toks[0].c_str() + 1, nullptr, 10);
+				if(errno == ERANGE || pj > 0xffffffffUL)
+					return fail("proj index out of range '" + toks[0] + "'");
+				pn.projIndex = (U32)pj;
 				U32 k = 1;
 				if(k < toks.size() && !toks[k].empty() && toks[k].front() == '"') {
 					String l = toks[k];

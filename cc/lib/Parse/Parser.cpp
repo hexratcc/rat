@@ -1,15 +1,33 @@
 #include "Parse/Parser.h"
 
 namespace rat::cc {
-	Parser::Parser(Lexer& lexer, Arena& arena, U32 pointerBytes)
+	B32 Parser::enterDepth() {
+		if(++parseDepth > kMaxParseDepth) {
+			fail(peek(), "nesting too deep");
+			return false;
+		}
+		return true;
+	}
+
+	Parser::Parser(Lexer& lexer, Arena& arena, const TargetLayout& layout)
 	: lex(lexer),
 		arena(arena),
-		ptrBytes(pointerBytes) {
-		ArrayType* vl = arena.make<ArrayType>();
-		vl->elem = CType{8, true, false, 0}; // unsigned char
-		vl->count = ptrBytes * 4;
-		CType vaList{8, true, false, 0};
-		vaList.array = vl;
+		lay(layout) {
+		CType vaList;
+		vaList.bits = 8;
+		vaList.set(CType::Unsigned);
+		if(lay.win64VaList) {
+			// Win64 __builtin_va_list is a char*
+			vaList.ptr = 1;
+		} else {
+			// SysV __builtin_va_list decays to a pointer to a 24-byte state record
+			ArrayType* vl = arena.make<ArrayType>();
+			vl->elem = CType{}; // unsigned char
+			vl->elem.bits = 8;
+			vl->elem.set(CType::Unsigned);
+			vl->count = lay.ptrBytes * 4;
+			vaList.array = vl;
+		}
 		typedefs["va_list"] = vaList;
 		typedefs["__builtin_va_list"] = vaList;
 	}
@@ -54,9 +72,11 @@ namespace rat::cc {
 		return s;
 	}
 
-	Expr* Parser::makeInt(const Token& tok, I64 value, B32 isUnsigned, B32 isLong) {
+	Expr* Parser::makeInt(const Token& tok, I64 value, U32 bits, U8 mods) {
 		Expr* e = makeExpr(ExprKind::IntLit, tok.offset);
-		e->intLit = {value, isUnsigned, isLong};
+		if(mods & CType::LongLong) // 'long long' subsumes 'long'
+			mods |= CType::Long;
+		e->intLit = {value, bits, mods};
 		return e;
 	}
 
@@ -339,6 +359,10 @@ namespace rat::cc {
 		TransUnit* unit = arena.make<TransUnit>();
 		while(!failed && peek().kind != TokKind::Eof) {
 			Token start = peek();
+			if(peek().kind == TokKind::Semicolon) {
+				advance();
+				continue;
+			}
 			if(peek().kind == TokKind::KwStaticAssert) {
 				if(!parseStaticAssert())
 					return nullptr;

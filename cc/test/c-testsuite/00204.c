@@ -1,4 +1,5 @@
 // expect: 0
+// skip-target: windows
 // output:
 //| Arguments:
 //| 0

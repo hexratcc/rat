@@ -1,4 +1,5 @@
 #include "Compile.h"
+#include "Host.h"
 
 #include "Emit/Emit.h"
 #include "Lex/Lexer.h"
@@ -25,6 +26,7 @@ namespace {
 		List<String> extraPasses; // individual -f<pass> requests (in order)
 		B32 timePasses = false;
 		B32 preprocessOnly = false; // -E
+		String targetSpec;					// -target: <arch>-<os> triple
 		B32 noStdInc = false;				// -nostdinc: skip host system include dirs
 		B32 noPredefs = false;			// -undef: skip host predefined macros
 		PpOptions pp;
@@ -95,13 +97,14 @@ namespace {
 		case Emit::X86:
 			return opt.output;
 		}
-		__builtin_unreachable();
+		unreachableCode();
 	}
 
 	void usage(std::ostream& os) {
 		os << "usage: ratcc [options] <input.c>\n"
 					"  -o <file>             output base (default a.out); x86 object goes here\n"
 					"  -emit <k,...>         any of: tok, ast, c, x86 (comma-separated)\n"
+					"  -target <triple>      x86_64-linux (default) or x86_64-windows;\n"
 					"  -O0                   no optimization (default)\n"
 					"  -O1                   all optimization passes + graph-coloring regalloc\n"
 					"  -f<pass>              enable one opt pass: fold, gvn, sccp,\n"
@@ -131,6 +134,8 @@ namespace {
 				return 0;
 			} else if(arg.rfind("-o", 0) == 0) {
 				opt.output = value(2);
+			} else if(arg == "-target") {
+				opt.targetSpec = next();
 			} else if(arg == "-emit") {
 				String err;
 				if(!parseEmit(next(), opt.emits, err)) {
@@ -217,9 +222,9 @@ namespace {
 		}
 	}
 
-	TransUnit* parse(const String& path, const String& source, Arena& arena, U32 pointerBytes) {
+	TransUnit* parse(const String& path, const String& source, Arena& arena) {
 		Lexer lex(source.data(), (U32)source.size(), path);
-		Parser parser(lex, arena, pointerBytes);
+		Parser parser(lex, arena, TargetLayout::forTriple(hostTargetTriple()));
 		TransUnit* unit = parser.parseUnit();
 		if(!unit)
 			std::cerr << parser.error() << "\n";
@@ -229,7 +234,7 @@ namespace {
 	I32 emitAstText(const String& path, const String& source, std::ostream& os) {
 		Arena arena;
 		Generic64 target;
-		TransUnit* unit = parse(path, source, arena, target.getPointerSizeInBytes());
+		TransUnit* unit = parse(path, source, arena);
 		if(!unit)
 			return 1;
 		dumpAst(*unit, os);
@@ -239,16 +244,16 @@ namespace {
 	I32 emitViaModule(
 			const Options& opt, const String& path, const String& source, Emit kind, std::ostream& os) {
 		Generic64 generic;
-		X86Target x86;
+		X86Target x86(hostTargetTriple());
 		const TargetInfo& target = (kind == Emit::X86) ? (const TargetInfo&)x86 : generic;
 
 		Arena arena;
-		TransUnit* unit = parse(path, source, arena, target.getPointerSizeInBytes());
+		TransUnit* unit = parse(path, source, arena);
 		if(!unit)
 			return 1;
 
 		Module mod;
-		Emitter emitter(mod, target.getPointerSizeInBytes());
+		Emitter emitter(mod, TargetLayout::forTriple(hostTargetTriple()));
 		if(!emitter.emit(*unit)) {
 			std::cerr << path << ": " << emitter.error() << "\n";
 			return 1;
@@ -285,15 +290,25 @@ namespace {
 		case Emit::X86:
 			return emitViaModule(opt, path, source, kind, file);
 		}
-		__builtin_unreachable();
+		unreachableCode();
 	}
 } // namespace
 
-I32 main(I32 argc, char** argv) {
+static I32 run(I32 argc, char** argv) {
 	Options opt;
 	B32 stop = false;
 	if(I32 rc = parseArgs(argc, argv, opt, stop); stop)
 		return rc;
+
+	if(!opt.targetSpec.empty()) {
+		TargetTriple triple;
+		String terr;
+		if(!TargetTriple::parse(opt.targetSpec, triple, terr)) {
+			std::cerr << "ratcc: " << terr << "\n";
+			return 2;
+		}
+		setHostTargetTriple(triple);
+	}
 
 	String source, path;
 	if(!readInput(opt, source, path))
@@ -321,4 +336,16 @@ I32 main(I32 argc, char** argv) {
 		if(I32 rc = emitOne(opt, path, source, kind))
 			return rc;
 	return 0;
+}
+
+I32 main(I32 argc, char** argv) {
+	try {
+		return run(argc, argv);
+	} catch(const std::exception& e) {
+		std::cerr << "ratcc: internal error: " << e.what() << "\n";
+		return 3;
+	} catch(...) {
+		std::cerr << "ratcc: internal error\n";
+		return 3;
+	}
 }

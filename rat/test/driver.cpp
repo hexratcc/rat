@@ -36,7 +36,7 @@ namespace {
 	}
 } // namespace
 
-I32 main(I32 argc, char** argv) {
+static I32 run(I32 argc, char** argv) {
 	String passSpec;
 	String emitKind = "text";
 	String inputPath;
@@ -130,4 +130,16 @@ I32 main(I32 argc, char** argv) {
 
 	pm.run(module, stats ? &std::cerr : nullptr);
 	return 0;
+}
+
+I32 main(I32 argc, char** argv) {
+	try {
+		return run(argc, argv);
+	} catch(const std::exception& e) {
+		std::cerr << "rat: internal error: " << e.what() << "\n";
+		return 3;
+	} catch(...) {
+		std::cerr << "rat: internal error\n";
+		return 3;
+	}
 }

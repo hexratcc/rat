@@ -1,72 +1,13 @@
 #include "Compile.h"
 
+#include "Host.h"
+
 #include "rat.h"
 
 #include <cstdio>
 #include <cstdlib>
 
 namespace rat::cc {
-	namespace {
-		constexpr U32 kReadBufSize = 4096;
-
-		String captureCmd(const String& cmd) {
-			String out;
-			FILE* p = popen(cmd.c_str(), "r");
-			if(!p)
-				return out;
-			char buf[kReadBufSize];
-			U64 n;
-			while((n = fread(buf, 1, sizeof(buf), p)) > 0)
-				out.append(buf, n);
-			pclose(p);
-			return out;
-		}
-	} // namespace
-
-	const String& hostCC() {
-		static String cc = [] {
-			const char* env = std::getenv("CC");
-			return String(env && *env ? env : "cc");
-		}();
-		return cc;
-	}
-
-	const String& hostPredefs() {
-		static String cache =
-				captureCmd(hostCC() + " -std=c11 -dM -E -xc /dev/null 2>/dev/null") + "\n";
-		return cache;
-	}
-
-	const List<String>& hostIncludeDirs() {
-		static List<String> cache = [] {
-			List<String> dirs;
-			String v = captureCmd(hostCC() + " -E -v -xc /dev/null 2>&1");
-			std::istringstream in(v);
-			String line;
-			B32 inList = false;
-			while(std::getline(in, line)) {
-				if(line.find("#include <...> search starts here:") != String::npos) {
-					inList = true;
-					continue;
-				}
-				if(line.find("End of search list.") != String::npos)
-					break;
-				if(!inList)
-					continue;
-				U32 b = 0;
-				while(b < line.size() && (line[b] == ' ' || line[b] == '\t'))
-					++b;
-				U32 e = (U32)line.size();
-				while(e > b && (line[e - 1] == '\r' || line[e - 1] == ' '))
-					--e;
-				if(e > b)
-					dirs.push_back(line.substr(b, e - b));
-			}
-			return dirs;
-		}();
-		return cache;
-	}
-
 	List<UniquePtr<Pass>> defaultOptPasses() {
 		std::ostringstream sink;
 		List<UniquePtr<Pass>> passes;

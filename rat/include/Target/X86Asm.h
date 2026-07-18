@@ -3,7 +3,7 @@
 
 #include "Core.h"
 
-#include "Target/X86Elf.h"
+#include "Target/ObjectFile.h"
 
 namespace rat {
 	enum Reg : U8 {
@@ -45,10 +45,18 @@ namespace rat {
 		constexpr U32 kRegSaveBytes = kGpSaveBytes + kMaxXmmArgs * kXmmSlotBytes;
 	} // namespace sysv
 
+	namespace win64 {
+		constexpr Reg kArgRegs[4] = {RCX, RDX, R8, R9};
+		constexpr U32 kMaxRegArgs = 4;
+		constexpr U32 kShadowBytes = 32;
+		constexpr I32 kHomeOff = 16;
+		constexpr I32 kStackParamOff = 48;
+	} // namespace win64
+
 	struct AsmReloc {
 		U32 offset;
 		String symbol;
-		ElfReloc kind;
+		RelocKind kind;
 		I64 addend;
 	};
 
@@ -342,7 +350,7 @@ namespace rat {
 			b(0x8d);
 			b((U8)(0x05 | ((dst & 7) << 3))); // rip-relative
 			U32 at = here();
-			relocs.push_back({at, sym, ElfReloc::Pc32, addend - 4});
+			relocs.push_back({at, sym, RelocKind::Pc32, addend - 4});
 			d32(0);
 		}
 
@@ -378,7 +386,7 @@ namespace rat {
 		void callSym(const String& sym) {
 			b(0xe8);
 			U32 at = here();
-			relocs.push_back({at, sym, ElfReloc::Plt32, -4});
+			relocs.push_back({at, sym, RelocKind::Plt32, -4});
 			d32(0);
 		}
 
@@ -387,6 +395,23 @@ namespace rat {
 				b(0x41);
 			b(0xff);
 			modrmReg(2, r);
+		}
+
+		// movq r64, xmm
+		void movqGpXmm(Reg dst, U32 xmm) {
+			b(0x66);
+			rexForce(true, xmm, 0, dst);
+			b(0x0f);
+			b(0x7e);
+			modrmReg(xmm, dst);
+		}
+
+		// or dword [rsp], 0
+		void probeRsp() {
+			b(0x83);
+			b(0x0c);
+			b(0x24);
+			b(0x00);
 		}
 
 		static U8 ssePrefixByte(U32 width) { return width == 4 ? 0xf3 : 0xf2; }

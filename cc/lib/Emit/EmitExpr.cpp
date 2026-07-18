@@ -9,13 +9,14 @@ namespace rat::cc {
 			Local loc;
 			if(lookup(*e->unary.operand->ident.name, loc) && loc.isArray)
 				return {loc.addr, pointerTo(loc.type)};
-			if(globalArrays.count(*e->unary.operand->ident.name))
+			auto gvo = globalVars.find(*e->unary.operand->ident.name);
+			if(gvo != globalVars.end() && gvo->second.isArray)
 				return emitExpr(fn, e->unary.operand);
 		}
 		LValue lv;
 		if(!emitLValue(fn, e->unary.operand, lv))
 			return {};
-		if(lv.isVar) {
+		if(lv.isVar()) {
 			fail("cannot take the address of an SSA value");
 			return {};
 		}
@@ -122,19 +123,19 @@ namespace rat::cc {
 				return {loc.addr, pointerTo(loc.type)};
 			if(isAggregate(loc.type))
 				return {loc.addr, loc.type};
-			if(loc.inMem)
+			if(loc.inMem())
 				return {fn.load(irType(loc.type), loc.addr), loc.type};
 			return {fn.get(loc.var), loc.type};
 		}
-		auto g = globals.find(*e->ident.name);
-		if(g != globals.end()) {
-			if(isAggregate(g->second))
-				return {fn.global(*e->ident.name), g->second};
-			return {fn.load(irType(g->second), fn.global(*e->ident.name)), g->second};
+		auto g = globalVars.find(*e->ident.name);
+		if(g != globalVars.end()) {
+			const CType& gt = g->second.type;
+			if(g->second.isArray)
+				return {fn.global(*e->ident.name), pointerTo(gt)};
+			if(isAggregate(gt))
+				return {fn.global(*e->ident.name), gt};
+			return {fn.load(irType(gt), fn.global(*e->ident.name)), gt};
 		}
-		auto ga = globalArrays.find(*e->ident.name);
-		if(ga != globalArrays.end())
-			return {fn.global(*e->ident.name), pointerTo(ga->second)};
 		auto f = funcs.find(*e->ident.name);
 		if(f != funcs.end())
 			return {fn.global(*e->ident.name), funcPtrType(f->second)};
@@ -211,19 +212,19 @@ namespace rat::cc {
 		switch(e->kind) {
 		case ExprKind::IntLit: {
 			CType t;
-			t.isUnsigned = e->intLit.isUnsigned;
-			t.bits = e->intLit.isLong ? 64 : 32;
+			t.bits = e->intLit.bits;
+			t.mods = e->intLit.mods;
 			return {fn.constInt(irType(t), e->intLit.value), t};
 		}
 
 		case ExprKind::FloatLit: {
 			CType t;
-			t.isFloat = true;
-			t.bits = e->floatLit.isFloat ? 32 : (e->floatLit.isLongDouble ? 128 : 64);
+			t.base = CType::Base::Float;
+			t.bits = e->floatLit.bits;
 			Node* lit = fn.constFloat(irType(t), (double)e->floatLit.value);
-			if(e->floatLit.isImaginary) {
+			if(e->floatLit.imaginary) {
 				CType ct = t;
-				ct.isComplex = true;
+				ct.set(CType::Complex);
 				return makeComplex(fn, ct, fn.constFloat(irType(t), 0.0), lit);
 			}
 			return {lit, t};
@@ -256,7 +257,7 @@ namespace rat::cc {
 			}
 			if(isVoidType(castTy))
 				return {v.node, castTy};
-			if(isPointer(v.type) && !isPointer(castTy) && !isFloating(castTy) && !castTy.isVoid) {
+			if(isPointer(v.type) && !isPointer(castTy) && !isFloating(castTy) && !castTy.isVoid()) {
 				if(castTy.bits == 1)
 					return {fn.ne(v.node, fn.constInt(mod.getPtr(), 0)), castTy};
 				if(castTy.bits < 64)
@@ -269,11 +270,11 @@ namespace rat::cc {
 			return emitSizeof(fn, e);
 
 		case ExprKind::VaArg: {
-			Value ap = emitExpr(fn, e->vaArg.ap);
-			if(!ap.node)
+			Node* ap = vaListRef(fn, e->vaArg.ap);
+			if(!ap)
 				return {};
 			Type* fetched = isStruct(e->vaArg.type) ? mod.getPtr() : irType(e->vaArg.type);
-			Node* r = fn.call("__builtin_va_arg", fetched, {ap.node});
+			Node* r = fn.call("__builtin_va_arg", fetched, {ap});
 			return {r, e->vaArg.type};
 		}
 

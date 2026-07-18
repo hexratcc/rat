@@ -1,5 +1,5 @@
 // expect: 0
-// output:
+// output: oracle
 //| 12.340000, 56.780000
 #include <stdio.h>
 

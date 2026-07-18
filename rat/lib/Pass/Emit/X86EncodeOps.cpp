@@ -1,4 +1,4 @@
-#include "Pass/Emit/X86Emitter.h"
+#include "Pass/Emit/X86Encode.h"
 
 #include "CodeGen/MachineFunction.h"
 #include "CodeGen/MachineModule.h"
@@ -8,9 +8,9 @@
 #include "IR/Node.h"
 #include "IR/Opcode.h"
 #include "IR/Type.h"
+#include "Target/ObjectFile.h"
 #include "Target/Target.h"
 #include "Target/X86Asm.h"
-#include "Target/X86Elf.h"
 
 namespace rat {
 	void X86EncodePass::emitCopy(const MachineInstr& in) {
@@ -239,10 +239,11 @@ namespace rat {
 		U32 w = (U32)in.imm;
 		U32 d = xmmOf(in.defs[0]);
 		U32 s = xmmOf(in.uses[0]);
-		a->pxor(15, 15);
-		a->sseArith(0x5c, w, 15, s == d ? d : s);
-		if(d != 15)
-			a->sseArith(0x10, w, d, 15);
+		U32 z = winAbi ? 5 : 15; // scratch xmm; xmm15 is callee-saved on winAbi
+		a->pxor(z, z);
+		a->sseArith(0x5c, w, z, s == d ? d : s);
+		if(d != z)
+			a->sseArith(0x10, w, d, z);
 	}
 
 	void X86EncodePass::emitFCmp(const MachineInstr& in) {
@@ -357,7 +358,7 @@ namespace rat {
 	void X86EncodePass::emitX87Binary(const MachineInstr& in, U32 idx) {
 		fldSlot(in.uses[0].slot);
 		fldSlot(in.uses[1].slot);
-		static void (Asm::* const kArith[])() = {&Asm::faddp, &Asm::fsubp, &Asm::fmulp, &Asm::fdivp};
+		static void (Asm::*const kArith[])() = {&Asm::faddp, &Asm::fsubp, &Asm::fmulp, &Asm::fdivp};
 		(a->*kArith[idx])();
 		fstpSlot(in.defs[0].slot);
 	}

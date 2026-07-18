@@ -34,111 +34,6 @@ namespace rat {
 		constexpr U64 kRelaEntSize = 24; // Elf64_Rela
 	} // namespace detail
 
-	void ElfObject::put8(List<U8>& b, U8 v) { b.push_back(v); }
-	void ElfObject::put16(List<U8>& b, U16 v) {
-		b.push_back((U8)(v));
-		b.push_back((U8)(v >> 8));
-	}
-	void ElfObject::put32(List<U8>& b, U32 v) {
-		for(U32 i = 0; i < 4; ++i)
-			b.push_back((U8)(v >> (i * 8)));
-	}
-	void ElfObject::put64(List<U8>& b, U64 v) {
-		for(U32 i = 0; i < 8; ++i)
-			b.push_back((U8)(v >> (i * 8)));
-	}
-
-	ElfObject::ElfObject() { syms.push_back({"", Text, 0, true, false, false}); }
-
-	List<U8>& ElfObject::bytesOf(Section sec) {
-		switch(sec) {
-		case Text:
-			return text;
-		case Rodata:
-			return rodata;
-		case Data:
-			return data;
-		case Bss:
-			break;
-		}
-		return text;
-	}
-
-	U32 ElfObject::sectionSize(Section sec) const {
-		switch(sec) {
-		case Text:
-			return (U32)text.size();
-		case Rodata:
-			return (U32)rodata.size();
-		case Data:
-			return (U32)data.size();
-		case Bss:
-			return bssSize;
-		}
-		return 0;
-	}
-
-	U32 ElfObject::append(Section sec, const U8* bytes, U32 len) {
-		if(sec == Bss)
-			return appendZero(sec, len);
-		List<U8>& b = bytesOf(sec);
-		U32 off = (U32)b.size();
-		b.insert(b.end(), bytes, bytes + len);
-		return off;
-	}
-
-	U32 ElfObject::appendZero(Section sec, U32 len) {
-		if(sec == Bss) {
-			U32 off = bssSize;
-			bssSize += len;
-			return off;
-		}
-		List<U8>& b = bytesOf(sec);
-		U32 off = (U32)b.size();
-		b.insert(b.end(), len, 0);
-		return off;
-	}
-
-	U32 ElfObject::align(Section sec, U32 a) {
-		U32 sz = sectionSize(sec);
-		U32 pad = (a - (sz % a)) % a;
-		if(pad)
-			appendZero(sec, pad);
-		return sectionSize(sec);
-	}
-
-	U32 ElfObject::symbolIndex(const String& name) {
-		auto it = symByName.find(name);
-		if(it != symByName.end())
-			return it->second;
-		U32 idx = (U32)syms.size();
-		syms.push_back({name, Text, 0, false, true, false});
-		symByName[name] = idx;
-		return idx;
-	}
-
-	void
-	ElfObject::defineSymbol(const String& name, Section sec, U32 offset, B32 global, B32 isFunc) {
-		auto it = symByName.find(name);
-		if(it != symByName.end()) {
-			Sym& s = syms[it->second];
-			s.sec = sec;
-			s.offset = offset;
-			s.defined = true;
-			s.global = global;
-			s.isFunc = isFunc;
-			return;
-		}
-		U32 idx = (U32)syms.size();
-		syms.push_back({name, sec, offset, true, global, isFunc});
-		symByName[name] = idx;
-	}
-
-	void
-	ElfObject::addReloc(Section sec, U32 offset, const String& symbol, ElfReloc kind, I64 addend) {
-		relocs.push_back({sec, offset, symbolIndex(symbol), kind, addend});
-	}
-
 	void ElfObject::write(std::ostream& os) {
 		List<U32> order;
 		order.push_back(0);
@@ -173,7 +68,7 @@ namespace rat {
 		for(U32 i = 0; i < order.size(); ++i) {
 			U32 oi = order[i];
 			const Sym& s = syms[oi];
-			bool placed = i != 0 && s.defined;
+			B32 placed = i != 0 && s.defined;
 			U8 bind = (i != 0 && s.global) ? detail::STB_GLOBAL : detail::STB_LOCAL;
 			U8 type = !placed ? detail::STT_NOTYPE : (s.isFunc ? detail::STT_FUNC : detail::STT_OBJECT);
 			U16 shndx = !placed ? detail::SHN_UNDEF : (U16)secShIndex(s.sec);
@@ -231,9 +126,9 @@ namespace rat {
 			off += size;
 			return here;
 		};
-		U64 offText = place(text.size(), 16);
-		U64 offRodata = place(rodata.size(), 16);
-		U64 offData = place(data.size(), 16);
+		U64 offText = place(bytesOf(Text).size(), 16);
+		U64 offRodata = place(bytesOf(Rodata).size(), 16);
+		U64 offData = place(bytesOf(Data).size(), 16);
 		U64 offSymtab = place(symtab.size(), 8);
 		U64 offStrtab = place(strtab.size(), 1);
 		U64 offRelaText = place(relaText.size(), 8);
@@ -266,21 +161,19 @@ namespace rat {
 		put16(out, (U16)shShstrtab);				 // e_shstrndx
 
 		auto emitAt = [&](U64 target, const List<U8>& blob) {
-			while(out.size() < target)
-				out.push_back(0);
+			padTo(out, target);
 			out.insert(out.end(), blob.begin(), blob.end());
 		};
-		emitAt(offText, text);
-		emitAt(offRodata, rodata);
-		emitAt(offData, data);
+		emitAt(offText, bytesOf(Text));
+		emitAt(offRodata, bytesOf(Rodata));
+		emitAt(offData, bytesOf(Data));
 		emitAt(offSymtab, symtab);
 		emitAt(offStrtab, strtab);
 		emitAt(offRelaText, relaText);
 		emitAt(offRelaRodata, relaRodata);
 		emitAt(offRelaData, relaData);
 		emitAt(offShstr, shstr);
-		while(out.size() < offSh)
-			out.push_back(0);
+		padTo(out, offSh);
 
 		struct ShDesc {
 			U32 name;
@@ -299,11 +192,11 @@ namespace rat {
 				// clang-format off
 				// name        type                  flags                          offset         size               link      info         align entsize
 				{0,           detail::SHT_NULL,     0,                             0,             0,                 0,        0,           0,    0},                    // 0 null
-				{nText,       detail::SHT_PROGBITS, alloc | detail::SHF_EXECINSTR, offText,       text.size(),       0,        0,           16,   0},                    // 1 .text
+				{nText,       detail::SHT_PROGBITS, alloc | detail::SHF_EXECINSTR, offText,       bytesOf(Text).size(),        0,           0,    16,   0},              // 1 .text
 				{nRelaText,   detail::SHT_RELA,     rela,                          offRelaText,   relaText.size(),   shSymtab, shText,      8,    detail::kRelaEntSize}, // 2 .rela.text
-				{nRodata,     detail::SHT_PROGBITS, alloc,                         offRodata,     rodata.size(),     0,        0,           16,   0},                    // 3 .rodata
+				{nRodata,     detail::SHT_PROGBITS, alloc,                         offRodata,     bytesOf(Rodata).size(),      0,           0,    16,   0},              // 3 .rodata
 				{nRelaRodata, detail::SHT_RELA,     rela,                          offRelaRodata, relaRodata.size(), shSymtab, shRodata,    8,    detail::kRelaEntSize}, // 4 .rela.rodata
-				{nData,       detail::SHT_PROGBITS, alloc | detail::SHF_WRITE,     offData,       data.size(),       0,        0,           16,   0},                    // 5 .data
+				{nData,       detail::SHT_PROGBITS, alloc | detail::SHF_WRITE,     offData,       bytesOf(Data).size(),        0,           0,    16,   0},              // 5 .data
 				{nRelaData,   detail::SHT_RELA,     rela,                          offRelaData,   relaData.size(),   shSymtab, shData,      8,    detail::kRelaEntSize}, // 6 .rela.data
 				{nBss,        detail::SHT_NOBITS,   alloc | detail::SHF_WRITE,     0,             bssSize,           0,        0,           16,   0},                    // 7 .bss
 				{nSymtab,     detail::SHT_SYMTAB,   0,                             offSymtab,     symtab.size(),     shStrtab, firstGlobal, 8,    detail::kSymEntSize},  // 8 .symtab

@@ -1,5 +1,6 @@
 // expect: -3
-// A 64-bit global with a negative constant initializer round-trips correctly.
+// expect-windows: 1
+// A long global initialized past its range round-trips correctly.
 long big = 5000000004;
 int neg = -7;
 

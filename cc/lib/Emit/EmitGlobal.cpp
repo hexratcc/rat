@@ -67,10 +67,7 @@ namespace rat::cc {
 			fail("invalid file-scope compound literal initializer");
 			return false;
 		}
-		if(e->compound.isArray)
-			globalArrays[name] = ty;
-		else
-			globals[name] = ty;
+		globalVars[name] = GlobalVar{ty, e->compound.isArray, 0};
 		outSym = name;
 		return true;
 	}
@@ -78,18 +75,16 @@ namespace rat::cc {
 	void
 	Emitter::bindArrayGlobal(const Declarator& d, const String& symbol, Function* fn, U32 count) {
 		if(fn)
-			declare(*d.name, Local{0, fn->global(symbol), d.type, true, true, count});
-		else {
-			globalArrays[*d.name] = d.type;
-			globalArrayCounts[*d.name] = count;
-		}
+			declare(*d.name, Local::memArray(fn->global(symbol), d.type, count));
+		else
+			globalVars[*d.name] = GlobalVar{d.type, true, count};
 	}
 
 	void Emitter::bindScalarGlobal(const Declarator& d, const String& symbol, Function* fn) {
 		if(fn)
-			declare(*d.name, Local{0, fn->global(symbol), d.type, true, false});
+			declare(*d.name, Local::mem(fn->global(symbol), d.type));
 		else
-			globals[*d.name] = d.type;
+			globalVars[*d.name] = GlobalVar{d.type, false, 0};
 	}
 
 	B32 Emitter::validateGlobalArrayLen(const Declarator& d, I64& count, B32& haveLen) {
@@ -282,7 +277,7 @@ namespace rat::cc {
 
 	B32 Emitter::registerGlobalScalar(const Declarator& d, const String& symbol, Function* fn) {
 		relocs.clear();
-		if(d.type.isVoid && !isPointer(d.type)) {
+		if(d.type.isVoid() && !isPointer(d.type)) {
 			fail("variable '" + *d.name + "' has incomplete type 'void'");
 			return false;
 		}
@@ -364,15 +359,10 @@ namespace rat::cc {
 		for(U32 gi = 0; gi < order.size(); ++gi) {
 			const Declarator& d = *order[gi];
 			if(!needsStorage[gi]) {
-				if(d.isArray) {
-					globalArrays[*d.name] = d.type;
-					I64 count = 0;
-					if(d.arrayLen)
-						evalConst(d.arrayLen, count);
-					globalArrayCounts[*d.name] = (U32)count;
-				} else {
-					globals[*d.name] = d.type;
-				}
+				I64 count = 0;
+				if(d.isArray && d.arrayLen)
+					evalConst(d.arrayLen, count);
+				globalVars[*d.name] = GlobalVar{d.type, d.isArray, (U32)count};
 				continue;
 			}
 			if(d.isArray) {

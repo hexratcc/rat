@@ -17,14 +17,18 @@ namespace rat::cc {
 			Placemarker // empty token produced by ## with an empty operand
 		};
 
+		struct HideSet {
+			List<const String*> names;
+		};
+
 		struct PpToken {
 			Pk kind = Pk::Eof;
 			String text;
-			B32 spaceBefore = false; // had white space before it
-			B32 bol = false;				 // first token on its logical line
+			B32 spaceBefore = false;			 // had white space before it
+			B32 bol = false;							 // first token on its logical line
 			U32 line = 0;
-			String file;
-			Set<String> hide; // hide set (macros that must not re-expand here)
+			const String* file = nullptr;	 // interned file name
+			const HideSet* hide = nullptr; // interned hide set
 		};
 
 		constexpr U32 kMaxIncludeDepth = 200;
@@ -43,7 +47,7 @@ namespace rat::cc {
 			String err;
 		};
 
-		LexResult lexAll(const String& s, const List<U32>& lineOf, const String& file);
+		LexResult lexAll(const String& s, const List<U32>& lineOf, const String* file);
 
 		// macros
 		struct Macro {
@@ -101,6 +105,11 @@ namespace rat::cc {
 			};
 			Map<String, List<SavedMacro>> macroStack;
 			U32 includeDepth = 0;
+			// interned
+			std::deque<String> nameStore;
+			Map<String, const String*> namePool;
+			std::deque<HideSet> hideStore;
+			Map<String, const HideSet*> hidePool;
 			String err;
 			B32 ok = true;
 			I64 lineDelta = 0;
@@ -121,16 +130,23 @@ namespace rat::cc {
 
 			void fail(const String& m);
 
+			const String* intern(const String& s);
+			const HideSet* internHide(List<const String*> names);
+			static B32 hideHas(const HideSet* h, const String& name);
+			const HideSet* hideInsert(const HideSet* h, const String* n);
+			const HideSet* hideIntersect(const HideSet* a, const HideSet* b);
+			const HideSet* hideUnion(const HideSet* a, const HideSet* b);
+
 			// macro expansion
 			static PpToken makeNum(U64 v);
 			static PpToken makePunct(const String& s);
-			List<PpToken> lexFragment(const String& text, const String& file);
+			List<PpToken> lexFragment(const String& text, const String* file);
 			static void pasteInto(PpToken& dst, const PpToken& r);
 			PpToken stringize(const List<PpToken>& a, B32 spaceBefore);
 			void appendList(List<PpToken>& os, List<PpToken> src, B32 firstSpace);
 			List<PpToken> substitute(const Macro& m,
 															 const List<List<PpToken>>& args,
-															 const Set<String>& hs,
+															 const HideSet* hs,
 															 const List<String>& formals);
 			B32 gatherArgs(std::deque<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen);
 			B32 mapArgs(const Macro& m, const List<List<PpToken>>& raw, List<List<PpToken>>& actuals);

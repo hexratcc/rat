@@ -18,6 +18,7 @@ namespace rat::cc::detail {
 	B32 unaryOp(TokKind kind, ExprOp& op);
 	void utf8Encode(String& out, U32 cp);
 	String decodeUtf8ToUtf32LE(const String& bytes);
+	String decodeUtf8ToUtf16LE(const String& bytes);
 
 	B32 isTypeQualifier(TokKind kind);
 	B32 isQualOrStorage(TokKind kind);

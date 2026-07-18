@@ -284,9 +284,40 @@ namespace rat::cc {
 	}
 
 	Stmt* Parser::parseStatement() {
+		DepthScope scope(*this);
+		if(!enterDepth())
+			return nullptr;
 		const Token& tok = peek();
 		if(tok.kind == TokKind::LBrace)
 			return parseCompound();
+
+		// skip GNU inline assembly statements: __asm__ [volatile|goto] (...) ; (the bare "__asm__(...)"
+		// spelling is erased by a builtin macro, so only the qualified statement form reaches the
+		// parser)
+		if(tok.kind == TokKind::Identifier) {
+			String name = lex.text(tok);
+			if(name == "__asm__" || name == "__asm") {
+				Token kw = advance();
+				while(check(TokKind::KwVolatile) || check(TokKind::KwGoto) ||
+							(check(TokKind::Identifier) && lex.text(peek()) == "__volatile__"))
+					advance();
+				if(!expect(TokKind::LParen, "'(' after '__asm__'"))
+					return nullptr;
+				I32 depth = 1;
+				while(depth > 0 && !check(TokKind::Eof)) {
+					if(check(TokKind::LParen))
+						++depth;
+					else if(check(TokKind::RParen))
+						--depth;
+					if(depth > 0)
+						advance();
+				}
+				if(!expect(TokKind::RParen, "')' closing '__asm__'"))
+					return nullptr;
+				expect(TokKind::Semicolon, "';' after '__asm__' statement");
+				return makeStmt(StmtKind::Empty, kw.offset);
+			}
+		}
 
 		if(tok.kind == TokKind::Identifier && peek2().kind == TokKind::Colon) {
 			Token nameTok = advance();

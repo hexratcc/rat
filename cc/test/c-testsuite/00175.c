@@ -1,5 +1,5 @@
 // expect: 0
-// output:
+// output: oracle
 //| char: a
 //| char: b
 //| char: c

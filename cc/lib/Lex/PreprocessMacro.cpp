@@ -2,6 +2,67 @@
 
 namespace rat::cc {
 	namespace detail {
+		const String* Preprocessor::intern(const String& s) {
+			auto it = namePool.find(s);
+			if(it != namePool.end())
+				return it->second;
+			nameStore.push_back(s);
+			const String* p = &nameStore.back();
+			namePool.emplace(s, p);
+			return p;
+		}
+
+		const HideSet* Preprocessor::internHide(List<const String*> names) {
+			if(names.empty())
+				return nullptr;
+			std::sort(names.begin(), names.end());
+			names.erase(std::unique(names.begin(), names.end()), names.end());
+			String key(reinterpret_cast<const char*>(names.data()),
+								 names.size() * sizeof(const String*));
+			auto it = hidePool.find(key);
+			if(it != hidePool.end())
+				return it->second;
+			hideStore.push_back(HideSet{std::move(names)});
+			const HideSet* h = &hideStore.back();
+			hidePool.emplace(std::move(key), h);
+			return h;
+		}
+
+		B32 Preprocessor::hideHas(const HideSet* h, const String& name) {
+			if(!h)
+				return false;
+			for(const String* n : h->names)
+				if(*n == name)
+					return true;
+			return false;
+		}
+
+		const HideSet* Preprocessor::hideInsert(const HideSet* h, const String* n) {
+			List<const String*> names = h ? h->names : List<const String*>{};
+			names.push_back(n);
+			return internHide(std::move(names));
+		}
+
+		const HideSet* Preprocessor::hideIntersect(const HideSet* a, const HideSet* b) {
+			if(!a || !b)
+				return nullptr;
+			List<const String*> names;
+			for(const String* n : a->names) // both sorted by pointer
+				if(std::binary_search(b->names.begin(), b->names.end(), n))
+					names.push_back(n);
+			return internHide(std::move(names));
+		}
+
+		const HideSet* Preprocessor::hideUnion(const HideSet* a, const HideSet* b) {
+			if(!a)
+				return b;
+			if(!b)
+				return a;
+			List<const String*> names = a->names;
+			names.insert(names.end(), b->names.begin(), b->names.end());
+			return internHide(std::move(names));
+		}
+
 		PpToken Preprocessor::makeNum(U64 v) {
 			PpToken t;
 			t.kind = Pk::Num;
@@ -16,13 +77,13 @@ namespace rat::cc {
 			return t;
 		}
 
-		List<PpToken> Preprocessor::lexFragment(const String& text, const String& file) {
+		List<PpToken> Preprocessor::lexFragment(const String& text, const String* file) {
 			String spliced;
 			List<U32> lineOf;
 			splice(trigraph(text), spliced, lineOf);
 			LexResult lr = lexAll(spliced, lineOf, file);
 			if(!lr.ok) {
-				fail(file + ": " + lr.err);
+				fail((file ? *file : String("<fragment>")) + ": " + lr.err);
 				return {};
 			}
 			lr.toks.pop_back(); // drop Eof
@@ -34,14 +95,14 @@ namespace rat::cc {
 				B32 sp = dst.spaceBefore;
 				dst = r;
 				dst.spaceBefore = sp;
-				dst.hide.clear();
+				dst.hide = nullptr;
 				return;
 			}
 			if(r.kind == Pk::Placemarker)
 				return;
 			dst.text += r.text;
 			dst.kind = classify(dst.text);
-			dst.hide.clear();
+			dst.hide = nullptr;
 		}
 
 		PpToken Preprocessor::stringize(const List<PpToken>& a, B32 spaceBefore) {
@@ -79,7 +140,7 @@ namespace rat::cc {
 
 		List<PpToken> Preprocessor::substitute(const Macro& m,
 																					 const List<List<PpToken>>& args,
-																					 const Set<String>& hs,
+																					 const HideSet* hs,
 																					 const List<String>& formals) {
 			List<PpToken> os;
 			const List<PpToken>& body = m.body;
@@ -162,8 +223,7 @@ namespace rat::cc {
 			for(PpToken& t : os) {
 				if(t.kind == Pk::Placemarker)
 					continue;
-				for(const String& h : hs)
-					t.hide.insert(h);
+				t.hide = hideUnion(t.hide, hs);
 				res.push_back(std::move(t));
 			}
 			return res;
@@ -268,7 +328,7 @@ namespace rat::cc {
 					if(t.text == "__FILE__") {
 						PpToken n;
 						n.kind = Pk::Str;
-						n.text = "\"" + (fileName.empty() ? t.file : fileName) + "\"";
+						n.text = "\"" + (fileName.empty() ? (t.file ? *t.file : String()) : fileName) + "\"";
 						n.spaceBefore = t.spaceBefore;
 						n.bol = t.bol;
 						os.push_back(n);
@@ -277,14 +337,13 @@ namespace rat::cc {
 					os.push_back(t);
 					continue;
 				}
-				if(t.hide.count(t.text)) {
+				if(hideHas(t.hide, t.text)) {
 					os.push_back(t);
 					continue;
 				}
 				const Macro& m = it->second;
 				if(!m.isFunc) {
-					Set<String> hs = t.hide;
-					hs.insert(t.text);
+					const HideSet* hs = hideInsert(t.hide, intern(t.text));
 					List<PpToken> r = substitute(m, {}, hs, {});
 					requeueExpansion(r, t, work);
 					continue;
@@ -305,11 +364,8 @@ namespace rat::cc {
 				List<String> formals = m.params;
 				if(m.variadic)
 					formals.push_back(m.vaName);
-				Set<String> hs;
-				for(const String& h : t.hide)
-					if(rparen.hide.count(h))
-						hs.insert(h);
-				hs.insert(t.text);
+				const HideSet* hs =
+						hideInsert(hideIntersect(t.hide, rparen.hide), intern(t.text));
 				List<PpToken> r = substitute(m, actuals, hs, formals);
 				requeueExpansion(r, t, work);
 			}
@@ -402,7 +458,7 @@ namespace rat::cc {
 
 		void Preprocessor::defineSimple(const String& name, const String& value) {
 			Macro m;
-			m.body = lexFragment(value, "<builtin>");
+			m.body = lexFragment(value, intern("<builtin>"));
 			for(PpToken& t : m.body)
 				t.bol = false;
 			if(!m.body.empty())
