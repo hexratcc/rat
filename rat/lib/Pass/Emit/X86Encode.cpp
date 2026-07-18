@@ -1,4 +1,4 @@
-#include "Pass/Emit/X86Emitter.h"
+#include "Pass/Emit/X86Encode.h"
 
 #include "CodeGen/MachineFunction.h"
 #include "CodeGen/MachineModule.h"
