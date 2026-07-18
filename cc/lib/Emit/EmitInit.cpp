@@ -249,9 +249,9 @@ namespace rat::cc {
 		}
 		const Field& f = fields[cur];
 		U32 off = base + f.offset;
-		if(f.anonMember) {
+		if(f.anonMember()) {
 			U32 gfirst = cur;
-			while(gfirst > 0 && !fields[gfirst].anonFirst)
+			while(gfirst > 0 && !fields[gfirst].anonFirst())
 				--gfirst;
 			const StructType* g = anonGroupType(st, gfirst);
 			U32 goff = base + fields[gfirst].offset;
@@ -260,14 +260,14 @@ namespace rat::cc {
 			return initStructInit(sink, goff, g, init);
 		}
 		if(des.isSet && des.next) {
-			if(f.isArray)
+			if(f.isArray())
 				return initArrayInit(sink, off, f.type, f.count, wrapNested(des.next, els[0]));
 			if(isStruct(f.type))
 				return initStructInit(sink, off, f.type.strukt, wrapNested(des.next, els[0]));
 			fail("designator selects a sub-object of a scalar union member");
 			return false;
 		}
-		if(f.isArray) {
+		if(f.isArray()) {
 			if(els[0]->kind == ExprKind::StrLit)
 				return sink.charArray(off, f.type, f.count, els[0]);
 			if(els[0]->kind == ExprKind::InitList && els.size() == 1)
@@ -306,7 +306,7 @@ namespace rat::cc {
 					return false;
 				cur = (U32)fi;
 			} else {
-				while(cur < fields.size() && fields[cur].anonMember && !fields[cur].anonFirst)
+				while(cur < fields.size() && fields[cur].anonMember() && !fields[cur].anonFirst())
 					++cur;
 			}
 			if(cur >= fields.size()) {
@@ -316,7 +316,7 @@ namespace rat::cc {
 			const Field& f = fields[cur];
 			U32 off = base + f.offset;
 			const Expr* el = els[i];
-			if(!des.isSet && f.anonMember && f.anonFirst) {
+			if(!des.isSet && f.anonMember() && f.anonFirst()) {
 				const StructType* g = anonGroupType(st, cur);
 				if(el->kind == ExprKind::InitList) {
 					++i;
@@ -324,15 +324,15 @@ namespace rat::cc {
 						return false;
 				} else if(!initFlatStruct(sink, off, g, els, i, &init->designators))
 					return false;
-				for(++cur; cur < fields.size() && fields[cur].anonMember && !fields[cur].anonFirst; ++cur)
+				for(++cur; cur < fields.size() && fields[cur].anonMember() && !fields[cur].anonFirst(); ++cur)
 					;
 				continue;
 			}
 			U32 fcount = f.count;
-			if(f.isArray && f.count == 0 && cur == fields.size() - 1)
+			if(f.isArray() && f.count == 0 && cur == fields.size() - 1)
 				fcount = flexCount;
 			if(des.isSet && des.next) {
-				if(f.isArray) {
+				if(f.isArray()) {
 					if(!initArrayInit(sink, off, f.type, fcount, wrapNested(des.next, el)))
 						return false;
 				} else if(isStruct(f.type)) {
@@ -346,20 +346,20 @@ namespace rat::cc {
 				++i;
 				continue;
 			}
-			if(f.isArray && el->kind != ExprKind::InitList && el->kind != ExprKind::StrLit) {
+			if(f.isArray() && el->kind != ExprKind::InitList && el->kind != ExprKind::StrLit) {
 				if(!initFlatArray(sink, off, f.type, fcount, els, i))
 					return false;
 				++cur;
 				continue;
 			}
-			if(!f.isArray && isStruct(f.type) && el->kind != ExprKind::InitList &&
+			if(!f.isArray() && isStruct(f.type) && el->kind != ExprKind::InitList &&
 				 el->kind != ExprKind::CompoundLit) {
 				if(!initFlatObject(sink, off, f.type, els, i))
 					return false;
 				++cur;
 				continue;
 			}
-			if(f.isArray) {
+			if(f.isArray()) {
 				if(el->kind == ExprKind::StrLit) {
 					if(!sink.charArray(off, f.type, fcount, el))
 						return false;
@@ -368,7 +368,7 @@ namespace rat::cc {
 			} else if(isStruct(f.type)) {
 				if(!initStructInit(sink, off, f.type.strukt, peelAggregateCompound(el)))
 					return false;
-			} else if(f.isBitfield) {
+			} else if(f.isBitfield()) {
 				if(!sink.bitfield(off, f.type, f.bitWidth, f.bitOffset, el))
 					return false;
 			} else if(!sink.scalar(off, f.type, el))

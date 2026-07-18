@@ -77,7 +77,7 @@ namespace rat::cc {
 			fail("unsupported arithmetic operator");
 			return nullptr;
 		}
-		return fn.binary(ct.isUnsigned ? kArith[idx].u : kArith[idx].s, l, r);
+		return fn.binary(ct.isUnsigned() ? kArith[idx].u : kArith[idx].s, l, r);
 	}
 
 	Emitter::Value Emitter::emitIncDec(Function& fn, const Expr* e) {
@@ -273,9 +273,9 @@ namespace rat::cc {
 		if(isFloating(ct))
 			cmp = fn.compare(sel.f, l, r);
 		else if(sel.swap)
-			cmp = fn.compare(ct.isUnsigned ? sel.u : sel.s, r, l);
+			cmp = fn.compare(ct.isUnsigned() ? sel.u : sel.s, r, l);
 		else
-			cmp = fn.compare(ct.isUnsigned ? sel.u : sel.s, l, r);
+			cmp = fn.compare(ct.isUnsigned() ? sel.u : sel.s, l, r);
 		return {fromBool(fn, cmp), ctInt()};
 	}
 
