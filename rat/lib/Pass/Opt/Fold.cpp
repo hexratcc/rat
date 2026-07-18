@@ -73,11 +73,11 @@ namespace rat {
 		auto k = [&](I64 v) { return constant(fn, ty, v); };
 		switch(op) {
 		case Opcode::Add:
-			return k(a + b);
+			return k((I64)((U64)a + (U64)b));
 		case Opcode::Sub:
-			return k(a - b);
+			return k((I64)((U64)a - (U64)b));
 		case Opcode::Mul:
-			return k(a * b);
+			return k((I64)((U64)a * (U64)b));
 		case Opcode::And:
 			return k(a & b);
 		case Opcode::Or:
