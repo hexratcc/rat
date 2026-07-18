@@ -424,7 +424,17 @@ namespace {
 const I32 kCaseTimeoutSec = 20;
 
 #if defined(_WIN32)
-B32 runCaseForked(const String& path, String& err) { return runCase(path, err); }
+B32 runCaseForked(const String& path, String& err) {
+	try {
+		return runCase(path, err);
+	} catch(const std::exception& e) {
+		err = String("unhandled exception: ") + e.what();
+		return false;
+	} catch(...) {
+		err = "unhandled exception";
+		return false;
+	}
+}
 #else
 B32 runCaseForked(const String& path, String& err) {
 	I32 fds[2];
