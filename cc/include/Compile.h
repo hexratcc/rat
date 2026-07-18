@@ -2,7 +2,6 @@
 #define RAT_CC_COMPILE_H
 
 #include "Core.h"
-#include <cstdio>
 
 #include "Target/Target.h"
 
@@ -23,17 +22,6 @@ namespace rat::cc {
 		List<UniquePtr<Pass>> optPasses;
 		String renameMain;
 	};
-
-	const TargetTriple& hostTargetTriple();
-	void setHostTargetTriple(const TargetTriple& triple);
-	U32 targetLongBits(const TargetTriple& triple);
-	const char* nullDevice();
-	FILE* shellOpen(const char* cmd); // portable popen(cmd, "r")
-	I32 shellClose(FILE* p);
-
-	const String& hostCC();
-	const String& hostPredefs();
-	const List<String>& hostIncludeDirs();
 
 	List<UniquePtr<Pass>> defaultOptPasses();
 	void composePipeline(PassManager& pm, CompileOptions& opt, std::ostream& out);
