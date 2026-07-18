@@ -27,7 +27,7 @@ namespace rat::cc {
 			collectAddrTakenExpr(e->cast.operand);
 			return;
 		case ExprKind::Call:
-			if(vaPtr && e->call.callee && !e->args.empty() && e->args[0]->kind == ExprKind::Ident) {
+			if(lay.win64VaList && e->call.callee && !e->args.empty() && e->args[0]->kind == ExprKind::Ident) {
 				const String& b = *e->call.callee;
 				if(b == "__builtin_va_start" || b == "__builtin_va_end" || b == "__builtin_va_copy")
 					memVars.insert(*e->args[0]->ident.name);
@@ -47,7 +47,7 @@ namespace rat::cc {
 			collectAddrTakenExpr(e->compound.init);
 			return;
 		case ExprKind::VaArg:
-			if(vaPtr && e->vaArg.ap->kind == ExprKind::Ident)
+			if(lay.win64VaList && e->vaArg.ap->kind == ExprKind::Ident)
 				memVars.insert(*e->vaArg.ap->ident.name);
 			collectAddrTakenExpr(e->vaArg.ap);
 			return;

@@ -36,7 +36,7 @@ namespace rat::cc {
 			bytes = fn.mul(len, elemBytes);
 		}
 		Node* slot = fn.allocVLA(irType(d.type), bytes);
-		Local loc{0, slot, d.type, true, true, 0};
+		Local loc = Local::memArray(slot, d.type);
 		loc.lengthNode = bytes;
 		declare(*d.name, loc);
 		return true;
@@ -69,21 +69,21 @@ namespace rat::cc {
 				}
 				U32 total = (U32)count * byteSize(d.type);
 				Node* slot = allocBytes(fn, total);
-				declare(*d.name, Local{0, slot, d.type, true, true, (U32)count});
+				declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 				continue;
 			}
 			if(isAggregate(d.type)) {
 				Node* slot = allocBytes(fn, d.type.strukt->size);
-				declare(*d.name, Local{0, slot, d.type, true, false});
+				declare(*d.name, Local::mem(slot, d.type));
 				continue;
 			}
 			if(isArrayType(d.type)) {
 				Node* slot = allocBytes(fn, byteSize(d.type));
-				declare(*d.name, Local{0, slot, arrayElem(d.type), true, true});
+				declare(*d.name, Local::memArray(slot, arrayElem(d.type)));
 				continue;
 			}
 			Node* slot = fn.alloc(irType(d.type));
-			declare(*d.name, Local{0, slot, d.type, true, false});
+			declare(*d.name, Local::mem(slot, d.type));
 		}
 		return true;
 	}
@@ -122,7 +122,7 @@ namespace rat::cc {
 				storeComplex(fn, slot, ct, v);
 			}
 		}
-		declare(*d.name, Local{0, slot, ct, true, false});
+		declare(*d.name, Local::mem(slot, ct));
 		return true;
 	}
 
@@ -133,7 +133,7 @@ namespace rat::cc {
 			StoreSink sink(*this, fn, slot);
 			if(!initStructInit(sink, 0, d.type.strukt, d.init))
 				return false;
-			declare(*d.name, Local{0, slot, d.type, true, false});
+			declare(*d.name, Local::mem(slot, d.type));
 			return true;
 		}
 		if(d.init) {
@@ -146,7 +146,7 @@ namespace rat::cc {
 			}
 			emitMemCopy(fn, slot, v.node, d.type.strukt->size);
 		}
-		declare(*d.name, Local{0, slot, d.type, true, false});
+		declare(*d.name, Local::mem(slot, d.type));
 		return true;
 	}
 
@@ -156,7 +156,7 @@ namespace rat::cc {
 			return false;
 		}
 		Node* slot = allocBytes(fn, byteSize(d.type));
-		declare(*d.name, Local{0, slot, arrayElem(d.type), true, true});
+		declare(*d.name, Local::memArray(slot, arrayElem(d.type)));
 		return true;
 	}
 
@@ -188,7 +188,7 @@ namespace rat::cc {
 		StoreSink sink(*this, fn, slot);
 		if(d.init && !initArrayInit(sink, 0, d.type, (U32)count, d.init))
 			return false;
-		declare(*d.name, Local{0, slot, d.type, true, true, (U32)count});
+		declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 		return true;
 	}
 
@@ -231,7 +231,7 @@ namespace rat::cc {
 			StoreSink sink(*this, fn, slot);
 			if(d.init && !initArrayInit(sink, 0, d.type, (U32)count, d.init))
 				return false;
-			declare(*d.name, Local{0, slot, d.type, true, true, (U32)count});
+			declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 			return true;
 		}
 
@@ -253,7 +253,7 @@ namespace rat::cc {
 						val |= (I64)(U8)bytes[(U32)(i * cw + k)] << (8 * k);
 				fn.store(offsetPtr(fn, slot, (U64)i * elemSize), fn.constInt(elemTy, val));
 			}
-			declare(*d.name, Local{0, slot, d.type, true, true, (U32)count});
+			declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 			return true;
 		}
 
@@ -283,7 +283,7 @@ namespace rat::cc {
 				Node* val = convert(fn, v.node, v.type, d.type);
 				fn.store(offsetPtr(fn, slot, (U64)idx[i] * elemSize), val);
 			}
-			declare(*d.name, Local{0, slot, d.type, true, true, (U32)count});
+			declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 			return true;
 		}
 
@@ -296,7 +296,7 @@ namespace rat::cc {
 			return false;
 		}
 		Node* slot = fn.alloc(mod.getArray(irType(d.type), (U32)count));
-		declare(*d.name, Local{0, slot, d.type, true, true, (U32)count});
+		declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 		return true;
 	}
 
@@ -311,7 +311,7 @@ namespace rat::cc {
 			return emitArrayDecl(fn, d);
 		if(d.init && exprRefersTo(d.init, *d.name)) {
 			Node* slot = fn.alloc(irType(d.type));
-			declare(*d.name, Local{0, slot, d.type, true, false});
+			declare(*d.name, Local::mem(slot, d.type));
 			Value v = emitExpr(fn, d.init);
 			if(!v.node)
 				return false;
@@ -331,9 +331,9 @@ namespace rat::cc {
 		if(memVars.count(*d.name)) {
 			Node* slot = fn.alloc(irType(d.type));
 			fn.store(slot, init);
-			declare(*d.name, Local{0, slot, d.type, true, false});
+			declare(*d.name, Local::mem(slot, d.type));
 		} else {
-			declare(*d.name, Local{fn.declareLocal(*d.name, init), nullptr, d.type, false, false});
+			declare(*d.name, Local::inVar(fn.declareLocal(*d.name, init), d.type));
 		}
 		return true;
 	}
