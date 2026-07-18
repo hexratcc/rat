@@ -44,7 +44,7 @@ namespace rat::cc {
 			if(isOp("-")) {
 				++i;
 				Val v = parseUnary();
-				v.u = (U64)(-(I64)v.u);
+				v.u = 0 - v.u; // unsigned wrap
 				return v;
 			}
 			if(isOp("!")) {
@@ -89,15 +89,20 @@ namespace rat::cc {
 			B32 u = a.isU || b.isU;
 			auto cmp = [](B32 r) { return Val{r ? 1u : 0u, false}; };
 			if(op == "*")
-				return u ? Val{a.u * b.u, true} : Val{(U64)((I64)a.u * (I64)b.u), false};
+				return Val{a.u * b.u, u};
 			if(op == "+")
-				return u ? Val{a.u + b.u, true} : Val{(U64)((I64)a.u + (I64)b.u), false};
+				return Val{a.u + b.u, u};
 			if(op == "-")
-				return u ? Val{a.u - b.u, true} : Val{(U64)((I64)a.u - (I64)b.u), false};
+				return Val{a.u - b.u, u};
 			if(op == "/" || op == "%") {
 				if(b.u == 0) {
 					if(live)
 						fail("division by zero in #if expression");
+					return {};
+				}
+				if(!u && (I64)a.u == INT64_MIN && (I64)b.u == -1) {
+					if(live)
+						fail("signed overflow in #if expression");
 					return {};
 				}
 				if(op == "/")
