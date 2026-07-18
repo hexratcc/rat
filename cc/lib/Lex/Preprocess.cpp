@@ -185,7 +185,7 @@ namespace rat::cc {
 			for(size_t i = 0; i < toks.size();) {
 				if(toks[i].kind == Pk::Id && toks[i].text == "_Pragma" && i + 3 < toks.size() &&
 					 isPunct(toks[i + 1], "(") && toks[i + 2].kind == Pk::Str && isPunct(toks[i + 3], ")")) {
-					List<PpToken> body = lexFragment(destringize(toks[i + 2].text), path);
+					List<PpToken> body = lexFragment(destringize(toks[i + 2].text), intern(path));
 					doPragma(body, path);
 					i += 4;
 					continue;
@@ -282,7 +282,7 @@ namespace rat::cc {
 			if(!ok)
 				return;
 
-			List<PpToken> toks = lexFragment(source, path);
+			List<PpToken> toks = lexFragment(source, intern(path));
 			if(!ok)
 				return;
 
@@ -386,19 +386,31 @@ namespace rat::cc {
 		}
 
 		void Preprocessor::installBuiltins() {
-			time_t now = time(nullptr);
-			struct tm* lt = std::localtime(&now);
-			char buf[64];
-			std::strftime(buf, sizeof buf, "%b %e %Y", lt);
-			defineSimple("__DATE__", String("\"") + buf + "\"");
-			std::strftime(buf, sizeof buf, "%H:%M:%S", lt);
-			defineSimple("__TIME__", String("\"") + buf + "\"");
+			struct Stamp {
+				String date = "\"??? ?? ????\"";
+				String time = "\"??:??:??\"";
+			};
+			static const Stamp stamp = [] {
+				Stamp s;
+				time_t now = ::time(nullptr);
+				struct tm* lt = std::localtime(&now);
+				if(lt) {
+					char buf[64];
+					std::strftime(buf, sizeof buf, "%b %e %Y", lt);
+					s.date = String("\"") + buf + "\"";
+					std::strftime(buf, sizeof buf, "%H:%M:%S", lt);
+					s.time = String("\"") + buf + "\"";
+				}
+				return s;
+			}();
+			defineSimple("__DATE__", stamp.date);
+			defineSimple("__TIME__", stamp.time);
 			defineSimple("__STDC__", "1");
 			defineSimple("__STDC_HOSTED__", "1");
 			defineSimple("__STDC_VERSION__", "199901L");
 
 			// GNU C extensions
-			auto defineFrag = [&](const char* text) { doDefine(lexFragment(text, "<builtin>")); };
+			auto defineFrag = [&](const char* text) { doDefine(lexFragment(text, intern("<builtin>"))); };
 			defineFrag("__attribute__(x)");
 			defineFrag("__attribute(x)");
 			defineFrag("__asm__(x)");
@@ -430,8 +442,8 @@ namespace rat::cc {
 				size_t eq = d.find('=');
 				String left = eq == String::npos ? d : d.substr(0, eq);
 				String right = eq == String::npos ? String("1") : d.substr(eq + 1);
-				List<PpToken> all = lexFragment(left, "<command-line>");
-				List<PpToken> rt = lexFragment(right, "<command-line>");
+				List<PpToken> all = lexFragment(left, intern("<command-line>"));
+				List<PpToken> rt = lexFragment(right, intern("<command-line>"));
 				all.insert(all.end(), rt.begin(), rt.end());
 				doDefine(all);
 			}

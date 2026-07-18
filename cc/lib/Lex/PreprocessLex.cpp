@@ -135,7 +135,7 @@ namespace rat::cc {
 														 ">=",	 "==",	"!=",	 "&&",	"||", "*=", "/=", "%=", "+=", "-=",
 														 "&=",	 "|=",	"^=",	 "##",	"<:", ":>", "<%", "%>", "%:"};
 
-		LexResult lexAll(const String& s, const List<U32>& lineOf, const String& file) {
+		LexResult lexAll(const String& s, const List<U32>& lineOf, const String* file) {
 			LexResult r;
 			size_t i = 0, n = s.size();
 			B32 bolPending = true;
