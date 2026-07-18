@@ -3,14 +3,11 @@
 
 #include "Lex/Lexer.h"
 #include "Parse/Ast.h"
+#include "TargetLayout.h"
 
 namespace rat::cc {
 	struct Parser {
-		Parser(Lexer& lexer,
-					 Arena& arena,
-					 U32 pointerBytes,
-					 U32 longBitsC = 64,
-					 B32 vaListIsPointer = false);
+		Parser(Lexer& lexer, Arena& arena, const TargetLayout& layout);
 
 		TransUnit* parseUnit();
 
@@ -52,11 +49,18 @@ namespace rat::cc {
 		B32 looksLikeFuncPtr();
 		B32 parseFuncPtrDeclarator(CType ret, Token& nameOut, CType& outType);
 		void bindDeclaratorType(Declarator& d, CType t, U32 offset);
-		using TypeBuilder = Delegate<CType(CType)>;
+		struct DeclOp {
+			enum class Kind : U8 { Pointer, Array, Func };
+			Kind kind = Kind::Pointer;
+			U32 count = 0;						 // Pointer: star count; Array: element count
+			Expr* countExpr = nullptr; // Array: VLA bound
+			FuncType* func = nullptr;	 // Func: parameter list
+		};
+		CType applyDeclOps(CType base, const List<DeclOp>& ops);
 		B32 parseDeclaratorType(CType base, Token& nameOut, B32& haveName, CType& out);
-		TypeBuilder parseDeclaratorBuilder(Token& nameOut, B32& haveName);
-		TypeBuilder parseDirectDeclarator(Token& nameOut, B32& haveName);
-		TypeBuilder parseDeclaratorSuffixes();
+		B32 parseDeclaratorOps(List<DeclOp>& ops, Token& nameOut, B32& haveName);
+		B32 parseDirectDeclarator(List<DeclOp>& ops, Token& nameOut, B32& haveName);
+		B32 parseDeclaratorSuffixes(List<DeclOp>& ops);
 		B32 looksLikeGroupingParen();
 		void adjustParamType(CType& t, const Expr** vlaBound = nullptr);
 		B32 parseParamTypeList(FuncType* ft);
@@ -86,17 +90,23 @@ namespace rat::cc {
 		Expr* parseGeneric();
 		B32 parseTypeName(CType& out);
 
+		static constexpr U32 kMaxParseDepth = 256;
+		B32 enterDepth();
+		struct DepthScope {
+			Parser& p;
+			explicit DepthScope(Parser& parser) : p(parser) {}
+			~DepthScope() { --p.parseDepth; }
+		};
+
 		// node builders
 		Expr* makeExpr(ExprKind kind, U32 offset);
 		Stmt* makeStmt(StmtKind kind, U32 offset);
-		Expr*
-		makeInt(const Token& tok, I64 value, B32 isUnsigned, U32 bits, B32 isLong = false, B32 isLongLong = false);
+		Expr* makeInt(const Token& tok, I64 value, U32 bits, U8 mods = 0);
 		Expr* makeIdent(const Token& tok);
 		Expr* makeUnary(U32 offset, ExprOp op, Expr* operand);
 		Expr* makeBinary(U32 offset, ExprOp op, Expr* lhs, Expr* rhs);
 
-		B32 parseIntLiteral(
-				const Token& tok, I64& value, B32& isUnsigned, U32& bits, B32& isLong, B32& isLongLong);
+		B32 parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods);
 		B32 parseCharLiteral(const Token& tok, I64& value);
 		B32 parseStringLiteral(const Token& tok, String& out);
 		B32 decodeEscape(const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U8& out);
@@ -117,15 +127,14 @@ namespace rat::cc {
 		// typedef support
 		B32 parseTypedef();
 		B32 startsType(const Token& tok);
-		U32 typeSizeBytes(CType t) const { return typeSize(t, ptrBytes); }
+		U32 typeSizeBytes(CType t) const { return typeSize(t, lay.ptrBytes); }
 		U32 fieldByteSize(CType t) const { return isAggregate(t) ? t.strukt->size : typeSizeBytes(t); }
 		U32 fieldAlign(CType t) const { return isAggregate(t) ? t.strukt->align : typeSizeBytes(t); }
 
 		Lexer& lex;
 		Arena& arena;
-		U32 ptrBytes;
-		U32 longBits;
-		U32 wcharSize;
+		TargetLayout lay;
+		U32 parseDepth = 0;
 		B32 failed = false;
 		B32 sawStatic = false;
 		B32 sawExtern = false;

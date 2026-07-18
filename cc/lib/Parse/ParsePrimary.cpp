@@ -2,6 +2,8 @@
 
 #include "Parse/ParserDetail.h"
 
+#include <cerrno>
+
 namespace rat::cc {
 	Expr* Parser::parseBuiltinOffsetof(const Token& kw) {
 		if(!expect(TokKind::LParen, "'('"))
@@ -56,7 +58,11 @@ namespace rat::cc {
 		}
 		if(!expect(TokKind::RParen, "')'"))
 			return nullptr;
-		return makeInt(kw, off, true, 64, true, longBits < 64);
+		return makeInt(kw,
+										 off,
+										 64,
+										 (U8)(CType::Unsigned | CType::Long |
+													(lay.longBits < 64 ? CType::LongLong : 0)));
 	}
 
 	B32 Parser::parseTypeName(CType& out) {
@@ -146,11 +152,11 @@ namespace rat::cc {
 			}
 			Expr* e = makeExpr(ExprKind::StrLit, first.offset);
 			if(wide) {
-				String w = wcharSize == 2 ? detail::decodeUtf8ToUtf16LE(bytes)
+				String w = lay.wcharBytes == 2 ? detail::decodeUtf8ToUtf16LE(bytes)
 																	: detail::decodeUtf8ToUtf32LE(bytes);
 				e->str.bytes = arena.make<String>(std::move(w));
 				e->str.isWide = true;
-				e->str.charSize = wcharSize;
+				e->str.charSize = lay.wcharBytes;
 			} else {
 				e->str.bytes = arena.make<String>(std::move(bytes));
 				e->str.isWide = false;
@@ -163,16 +169,16 @@ namespace rat::cc {
 			I64 value;
 			if(!parseCharLiteral(lit, value))
 				return nullptr;
-			return makeInt(lit, value, false, 32);
+			return makeInt(lit, value, 32);
 		}
 		if(tok.kind == TokKind::IntConstant) {
 			Token lit = advance();
 			I64 value;
-			B32 isUnsigned, isLong, isLongLong;
 			U32 bits;
-			if(!parseIntLiteral(lit, value, isUnsigned, bits, isLong, isLongLong))
+			U8 mods;
+			if(!parseIntLiteral(lit, value, bits, mods))
 				return nullptr;
-			return makeInt(lit, value, isUnsigned, bits, isLong, isLongLong);
+			return makeInt(lit, value, bits, mods);
 		}
 		if(tok.kind == TokKind::FloatConstant) {
 			Token lit = advance();
@@ -190,9 +196,15 @@ namespace rat::cc {
 					break;
 				text.pop_back();
 			}
-			long double value = std::stold(text);
+			errno = 0;
+			char* end = nullptr;
+			long double value = std::strtold(text.c_str(), &end);
+			if(end == text.c_str() || *end != '\0') {
+				fail(lit, "invalid floating constant '" + text + "'");
+				return nullptr;
+			}
 			Expr* e = makeExpr(ExprKind::FloatLit, lit.offset);
-			e->floatLit = {value, isFloat, isLongDouble, isImaginary};
+			e->floatLit = {value, isFloat ? 32u : (isLongDouble ? 128u : 64u), isImaginary};
 			return e;
 		}
 		if(tok.kind == TokKind::Identifier) {
@@ -208,7 +220,7 @@ namespace rat::cc {
 				return parseBuiltinOffsetof(id);
 			auto ec = enumConstants.find(lex.text(id));
 			if(ec != enumConstants.end())
-				return makeInt(id, ec->second, false, 32);
+				return makeInt(id, ec->second, 32);
 			return makeIdent(id);
 		}
 		if(tok.kind == TokKind::LParen) {

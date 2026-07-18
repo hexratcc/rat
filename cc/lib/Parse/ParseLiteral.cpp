@@ -24,11 +24,11 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
-	B32 Parser::parseIntLiteral(
-			const Token& tok, I64& value, B32& isUnsigned, U32& bits, B32& isLong, B32& isLongLong) {
+	B32 Parser::parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods) {
 		String s = lex.text(tok);
-		isUnsigned = false;
-		isLongLong = false;
+		B32 isUnsigned = false;
+		B32 isLong = false;
+		B32 isLongLong = false;
 		U32 lCount = 0;
 
 		U32 end = (U32)s.size();
@@ -70,8 +70,8 @@ namespace rat::cc {
 		B32 fitsI64 = v <= 0x7fffffffffffffffULL;
 		isLong = lCount >= 1;
 		isLongLong = lCount >= 2;
-		U64 longMax = longBits >= 64 ? 0x7fffffffffffffffULL : 0x7fffffffULL;
-		U64 ulongMax = longBits >= 64 ? 0xffffffffffffffffULL : 0xffffffffULL;
+		U64 longMax = lay.longBits >= 64 ? 0x7fffffffffffffffULL : 0x7fffffffULL;
+		U64 ulongMax = lay.longBits >= 64 ? 0xffffffffffffffffULL : 0xffffffffULL;
 		B32 fitsLong = v <= longMax;
 		B32 fitsULong = v <= ulongMax;
 		if(isUnsigned) {
@@ -113,8 +113,10 @@ namespace rat::cc {
 			}
 		}
 
-		bits = (isLongLong || (isLong && longBits >= 64)) ? 64 : (isLong ? longBits : 32);
+		bits = (isLongLong || (isLong && lay.longBits >= 64)) ? 64 : (isLong ? lay.longBits : 32);
 		value = (I64)v;
+		mods = (U8)((isUnsigned ? CType::Unsigned : 0) | (isLong ? CType::Long : 0) |
+								(isLongLong ? CType::LongLong : 0));
 		return true;
 	}
 

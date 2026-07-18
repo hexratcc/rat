@@ -1,21 +1,31 @@
 #include "Parse/Parser.h"
 
 namespace rat::cc {
-	Parser::Parser(Lexer& lexer, Arena& arena, U32 pointerBytes, U32 longBitsC, B32 vaListIsPointer)
+	B32 Parser::enterDepth() {
+		if(++parseDepth > kMaxParseDepth) {
+			fail(peek(), "nesting too deep");
+			return false;
+		}
+		return true;
+	}
+
+	Parser::Parser(Lexer& lexer, Arena& arena, const TargetLayout& layout)
 	: lex(lexer),
 		arena(arena),
-		ptrBytes(pointerBytes),
-		longBits(longBitsC),
-		wcharSize(vaListIsPointer ? 2 : 4) {
-		CType vaList{8, true, false, 0};
-		if(vaListIsPointer) {
+		lay(layout) {
+		CType vaList;
+		vaList.bits = 8;
+		vaList.set(CType::Unsigned);
+		if(lay.win64VaList) {
 			// Win64 __builtin_va_list is a char*
 			vaList.ptr = 1;
 		} else {
 			// SysV __builtin_va_list decays to a pointer to a 24-byte state record
 			ArrayType* vl = arena.make<ArrayType>();
-			vl->elem = CType{8, true, false, 0}; // unsigned char
-			vl->count = ptrBytes * 4;
+			vl->elem = CType{}; // unsigned char
+			vl->elem.bits = 8;
+			vl->elem.set(CType::Unsigned);
+			vl->count = lay.ptrBytes * 4;
 			vaList.array = vl;
 		}
 		typedefs["va_list"] = vaList;
@@ -62,9 +72,11 @@ namespace rat::cc {
 		return s;
 	}
 
-	Expr* Parser::makeInt(const Token& tok, I64 value, B32 isUnsigned, U32 bits, B32 isLong, B32 isLongLong) {
+	Expr* Parser::makeInt(const Token& tok, I64 value, U32 bits, U8 mods) {
 		Expr* e = makeExpr(ExprKind::IntLit, tok.offset);
-		e->intLit = {value, isUnsigned, bits, isLong || isLongLong, isLongLong};
+		if(mods & CType::LongLong) // 'long long' subsumes 'long'
+			mods |= CType::Long;
+		e->intLit = {value, bits, mods};
 		return e;
 	}
 
