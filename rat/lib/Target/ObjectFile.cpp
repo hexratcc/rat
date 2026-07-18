@@ -20,32 +20,23 @@ namespace rat {
 
 	ObjectFile::ObjectFile() { syms.push_back({"", Text, 0, true, false, false}); }
 
+	void ObjectFile::padTo(List<U8>& b, U64 target) {
+		if(b.size() < target)
+			b.insert(b.end(), target - b.size(), 0);
+	}
+
 	List<U8>& ObjectFile::bytesOf(Section sec) {
-		switch(sec) {
-		case Text:
-			return text;
-		case Rodata:
-			return rodata;
-		case Data:
-			return data;
-		case Bss:
-			break;
-		}
-		return text;
+		assert(sec != Bss && "bss carries no bytes");
+		return raw[(U32)sec];
+	}
+
+	const List<U8>& ObjectFile::bytesOf(Section sec) const {
+		assert(sec != Bss && "bss carries no bytes");
+		return raw[(U32)sec];
 	}
 
 	U32 ObjectFile::sectionSize(Section sec) const {
-		switch(sec) {
-		case Text:
-			return (U32)text.size();
-		case Rodata:
-			return (U32)rodata.size();
-		case Data:
-			return (U32)data.size();
-		case Bss:
-			return bssSize;
-		}
-		return 0;
+		return sec == Bss ? bssSize : (U32)raw[(U32)sec].size();
 	}
 
 	U32 ObjectFile::append(Section sec, const U8* bytes, U32 len) {

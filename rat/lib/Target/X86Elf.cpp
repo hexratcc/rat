@@ -68,7 +68,7 @@ namespace rat {
 		for(U32 i = 0; i < order.size(); ++i) {
 			U32 oi = order[i];
 			const Sym& s = syms[oi];
-			bool placed = i != 0 && s.defined;
+			B32 placed = i != 0 && s.defined;
 			U8 bind = (i != 0 && s.global) ? detail::STB_GLOBAL : detail::STB_LOCAL;
 			U8 type = !placed ? detail::STT_NOTYPE : (s.isFunc ? detail::STT_FUNC : detail::STT_OBJECT);
 			U16 shndx = !placed ? detail::SHN_UNDEF : (U16)secShIndex(s.sec);
@@ -126,9 +126,9 @@ namespace rat {
 			off += size;
 			return here;
 		};
-		U64 offText = place(text.size(), 16);
-		U64 offRodata = place(rodata.size(), 16);
-		U64 offData = place(data.size(), 16);
+		U64 offText = place(bytesOf(Text).size(), 16);
+		U64 offRodata = place(bytesOf(Rodata).size(), 16);
+		U64 offData = place(bytesOf(Data).size(), 16);
 		U64 offSymtab = place(symtab.size(), 8);
 		U64 offStrtab = place(strtab.size(), 1);
 		U64 offRelaText = place(relaText.size(), 8);
@@ -161,21 +161,19 @@ namespace rat {
 		put16(out, (U16)shShstrtab);				 // e_shstrndx
 
 		auto emitAt = [&](U64 target, const List<U8>& blob) {
-			while(out.size() < target)
-				out.push_back(0);
+			padTo(out, target);
 			out.insert(out.end(), blob.begin(), blob.end());
 		};
-		emitAt(offText, text);
-		emitAt(offRodata, rodata);
-		emitAt(offData, data);
+		emitAt(offText, bytesOf(Text));
+		emitAt(offRodata, bytesOf(Rodata));
+		emitAt(offData, bytesOf(Data));
 		emitAt(offSymtab, symtab);
 		emitAt(offStrtab, strtab);
 		emitAt(offRelaText, relaText);
 		emitAt(offRelaRodata, relaRodata);
 		emitAt(offRelaData, relaData);
 		emitAt(offShstr, shstr);
-		while(out.size() < offSh)
-			out.push_back(0);
+		padTo(out, offSh);
 
 		struct ShDesc {
 			U32 name;
@@ -194,11 +192,11 @@ namespace rat {
 				// clang-format off
 				// name        type                  flags                          offset         size               link      info         align entsize
 				{0,           detail::SHT_NULL,     0,                             0,             0,                 0,        0,           0,    0},                    // 0 null
-				{nText,       detail::SHT_PROGBITS, alloc | detail::SHF_EXECINSTR, offText,       text.size(),       0,        0,           16,   0},                    // 1 .text
+				{nText,       detail::SHT_PROGBITS, alloc | detail::SHF_EXECINSTR, offText,       bytesOf(Text).size(),        0,           0,    16,   0},              // 1 .text
 				{nRelaText,   detail::SHT_RELA,     rela,                          offRelaText,   relaText.size(),   shSymtab, shText,      8,    detail::kRelaEntSize}, // 2 .rela.text
-				{nRodata,     detail::SHT_PROGBITS, alloc,                         offRodata,     rodata.size(),     0,        0,           16,   0},                    // 3 .rodata
+				{nRodata,     detail::SHT_PROGBITS, alloc,                         offRodata,     bytesOf(Rodata).size(),      0,           0,    16,   0},              // 3 .rodata
 				{nRelaRodata, detail::SHT_RELA,     rela,                          offRelaRodata, relaRodata.size(), shSymtab, shRodata,    8,    detail::kRelaEntSize}, // 4 .rela.rodata
-				{nData,       detail::SHT_PROGBITS, alloc | detail::SHF_WRITE,     offData,       data.size(),       0,        0,           16,   0},                    // 5 .data
+				{nData,       detail::SHT_PROGBITS, alloc | detail::SHF_WRITE,     offData,       bytesOf(Data).size(),        0,           0,    16,   0},              // 5 .data
 				{nRelaData,   detail::SHT_RELA,     rela,                          offRelaData,   relaData.size(),   shSymtab, shData,      8,    detail::kRelaEntSize}, // 6 .rela.data
 				{nBss,        detail::SHT_NOBITS,   alloc | detail::SHF_WRITE,     0,             bssSize,           0,        0,           16,   0},                    // 7 .bss
 				{nSymtab,     detail::SHT_SYMTAB,   0,                             offSymtab,     symtab.size(),     shStrtab, firstGlobal, 8,    detail::kSymEntSize},  // 8 .symtab

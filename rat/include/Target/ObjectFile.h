@@ -45,14 +45,15 @@ namespace rat {
 		static void put16(List<U8>& b, U16 v);
 		static void put32(List<U8>& b, U32 v);
 		static void put64(List<U8>& b, U64 v);
+		static void padTo(List<U8>& b, U64 target);
 
 		U32 symbolIndex(const String& name);
 		U32 sectionSize(Section sec) const;
 		List<U8>& bytesOf(Section sec);
+		const List<U8>& bytesOf(Section sec) const;
 
-		List<U8> text;
-		List<U8> rodata;
-		List<U8> data;
+		static constexpr U32 kByteSections = 3;
+		List<U8> raw[kByteSections];
 		U32 bssSize = 0;
 
 		List<Sym> syms;

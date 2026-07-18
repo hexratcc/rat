@@ -1,5 +1,7 @@
 #include "Target/X86Coff.h"
 
+#include <cstring>
+
 namespace rat {
 	namespace detail {
 		constexpr U16 IMAGE_FILE_MACHINE_AMD64 = 0x8664;
@@ -41,8 +43,7 @@ namespace rat {
 						detail::IMAGE_SCN_MEM_WRITE | detail::IMAGE_SCN_ALIGN_8BYTES,
 		};
 
-		// so patch addend the delta
-		List<U8> secBytes[kNumSections - 1] = {text, rodata, data};
+		List<U8> secBytes[kByteSections] = {bytesOf(Text), bytesOf(Rodata), bytesOf(Data)};
 		auto patchField = [&](Section sec, U32 offset, U64 v, U32 len) {
 			List<U8>& b = secBytes[(U32)sec];
 			for(U32 i = 0; i < len; ++i)
@@ -142,10 +143,9 @@ namespace rat {
 		put16(out, 0); // characteristics
 
 		for(U32 s = 0; s < kNumSections; ++s) {
-			for(U32 i = 0; i < 8; ++i) {
-				const C8* n = secNames[s];
-				put8(out, i < String(n).size() ? (U8)n[i] : 0);
-			}
+			U64 nameLen = std::strlen(secNames[s]);
+			for(U32 i = 0; i < 8; ++i)
+				put8(out, i < nameLen ? (U8)secNames[s][i] : 0);
 			put32(out, 0); // virtual size
 			put32(out, 0); // virtual address
 			put32(out, sectionSize((Section)s));
@@ -160,8 +160,7 @@ namespace rat {
 		for(U32 s = 0; s + 1 < kNumSections; ++s) {
 			if(secBytes[s].empty())
 				continue;
-			while(out.size() < rawOff[s])
-				out.push_back(0);
+			padTo(out, rawOff[s]);
 			out.insert(out.end(), secBytes[s].begin(), secBytes[s].end());
 		}
 
@@ -172,17 +171,17 @@ namespace rat {
 				firstTail = relOff[s];
 				break;
 			}
-		while(out.size() < firstTail)
-			out.push_back(0);
+		padTo(out, firstTail);
+		List<const Rel*> relBySec[kNumSections];
+		for(const Rel& r : relocs)
+			relBySec[(U32)r.sec].push_back(&r);
 		for(U32 s = 0; s < kNumSections; ++s) {
-			for(const Rel& r : relocs) {
-				if((U32)r.sec != s)
-					continue;
-				put32(out, r.offset);
-				put32(out, symCoffIndex[r.symIndex]);
+			for(const Rel* r : relBySec[s]) {
+				put32(out, r->offset);
+				put32(out, symCoffIndex[r->symIndex]);
 				put16(out,
-							r.kind == RelocKind::Abs64 ? detail::IMAGE_REL_AMD64_ADDR64
-																				 : detail::IMAGE_REL_AMD64_REL32);
+							r->kind == RelocKind::Abs64 ? detail::IMAGE_REL_AMD64_ADDR64
+																					: detail::IMAGE_REL_AMD64_REL32);
 			}
 		}
 
