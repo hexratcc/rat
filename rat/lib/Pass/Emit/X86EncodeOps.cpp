@@ -239,7 +239,7 @@ namespace rat {
 		U32 w = (U32)in.imm;
 		U32 d = xmmOf(in.defs[0]);
 		U32 s = xmmOf(in.uses[0]);
-		U32 z = winAbi ? 5 : 15; // scratch xmm; xmm15 is callee-saved on winAbi
+		U32 z = conv->sseVolatileCount - 1; // top volatile xmm is encoder scratch
 		a->pxor(z, z);
 		a->sseArith(0x5c, w, z, s == d ? d : s);
 		if(d != z)

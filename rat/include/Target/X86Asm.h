@@ -36,22 +36,103 @@ namespace rat {
 		CC_LE = 0xe,
 	};
 
-	namespace sysv {
-		constexpr Reg kIntArgRegs[6] = {RDI, RSI, RDX, RCX, R8, R9};
-		constexpr U32 kMaxIntArgs = 6;
-		constexpr U32 kMaxXmmArgs = 8;
-		constexpr U32 kGpSaveBytes = kMaxIntArgs * 8;
-		constexpr U32 kXmmSlotBytes = 16;
-		constexpr U32 kRegSaveBytes = kGpSaveBytes + kMaxXmmArgs * kXmmSlotBytes;
-	} // namespace sysv
+	enum class X86VaList : U32 {
+		SysV,		 // struct with gp/fp offsets and a register save area
+		CharPtr, // plain pointer walking 8-byte home slots (win64)
+	};
 
-	namespace win64 {
-		constexpr Reg kArgRegs[4] = {RCX, RDX, R8, R9};
-		constexpr U32 kMaxRegArgs = 4;
-		constexpr U32 kShadowBytes = 32;
-		constexpr I32 kHomeOff = 16;
-		constexpr I32 kStackParamOff = 48;
-	} // namespace win64
+	struct X86CallConv {
+		// argument passing
+		const Reg* gpArgs; // integer argument registers, in order
+		U32 gpArgCount;
+		U32 sseArgCount;	 // xmm0..n-1
+		B32 sharedSlots;	 // gp/sse arguments draw from one slot sequence (win64)
+		B32 x87ByRef;			 // long double passed/returned via hidden pointer (win64)
+		// stack frame
+		U32 shadowBytes;	 // caller-reserved spill space below outgoing args (win64)
+		I32 stackParamOff; // rbp disp of the first incoming stack parameter
+		I32 homeOff;			 // rbp disp of the register home area (win64)
+		B32 probeStack;		 // touch pages of frames > 4096 to grow the guard page (win64)
+		// varargs
+		X86VaList vaList;
+		B32 alHoldsSseCount; // al = #sse register args at variadic calls (sysv)
+		B32 dupSseArgsInGp;	 // mirror sse register args into gp registers (win64)
+		U32 gpSaveBytes;		 // sysv va_list register save area geometry
+		U32 sseSlotBytes;
+		U32 regSaveBytes;
+		// registers
+		const Reg* gpCalleeSaved;
+		U32 gpCalleeSavedCount;
+		U32 sseVolatileCount; // xmm0..n-1 volatile
+	};
+
+	namespace abi {
+		inline constexpr Reg kSysVGpArgs[] = {RDI, RSI, RDX, RCX, R8, R9};
+		inline constexpr Reg kSysVGpCalleeSaved[] = {RBX, R12, R13, R14, R15};
+		inline constexpr Reg kWin64GpArgs[] = {RCX, RDX, R8, R9};
+		inline constexpr Reg kWin64GpCalleeSaved[] = {RBX, RSI, RDI, R12, R13, R14, R15};
+
+		inline constexpr X86CallConv kSysV = {
+				kSysVGpArgs, 6, 8, false, false,				 // args
+				0, 16, 0, false,												 // stack
+				X86VaList::SysV, true, false,						 // varargs
+				6 * 8, 16, 6 * 8 + 8 * 16,							 // register save area
+				kSysVGpCalleeSaved, 5, 16,							 // registers
+		};
+
+		inline constexpr X86CallConv kWin64 = {
+				kWin64GpArgs, 4, 4, true, true,					 // args
+				32, 48, 16, true,												 // stack
+				X86VaList::CharPtr, false, true, 0, 0, 0,// varargs
+				kWin64GpCalleeSaved, 7, 6,							 // registers
+		};
+	} // namespace abi
+
+	inline const X86CallConv& x86CallConv(OS os) {
+		return os == OS::Windows ? abi::kWin64 : abi::kSysV;
+	}
+
+	struct X86ArgAssigner {
+		enum class Kind : U32 {
+			Int, // gp register or 8-byte stack slot (also x87-by-ref pointers)
+			Sse,
+			X87, // by-value 16-byte stack slot (sysv long double)
+		};
+		struct Loc {
+			I32 reg;			// index into the class's argument registers, or -1 for stack
+			U32 stackOff; // byte offset among the stack arguments (valid when reg < 0)
+		};
+
+		explicit X86ArgAssigner(const X86CallConv& c)
+		: conv(c) {}
+
+		Loc next(Kind k) {
+			if(k == Kind::X87) {
+				Loc l{-1, stackBytes};
+				stackBytes += 16;
+				return l;
+			}
+			if(conv.sharedSlots) {
+				Loc l{slot < conv.gpArgCount ? (I32)slot : -1, stackBytes};
+				if(l.reg < 0)
+					stackBytes += 8;
+				++slot;
+				return l;
+			}
+			U32& used = k == Kind::Sse ? sseUsed : gpUsed;
+			U32 cap = k == Kind::Sse ? conv.sseArgCount : conv.gpArgCount;
+			if(used < cap)
+				return {(I32)used++, 0};
+			Loc l{-1, stackBytes};
+			stackBytes += 8;
+			return l;
+		}
+
+		const X86CallConv& conv;
+		U32 gpUsed = 0, sseUsed = 0; // split-slot counters (sysv)
+		U32 slot = 0;								 // shared-slot counter (win64)
+		U32 stackBytes = 0;
+	};
 
 	struct AsmReloc {
 		U32 offset;
@@ -494,6 +575,7 @@ namespace rat {
 			b(0xde);
 			b(0xf9);
 		}
+
 		void fchs() {
 			b(0xd9);
 			b(0xe0);

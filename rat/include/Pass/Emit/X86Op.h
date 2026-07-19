@@ -41,7 +41,6 @@ namespace rat {
 		constexpr U8 kAluOr = 0x09;
 		constexpr U8 kAluXor = 0x31;
 
-		using namespace sysv;
 
 		constexpr U8 kIntCc[] = {CC_E, CC_NE, CC_L, CC_LE, CC_B, CC_BE};
 

@@ -75,7 +75,6 @@ namespace rat {
 		void emitVaStartWin64(const MachineInstr& in);
 		void emitVaArgWin64(const MachineInstr& in);
 		void emitCall(const MachineInstr& in);
-		void emitCallWin64(const MachineInstr& in);
 		void recordFix(U32 dispAt, I32 targetBlock);
 		void emitRet(const MachineInstr&);
 		void emitJmp(const MachineInstr& in, I32 fallthrough);
@@ -84,7 +83,7 @@ namespace rat {
 		void prologue();
 	private:
 		std::ostream* os;
-		B32 winAbi = false;
+		const X86CallConv* conv = &abi::kSysV;
 		const MachineFunc* fn = nullptr;
 		const X86FrameLayout* fl = nullptr;
 		Asm* a = nullptr;

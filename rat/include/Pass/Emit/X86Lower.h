@@ -48,7 +48,6 @@ namespace rat {
 		void needScratch();
 		void layout();
 		void layoutVariadic();
-		void layoutVariadicWin64();
 		U32 classOf(const Type* t) const;
 		VReg fresh(U32 cls);
 		I32 x87SlotOf(const Node* n);
@@ -107,12 +106,8 @@ namespace rat {
 		void emitConvertX87(ConvertNode* n, Node* src, Opcode op);
 		List<PhysReg> callerSavedClobbers() const;
 		void emitCall(CallNode* c);
-		void emitCallSysV(CallNode* c);
-		void emitCallWin64(CallNode* c);
 		VReg x87ByRefArg(Node* arg);
 		void emitPrologue();
-		void emitPrologueSysV();
-		void emitPrologueWin64();
 		void loadStackParam(ProjNode* p, Type* t, I32 disp);
 		void emitVaStart(CallNode* c);
 		void emitVaArg(CallNode* c);
@@ -122,7 +117,8 @@ namespace rat {
 		void emitTerminator(I32 b);
 	private:
 		const Function* fn = nullptr;
-		B32 winAbi = false;
+		const X86CallConv* conv = &abi::kSysV;
+		const RegisterInfo* regs = nullptr;
 		U32 ptrBytes = 8;
 		Schedule* sched = nullptr;
 		MachineFunc* out = nullptr;

@@ -4,6 +4,7 @@
 #include "Core.h"
 
 #include "Target/Target.h"
+#include "Target/X86Asm.h"
 
 namespace rat::cc {
 	struct TargetLayout {
@@ -18,7 +19,7 @@ namespace rat::cc {
 			l.isWindows = t.isWindows();
 			l.longBits = l.isWindows ? 32 : 64;
 			l.wcharBytes = l.isWindows ? 2 : 4;
-			l.win64VaList = l.isWindows;
+			l.win64VaList = x86CallConv(t.os).vaList == X86VaList::CharPtr;
 			return l;
 		}
 	};

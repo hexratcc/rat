@@ -77,7 +77,7 @@ namespace rat {
 	}
 
 	void X86EncodePass::emitVaStart(const MachineInstr& in) {
-		if(winAbi) {
+		if(conv->vaList == X86VaList::CharPtr) {
 			emitVaStartWin64(in);
 			return;
 		}
@@ -87,7 +87,7 @@ namespace rat {
 			a->movRR(R10, ptr);
 		a->movRegImm64(R11, namedGp * 8);
 		a->storeMem(R10, 0, R11, 4);
-		a->movRegImm64(R11, detail::kGpSaveBytes + namedFp * detail::kXmmSlotBytes);
+		a->movRegImm64(R11, conv->gpSaveBytes + namedFp * conv->sseSlotBytes);
 		a->storeMem(R10, 4, R11, 4);
 		a->leaMem(R11, RBP, fl->overflowOff);
 		a->storeMem(R10, 8, R11, 8);
@@ -119,7 +119,7 @@ namespace rat {
 	}
 
 	void X86EncodePass::emitVaArg(const MachineInstr& in) {
-		if(winAbi) {
+		if(conv->vaList == X86VaList::CharPtr) {
 			emitVaArgWin64(in);
 			return;
 		}
@@ -136,15 +136,15 @@ namespace rat {
 			return;
 		}
 		if(kind == VaArgKind::Sse) {
-			vaFetch(4, detail::kRegSaveBytes, (I32)detail::kXmmSlotBytes);
+			vaFetch(4, conv->regSaveBytes, (I32)conv->sseSlotBytes);
 			a->loadXmm(xmmOf(in.defs[0]), R11, 0, width);
 			return;
 		}
-		vaFetch(0, detail::kGpSaveBytes, 8);
+		vaFetch(0, conv->gpSaveBytes, 8);
 		a->loadExt(gpOf(in.defs[0]), R11, 0, width, sign);
 	}
 
-	void X86EncodePass::emitCallWin64(const MachineInstr& in) {
+	void X86EncodePass::emitCall(const MachineInstr& in) {
 		I32 stackBytes = (I32)in.imm;
 		B32 indirect = in.imm2 != 0;
 
@@ -157,13 +157,19 @@ namespace rat {
 				targetIdx = i;
 		}
 
-		U32 total = ((U32)stackBytes + win64::kShadowBytes + 15u) & ~15u;
-		a->subRegImm32(RSP, (I32)total);
-		U32 k = 0;
+		U32 total = ((U32)stackBytes + conv->shadowBytes + 15u) & ~15u;
+		if(total)
+			a->subRegImm32(RSP, (I32)total);
+		I32 off = (I32)conv->shadowBytes;
 		for(U32 i = targetIdx + 1; i < in.uses.size(); ++i) {
 			const MachineOperand& u = in.uses[i];
-			I32 off = (I32)win64::kShadowBytes + (I32)(8 * k++);
 			if(u.kind == MachineOperand::Kind::FrameSlot) {
+				if(u.width == 16) { // by-value x87
+					fldSlot(u.slot);
+					a->fstpT(RSP, off);
+					off += 16;
+					continue;
+				}
 				a->load64(R10, RBP, u.slot);
 				a->storeMem(RSP, off, R10, 8);
 			} else if(X86Target::isXmm(u.phys)) {
@@ -171,57 +177,15 @@ namespace rat {
 			} else {
 				a->storeMem(RSP, off, gpOf(u), 8);
 			}
+			off += 8;
 		}
-		for(U32 i = targetIdx + 1; i-- > 0;) {
-			const MachineOperand& u = in.uses[i];
-			if(u.kind == MachineOperand::Kind::Phys && X86Target::isXmm(u.phys) && toXmm(u.phys) < 4)
-				a->movqGpXmm(win64::kArgRegs[toXmm(u.phys)], toXmm(u.phys));
-		}
-
-		if(indirect)
-			a->callReg(R11);
-		else
-			a->callSym(in.uses[targetIdx].sym);
-		a->addRegImm32(RSP, (I32)total);
-	}
-
-	void X86EncodePass::emitCall(const MachineInstr& in) {
-		if(winAbi) {
-			emitCallWin64(in);
-			return;
-		}
-		I32 stackBytes = (I32)in.imm;
-		B32 indirect = in.imm2 != 0;
-
-		U32 targetIdx = 0;
-		for(U32 i = 0; i < in.uses.size(); ++i) {
-			const MachineOperand& u = in.uses[i];
-			if(!indirect && u.kind == MachineOperand::Kind::Sym)
-				targetIdx = i;
-			else if(indirect && u.kind == MachineOperand::Kind::Phys && u.phys == gpReg11())
-				targetIdx = i;
-		}
-		U32 firstStack = targetIdx + 1;
-
-		B32 pad = (stackBytes & 15) != 0;
-		if(pad)
-			a->subRegImm32(RSP, 8);
-		for(U32 k = in.uses.size(); k-- > firstStack;) {
-			const MachineOperand& u = in.uses[k];
-			if(u.kind == MachineOperand::Kind::FrameSlot) {
-				if(u.width == 16) {
-					a->subRegImm32(RSP, 16);
-					fldSlot(u.slot);
-					a->fstpT(RSP, 0);
-				} else {
-					a->load64(R11, RBP, u.slot);
-					a->push(R11);
-				}
-			} else if(X86Target::isXmm(u.phys)) {
-				a->subRegImm32(RSP, 8);
-				a->storeXmm(xmmOf(u), RSP, 0, u.width);
-			} else {
-				a->push(gpOf(u));
+		if(conv->dupSseArgsInGp) {
+			// variadic callees read every register argument from the gp set
+			for(U32 i = targetIdx + 1; i-- > 0;) {
+				const MachineOperand& u = in.uses[i];
+				if(u.kind == MachineOperand::Kind::Phys && X86Target::isXmm(u.phys) &&
+					 toXmm(u.phys) < conv->gpArgCount)
+					a->movqGpXmm(conv->gpArgs[toXmm(u.phys)], toXmm(u.phys));
 			}
 		}
 
@@ -229,10 +193,8 @@ namespace rat {
 			a->callReg(R11);
 		else
 			a->callSym(in.uses[targetIdx].sym);
-
-		U32 popBytes = (U32)stackBytes + (pad ? 8 : 0);
-		if(popBytes)
-			a->addRegImm32(RSP, (I32)popBytes);
+		if(total)
+			a->addRegImm32(RSP, (I32)total);
 	}
 
 	void X86EncodePass::recordFix(U32 dispAt, I32 targetBlock) {
@@ -424,7 +386,7 @@ namespace rat {
 	void X86EncodePass::prologue() {
 		a->push(RBP);
 		a->movRR(RBP, RSP);
-		if(winAbi && frameSize > 4096) {
+		if(conv->probeStack && frameSize > 4096) {
 			// touch each page in order so the guard page is grown correctly
 			U32 remaining = frameSize;
 			while(remaining >= 4096) {
@@ -441,19 +403,19 @@ namespace rat {
 			a->storeMem(RBP, calleeBase - (I32)(8 * (i + 1)), toGp(calleeSaved[i]), 8);
 		if(!fl->variadic)
 			return;
-		if(winAbi) {
-			// spill the four positional register arguments into their home slots
-			for(U32 i = 0; i < win64::kMaxRegArgs; ++i)
-				a->storeMem(RBP, win64::kHomeOff + (I32)(i * 8), win64::kArgRegs[i], 8);
+		if(conv->vaList == X86VaList::CharPtr) {
+			// spill the positional register arguments into their home slots
+			for(U32 i = 0; i < conv->gpArgCount; ++i)
+				a->storeMem(RBP, conv->homeOff + (I32)(i * 8), conv->gpArgs[i], 8);
 			return;
 		}
-		for(U32 i = 0; i < detail::kMaxIntArgs; ++i)
-			a->storeMem(RBP, fl->saveArea + (I32)(i * 8), detail::kIntArgRegs[i], 8);
+		for(U32 i = 0; i < conv->gpArgCount; ++i)
+			a->storeMem(RBP, fl->saveArea + (I32)(i * 8), conv->gpArgs[i], 8);
 		a->testRR(RAX, RAX);
 		U32 skip = a->jccRel32(CC_E);
-		for(U32 i = 0; i < detail::kMaxXmmArgs; ++i)
+		for(U32 i = 0; i < conv->sseArgCount; ++i)
 			a->storeXmm(
-					i, RBP, fl->saveArea + (I32)detail::kGpSaveBytes + (I32)(i * detail::kXmmSlotBytes), 8);
+					i, RBP, fl->saveArea + (I32)conv->gpSaveBytes + (I32)(i * conv->sseSlotBytes), 8);
 		a->patchRel32(skip, a->here());
 	}
 
@@ -504,7 +466,7 @@ namespace rat {
 	}
 
 	B32 X86EncodePass::run(Module& mod, MachineModule& mm, const TargetInfo& target) {
-		winAbi = target.getTriple().os == OS::Windows;
+		conv = &x86CallConv(target.getTriple().os);
 		UniquePtr<ObjectFile> obj = createObjectFile(target.getTriple().os);
 
 		for(const Global* g : mod.globals())

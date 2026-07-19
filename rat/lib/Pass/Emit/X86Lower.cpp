@@ -104,43 +104,36 @@ namespace rat {
 				}
 			}
 		}
-		if(winAbi && isX87Ty(fn->getReturnType()))
+		if(conv->x87ByRef && isX87Ty(fn->getReturnType()))
 			fl->sretSlot = reserve(8); // stash for the hidden x87 sret pointer
 		fl->variadic = fn->isVariadic();
 		if(fl->variadic) {
 			needScratch(); // va_arg fetch sequences stash through the scratch slot
-			if(winAbi)
-				layoutVariadicWin64();
-			else
-				layoutVariadic();
+			layoutVariadic();
 		}
-	}
-
-	void X86LowerPass::layoutVariadicWin64() {
-		U32 named = isX87Ty(fn->getReturnType()) ? 1 : 0; // hidden sret slot
-		named += fn->getParamCount();
-		fl->namedGp = named;
-		fl->overflowOff = win64::kHomeOff + 8 * (I32)named;
 	}
 
 	void X86LowerPass::layoutVariadic() {
-		U32 intIdx = 0, xmmIdx = 0;
-		I32 stackBytes = 0;
+		using Kind = X86ArgAssigner::Kind;
+		X86ArgAssigner as(*conv);
+		if(conv->x87ByRef && isX87Ty(fn->getReturnType()))
+			as.next(Kind::Int); // hidden sret pointer
 		for(U32 i = 0; i < fn->getParamCount(); ++i) {
 			Type* t = fn->getParamType(i);
 			if(isX87Ty(t))
-				stackBytes += 16;
-			else if(isSseTy(t) && xmmIdx < detail::kMaxXmmArgs)
-				++xmmIdx;
-			else if(!isFloatTy(t) && intIdx < detail::kMaxIntArgs)
-				++intIdx;
+				as.next(conv->x87ByRef ? Kind::Int : Kind::X87);
 			else
-				stackBytes += 8;
+				as.next(isSseTy(t) ? Kind::Sse : Kind::Int);
 		}
-		fl->namedGp = intIdx;
-		fl->namedFp = xmmIdx;
-		fl->overflowOff = 16 + stackBytes;
-		fl->saveArea = reserve(detail::kRegSaveBytes);
+		if(conv->vaList == X86VaList::CharPtr) {
+			fl->namedGp = as.slot;
+			fl->overflowOff = conv->homeOff + 8 * (I32)as.slot;
+			return;
+		}
+		fl->namedGp = as.gpUsed;
+		fl->namedFp = as.sseUsed;
+		fl->overflowOff = conv->stackParamOff + (I32)as.stackBytes;
+		fl->saveArea = reserve(conv->regSaveBytes);
 	}
 
 	U32 X86LowerPass::classOf(const Type* t) const {
@@ -545,7 +538,8 @@ namespace rat {
 	U32 X86LowerPass::runOnMachineFunction(const Function& fn,
 																				 MachineFunc& mf,
 																				 const TargetInfo& target) {
-		winAbi = target.getTriple().os == OS::Windows;
+		conv = &x86CallConv(target.getTriple().os);
+		regs = target.registers();
 		ptrBytes = target.getPointerSizeInBytes();
 		Schedule sched(fn);
 		X86FrameLayout fl;
