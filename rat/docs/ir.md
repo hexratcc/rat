@@ -26,7 +26,7 @@ Defined in [`IR/Opcode.h`](../include/IR/Opcode.h), with per-opcode metadata (mn
 Types are interned in a `TypeContext` (the `Module` is one): `ctrl`, `mem`, `iN`, `fN`, `ptr`, arrays, and tuples for multi-result producers. `bool` is `i1`. See [`IR/Type.h`](../include/IR/Type.h) for more details.
 
 ## building functions
-A `Function` owns its nodes and exposes two layers of API ([`IR/Function.h`](../rat/include/IR/Function.h)):
+A `Function` owns its nodes and exposes two layers of API ([`IR/Function.h`](../include/IR/Function.h)):
 - **graph layer:** `create<T>()` for raw node construction, iteration over all nodes, maintenance helpers for passes.
 - **builder layer:** blocks, jumps, and named variables (`declareLocal` / `get` / `set`), so a frontend can emit straight-line code statement by statement and get a valid graph with phis already placed.
 
