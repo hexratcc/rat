@@ -414,8 +414,7 @@ namespace rat {
 		a->testRR(RAX, RAX);
 		U32 skip = a->jccRel32(CC_E);
 		for(U32 i = 0; i < conv->sseArgCount; ++i)
-			a->storeXmm(
-					i, RBP, fl->saveArea + (I32)conv->gpSaveBytes + (I32)(i * conv->sseSlotBytes), 8);
+			a->storeXmm(i, RBP, fl->saveArea + (I32)conv->gpSaveBytes + (I32)(i * conv->sseSlotBytes), 8);
 		a->patchRel32(skip, a->here());
 	}
 

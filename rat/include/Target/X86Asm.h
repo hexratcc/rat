@@ -45,9 +45,9 @@ namespace rat {
 		// argument passing
 		const Reg* gpArgs; // integer argument registers, in order
 		U32 gpArgCount;
-		U32 sseArgCount;	 // xmm0..n-1
-		B32 sharedSlots;	 // gp/sse arguments draw from one slot sequence (win64)
-		B32 x87ByRef;			 // long double passed/returned via hidden pointer (win64)
+		U32 sseArgCount; // xmm0..n-1
+		B32 sharedSlots; // gp/sse arguments draw from one slot sequence (win64)
+		B32 x87ByRef;		 // long double passed/returned via hidden pointer (win64)
 		// stack frame
 		U32 shadowBytes;	 // caller-reserved spill space below outgoing args (win64)
 		I32 stackParamOff; // rbp disp of the first incoming stack parameter
@@ -72,20 +72,54 @@ namespace rat {
 		inline constexpr Reg kWin64GpArgs[] = {RCX, RDX, R8, R9};
 		inline constexpr Reg kWin64GpCalleeSaved[] = {RBX, RSI, RDI, R12, R13, R14, R15};
 
-		inline constexpr X86CallConv kSysV = {
-				kSysVGpArgs, 6, 8, false, false,				 // args
-				0, 16, 0, false,												 // stack
-				X86VaList::SysV, true, false,						 // varargs
-				6 * 8, 16, 6 * 8 + 8 * 16,							 // register save area
-				kSysVGpCalleeSaved, 5, 16,							 // registers
-		};
+		constexpr X86CallConv sysv() {
+			X86CallConv c{};
+			c.gpArgs = kSysVGpArgs;
+			c.gpArgCount = 6;
+			c.sseArgCount = 8;
+			c.sharedSlots = false;
+			c.x87ByRef = false;
+			c.shadowBytes = 0;
+			c.stackParamOff = 16;
+			c.homeOff = 0;
+			c.probeStack = false;
+			c.vaList = X86VaList::SysV;
+			c.alHoldsSseCount = true;
+			c.dupSseArgsInGp = false;
+			c.gpSaveBytes = 6 * 8;
+			c.sseSlotBytes = 16;
+			c.regSaveBytes = 6 * 8 + 8 * 16;
+			c.gpCalleeSaved = kSysVGpCalleeSaved;
+			c.gpCalleeSavedCount = 5;
+			c.sseVolatileCount = 16;
+			return c;
+		}
 
-		inline constexpr X86CallConv kWin64 = {
-				kWin64GpArgs, 4, 4, true, true,					 // args
-				32, 48, 16, true,												 // stack
-				X86VaList::CharPtr, false, true, 0, 0, 0,// varargs
-				kWin64GpCalleeSaved, 7, 6,							 // registers
-		};
+		constexpr X86CallConv win64() {
+			X86CallConv c{};
+			c.gpArgs = kWin64GpArgs;
+			c.gpArgCount = 4;
+			c.sseArgCount = 4;
+			c.sharedSlots = true;
+			c.x87ByRef = true;
+			c.shadowBytes = 32;
+			c.stackParamOff = 48;
+			c.homeOff = 16;
+			c.probeStack = true;
+			c.vaList = X86VaList::CharPtr;
+			c.alHoldsSseCount = false;
+			c.dupSseArgsInGp = true;
+			c.gpSaveBytes = 0;
+			c.sseSlotBytes = 0;
+			c.regSaveBytes = 0;
+			c.gpCalleeSaved = kWin64GpCalleeSaved;
+			c.gpCalleeSavedCount = 7;
+			c.sseVolatileCount = 6;
+			return c;
+		}
+
+		inline constexpr X86CallConv kSysV = sysv();
+		inline constexpr X86CallConv kWin64 = win64();
 	} // namespace abi
 
 	inline const X86CallConv& x86CallConv(OS os) {
