@@ -1,4 +1,4 @@
-#include "CodeGen/GraphRegAlloc.h"
+#include "CodeGen/GraphColorRegAlloc.h"
 
 #include "Target/Target.h"
 
