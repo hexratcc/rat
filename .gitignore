@@ -8,3 +8,4 @@ fred.txt
 *.o
 profile.perf
 perf.data
+.cache

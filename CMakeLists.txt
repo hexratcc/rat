@@ -29,7 +29,7 @@ add_library(rat STATIC ${RAT_SOURCES})
 target_include_directories(rat PUBLIC rat/include)
 
 # rat-cli
-add_executable(rat-driver rat/test/driver.cpp)
+add_executable(rat-driver rat/main.cpp)
 set_target_properties(rat-driver PROPERTIES OUTPUT_NAME rat)
 target_link_libraries(rat-driver PRIVATE rat)
 add_executable(rat-test rat/test/Runner.cpp)
@@ -42,7 +42,7 @@ target_include_directories(ratcclib PUBLIC cc/include)
 target_link_libraries(ratcclib PUBLIC rat)
 add_executable(ratcc cc/main.cpp)
 target_link_libraries(ratcc PRIVATE ratcclib)
-add_executable(ratcc-test cc/Runner.cpp)
+add_executable(ratcc-test cc/test/Runner.cpp)
 target_link_libraries(ratcc-test PRIVATE ratcclib)
 
 # tests
@@ -75,8 +75,8 @@ add_custom_target(test-c
 # format
 file(GLOB_RECURSE RAT_FORMAT_SOURCES CONFIGURE_DEPENDS
 		 rat/lib/*.cpp rat/include/*.h rat/test/*.cpp
-		 cc/lib/*.cpp cc/include/*.h)
+		 cc/lib/*.cpp cc/include/*.h cc/test/*.cpp)
 add_custom_target(format
 									COMMAND clang-format -i ${RAT_FORMAT_SOURCES}
-									${CMAKE_SOURCE_DIR}/cc/main.cpp ${CMAKE_SOURCE_DIR}/cc/Runner.cpp
+									${CMAKE_SOURCE_DIR}/rat/main.cpp ${CMAKE_SOURCE_DIR}/cc/main.cpp
 									WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
