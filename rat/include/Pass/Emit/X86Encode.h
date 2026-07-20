@@ -4,7 +4,7 @@
 #include "Core.h"
 
 #include "Pass/Emit/X86Op.h"
-#include "Support/Pass.h"
+#include "Pass/Pass.h"
 #include "Target/X86Asm.h"
 
 namespace rat {

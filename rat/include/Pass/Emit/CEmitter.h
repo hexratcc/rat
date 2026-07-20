@@ -3,7 +3,7 @@
 
 #include "CodeGen/Schedule.h"
 #include "Core.h"
-#include "Support/Pass.h"
+#include "Pass/Pass.h"
 
 namespace rat {
 	struct CallNode;

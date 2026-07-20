@@ -11,7 +11,7 @@
 #define RAT_PASS_OPT_INLINE_H
 
 #include "Core.h"
-#include "Support/Pass.h"
+#include "Pass/Pass.h"
 
 namespace rat {
 	struct Function;

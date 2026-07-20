@@ -3,7 +3,7 @@
 
 #include "CodeGen/MachineModule.h"
 #include "Core.h"
-#include "Support/Pass.h"
+#include "Pass/Pass.h"
 
 #include <type_traits>
 

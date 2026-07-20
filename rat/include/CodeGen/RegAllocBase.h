@@ -4,7 +4,7 @@
 #include "Core.h"
 
 #include "CodeGen/MachineFunction.h"
-#include "Support/Pass.h"
+#include "Pass/Pass.h"
 
 namespace rat {
 	// dense bitset over vreg numbers

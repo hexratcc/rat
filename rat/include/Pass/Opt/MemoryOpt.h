@@ -13,7 +13,7 @@
 #define RAT_PASS_OPT_MEMORYOPT_H
 
 #include "Core.h"
-#include "Support/Pass.h"
+#include "Pass/Pass.h"
 
 namespace rat {
 	struct AliasAnalysis;

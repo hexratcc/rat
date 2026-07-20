@@ -2,7 +2,7 @@
 #define RAT_SUPPORT_PASSREGISTRY_H
 
 #include "Core.h"
-#include "Support/PassManager.h"
+#include "Pass/PassManager.h"
 
 namespace rat {
 	struct Pass;
@@ -41,7 +41,6 @@ namespace rat {
 	};
 
 	PassRegistry& passRegistry();
-	// turns a comma-separated spec like "fold,gvn,sccp" into
 	B32 buildPipeline(PassManager& pm, const String& spec, std::ostream& out, String& err);
 	List<String> defaultOptPipeline();
 } // namespace rat

@@ -12,7 +12,7 @@
 
 #include "Core.h"
 #include "IR/Opcode.h"
-#include "Support/Pass.h"
+#include "Pass/Pass.h"
 
 namespace rat {
 	struct Function;

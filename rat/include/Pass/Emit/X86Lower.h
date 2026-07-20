@@ -6,7 +6,7 @@
 #include "CodeGen/Schedule.h"
 #include "IR/Opcode.h"
 #include "Pass/Emit/X86Op.h"
-#include "Support/Pass.h"
+#include "Pass/Pass.h"
 
 namespace rat {
 	struct AllocNode;

@@ -2,7 +2,7 @@
 #define RAT_PASS_EMIT_GRAPHEMITTER_H
 
 #include "Core.h"
-#include "Support/Pass.h"
+#include "Pass/Pass.h"
 
 namespace rat {
 	struct Function;

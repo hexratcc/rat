@@ -1,5 +1,5 @@
 # passes
-Passes come in three kinds: module `Pass`, `FunctionPass` (run per function), and `MachinePass` (post-lowering, over machine state). The `PassManager` runs all IR passes first, then machine passes, in insertion order, and can report per-pass timing. For more info see [`Support/Pass.h`](../include/Support/Pass.h).
+Passes come in three kinds: module `Pass`, `FunctionPass` (run per function), and `MachinePass` (post-lowering, over machine state). The `PassManager` runs all IR passes first, then machine passes, in insertion order, and can report per-pass timing. For more info see [`Pass/Pass.h`](../include/Pass/Pass.h).
 
 ## optimization
 - [**fold:**](../include/Pass/Opt/Fold.h) Peephole constant folding and algebraic simplification, applied as local graph rewrites. Covers constant arithmetic, identities (`x + 0`, `x * 1`, `x & x`, `x ^ x`, ...), reassociation of constant chains, strength reduction (`mul`/`udiv`/`urem` by powers of two into shifts/masks), shift-of-shift collapse, and constant compares/converts.
