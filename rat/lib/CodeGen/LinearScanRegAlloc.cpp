@@ -143,7 +143,7 @@ namespace rat {
 																 [](const auto& a, I32 pt) { return a.first < pt; });
 			for(auto it = lo; it != pinsByPoint.end() && it->first <= sg.end; ++it)
 				for(U64 m = it->second; m;) {
-					PhysReg p = (PhysReg)__builtin_ctzll(m);
+					PhysReg p = (PhysReg)countTrailingZeros64(m);
 					m &= m - 1;
 					if(!pinExempt(iv.vreg, it->first, p))
 						bad |= (U64)1 << p;

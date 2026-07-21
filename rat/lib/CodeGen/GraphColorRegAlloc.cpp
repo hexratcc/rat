@@ -236,7 +236,7 @@ namespace rat {
 																 [](const auto& a, I32 pt) { return a.first < pt; });
 			for(auto it = lo; it != pins.end() && it->first <= n.end; ++it)
 				for(U64 m = it->second; m;) {
-					PhysReg p = (PhysReg)__builtin_ctzll(m);
+					PhysReg p = (PhysReg)countTrailingZeros64(m);
 					m &= m - 1;
 					if(!pinExempt(n.vreg, it->first, p))
 						n.forbidden |= regBit(p);
