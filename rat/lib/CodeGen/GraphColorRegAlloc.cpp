@@ -2,6 +2,8 @@
 
 #include "Target/Target.h"
 
+#include <cstdlib>
+
 namespace rat {
 	void GraphColorRegAllocPass::solve() {
 		buildInterference();
@@ -10,11 +12,19 @@ namespace rat {
 	}
 
 	RegAllocBase::Assignment GraphColorRegAllocPass::assignmentOf(VReg v) {
-		const Node& n = nodes[v];
+		const Node& n = nodes[findRep(v)];
 		return {n.color, n.spillSlot, n.cls, n.spilled};
 	}
 
+	VReg GraphColorRegAllocPass::findRep(VReg v) {
+		while(v < (VReg)aliasTo.size() && aliasTo[v] != v)
+			v = aliasTo[v];
+		return v;
+	}
+
 	GraphColorRegAllocPass::Node& GraphColorRegAllocPass::nodeFor(VReg v) {
+		if(v >= (VReg)nodes.size())
+			nodes.resize(v + 1);
 		Node& n = nodes[v];
 		if(n.vreg == kNoVReg) {
 			n.vreg = v;
@@ -47,14 +57,15 @@ namespace rat {
 	}
 
 	void GraphColorRegAllocPass::interfereAll(const VRegSet& live) {
-		List<VReg> vs;
-		live.forEach([&](VReg v) { vs.push_back(v); });
-		for(U32 i = 0; i < (U32)vs.size(); ++i)
-			for(U32 j = i + 1; j < (U32)vs.size(); ++j)
-				addEdge(vs[i], vs[j]);
+		scratchVRegs.clear();
+		live.forEach([&](VReg v) { scratchVRegs.push_back(v); });
+		for(U32 i = 0; i < (U32)scratchVRegs.size(); ++i)
+			for(U32 j = i + 1; j < (U32)scratchVRegs.size(); ++j)
+				addEdge(scratchVRegs[i], scratchVRegs[j]);
 	}
 
 	void GraphColorRegAllocPass::buildInterference() {
+		nodes.resize(fn->nextVReg);
 		List<VRegSet> liveIn, liveOut;
 		liveness(liveIn, liveOut);
 
@@ -100,9 +111,9 @@ namespace rat {
 					if(d.isVReg()) {
 						if(nodeFor(d.vreg).mustSpill)
 							continue;
-						List<VReg> vs;
-						live.forEach([&](VReg v) { vs.push_back(v); });
-						for(VReg l : vs) {
+						scratchVRegs.clear();
+						live.forEach([&](VReg v) { scratchVRegs.push_back(v); });
+						for(VReg l : scratchVRegs) {
 							if(l != d.vreg)
 								addEdge(d.vreg, l);
 							if(nodeFor(d.vreg).mustSpill)
@@ -118,34 +129,124 @@ namespace rat {
 					if(u.isVReg())
 						live.set(u.vreg);
 			}
+
 		}
 
-		for(auto& kv : nodes) {
-			Node& n = kv.second;
-			for(I32 c : callPts)
-				if(n.start < c && c < n.end) {
-					n.crossesCall = true;
-					break;
-				}
+		// callPts is built in point order; a node crosses a call iff some call
+		// point lies strictly inside its span
+		for(Node& n : nodes) {
+			if(n.vreg == kNoVReg)
+				continue;
+			auto it = std::upper_bound(callPts.begin(), callPts.end(), n.start);
+			if(it != callPts.end() && *it < n.end)
+				n.crossesCall = true;
 		}
 
 		computeForbidden();
+		coalesce();
+	}
+
+	void GraphColorRegAllocPass::coalesce() {
+		aliasTo.resize(nodes.size());
+		for(VReg v = 0; v < (VReg)aliasTo.size(); ++v)
+			aliasTo[v] = v;
+
+		// deterministic pair order: (min, max) sorted, deduplicated
+		List<std::pair<VReg, VReg>> pairs;
+		for(const auto& kv : copyHints)
+			for(const CopyHint& h : kv.second) {
+				VReg a = kv.first < h.partner ? kv.first : h.partner;
+				VReg b = kv.first < h.partner ? h.partner : kv.first;
+				pairs.emplace_back(a, b);
+			}
+		std::sort(pairs.begin(), pairs.end());
+		pairs.erase(std::unique(pairs.begin(), pairs.end()), pairs.end());
+
+		for(auto [pa, pb] : pairs) {
+			VReg a = findRep(pa), b = findRep(pb);
+			if(a == b || a >= (VReg)nodes.size() || b >= (VReg)nodes.size())
+				continue;
+			Node& na = nodes[a];
+			Node& nb = nodes[b];
+			if(na.vreg == kNoVReg || nb.vreg == kNoVReg || na.cls != nb.cls)
+				continue;
+			if(na.mustSpill || nb.mustSpill)
+				continue;
+			if(na.adj.count(b))
+				continue; // live ranges interfere: the copy is real
+
+			//  briggs
+			U32 k = colorCount(na.cls);
+			Set<VReg> unionAdj = na.adj;
+			for(VReg t : nb.adj)
+				unionAdj.insert(t);
+			unionAdj.erase(a);
+			unionAdj.erase(b);
+			if(unionAdj.size() >= kAdjCap)
+				continue;
+			U32 sig = 0;
+			for(VReg t : unionAdj) {
+				VReg rt = findRep(t);
+				if(rt < (VReg)nodes.size() && nodes[rt].vreg != kNoVReg &&
+					 (U32)nodes[rt].adj.size() >= k)
+					++sig;
+			}
+			if(sig >= k)
+				continue;
+
+			// merge b into a: rewrite neighbor edges, union constraints and span
+			for(VReg t : nb.adj) {
+				VReg rt = findRep(t);
+				if(rt >= (VReg)nodes.size() || nodes[rt].vreg == kNoVReg)
+					continue;
+				nodes[rt].adj.erase(b);
+				if(rt != a)
+					nodes[rt].adj.insert(a);
+			}
+			na.adj = std::move(unionAdj);
+			na.degree = (U32)na.adj.size();
+			na.uses += nb.uses;
+			if(nb.start >= 0 && (na.start < 0 || nb.start < na.start))
+				na.start = nb.start;
+			if(nb.end > na.end)
+				na.end = nb.end;
+			na.forbidden |= nb.forbidden;
+			na.crossesCall = na.crossesCall || nb.crossesCall;
+			nb.coalesced = true;
+			nb.vreg = kNoVReg; // drop from all rep-only loops
+			aliasTo[b] = a;
+		}
 	}
 
 	void GraphColorRegAllocPass::computeForbidden() {
-		for(auto& kv : nodes) {
-			Node& n = kv.second;
-			for(const auto& fk : fixedAt)
-				if(n.start <= fk.first && fk.first <= n.end)
-					for(PhysReg p : fk.second)
-						if(!pinExempt(n.vreg, fk.first, p))
-							n.forbidden.insert(p);
+		List<std::pair<I32, U64>> pins;
+		pins.reserve(fixedAt.size());
+		for(const auto& kv : fixedAt)
+			pins.emplace_back(kv.first, kv.second);
+		std::sort(pins.begin(), pins.end(), [](const auto& a, const auto& b) {
+			return a.first < b.first;
+		});
+
+		for(Node& n : nodes) {
+			if(n.vreg == kNoVReg)
+				continue;
+			auto lo = std::lower_bound(pins.begin(),
+																 pins.end(),
+																 n.start,
+																 [](const auto& a, I32 pt) { return a.first < pt; });
+			for(auto it = lo; it != pins.end() && it->first <= n.end; ++it)
+				for(U64 m = it->second; m;) {
+					PhysReg p = (PhysReg)__builtin_ctzll(m);
+					m &= m - 1;
+					if(!pinExempt(n.vreg, it->first, p))
+						n.forbidden |= regBit(p);
+				}
 
 			if(n.crossesCall) {
 				const RegClass& rc = regClass(n.cls);
 				for(PhysReg p : rc.allocatable)
 					if(!isCalleeSaved(rc, p))
-						n.forbidden.insert(p);
+						n.forbidden |= regBit(p);
 			}
 		}
 	}
@@ -166,97 +267,92 @@ namespace rat {
 
 	void GraphColorRegAllocPass::simplify() {
 		selectStack.clear();
-		Set<VReg> removed;
-		Map<VReg, U32> degree;
 
-		// pre-spilled nodes never enter the coloring stack
-		U32 colorable = 0;
-		for(auto& kv : nodes) {
-			if(kv.second.mustSpill) {
-				removed.insert(kv.first);
+		// worklist simplify
+		List<U32> degree(nodes.size(), 0);
+		List<B32> removed(nodes.size(), false);
+		List<VReg> ready;
+		U32 remaining = 0;
+
+		for(Node& n : nodes) {
+			if(n.vreg == kNoVReg)
+				continue;
+			if(n.mustSpill) {
+				removed[n.vreg] = true;
 				continue;
 			}
 			U32 d = 0;
-			for(VReg a : kv.second.adj) {
-				auto it = nodes.find(a);
-				if(it != nodes.end() && !it->second.mustSpill)
+			for(VReg a : n.adj)
+				if(a < (VReg)nodes.size() && nodes[a].vreg != kNoVReg && !nodes[a].mustSpill)
 					++d;
-			}
-			degree[kv.first] = d;
-			++colorable;
+			degree[n.vreg] = d;
+			++remaining;
+			if(d < colorCount(n.cls))
+				ready.push_back(n.vreg);
 		}
 
-		U32 done = 0;
-		while(done < colorable) {
-			B32 pushed = false;
-
-			// simplify
-			for(auto& kv : nodes) {
-				VReg v = kv.first;
-				if(removed.count(v))
+		auto dropNode = [&](VReg v) {
+			removed[v] = true;
+			selectStack.push_back(v);
+			--remaining;
+			for(VReg a : nodes[v].adj) {
+				if(a >= (VReg)nodes.size() || nodes[a].vreg == kNoVReg || removed[a])
 					continue;
-				if(degree[v] < colorCount(kv.second.cls)) {
-					removed.insert(v);
-					selectStack.push_back(v);
-					++done;
-					for(VReg a : kv.second.adj)
-						if(!removed.count(a) && degree.count(a))
-							--degree[a];
-					pushed = true;
-				}
+				if(degree[a]-- == colorCount(nodes[a].cls))
+					ready.push_back(a); // just dropped below k
 			}
-			if(pushed)
-				continue;
+		};
 
-			// stalled
+		U32 head = 0;
+		while(remaining > 0) {
+			if(head < ready.size()) {
+				VReg v = ready[head++];
+				if(removed[v])
+					continue;
+				dropNode(v);
+				continue;
+			}
+
+			// stalled: push the cheapest spill candidate
 			VReg best = kNoVReg;
 			F64 bestCost = 0.0;
-			for(auto& kv : nodes) {
-				VReg v = kv.first;
-				if(removed.count(v))
+			for(Node& n : nodes) {
+				if(n.vreg == kNoVReg || removed[n.vreg])
 					continue;
-				F64 c = spillCost(kv.second);
+				F64 c = spillCost(n);
 				if(best == kNoVReg || c < bestCost) {
-					best = v;
+					best = n.vreg;
 					bestCost = c;
 				}
 			}
 			if(best == kNoVReg)
 				break;
-			removed.insert(best);
-			selectStack.push_back(best);
-			++done;
-			for(VReg a : nodes[best].adj)
-				if(!removed.count(a) && degree.count(a))
-					--degree[a];
+			dropNode(best);
 		}
 	}
 
 	void GraphColorRegAllocPass::selectColors() {
-		for(auto& kv : nodes)
-			if(kv.second.mustSpill)
-				kv.second.spilled = true;
+		for(Node& n : nodes)
+			if(n.vreg != kNoVReg && n.mustSpill)
+				n.spilled = true;
 
 		for(I32 i = (I32)selectStack.size() - 1; i >= 0; --i) {
 			VReg v = selectStack[(U32)i];
 			Node& n = nodes[v];
 			const RegClass& rc = regClass(n.cls);
 
-			Set<PhysReg> used = n.forbidden;
-			for(VReg a : n.adj) {
-				auto it = nodes.find(a);
-				if(it != nodes.end() && it->second.color != kNoReg)
-					used.insert(it->second.color);
-			}
+			U64 used = n.forbidden;
+			for(VReg a : n.adj)
+				if(a < (VReg)nodes.size() && nodes[a].vreg != kNoVReg && nodes[a].color != kNoReg)
+					used |= regBit(nodes[a].color);
 
 			// biased coloring: a legal hinted register elides the copy that produced the hint
 			PhysReg pick = kNoReg;
 			auto colorOf = [&](VReg p) {
-				auto it = nodes.find(p);
-				return it == nodes.end() ? kNoReg : it->second.color;
+				return p < (VReg)nodes.size() && nodes[p].vreg != kNoVReg ? nodes[p].color : kNoReg;
 			};
 			for(PhysReg h : hintedRegs(v, colorOf)) {
-				if(used.count(h) || !isAllocatable(rc, h))
+				if((used & regBit(h)) || !isAllocatable(rc, h))
 					continue;
 				if(n.crossesCall && !isCalleeSaved(rc, h))
 					continue;
@@ -268,14 +364,14 @@ namespace rat {
 
 			if(pick == kNoReg && n.crossesCall) {
 				for(PhysReg p : rc.calleeSaved)
-					if(!used.count(p)) {
+					if(!(used & regBit(p))) {
 						pick = p;
 						break;
 					}
 			}
 			if(pick == kNoReg)
 				for(PhysReg p : rc.allocatable)
-					if(!used.count(p)) {
+					if(!(used & regBit(p))) {
 						pick = p;
 						break;
 					}
@@ -295,9 +391,9 @@ namespace rat {
 	void GraphColorRegAllocPass::assignSpillSlots() {
 		// pack
 		List<Node*> spilled;
-		for(auto& kv : nodes)
-			if(kv.second.spilled)
-				spilled.push_back(&kv.second);
+		for(Node& n : nodes)
+			if(n.vreg != kNoVReg && n.spilled)
+				spilled.push_back(&n);
 		std::sort(spilled.begin(), spilled.end(), [](const Node* a, const Node* b) {
 			return a->start != b->start ? a->start < b->start : a->vreg < b->vreg;
 		});

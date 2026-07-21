@@ -31,18 +31,25 @@ namespace rat {
 			B32 spilled = false;
 			B32 crossesCall = false;
 			B32 mustSpill = false;
-			Set<VReg> adj;					// interference neighbors
-			Set<PhysReg> forbidden; // precolored constraints
+			B32 coalesced = false; // absorbed into another node
+			Set<VReg> adj;				 // interference neighbors
+			U64 forbidden = 0;		 // precolored constraints
 		};
+
+		static U64 regBit(PhysReg p) { return (U64)1 << p; }
 
 		void resetState() override {
 			nodes.clear();
 			selectStack.clear();
+			scratchVRegs.clear();
+			aliasTo.clear();
 		}
 		void solve() override;
 		Assignment assignmentOf(VReg v) override;
 
 		void buildInterference();
+		void coalesce();
+		VReg findRep(VReg v);
 		Node& nodeFor(VReg v);
 		void addHalfEdge(Node& n, VReg other);
 		void addEdge(VReg a, VReg b);
@@ -55,8 +62,10 @@ namespace rat {
 		void selectColors();
 		void assignSpillSlots();
 	private:
-		Map<VReg, Node> nodes;
+		List<Node> nodes;
 		List<VReg> selectStack; // simplify order; popped in reverse during select
+		List<VReg> scratchVRegs;
+		List<VReg> aliasTo;			// union-find parents for coalesced vregs
 	};
 } // namespace rat
 
