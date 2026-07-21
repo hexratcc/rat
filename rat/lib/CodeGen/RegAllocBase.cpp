@@ -17,12 +17,12 @@ namespace rat {
 					callPts.push_back(pt);
 				for(const MachineOperand& o : in.uses)
 					if(o.isPhys())
-						fixedAt[pt].insert(o.phys);
+						fixedAt[pt] |= (U64)1 << o.phys;
 				for(const MachineOperand& o : in.defs)
 					if(o.isPhys())
-						fixedAt[pt].insert(o.phys);
+						fixedAt[pt] |= (U64)1 << o.phys;
 				for(PhysReg p : in.clobbers)
-					fixedAt[pt].insert(p);
+					fixedAt[pt] |= (U64)1 << p;
 			}
 		pinFixedArgWindows();
 	}
@@ -46,7 +46,7 @@ namespace rat {
 							defsP = true;
 							break;
 						}
-					fixedAt[pt].insert(p);
+					fixedAt[pt] |= (U64)1 << p;
 					if(defsP)
 						break;
 				}
@@ -175,6 +175,25 @@ namespace rat {
 		return false;
 	}
 
+	void RegAllocBase::collectRematDefs() {
+		if(!hooks->isRemat)
+			return;
+		Map<VReg, U32> defCount;
+		for(U32 b = 0; b < fn->blocks.size(); ++b)
+			for(const MachineInstr& in : fn->blocks[b].insts)
+				for(const MachineOperand& d : in.defs)
+					if(d.isVReg())
+						++defCount[d.vreg];
+		for(U32 b = 0; b < fn->blocks.size(); ++b)
+			for(const MachineInstr& in : fn->blocks[b].insts) {
+				if(in.defs.size() != 1 || !in.defs[0].isVReg() || !hooks->isRemat(in))
+					continue;
+				VReg v = in.defs[0].vreg;
+				if(defCount[v] == 1)
+					rematDef[v] = in;
+			}
+	}
+
 	void RegAllocBase::rewrite() {
 		for(U32 b = 0; b < fn->blocks.size(); ++b) {
 			List<MachineInstr> out;
@@ -190,7 +209,13 @@ namespace rat {
 							continue;
 						}
 						PhysReg sc = scratchAt(a.cls, useScratch++);
-						out.push_back(hooks->makeReload(sc, a.spillSlot, a.cls, u.width));
+						if(auto rt = rematDef.find(u.vreg); rt != rematDef.end()) {
+							MachineInstr m = rt->second;
+							m.defs[0] = MachineOperand::fixed(sc, u.width);
+							out.push_back(std::move(m));
+						} else {
+							out.push_back(hooks->makeReload(sc, a.spillSlot, a.cls, u.width));
+						}
 						u = MachineOperand::fixed(sc, u.width);
 					} else {
 						u = MachineOperand::fixed(a.reg, u.width);
@@ -248,11 +273,13 @@ namespace rat {
 		copyHints.clear();
 		physHints.clear();
 		slotPool.clear();
+		rematDef.clear();
 		ok = true;
 		resetState();
 
 		number();
 		collectCopyHints();
+		collectRematDefs();
 		solve();
 		rewrite();
 

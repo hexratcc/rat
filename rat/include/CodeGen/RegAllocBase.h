@@ -72,6 +72,7 @@ namespace rat {
 		void number();
 		void pinFixedArgWindows();
 		void collectCopyHints();
+		void collectRematDefs();
 		void liveness(List<VRegSet>& liveIn, List<VRegSet>& liveOut);
 
 		// allocation preferences derived from copies
@@ -98,11 +99,12 @@ namespace rat {
 		List<Loc> order;								// linear point -> (block, instruction)
 		List<List<U32>> blkPts;					// block -> its linear points
 		List<I32> callPts;							// points that are calls
-		Map<I32, Set<PhysReg>> fixedAt; // physical registers pinned at a point
+		Map<I32, U64> fixedAt;					// physical registers pinned at a point
 		Set<PhysReg> usedCallee;
 		Map<VReg, List<CopyHint>> copyHints;		// vreg <-> vreg move affinities
 		Map<VReg, List<PhysReg>> physHints;			// vreg <-> fixed-register move affinities
 		Map<VReg, Map<I32, PhysReg>> copyPinAt; // pin exemptions
+		Map<VReg, MachineInstr> rematDef;				// single pure def per remat vreg
 		B32 ok = true;
 	private:
 		struct PooledSlot {
