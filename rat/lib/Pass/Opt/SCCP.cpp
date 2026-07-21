@@ -138,7 +138,6 @@ namespace rat {
 	}
 
 	SCCPPass::Lattice SCCPPass::evalArith(Node* n) {
-		Function& fn = n->getFunction();
 		Opcode op = n->getOpcode();
 		Node* lhs = n->getInput(0);
 		Node* rhs = n->getInputCount() > 1 ? n->getInput(1) : nullptr;
@@ -149,19 +148,27 @@ namespace rat {
 		if(a.kind == Lattice::Kind::Top || b.kind == Lattice::Kind::Top)
 			return Lattice::top();
 
-		Node* cl = constant(fn, lhs->getType(), a.value);
-		Node* cr = rhs ? constant(fn, rhs->getType(), b.value) : nullptr;
-		Node* res = nullptr;
-		if(isBinaryOpcode(op))
-			res = foldBinary(fn, op, cl, cr);
-		else if(isUnaryOpcode(op))
-			res = foldUnary(fn, op, cl);
-		else if(isCompareOpcode(op))
-			res = foldCompare(fn, op, cl, cr);
-		else if(isConvertOpcode(op))
-			res = foldConvert(fn, op, cl, n->getType());
-		if(ConstantNode* c = dyn_cast<ConstantNode>(res))
-			return Lattice::constant(c->getValue());
+		Type* lty = lhs->getType();
+		if(isConvertOpcode(op) && lty == n->getType())
+			return Lattice::constant(a.value);
+		if(!lty->isInt())
+			return Lattice::bottom();
+		U32 w = lty->getIntWidth();
+		I64 out;
+		if(isBinaryOpcode(op)) {
+			if(evalBinaryConst(op, w, a.value, b.value, out))
+				return Lattice::constant(out);
+		} else if(isUnaryOpcode(op)) {
+			if(evalUnaryConst(op, w, a.value, out))
+				return Lattice::constant(out);
+		} else if(isCompareOpcode(op)) {
+			if(evalCompareConst(op, w, a.value, b.value, out))
+				return Lattice::constant(out);
+		} else if(isConvertOpcode(op)) {
+			Type* dty = n->getType();
+			if(dty->isInt() && evalConvertConst(op, w, dty->getIntWidth(), a.value, out))
+				return Lattice::constant(out);
+		}
 		return Lattice::bottom();
 	}
 
