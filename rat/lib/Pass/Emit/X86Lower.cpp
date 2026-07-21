@@ -197,6 +197,8 @@ namespace rat {
 			return d;
 		}
 		if(GlobalNode* g = dyn_cast<GlobalNode>(n)) {
+			if(auto it = vregOf.find(n); it != vregOf.end())
+				return it->second; // materialized once at its scheduled block
 			VReg d = fresh(detail::kGp);
 			def1(X86Op::LoadSym, d, detail::kGp, {MachineOperand::symbol(g->getSymbol())});
 			return d;
@@ -354,6 +356,8 @@ namespace rat {
 
 	VReg X86LowerPass::sseValue(Node* n) {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
+			if(auto it = vregOf.find(n); it != vregOf.end())
+				return it->second; // materialized once at its scheduled block
 			U32 w = opWidth(n->getType());
 			VReg d = fresh(detail::kFp);
 			needScratch(); // FLoad-of-immediate materializes through the scratch slot
@@ -381,6 +385,23 @@ namespace rat {
 
 	void X86LowerPass::emitNode(Node* n) {
 		switch(n->getOpcode()) {
+		case Opcode::Global: {
+			GlobalNode* g = cast<GlobalNode>(n);
+			def1(X86Op::LoadSym, vregFor(n), detail::kGp, {MachineOperand::symbol(g->getSymbol())});
+			return;
+		}
+		case Opcode::Constant: {
+			ConstantNode* c = cast<ConstantNode>(n);
+			if(isSseTy(n->getType())) {
+				U32 w = opWidth(n->getType());
+				needScratch();
+				inst(X86Op::FLoad,
+						 detail::kFp,
+						 {MachineOperand::vr(vregFor(n), w)},
+						 {MachineOperand::immVal((I64)(U64)c->getValue(), w)});
+			}
+			return;
+		}
 		case Opcode::Store:
 			emitStore(cast<StoreNode>(n));
 			return;
@@ -576,6 +597,9 @@ namespace rat {
 			return -(I32)fn.frameBytes;
 		};
 		hooks.isCopy = [](const MachineInstr& in) { return in.op == (MachineOpcode)X86Op::Copy; };
+		hooks.isRemat = [](const MachineInstr& in) {
+			return in.op == (MachineOpcode)X86Op::LoadImm || in.op == (MachineOpcode)X86Op::LoadSym;
+		};
 		return hooks;
 	}
 

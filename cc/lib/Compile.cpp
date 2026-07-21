@@ -31,6 +31,7 @@ namespace rat::cc {
 				pm.add<GraphColorRegAllocPass>();
 			else
 				pm.add<LinearScanRegAllocPass>();
+			pm.add<X86LayoutPass>();
 			pm.add<X86EncodePass>(out);
 		}
 	}

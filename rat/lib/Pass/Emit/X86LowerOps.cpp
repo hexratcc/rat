@@ -49,6 +49,17 @@ namespace rat {
 					 {MachineOperand::vr(addr), MachineOperand::vr(v, w)},
 					 a.disp);
 		} else {
+			if(ConstantNode* c = dyn_cast<ConstantNode>(val)) {
+				I64 v = c->getValue();
+				if(w < 8 || v == (I64)(I32)v) {
+					inst(X86Op::Store,
+							 detail::kGp,
+							 {},
+							 {MachineOperand::vr(addr), MachineOperand::immVal(v, w)},
+							 a.disp);
+					return;
+				}
+			}
 			VReg v = gpValue(val);
 			inst(X86Op::Store,
 					 detail::kGp,

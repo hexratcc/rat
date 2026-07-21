@@ -384,27 +384,41 @@ namespace rat {
 	}
 
 	U32 Function::eliminateDeadNodes(B32 includeControl) {
-		U32 removed = 0;
-		B32 changed = true;
-		while(changed) {
-			changed = false;
-			for(auto it = nodes.begin(); it != nodes.end();) {
-				Node* n = *it;
-				B32 dead = !n->hasUsers() && !n->hasSideEffects() && (includeControl || !n->isCFG()) &&
-									 n != start && n != stop;
-				if(!dead && (isa<StoreNode>(n) || isa<CallNode>(n)) && !n->getControlInput())
-					dead = true;
-				if(dead) {
-					n->clearInputs();
-					it = nodes.erase(it);
-					++removed;
-					changed = true;
-				} else {
-					++it;
-				}
-			}
+		Set<Node*> dead;
+		List<Node*> work;
+		work.reserve(nodes.size());
+		for(Node* n : nodes)
+			work.push_back(n);
+
+		auto isDead = [&](Node* n) -> B32 {
+			if(dead.count(n))
+				return false; // already processed
+			B32 d = !n->hasUsers() && !n->hasSideEffects() && (includeControl || !n->isCFG()) &&
+							n != start && n != stop;
+			if(!d && (isa<StoreNode>(n) || isa<CallNode>(n)) && !n->getControlInput())
+				d = true;
+			return d;
+		};
+
+		while(!work.empty()) {
+			Node* n = work.back();
+			work.pop_back();
+			if(!isDead(n))
+				continue;
+			dead.insert(n);
+			for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
+				if(Node* in = n->getInput(i))
+					work.push_back(in);
+			n->clearInputs();
 		}
-		return removed;
+
+		if(dead.empty())
+			return 0;
+		nodes.erase(std::remove_if(nodes.begin(),
+															 nodes.end(),
+															 [&](Node* n) { return dead.count(n) != 0; }),
+								nodes.end());
+		return (U32)dead.size();
 	}
 
 	U32 Function::pruneUnreachable() {

@@ -20,7 +20,7 @@ namespace rat {
 			U32 w = d.width;
 			if(d.kind == MachineOperand::Kind::Phys && s.kind == MachineOperand::Kind::Phys) {
 				if(xmmOf(d) != xmmOf(s))
-					a->sseArith(0x10, w, xmmOf(d), xmmOf(s)); // movss/movsd reg,reg
+					a->movaps(xmmOf(d), xmmOf(s));
 			} else if(d.kind == MachineOperand::Kind::Phys && s.kind == MachineOperand::Kind::FrameSlot)
 				a->loadXmm(xmmOf(d), RBP, s.slot, w);
 			else if(d.kind == MachineOperand::Kind::FrameSlot && s.kind == MachineOperand::Kind::Phys)
@@ -97,7 +97,14 @@ namespace rat {
 		const MachineOperand& a0 = in.uses[0];
 		const MachineOperand& src = in.uses[1];
 		if(a0.kind == MachineOperand::Kind::FrameSlot) {
-			a->storeMem(RBP, a0.slot, gpOf(src), 8);
+			if(src.kind == MachineOperand::Kind::Imm)
+				a->storeMemImm(RBP, a0.slot, src.imm, 8);
+			else
+				a->storeMem(RBP, a0.slot, gpOf(src), 8);
+			return;
+		}
+		if(src.kind == MachineOperand::Kind::Imm) {
+			a->storeMemImm(gpOf(a0), (I32)in.imm, src.imm, src.width);
 			return;
 		}
 		a->storeMem(gpOf(a0), (I32)in.imm, gpOf(src), src.width);
@@ -243,7 +250,7 @@ namespace rat {
 		a->pxor(z, z);
 		a->sseArith(0x5c, w, z, s == d ? d : s);
 		if(d != z)
-			a->sseArith(0x10, w, d, z);
+			a->movaps(d, z);
 	}
 
 	void X86EncodePass::emitFCmp(const MachineInstr& in) {

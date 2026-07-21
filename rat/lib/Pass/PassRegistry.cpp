@@ -12,6 +12,7 @@
 #include "Pass/Opt/Fold.h"
 #include "Pass/Opt/GVN.h"
 #include "Pass/Opt/Inline.h"
+#include "Pass/Opt/StrengthReduce.h"
 #include "Pass/Opt/MemoryOpt.h"
 #include "Pass/Opt/SCCP.h"
 #include "Pass/Opt/SimplifyCFG.h"
@@ -40,6 +41,7 @@ namespace rat {
 		r.add<SimplifyCFGPass>("simplifycfg", "control-flow simplification");
 		r.add<MemoryOptPass>("memoryopt", "load/store forwarding");
 		r.add<InlinePass>("inline", "function inlining");
+		r.add<StrengthReducePass>("strengthreduce", "loop induction-variable strength reduction");
 		r.add<DeadFuncElimPass>("dfe", "dead (unreferenced internal) function elimination");
 		r.add<VerifyPass>("verify", "edge consistency + structural invariants");
 		r.add<TextEmitterPass>("text-emitter", "textual IR visualization");
@@ -57,7 +59,18 @@ namespace rat {
 	}
 
 	List<String> defaultOptPipeline() {
-		return {"sccp", "fold", "simplifycfg", "gvn", "memoryopt", "inline", "fold", "gvn", "dfe"};
+		return {"sccp",
+						"fold",
+						"simplifycfg",
+						"gvn",
+						"memoryopt",
+						"inline",
+						"fold",
+						"gvn",
+						"strengthreduce",
+						"fold",
+						"gvn",
+						"dfe"};
 	}
 
 	B32 buildPipeline(PassManager& pm, const String& spec, std::ostream& out, String& err) {

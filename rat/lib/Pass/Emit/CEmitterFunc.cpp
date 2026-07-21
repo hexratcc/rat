@@ -18,9 +18,10 @@ namespace rat {
 	}
 
 	B32 CEmitterPass::FunctionEmitter::producesTemp(const Node* n) {
-		if(n->getOpcode() == Opcode::Alloc)
+		Opcode op = n->getOpcode();
+		if(op == Opcode::Alloc || op == Opcode::Constant || op == Opcode::Global)
 			return false;
-		return Schedule::isFloating(n) || n->getOpcode() == Opcode::Load;
+		return Schedule::isFloating(n) || op == Opcode::Load;
 	}
 
 	void CEmitterPass::FunctionEmitter::computeNeedTemp() {
@@ -237,6 +238,9 @@ namespace rat {
 
 	void CEmitterPass::FunctionEmitter::emitStatement(Node* n) {
 		switch(n->getOpcode()) {
+		case Opcode::Constant:
+		case Opcode::Global:
+			return;
 		case Opcode::Store: {
 			auto* s = cast<StoreNode>(n);
 			String ptrTy = cType(s->getValue()->getType(), true) + " *";

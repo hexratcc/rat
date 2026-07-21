@@ -282,6 +282,10 @@ namespace rat {
 		Opcode op = n->getOpcode();
 		if(op == Opcode::Alloc)
 			return cast<AllocNode>(n)->isVariableSized();
+		if(op == Opcode::Global)
+			return true;
+		if(op == Opcode::Constant)
+			return n->getType()->isFloat() && n->getType()->getFloatWidth() != 128;
 		return op == Opcode::Load || isArithmeticOpcode(op);
 	}
 
@@ -390,12 +394,17 @@ namespace rat {
 				}
 
 				I32 e = early.count(n) ? early.at(n) : entryBlock;
+				Opcode op = n->getOpcode();
+				B32 remat = op == Opcode::Constant || op == Opcode::Global;
 				// walk from late up toward early, remembering the block with the
 				// smallest loop depth (ties keep the deepest = latest, found first)
 				I32 cur = late, pick = late;
 				while(true) {
-					if(blocks[cur].loopDepth < blocks[pick].loopDepth)
+					if(blocks[cur].loopDepth < blocks[pick].loopDepth) {
 						pick = cur;
+						if(remat)
+							break; // first depth drop only
+					}
 					if(cur == e || cur == entryBlock)
 						break;
 					I32 next = blocks[cur].idom;

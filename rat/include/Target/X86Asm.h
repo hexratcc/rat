@@ -257,6 +257,22 @@ namespace rat {
 			modrmMem(src, base, disp);
 		}
 
+		// mov imm, [base+disp]
+		void storeMemImm(Reg base, I32 disp, I64 imm, U32 width) {
+			if(width == 2)
+				b(0x66);
+			rex(width == 8, 0, 0, base);
+			b(width == 1 ? 0xc6 : 0xc7);
+			modrmMem((Reg)0, base, disp);
+			if(width == 1)
+				b((U8)imm);
+			else if(width == 2) {
+				b((U8)imm);
+				b((U8)((U16)imm >> 8));
+			} else
+				d32((U32)(I32)imm);
+		}
+
 		void load64(Reg dst, Reg base, I32 disp) {
 			rex(true, dst, 0, base);
 			b(0x8b);
@@ -546,6 +562,12 @@ namespace rat {
 			b(0x0f);
 			b(0x10); // movss/movsd load
 			modrmMemSib(xmm, base, index, scaleLog2, disp);
+		}
+		void movaps(U32 dst, U32 src) {
+			rex(false, dst, 0, src);
+			b(0x0f);
+			b(0x28);
+			modrmReg(dst, src);
 		}
 		void sseArith(U8 op, U32 width, U32 dst, U32 src) {
 			ssePrefix(width);

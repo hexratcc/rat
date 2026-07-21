@@ -16,6 +16,7 @@
 #include "Pass/Emit/GraphEmitter.h"
 #include "Pass/Emit/TextEmitter.h"
 #include "Pass/Emit/X86Encode.h"
+#include "Pass/Emit/X86Layout.h"
 #include "Pass/Emit/X86Lower.h"
 
 #include "Pass/Opt/Fold.h"
