@@ -7,7 +7,7 @@ namespace rat {
 		pinsByPoint.clear();
 		pinsByPoint.reserve(fixedAt.size());
 		for(const auto& kv : fixedAt)
-			pinsByPoint.emplace_back(kv.first, &kv.second);
+			pinsByPoint.emplace_back(kv.first, kv.second);
 		std::sort(pinsByPoint.begin(), pinsByPoint.end(), [](const auto& a, const auto& b) {
 			return a.first < b.first;
 		});
@@ -134,17 +134,20 @@ namespace rat {
 		return true;
 	}
 
-	Set<PhysReg> LinearScanRegAllocPass::forbidden(const Interval& iv) const {
-		Set<PhysReg> bad;
+	U64 LinearScanRegAllocPass::forbidden(const Interval& iv) const {
+		U64 bad = 0;
 		for(const Seg& sg : iv.segs) {
 			auto lo = std::lower_bound(pinsByPoint.begin(),
 																 pinsByPoint.end(),
 																 sg.start,
 																 [](const auto& a, I32 pt) { return a.first < pt; });
 			for(auto it = lo; it != pinsByPoint.end() && it->first <= sg.end; ++it)
-				for(PhysReg p : *it->second)
+				for(U64 m = it->second; m;) {
+					PhysReg p = (PhysReg)__builtin_ctzll(m);
+					m &= m - 1;
 					if(!pinExempt(iv.vreg, it->first, p))
-						bad.insert(p);
+						bad |= (U64)1 << p;
+				}
 		}
 		return bad;
 	}
@@ -194,7 +197,7 @@ namespace rat {
 
 			const RegClass& rc = regClass(iv->cls);
 			Set<PhysReg>& pool = freeRegs[iv->cls];
-			Set<PhysReg> bad = forbidden(*iv);
+			U64 bad = forbidden(*iv);
 
 			// biased pick
 			PhysReg pick = kNoReg;
@@ -203,7 +206,7 @@ namespace rat {
 				return it == intervals.end() ? kNoReg : it->second.assigned;
 			};
 			for(PhysReg h : hintedRegs(iv->vreg, colorOf)) {
-				if(bad.count(h))
+				if((bad >> h) & 1)
 					continue;
 				if(iv->crossesCall && !isCalleeSaved(rc, h))
 					continue;
@@ -230,14 +233,14 @@ namespace rat {
 			if(pick == kNoReg) {
 				if(iv->crossesCall) {
 					for(PhysReg p : rc.calleeSaved)
-						if(pool.count(p) && !bad.count(p)) {
+						if(pool.count(p) && !((bad >> p) & 1)) {
 							pick = p;
 							break;
 						}
 				} else {
 					// short-lived value
 					for(PhysReg p : rc.allocatable)
-						if(pool.count(p) && !bad.count(p)) {
+						if(pool.count(p) && !((bad >> p) & 1)) {
 							pick = p;
 							break;
 						}
@@ -258,13 +261,13 @@ namespace rat {
 
 	void LinearScanRegAllocPass::spillAt(Interval* cur, List<Interval*>& active) {
 		const RegClass& rc = regClass(cur->cls);
-		Set<PhysReg> bad = forbidden(*cur);
+		U64 bad = forbidden(*cur);
 		Interval* victim = nullptr;
 		for(Interval* a : active)
 			if(a->cls == cur->cls && !a->spilled) {
 				if(cur->crossesCall && !isCalleeSaved(rc, a->assigned))
 					continue;
-				if(bad.count(a->assigned))
+				if((bad >> a->assigned) & 1)
 					continue;
 				B32 shared = false;
 				for(const Interval* o : active)

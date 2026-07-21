@@ -54,13 +54,13 @@ namespace rat {
 		static void coalesceSegs(Interval& iv);
 		static B32 coversPoint(const Interval& iv, I32 pt);
 		static B32 overlapOnlyAt(const Interval& a, const Interval& b, const List<I32>& pts);
-		Set<PhysReg> forbidden(const Interval& iv) const;
+		U64 forbidden(const Interval& iv) const;
 		void assignRegs();
 		void assignSpillSlots();
 		void spillAt(Interval* cur, List<Interval*>& active);
 	private:
 		Map<VReg, Interval> intervals;
-		List<std::pair<I32, const Set<PhysReg>*>> pinsByPoint;
+		List<std::pair<I32, U64>> pinsByPoint;
 	};
 } // namespace rat
 
