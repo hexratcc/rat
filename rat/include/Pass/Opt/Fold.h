@@ -23,6 +23,11 @@ namespace rat {
 
 	Node* constant(Function& fn, Type* type, I64 value);
 
+	B32 evalBinaryConst(Opcode op, U32 w, I64 a, I64 b, I64& out);
+	B32 evalUnaryConst(Opcode op, U32 w, I64 x, I64& out);
+	B32 evalCompareConst(Opcode op, U32 w, I64 a, I64 b, I64& out);
+	B32 evalConvertConst(Opcode op, U32 srcW, U32 dstW, I64 x, I64& out);
+
 	Node* foldBinary(Function& fn, Opcode op, Node* lhs, Node* rhs);
 	Node* foldUnary(Function& fn, Opcode op, Node* operand);
 	Node* foldCompare(Function& fn, Opcode op, Node* lhs, Node* rhs);

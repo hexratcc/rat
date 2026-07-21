@@ -69,8 +69,11 @@ namespace rat {
 		return fn.create<ConstantNode>(type, FoldPass::normalizeConst(value, type->getIntWidth()));
 	}
 
-	Node* foldBinaryConst(Function& fn, Opcode op, Type* ty, U32 w, I64 a, I64 b) {
-		auto k = [&](I64 v) { return constant(fn, ty, v); };
+	B32 evalBinaryConst(Opcode op, U32 w, I64 a, I64 b, I64& out) {
+		auto k = [&](I64 v) {
+			out = FoldPass::normalizeConst(v, w);
+			return true;
+		};
 		switch(op) {
 		case Opcode::Add:
 			return k((I64)((U64)a + (U64)b));
@@ -87,42 +90,100 @@ namespace rat {
 		case Opcode::Shl:
 			if(b >= 0 && b < (I64)w)
 				return k((I64)((U64)a << b));
-			return nullptr;
+			return false;
 		case Opcode::LShr:
 			if(b >= 0 && b < (I64)w)
 				return k((I64)(FoldPass::maskW(a, w) >> b));
-			return nullptr;
+			return false;
 		case Opcode::AShr:
 			if(b >= 0 && b < (I64)w)
 				return k(signExtend(a, w) >> b);
-			return nullptr;
+			return false;
 		case Opcode::SDiv: {
 			I64 sa = signExtend(a, w), sb = signExtend(b, w);
 			if(FoldPass::wouldSignedDivOverflow(sa, sb))
-				return nullptr;
+				return false;
 			return k(sa / sb);
 		}
 		case Opcode::SRem: {
 			I64 sa = signExtend(a, w), sb = signExtend(b, w);
 			if(FoldPass::wouldSignedDivOverflow(sa, sb))
-				return nullptr;
+				return false;
 			return k(sa % sb);
 		}
 		case Opcode::UDiv: {
 			U64 ua = FoldPass::maskW(a, w), ub = FoldPass::maskW(b, w);
 			if(ub == 0)
-				return nullptr;
+				return false;
 			return k((I64)(ua / ub));
 		}
 		case Opcode::URem: {
 			U64 ua = FoldPass::maskW(a, w), ub = FoldPass::maskW(b, w);
 			if(ub == 0)
-				return nullptr;
+				return false;
 			return k((I64)(ua % ub));
 		}
 		default:
-			return nullptr;
+			return false;
 		}
+	}
+
+	B32 evalUnaryConst(Opcode op, U32 w, I64 x, I64& out) {
+		if(op != Opcode::Neg && op != Opcode::Not)
+			return false;
+		out = FoldPass::normalizeConst(op == Opcode::Neg ? -x : ~x, w);
+		return true;
+	}
+
+	B32 evalCompareConst(Opcode op, U32 w, I64 a, I64 b, I64& out) {
+		B32 res = false;
+		switch(op) {
+		case Opcode::Eq:
+			res = FoldPass::maskW(a, w) == FoldPass::maskW(b, w);
+			break;
+		case Opcode::Ne:
+			res = FoldPass::maskW(a, w) != FoldPass::maskW(b, w);
+			break;
+		case Opcode::Slt:
+			res = signExtend(a, w) < signExtend(b, w);
+			break;
+		case Opcode::Sle:
+			res = signExtend(a, w) <= signExtend(b, w);
+			break;
+		case Opcode::Ult:
+			res = FoldPass::maskW(a, w) < FoldPass::maskW(b, w);
+			break;
+		case Opcode::Ule:
+			res = FoldPass::maskW(a, w) <= FoldPass::maskW(b, w);
+			break;
+		default:
+			return false;
+		}
+		out = res ? 1 : 0;
+		return true;
+	}
+
+	B32 evalConvertConst(Opcode op, U32 srcW, U32 dstW, I64 x, I64& out) {
+		switch(op) {
+		case Opcode::Trunc:
+			out = FoldPass::normalizeConst(x, dstW);
+			return true;
+		case Opcode::SExt:
+			out = FoldPass::normalizeConst(signExtend(x, srcW), dstW);
+			return true;
+		case Opcode::ZExt:
+			out = FoldPass::normalizeConst((I64)FoldPass::maskW(x, srcW), dstW);
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	Node* foldBinaryConst(Function& fn, Opcode op, Type* ty, U32 w, I64 a, I64 b) {
+		I64 out;
+		if(!evalBinaryConst(op, w, a, b, out))
+			return nullptr;
+		return constant(fn, ty, out);
 	}
 
 	Node* foldBinaryIdentity(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs) {
