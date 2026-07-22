@@ -85,7 +85,29 @@ namespace rat::cc {
 				out.push_back(c);
 			};
 
+			const char* data = src.data();
 			while(i < n) {
+				// fast path: bulk-copy a run with no splice/trigraph/CR triggers
+				size_t start = i;
+				U32 startLine = line; // line of first char in run
+				while(i < n) {
+					char c = data[i];
+					if(c == '\\' || c == '\r' || c == '?')
+						break;
+					if(c == '\n')
+						++line;
+					++i;
+				}
+				if(i > start) {
+					if(pendingMark) {
+						marks.push_back({(U32)out.size(), startLine});
+						pendingMark = false;
+					}
+					out.append(data + start, i - start);
+				}
+				if(i >= n)
+					break;
+
 				char c;
 				size_t len = decode(i, c);
 				if(c == '\\') {
