@@ -2,20 +2,24 @@
 
 namespace rat::cc {
 	namespace detail {
+		// names arrive sorted+unique (kept by every ctor below), so interning
+		// is a pointer-hash lookup with no sort
 		const HideSet* Preprocessor::internHide(List<const String*> names) {
 			if(names.empty())
 				return nullptr;
-			std::sort(names.begin(), names.end());
-			names.erase(std::unique(names.begin(), names.end()), names.end());
-			String key(reinterpret_cast<const char*>(names.data()),
-								 names.size() * sizeof(const String*));
-			auto it = hidePool.find(key);
-			if(it != hidePool.end())
-				return it->second;
+			U64 h = 1469598103934665603ull;
+			for(const String* p : names) {
+				h ^= (U64)(uintptr_t)p;
+				h *= 1099511628211ull;
+			}
+			List<const HideSet*>& bucket = hidePool[h];
+			for(const HideSet* c : bucket)
+				if(c->names == names)
+					return c;
 			hideStore.push_back(HideSet{std::move(names)});
-			const HideSet* h = &hideStore.back();
-			hidePool.emplace(std::move(key), h);
-			return h;
+			const HideSet* hp = &hideStore.back();
+			bucket.push_back(hp);
+			return hp;
 		}
 
 		B32 Preprocessor::hideHas(const HideSet* h, const String* name) {
@@ -28,8 +32,19 @@ namespace rat::cc {
 		}
 
 		const HideSet* Preprocessor::hideInsert(const HideSet* h, const String* n) {
-			List<const String*> names = h ? h->names : List<const String*>{};
-			names.push_back(n);
+			List<const String*> names;
+			if(h) {
+				const List<const String*>& hn = h->names;
+				auto pos = std::lower_bound(hn.begin(), hn.end(), n);
+				if(pos != hn.end() && *pos == n)
+					return h; // already present
+				names.reserve(hn.size() + 1);
+				names.insert(names.end(), hn.begin(), pos);
+				names.push_back(n);
+				names.insert(names.end(), pos, hn.end());
+			} else {
+				names.push_back(n);
+			}
 			return internHide(std::move(names));
 		}
 
@@ -44,12 +59,21 @@ namespace rat::cc {
 		}
 
 		const HideSet* Preprocessor::hideUnion(const HideSet* a, const HideSet* b) {
-			if(!a)
+			if(!a || a == b)
 				return b;
 			if(!b)
 				return a;
-			List<const String*> names = a->names;
-			names.insert(names.end(), b->names.begin(), b->names.end());
+			List<const String*> names;
+			names.reserve(a->names.size() + b->names.size());
+			std::set_union(a->names.begin(),
+										 a->names.end(),
+										 b->names.begin(),
+										 b->names.end(),
+										 std::back_inserter(names));
+			if(names.size() == a->names.size())
+				return a; // b is a subset of a
+			if(names.size() == b->names.size())
+				return b; // a is a subset of b
 			return internHide(std::move(names));
 		}
 
@@ -209,12 +233,20 @@ namespace rat::cc {
 				i += 1;
 			}
 
-			// drop placemarkers, then union the hide set into every token
+			// drop placemarkers, union hide set into every token; memoize on the
+			// incoming set (nearly always repeated)
 			List<PpToken> res;
+			res.reserve(os.size());
+			const HideSet* memoIn = (const HideSet*)&res; // impossible value
+			const HideSet* memoOut = nullptr;
 			for(PpToken& t : os) {
 				if(t.kind == Pk::Placemarker)
 					continue;
-				t.hide = hideUnion(t.hide, hs);
+				if(t.hide != memoIn) {
+					memoIn = t.hide;
+					memoOut = hideUnion(t.hide, hs);
+				}
+				t.hide = memoOut;
 				res.push_back(std::move(t));
 			}
 			return res;
@@ -236,14 +268,14 @@ namespace rat::cc {
 					cur.push_back(w);
 				} else if(isPunct(w, ")")) {
 					--depth;
-					if(depth == 0) {
+				if(depth == 0) {
 						rparen = w;
-						raw.push_back(cur);
+						raw.push_back(std::move(cur));
 						return true;
 					}
 					cur.push_back(w);
-				} else if(isPunct(w, ",") && depth == 1) {
-					raw.push_back(cur);
+			} else if(isPunct(w, ",") && depth == 1) {
+					raw.push_back(std::move(cur));
 					cur.clear();
 				} else {
 					cur.push_back(w);

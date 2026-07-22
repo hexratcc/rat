@@ -151,7 +151,7 @@ namespace rat::cc {
 			// interned
 			Interner interner;
 			std::deque<HideSet> hideStore;
-			Map<String, const HideSet*> hidePool;
+			Map<U64, List<const HideSet*>> hidePool; // keyed by pointer-FNV, chained
 			// pre-interned, compared by pointer on hot paths
 			const String* idLine;		 // "__LINE__"
 			const String* idFile;		 // "__FILE__"
