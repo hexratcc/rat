@@ -4,8 +4,6 @@
 
 namespace rat::cc {
 	namespace detail {
-		B32 isPunct(const PpToken& t, const char* s) { return t.kind == Pk::Punct && *t.text == s; }
-
 		String unquote(const String& s) { return s.size() >= 2 ? s.substr(1, s.size() - 2) : s; }
 
 		void stripTrailingSlash(String& s) {
@@ -128,14 +126,54 @@ namespace rat::cc {
 				emit('\n');
 		}
 
-		const char* kPuncts[] = {"%:%:", "...", "<<=", ">>=", "->", "++", "--", "<<", ">>", "<=",
-														 ">=",	 "==",	"!=",	 "&&",	"||", "*=", "/=", "%=", "+=", "-=",
-														 "&=",	 "|=",	"^=",	 "##",	"<:", ":>", "<%", "%>", "%:"};
+		// longest-match punctuator length at s[i]; assumes s[i] starts one
+		inline size_t punctLen(const String& s, size_t i, size_t n) {
+			char c = s[i];
+			char d = i + 1 < n ? s[i + 1] : '\0';
+			char e = i + 2 < n ? s[i + 2] : '\0';
+			switch(c) {
+			case '.':
+				return (d == '.' && e == '.') ? 3 : 1;
+			case '<':
+				if(d == '<')
+					return e == '=' ? 3 : 2;
+				return (d == '=' || d == ':' || d == '%') ? 2 : 1;
+			case '>':
+				if(d == '>')
+					return e == '=' ? 3 : 2;
+				return d == '=' ? 2 : 1;
+			case '%':
+				if(d == ':')
+					return (e == '%' && i + 3 < n && s[i + 3] == ':') ? 4 : 2;
+				return (d == '=' || d == '>') ? 2 : 1;
+			case ':':
+				return d == '>' ? 2 : 1;
+			case '#':
+				return d == '#' ? 2 : 1;
+			case '+':
+				return (d == '+' || d == '=') ? 2 : 1;
+			case '-':
+				return (d == '-' || d == '=' || d == '>') ? 2 : 1;
+			case '&':
+				return (d == '&' || d == '=') ? 2 : 1;
+			case '|':
+				return (d == '|' || d == '=') ? 2 : 1;
+			case '=':
+			case '!':
+			case '*':
+			case '/':
+			case '^':
+				return d == '=' ? 2 : 1;
+			default:
+				return 1;
+			}
+		}
 
 		LexResult
 		lexAll(const String& s, const List<LineMark>& marks, const String* file, Interner& in) {
 			LexResult r;
 			size_t i = 0, n = s.size();
+			r.toks.reserve(n / 3 + 8);
 			B32 bolPending = true;
 			B32 spacePending = false;
 			U32 line = 1;
@@ -288,22 +326,10 @@ namespace rat::cc {
 					continue;
 				}
 
-				// punctuator
-				B32 matched = false;
-				for(const char* p : kPuncts) {
-					size_t len = std::strlen(p);
-					if(i + len <= n && s.compare(i, len, p) == 0) {
-						pushTok(Pk::Punct, i, i + len);
-						i += len;
-						matched = true;
-						break;
-					}
-				}
-				if(matched)
-					continue;
-
-				pushTok(Pk::Punct, i, i + 1);
-				++i;
+			// punctuator
+				size_t plen = punctLen(s, i, n);
+				pushTok(Pk::Punct, i, i + plen);
+				i += plen;
 			}
 
 			PpToken eof;

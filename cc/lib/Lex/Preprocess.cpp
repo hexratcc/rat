@@ -451,6 +451,11 @@ namespace rat::cc {
 
 		String Preprocessor::serialize() {
 			String s;
+			size_t total = 0;
+			for(const PpToken& t : out)
+				if(t.kind != Pk::Placemarker && t.kind != Pk::Eof)
+					total += t.text->size() + 1;
+			s.reserve(total + 2);
 			B32 first = true;
 			for(const PpToken& t : out) {
 				if(t.kind == Pk::Placemarker || t.kind == Pk::Eof)

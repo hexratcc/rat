@@ -50,7 +50,17 @@ namespace rat::cc {
 
 		constexpr U32 kMaxIncludeDepth = 200;
 
-		B32 isPunct(const PpToken& t, const char* s);
+		// 1-2 char fast paths avoid strlen/memcmp
+		inline B32 isPunct(const PpToken& t, const char* s) {
+			if(t.kind != Pk::Punct)
+				return false;
+			const String& x = *t.text;
+			if(s[1] == '\0')
+				return x.size() == 1 && x[0] == s[0];
+			if(s[2] == '\0')
+				return x.size() == 2 && x[0] == s[0] && x[1] == s[1];
+			return x == s;
+		}
 		String unquote(const String& s);
 		void stripTrailingSlash(String& s);
 		size_t ucnLen(const String& s, size_t i);
