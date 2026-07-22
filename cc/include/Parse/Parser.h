@@ -1,13 +1,13 @@
 #ifndef RAT_CC_PARSER_H
 #define RAT_CC_PARSER_H
 
-#include "Lex/Lexer.h"
+#include "Lex/TokenStream.h"
 #include "Parse/Ast.h"
 #include "TargetLayout.h"
 
 namespace rat::cc {
 	struct Parser {
-		Parser(Lexer& lexer, Arena& arena, const TargetLayout& layout);
+		Parser(TokenStream& lexer, Arena& arena, const TargetLayout& layout);
 
 		TransUnit* parseUnit();
 
@@ -131,7 +131,7 @@ namespace rat::cc {
 		U32 fieldByteSize(CType t) const { return isAggregate(t) ? t.strukt->size : typeSizeBytes(t); }
 		U32 fieldAlign(CType t) const { return isAggregate(t) ? t.strukt->align : typeSizeBytes(t); }
 
-		Lexer& lex;
+		TokenStream& lex;
 		Arena& arena;
 		TargetLayout lay;
 		U32 parseDepth = 0;

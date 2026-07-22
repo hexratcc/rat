@@ -9,7 +9,7 @@ namespace rat::cc {
 		return true;
 	}
 
-	Parser::Parser(Lexer& lexer, Arena& arena, const TargetLayout& layout)
+	Parser::Parser(TokenStream& lexer, Arena& arena, const TargetLayout& layout)
 	: lex(lexer),
 		arena(arena),
 		lay(layout) {

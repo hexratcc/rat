@@ -222,40 +222,39 @@ namespace {
 		}
 	}
 
-	TransUnit* parse(const String& path, const String& source, Arena& arena) {
-		Lexer lex(source.data(), (U32)source.size(), path);
-		Parser parser(lex, arena, TargetLayout::forTriple(hostTargetTriple()));
+	TransUnit* parse(TokenStream& ts, Arena& arena) {
+		ts.reset();
+		Parser parser(ts, arena, TargetLayout::forTriple(hostTargetTriple()));
 		TransUnit* unit = parser.parseUnit();
 		if(!unit)
 			std::cerr << parser.error() << "\n";
 		return unit;
 	}
 
-	I32 emitAstText(const String& path, const String& source, std::ostream& os) {
+	I32 emitAstText(TokenStream& ts, std::ostream& os) {
 		Arena arena;
 		Generic64 target;
-		TransUnit* unit = parse(path, source, arena);
+		TransUnit* unit = parse(ts, arena);
 		if(!unit)
 			return 1;
 		dumpAst(*unit, os);
 		return 0;
 	}
 
-	I32 emitViaModule(
-			const Options& opt, const String& path, const String& source, Emit kind, std::ostream& os) {
+	I32 emitViaModule(const Options& opt, TokenStream& ts, Emit kind, std::ostream& os) {
 		Generic64 generic;
 		X86Target x86(hostTargetTriple());
 		const TargetInfo& target = (kind == Emit::X86) ? (const TargetInfo&)x86 : generic;
 
 		Arena arena;
-		TransUnit* unit = parse(path, source, arena);
+		TransUnit* unit = parse(ts, arena);
 		if(!unit)
 			return 1;
 
 		Module mod;
 		Emitter emitter(mod, TargetLayout::forTriple(hostTargetTriple()));
 		if(!emitter.emit(*unit)) {
-			std::cerr << path << ": " << emitter.error() << "\n";
+			std::cerr << ts.file() << ": " << emitter.error() << "\n";
 			return 1;
 		}
 
@@ -273,7 +272,8 @@ namespace {
 		return 0;
 	}
 
-	I32 emitOne(const Options& opt, const String& path, const String& source, Emit kind) {
+	I32 emitOne(
+			const Options& opt, const String& path, const String& pped, TokenStream* ts, Emit kind) {
 		String out = pathFor(opt, kind);
 		B32 binary = (kind == Emit::X86);
 		std::ofstream file(out, binary ? std::ios::binary : std::ios::out);
@@ -283,12 +283,12 @@ namespace {
 		}
 		switch(kind) {
 		case Emit::Tok:
-			return emitTokens(path, source, file);
+			return emitTokens(path, pped, file);
 		case Emit::Ast:
-			return emitAstText(path, source, file);
+			return emitAstText(*ts, file);
 		case Emit::C:
 		case Emit::X86:
-			return emitViaModule(opt, path, source, kind, file);
+			return emitViaModule(opt, *ts, kind, file);
 		}
 		unreachableCode();
 	}
@@ -320,20 +320,31 @@ static I32 run(I32 argc, char** argv) {
 	if(!opt.noPredefs)
 		source = hostPredefs() + "#line 1 \"" + path + "\"\n" + source;
 
+	// -E and -emit tok need serialized text; else parse the pp token stream directly
+	B32 needText = opt.preprocessOnly;
+	B32 needToks = false;
+	for(Emit kind : opt.emits)
+		(kind == Emit::Tok ? needText : needToks) = true;
+
 	String pped, ppErr;
-	if(!preprocess(path, source, opt.pp, pped, ppErr)) {
+	if(needText && !preprocess(path, source, opt.pp, pped, ppErr)) {
 		std::cerr << "ratcc: " << ppErr << "\n";
 		return 1;
 	}
-	source = pped;
+
+	TokenStream ts;
+	if(needToks && !preprocessToTokens(path, source, opt.pp, ts, ppErr)) {
+		std::cerr << "ratcc: " << ppErr << "\n";
+		return 1;
+	}
 
 	if(opt.preprocessOnly) {
-		std::cout << source;
+		std::cout << pped;
 		return 0;
 	}
 
 	for(Emit kind : opt.emits)
-		if(I32 rc = emitOne(opt, path, source, kind))
+		if(I32 rc = emitOne(opt, path, pped, needToks ? &ts : nullptr, kind))
 			return rc;
 	return 0;
 }

@@ -202,8 +202,12 @@ namespace rat::cc {
 				return;
 			List<PpToken> e = expand(PpSpan(textBuf));
 			e = applyPragmaOperators(e, fileName);
-			for(PpToken& t : e)
+			for(PpToken& t : e) {
+				// report lines through any #line adjustment
+				I64 adj = (I64)t.line + lineDelta;
+				t.line = adj >= 1 ? (U32)adj : 1;
 				out.push_back(std::move(t));
+			}
 			textBuf.clear();
 		}
 

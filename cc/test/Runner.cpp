@@ -2,7 +2,7 @@
 #include "Host.h"
 
 #include "Emit/Emit.h"
-#include "Lex/Lexer.h"
+#include "Lex/TokenStream.h"
 #include "Lex/Preprocess.h"
 #include "Parse/Parser.h"
 #include <atomic>
@@ -330,16 +330,14 @@ namespace {
 		PpOptions pp;
 		pp.includeDirs = hostIncludeDirs();
 		String full = hostPredefs() + "#line 1 \"" + path + "\"\n" + source;
-		String pped;
-		if(!preprocess(path, full, pp, pped, err))
+		TokenStream ts;
+		if(!preprocessToTokens(path, full, pp, ts, err))
 			return false;
-		source = pped;
 
-		Lexer lex(source.data(), (U32)source.size(), path);
 		Arena arena;
 		Generic64 target;
 		const TargetLayout lay = TargetLayout::forTriple(hostTargetTriple());
-		Parser parser(lex, arena, lay);
+		Parser parser(ts, arena, lay);
 		TransUnit* unit = parser.parseUnit();
 		if(!unit) {
 			err = parser.error();
