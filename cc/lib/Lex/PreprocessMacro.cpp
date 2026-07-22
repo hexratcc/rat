@@ -2,16 +2,6 @@
 
 namespace rat::cc {
 	namespace detail {
-		const String* Preprocessor::intern(const String& s) {
-			auto it = namePool.find(s);
-			if(it != namePool.end())
-				return it->second;
-			nameStore.push_back(s);
-			const String* p = &nameStore.back();
-			namePool.emplace(s, p);
-			return p;
-		}
-
 		const HideSet* Preprocessor::internHide(List<const String*> names) {
 			if(names.empty())
 				return nullptr;
@@ -28,11 +18,11 @@ namespace rat::cc {
 			return h;
 		}
 
-		B32 Preprocessor::hideHas(const HideSet* h, const String& name) {
+		B32 Preprocessor::hideHas(const HideSet* h, const String* name) {
 			if(!h)
 				return false;
 			for(const String* n : h->names)
-				if(*n == name)
+				if(n == name)
 					return true;
 			return false;
 		}
@@ -66,14 +56,14 @@ namespace rat::cc {
 		PpToken Preprocessor::makeNum(U64 v) {
 			PpToken t;
 			t.kind = Pk::Num;
-			t.text = std::to_string(v);
+			t.text = intern(std::to_string(v));
 			return t;
 		}
 
 		PpToken Preprocessor::makePunct(const String& s) {
 			PpToken t;
 			t.kind = Pk::Punct;
-			t.text = s;
+			t.text = intern(s);
 			return t;
 		}
 
@@ -81,7 +71,7 @@ namespace rat::cc {
 			String spliced;
 			List<LineMark> marks;
 			splice(text, spliced, marks);
-			LexResult lr = lexAll(spliced, marks, file);
+			LexResult lr = lexAll(spliced, marks, file, interner);
 			if(!lr.ok) {
 				fail((file ? *file : String("<fragment>")) + ": " + lr.err);
 				return {};
@@ -100,8 +90,9 @@ namespace rat::cc {
 			}
 			if(r.kind == Pk::Placemarker)
 				return;
-			dst.text += r.text;
-			dst.kind = classify(dst.text);
+			String s = *dst.text + *r.text;
+			dst.kind = classify(s);
+			dst.text = intern(s);
 			dst.hide = nullptr;
 		}
 
@@ -112,19 +103,19 @@ namespace rat::cc {
 				if(k > 0 && t.spaceBefore)
 					s += ' ';
 				if(t.kind == Pk::Str || t.kind == Pk::Char) {
-					for(char c : t.text) {
+					for(char c : *t.text) {
 						if(c == '"' || c == '\\')
 							s += '\\';
 						s += c;
 					}
 				} else {
-					s += t.text;
+					s += *t.text;
 				}
 			}
 			s += '"';
 			PpToken out;
 			out.kind = Pk::Str;
-			out.text = s;
+			out.text = intern(s);
 			out.spaceBefore = spaceBefore;
 			return out;
 		}
@@ -141,16 +132,16 @@ namespace rat::cc {
 		List<PpToken> Preprocessor::substitute(const Macro& m,
 																					 const List<List<PpToken>>& args,
 																					 const HideSet* hs,
-																					 const List<String>& formals) {
+																					 const List<const String*>& formals) {
 			List<PpToken> os;
 			const List<PpToken>& body = m.body;
-			auto idxOf = [&](const String& s) -> int {
+			auto idxOf = [&](const String* s) -> int {
 				for(size_t k = 0; k < formals.size(); ++k)
 					if(formals[k] == s)
 						return (int)k;
 				return -1;
 			};
-			auto isVa = [&](const String& s) { return m.variadic && s == m.vaName; };
+			auto isVa = [&](const String* s) { return m.variadic && s == m.vaName; };
 
 			size_t i = 0;
 			while(i < body.size()) {
@@ -318,17 +309,17 @@ namespace rat::cc {
 				}
 				auto it = macros.find(t.text);
 				if(it == macros.end()) {
-					if(t.text == "__LINE__") {
+					if(t.text == idLine) {
 						PpToken n = makeNum((U64)((I64)t.line + lineDelta));
 						n.spaceBefore = t.spaceBefore;
 						n.bol = t.bol;
 						os.push_back(n);
 						continue;
 					}
-					if(t.text == "__FILE__") {
+					if(t.text == idFile) {
 						PpToken n;
 						n.kind = Pk::Str;
-						n.text = "\"" + (fileName.empty() ? (t.file ? *t.file : String()) : fileName) + "\"";
+						n.text = intern("\"" + (fileName.empty() ? (t.file ? *t.file : String()) : fileName) + "\"");
 						n.spaceBefore = t.spaceBefore;
 						n.bol = t.bol;
 						os.push_back(n);
@@ -343,7 +334,7 @@ namespace rat::cc {
 				}
 				const Macro& m = it->second;
 				if(!m.isFunc) {
-					const HideSet* hs = hideInsert(t.hide, intern(t.text));
+					const HideSet* hs = hideInsert(t.hide, t.text);
 					List<PpToken> r = substitute(m, {}, hs, {});
 					requeueExpansion(r, t, work);
 					continue;
@@ -361,11 +352,10 @@ namespace rat::cc {
 				List<List<PpToken>> actuals;
 				if(!mapArgs(m, raw, actuals))
 					return os;
-				List<String> formals = m.params;
+				List<const String*> formals = m.params;
 				if(m.variadic)
 					formals.push_back(m.vaName);
-				const HideSet* hs =
-						hideInsert(hideIntersect(t.hide, rparen.hide), intern(t.text));
+				const HideSet* hs = hideInsert(hideIntersect(t.hide, rparen.hide), t.text);
 				List<PpToken> r = substitute(m, actuals, hs, formals);
 				requeueExpansion(r, t, work);
 			}
@@ -378,8 +368,8 @@ namespace rat::cc {
 				return;
 			}
 			Macro m;
-			String name = toks[0].text;
-			if(name == "defined") {
+			const String* name = toks[0].text;
+			if(name == idDefined) {
 				fail("'defined' cannot be used as a macro name");
 				return;
 			}
@@ -397,7 +387,7 @@ namespace rat::cc {
 					}
 					if(isPunct(t, "...")) {
 						m.variadic = true;
-						m.vaName = "__VA_ARGS__";
+						m.vaName = idVaArgs;
 						++i;
 						break;
 					}
@@ -440,10 +430,10 @@ namespace rat::cc {
 						continue;
 					B32 okOperand = false;
 					if(k + 1 < m.body.size() && m.body[k + 1].kind == Pk::Id) {
-						const String& nm = m.body[k + 1].text;
+						const String* nm = m.body[k + 1].text;
 						if(m.variadic && nm == m.vaName)
 							okOperand = true;
-						for(const String& p : m.params)
+						for(const String* p : m.params)
 							if(p == nm)
 								okOperand = true;
 					}
@@ -463,7 +453,7 @@ namespace rat::cc {
 				t.bol = false;
 			if(!m.body.empty())
 				m.body.front().spaceBefore = false;
-			macros[name] = std::move(m);
+			macros[intern(name)] = std::move(m);
 		}
 	} // namespace detail
 } // namespace rat::cc

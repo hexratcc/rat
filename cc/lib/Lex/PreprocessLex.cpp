@@ -4,7 +4,7 @@
 
 namespace rat::cc {
 	namespace detail {
-		B32 isPunct(const PpToken& t, const char* s) { return t.kind == Pk::Punct && t.text == s; }
+		B32 isPunct(const PpToken& t, const char* s) { return t.kind == Pk::Punct && *t.text == s; }
 
 		String unquote(const String& s) { return s.size() >= 2 ? s.substr(1, s.size() - 2) : s; }
 
@@ -132,7 +132,8 @@ namespace rat::cc {
 														 ">=",	 "==",	"!=",	 "&&",	"||", "*=", "/=", "%=", "+=", "-=",
 														 "&=",	 "|=",	"^=",	 "##",	"<:", ":>", "<%", "%>", "%:"};
 
-		LexResult lexAll(const String& s, const List<LineMark>& marks, const String* file) {
+		LexResult
+		lexAll(const String& s, const List<LineMark>& marks, const String* file, Interner& in) {
 			LexResult r;
 			size_t i = 0, n = s.size();
 			B32 bolPending = true;
@@ -151,26 +152,28 @@ namespace rat::cc {
 			auto pushTok = [&](Pk kind, size_t start, size_t end) {
 				PpToken t;
 				t.kind = kind;
-				t.text = s.substr(start, end - start);
+				std::string_view sv(s.data() + start, end - start);
 				if(kind == Pk::Punct) {
-					if(t.text == "<:")
-						t.text = "[";
-					else if(t.text == ":>")
-						t.text = "]";
-					else if(t.text == "<%")
-						t.text = "{";
-					else if(t.text == "%>")
-						t.text = "}";
-					else if(t.text == "%:")
-						t.text = "#";
-					else if(t.text == "%:%:")
-						t.text = "##";
+					// digraph canonicalization
+					if(sv == "<:")
+						sv = "[";
+					else if(sv == ":>")
+						sv = "]";
+					else if(sv == "<%")
+						sv = "{";
+					else if(sv == "%>")
+						sv = "}";
+					else if(sv == "%:")
+						sv = "#";
+					else if(sv == "%:%:")
+						sv = "##";
 				}
+				t.text = in.intern(sv);
 				t.spaceBefore = spacePending;
 				t.bol = bolPending;
 				t.line = line;
 				t.file = file;
-				r.toks.push_back(std::move(t));
+				r.toks.push_back(t);
 				bolPending = false;
 				spacePending = false;
 			};
@@ -229,7 +232,7 @@ namespace rat::cc {
 						else
 							break;
 					}
-					String word = s.substr(i, j - i);
+					std::string_view word(s.data() + i, j - i);
 					B32 isPrefix = (word == "L" || word == "u" || word == "U" || word == "u8");
 					if(isPrefix && j < n && (s[j] == '"' || s[j] == '\'')) {
 						// fall through into literal lexing starting at the quote
@@ -305,9 +308,10 @@ namespace rat::cc {
 
 			PpToken eof;
 			eof.kind = Pk::Eof;
+			eof.text = in.intern(std::string_view());
 			eof.bol = true;
 			eof.file = file;
-			r.toks.push_back(std::move(eof));
+			r.toks.push_back(eof);
 			return r;
 		}
 

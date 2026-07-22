@@ -38,7 +38,7 @@ namespace rat::cc {
 				if(toks.empty())
 					return false;
 				if(toks[0].kind == Pk::Str) {
-					fname = unquote(toks[0].text);
+					fname = unquote(*toks[0].text);
 					angled = false;
 					return true;
 				}
@@ -50,7 +50,7 @@ namespace rat::cc {
 							return true;
 						if(k > 1 && toks[k].spaceBefore)
 							fname += ' ';
-						fname += toks[k].text;
+						fname += *toks[k].text;
 					}
 					return false; // missing >
 				}
@@ -122,41 +122,42 @@ namespace rat::cc {
 				fail("#line expects a line number");
 				return;
 			}
-			U64 n = parseNumLit(rest[0].text).u;
+			U64 n = parseNumLit(*rest[0].text).u;
 			lineDelta = (I64)n - (I64)physicalNextLine;
 			if(rest.size() > 1 && rest[1].kind == Pk::Str)
-				fileName = unquote(rest[1].text);
+				fileName = unquote(*rest[1].text);
 		}
 
 		void Preprocessor::doPragma(const List<PpToken>& rest, const String& path) {
-			if(rest.size() == 1 && rest[0].kind == Pk::Id && rest[0].text == "once") {
+			if(rest.size() == 1 && rest[0].kind == Pk::Id && *rest[0].text == "once") {
 				pragmaOnce.insert(path);
 			} else if(rest.size() >= 1 && rest[0].kind == Pk::Id &&
-								(rest[0].text == "push_macro" || rest[0].text == "pop_macro")) {
+								(*rest[0].text == "push_macro" || *rest[0].text == "pop_macro")) {
 				String mname;
 				for(size_t k = 1; k < rest.size(); ++k) {
 					if(rest[k].kind == Pk::Str) {
-						mname = unquote(rest[k].text);
+						mname = unquote(*rest[k].text);
 						break;
 					}
 				}
 				if(!mname.empty()) {
-					if(rest[0].text == "push_macro") {
-						auto it = macros.find(mname);
+					const String* key = intern(mname);
+					if(*rest[0].text == "push_macro") {
+						auto it = macros.find(key);
 						SavedMacro sv;
 						sv.defined = it != macros.end();
 						if(sv.defined)
 							sv.macro = it->second;
-						macroStack[mname].push_back(std::move(sv));
+						macroStack[key].push_back(std::move(sv));
 					} else {
-						auto it = macroStack.find(mname);
+						auto it = macroStack.find(key);
 						if(it != macroStack.end() && !it->second.empty()) {
 							SavedMacro sv = std::move(it->second.back());
 							it->second.pop_back();
 							if(sv.defined)
-								macros[mname] = std::move(sv.macro);
+								macros[key] = std::move(sv.macro);
 							else
-								macros.erase(mname);
+								macros.erase(key);
 						}
 					}
 				}
@@ -183,9 +184,9 @@ namespace rat::cc {
 		List<PpToken> Preprocessor::applyPragmaOperators(List<PpToken>& toks, const String& path) {
 			List<PpToken> out;
 			for(size_t i = 0; i < toks.size();) {
-				if(toks[i].kind == Pk::Id && toks[i].text == "_Pragma" && i + 3 < toks.size() &&
+				if(toks[i].kind == Pk::Id && *toks[i].text == "_Pragma" && i + 3 < toks.size() &&
 					 isPunct(toks[i + 1], "(") && toks[i + 2].kind == Pk::Str && isPunct(toks[i + 3], ")")) {
-					List<PpToken> body = lexFragment(destringize(toks[i + 2].text), intern(path));
+					List<PpToken> body = lexFragment(destringize(*toks[i + 2].text), intern(path));
 					doPragma(body, path);
 					i += 4;
 					continue;
@@ -336,7 +337,7 @@ namespace rat::cc {
 					continue;
 				}
 
-				const String& name = dir.text;
+				const String& name = *dir.text;
 				List<PpToken> rest(toks.begin() + d + 1, toks.begin() + j);
 
 				if(handleConditional(name, rest, stack))
@@ -350,7 +351,7 @@ namespace rat::cc {
 				} else if(name == "undef") {
 					if(rest.empty() || rest[0].kind != Pk::Id)
 						fail("#undef expects an identifier");
-					else if(rest[0].text == "defined")
+					else if(rest[0].text == idDefined)
 						fail("'defined' cannot be used as a macro name");
 					else
 						macros.erase(rest[0].text);
@@ -363,7 +364,7 @@ namespace rat::cc {
 					for(size_t k = 0; k < rest.size(); ++k) {
 						if(k && rest[k].spaceBefore)
 							msg += ' ';
-						msg += rest[k].text;
+						msg += *rest[k].text;
 					}
 					fail(path + ": #error " + msg);
 				} else if(name == "pragma") {
@@ -448,7 +449,7 @@ namespace rat::cc {
 				doDefine(all);
 			}
 			for(const String& u : opts.undefs)
-				macros.erase(u);
+				macros.erase(intern(u));
 		}
 
 		String Preprocessor::serialize() {
@@ -463,7 +464,7 @@ namespace rat::cc {
 					else
 						s += ' ';
 				}
-				s += t.text;
+				s += *t.text;
 				first = false;
 			}
 			s += '\n';

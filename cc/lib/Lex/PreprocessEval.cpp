@@ -12,13 +12,13 @@ namespace rat::cc {
 		Val Eval::parsePrimary() {
 			const PpToken& c = cur();
 			if(c.kind == Pk::Num) {
-				Val v = parseNumLit(c.text);
+				Val v = parseNumLit(*c.text);
 				++i;
 				return v;
 			}
 			if(c.kind == Pk::Char) {
 				Val v;
-				v.u = (U64)parseCharConst(c.text);
+				v.u = (U64)parseCharConst(*c.text);
 				++i;
 				return v;
 			}
@@ -143,10 +143,10 @@ namespace rat::cc {
 		Val Eval::parseBinary(int minPrec) {
 			Val left = parseUnary();
 			while(cur().kind == Pk::Punct) {
-				int p = prec(cur().text);
+				int p = prec(*cur().text);
 				if(p < minPrec || p < 0)
 					break;
-				String op = cur().text;
+				String op = *cur().text;
 				++i;
 				if(op == "&&" || op == "||") {
 					B32 decide = (op == "&&") ? !left.truth() : left.truth();
@@ -195,8 +195,8 @@ namespace rat::cc {
 			size_t i = 0, n = in.size();
 			while(i < n) {
 				const PpToken& t = in[i];
-				if(t.kind == Pk::Id && t.text == "defined") {
-					String name;
+				if(t.kind == Pk::Id && t.text == idDefined) {
+					const String* name = nullptr;
 					if(i + 1 < n && isPunct(in[i + 1], "(")) {
 						if(i + 3 < n && in[i + 2].kind == Pk::Id && isPunct(in[i + 3], ")")) {
 							name = in[i + 2].text;
