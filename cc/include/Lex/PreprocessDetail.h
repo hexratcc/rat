@@ -38,8 +38,15 @@ namespace rat::cc {
 		void stripTrailingSlash(String& s);
 		size_t ucnLen(const String& s, size_t i);
 		Pk classify(const String& s);
-		String trigraph(const String& src);
-		void splice(const String& src, String& out, List<U32>& lineOf);
+
+		// absolute line correction at an output offset (emitted at splices)
+		struct LineMark {
+			U32 off;
+			U32 line;
+		};
+
+		// trigraph + splice + newline norm in one copy; sparse LineMarks
+		void splice(const String& src, String& out, List<LineMark>& marks);
 
 		struct LexResult {
 			List<PpToken> toks;
@@ -47,7 +54,7 @@ namespace rat::cc {
 			String err;
 		};
 
-		LexResult lexAll(const String& s, const List<U32>& lineOf, const String* file);
+		LexResult lexAll(const String& s, const List<LineMark>& marks, const String* file);
 
 		// macros
 		struct Macro {

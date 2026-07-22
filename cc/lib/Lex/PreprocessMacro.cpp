@@ -79,9 +79,9 @@ namespace rat::cc {
 
 		List<PpToken> Preprocessor::lexFragment(const String& text, const String* file) {
 			String spliced;
-			List<U32> lineOf;
-			splice(trigraph(text), spliced, lineOf);
-			LexResult lr = lexAll(spliced, lineOf, file);
+			List<LineMark> marks;
+			splice(text, spliced, marks);
+			LexResult lr = lexAll(spliced, marks, file);
 			if(!lr.ok) {
 				fail((file ? *file : String("<fragment>")) + ": " + lr.err);
 				return {};

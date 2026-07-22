@@ -47,99 +47,106 @@ namespace rat::cc {
 			return Pk::Punct;
 		}
 
-		// trigraph replacement
-		String trigraph(const String& src) {
-			String out;
-			out.reserve(src.size());
+		// trigraph + splice + newline norm in one pass
+		void splice(const String& src, String& out, List<LineMark>& marks) {
+			U32 line = 1;
+			B32 pendingMark = false;
 			size_t i = 0, n = src.size();
-			while(i < n) {
-				if(i + 2 < n && src[i] == '?' && src[i + 1] == '?') {
-					char r;
-					switch(src[i + 2]) {
-					case '=':
-						r = '#';
-						break;
-					case '(':
-						r = '[';
-						break;
-					case '/':
-						r = '\\';
-						break;
-					case ')':
-						r = ']';
-						break;
-					case '\'':
-						r = '^';
-						break;
-					case '<':
-						r = '{';
-						break;
-					case '!':
-						r = '|';
-						break;
-					case '>':
-						r = '}';
-						break;
-					case '-':
-						r = '~';
-						break;
-					default:
-						r = 0;
-						break;
+			out.reserve(n + 1);
+
+			// decode one logical char at p (trigraph-aware); returns length
+			auto decode = [&](size_t p, char& c) -> size_t {
+				c = src[p];
+				if(c == '?' && p + 2 < n && src[p + 1] == '?') {
+					char r = 0;
+					switch(src[p + 2]) {
+					case '=': r = '#'; break;
+					case '(': r = '['; break;
+					case '/': r = '\\'; break;
+					case ')': r = ']'; break;
+					case '\'': r = '^'; break;
+					case '<': r = '{'; break;
+					case '!': r = '|'; break;
+					case '>': r = '}'; break;
+					case '-': r = '~'; break;
+					default: break;
 					}
 					if(r) {
-						out.push_back(r);
-						i += 3;
-						continue;
+						c = r;
+						return 3;
 					}
 				}
-				out.push_back(src[i++]);
-			}
-			return out;
-		}
+				return 1;
+			};
 
-		// line splicing + newline norm
-		void splice(const String& src, String& out, List<U32>& lineOf) {
-			U32 line = 1;
-			size_t i = 0, n = src.size();
+			auto emit = [&](char c) {
+				if(pendingMark) {
+					marks.push_back({(U32)out.size(), line});
+					pendingMark = false;
+				}
+				out.push_back(c);
+			};
+
 			while(i < n) {
-				char c = src[i];
-				if(c == '\\' && i + 1 < n &&
-					 (src[i + 1] == '\n' || (src[i + 1] == '\r' && i + 2 < n && src[i + 2] == '\n'))) {
-					i += (src[i + 1] == '\r') ? 3 : 2;
-					++line;
+				char c;
+				size_t len = decode(i, c);
+				if(c == '\\') {
+					// backslash-newline splice (backslash may be a trigraph)
+					size_t j = i + len;
+					if(j < n) {
+						if(src[j] == '\n') {
+							i = j + 1;
+							++line;
+							pendingMark = true;
+							continue;
+						}
+						if(src[j] == '\r' && j + 1 < n && src[j + 1] == '\n') {
+							i = j + 2;
+							++line;
+							pendingMark = true;
+							continue;
+						}
+					}
+					emit(c);
+					i += len;
 					continue;
 				}
 				if(c == '\r') {
 					if(i + 1 < n && src[i + 1] == '\n')
 						++i;
-					out.push_back('\n');
-					lineOf.push_back(line);
+					emit('\n');
 					++line;
 					++i;
 					continue;
 				}
-				out.push_back(c);
-				lineOf.push_back(line);
+				emit(c);
 				if(c == '\n')
 					++line;
-				++i;
+				i += len;
 			}
-			if(out.empty() || out.back() != '\n') {
-				out.push_back('\n');
-				lineOf.push_back(line);
-			}
+			if(out.empty() || out.back() != '\n')
+				emit('\n');
 		}
 
 		const char* kPuncts[] = {"%:%:", "...", "<<=", ">>=", "->", "++", "--", "<<", ">>", "<=",
 														 ">=",	 "==",	"!=",	 "&&",	"||", "*=", "/=", "%=", "+=", "-=",
 														 "&=",	 "|=",	"^=",	 "##",	"<:", ":>", "<%", "%>", "%:"};
 
-		LexResult lexAll(const String& s, const List<U32>& lineOf, const String* file) {
+		LexResult lexAll(const String& s, const List<LineMark>& marks, const String* file) {
 			LexResult r;
 			size_t i = 0, n = s.size();
 			B32 bolPending = true;
 			B32 spacePending = false;
+			U32 line = 1;
+			size_t mi = 0, mn = marks.size();
+
+			// apply splice line-corrections at offsets <= p
+			auto advanceTo = [&](size_t p) {
+				while(mi < mn && marks[mi].off <= p) {
+					line = marks[mi].line;
+					++mi;
+				}
+			};
 
 			auto pushTok = [&](Pk kind, size_t start, size_t end) {
 				PpToken t;
@@ -161,7 +168,7 @@ namespace rat::cc {
 				}
 				t.spaceBefore = spacePending;
 				t.bol = bolPending;
-				t.line = start < lineOf.size() ? lineOf[start] : 0;
+				t.line = line;
 				t.file = file;
 				r.toks.push_back(std::move(t));
 				bolPending = false;
@@ -169,10 +176,12 @@ namespace rat::cc {
 			};
 
 			while(i < n) {
+				advanceTo(i);
 				char c = s[i];
 				if(c == '\n') {
 					bolPending = true;
 					spacePending = true;
+					++line;
 					++i;
 					continue;
 				}
@@ -191,8 +200,11 @@ namespace rat::cc {
 				if(c == '/' && i + 1 < n && s[i + 1] == '*') {
 					i += 2;
 					while(i + 1 < n && !(s[i] == '*' && s[i + 1] == '/')) {
-						if(s[i] == '\n')
+						if(s[i] == '\n') {
 							bolPending = true;
+							advanceTo(i);
+							++line;
+						}
 						++i;
 					}
 					if(i + 1 >= n) {
