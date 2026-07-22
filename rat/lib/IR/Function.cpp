@@ -274,7 +274,13 @@ namespace rat {
 		return (Var)(varInfos.size() - 1);
 	}
 
-	void Function::writeVar(Var var, Node* value) { cur->defs[var] = value; }
+	void Function::cacheDef(Block* block, Var var, Node* val) {
+		block->defs[var] = val;
+		if(PhiNode* p = dyn_cast<PhiNode>(val))
+			phiDefSites[p].push_back({block, var});
+	}
+
+	void Function::writeVar(Var var, Node* value) { cacheDef(cur, var, value); }
 	Node* Function::readVar(Var var) { return readVariable(var, cur); }
 
 	Node* Function::readVariable(Var var, Block* block) {
@@ -299,10 +305,10 @@ namespace rat {
 			val = readVariable(var, block->predBlocks[0]);
 		} else {
 			PhiNode* p = newIncompletePhi(var, block);
-			block->defs[var] = p; // break cycles before reading predecessors
+			cacheDef(block, var, p); // break cycles before reading predecessors
 			val = addPhiOperands(var, p, block);
 		}
-		block->defs[var] = val;
+		cacheDef(block, var, val);
 		return val;
 	}
 
@@ -314,10 +320,16 @@ namespace rat {
 
 	void Function::replacePhiEverywhere(PhiNode* phi, Node* with) {
 		phi->replaceAllUsesWith(with);
-		for(Block* b : blocks)
-			for(auto& kv : b->defs)
-				if(kv.second == phi)
-					kv.second = with;
+		auto it = phiDefSites.find(phi);
+		if(it == phiDefSites.end())
+			return;
+		List<std::pair<Block*, Var>> sites = std::move(it->second);
+		phiDefSites.erase(it);
+		for(const std::pair<Block*, Var>& site : sites) {
+			auto d = site.first->defs.find(site.second);
+			if(d != site.first->defs.end() && d->second == phi)
+				cacheDef(site.first, site.second, with);
+		}
 	}
 
 	Node* Function::tryRemoveTrivialPhi(PhiNode* phi) {

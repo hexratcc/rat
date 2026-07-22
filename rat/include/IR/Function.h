@@ -169,10 +169,14 @@ namespace rat {
 
 		Node* readVariable(Var var, Block* block);
 		Node* readVariableRecursive(Var var, Block* block);
+		// tracks (block, var) slots holding a phi so trivial-phi removal patches
+		// them without scanning every block
+		void cacheDef(Block* block, Var var, Node* val);
 		Node* addPhiOperands(Var var, PhiNode* phi, Block* block);
 		Node* tryRemoveTrivialPhi(PhiNode* phi);
 		PhiNode* newIncompletePhi(Var var, Block* block);
 		void replacePhiEverywhere(PhiNode* phi, Node* with);
+		Map<PhiNode*, List<std::pair<Block*, Var>>> phiDefSites;
 
 		Block* makeBlock(B32 loopHeader);
 		void addEdge(Node* exitControl, Block* from, Block* to);

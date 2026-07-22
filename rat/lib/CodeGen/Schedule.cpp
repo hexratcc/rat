@@ -276,7 +276,8 @@ namespace rat {
 		for(auto& kv : loops)
 			for(I32 m : kv.second)
 				++blocks[m].loopDepth;
-	}
+
+		// nearest strict dominator with a smaller loop depth; l
 
 	B32 Schedule::isFloating(const Node* n) {
 		Opcode op = n->getOpcode();

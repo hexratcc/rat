@@ -5,6 +5,7 @@
 #include "Lex/Lexer.h"
 #include "Lex/Preprocess.h"
 #include "Parse/Parser.h"
+#include <chrono>
 #include <fstream>
 
 #include "Support/StringUtil.h"
@@ -15,6 +16,13 @@ using namespace rat::cc;
 
 namespace {
 	const char* kVersion = "ratcc 0.1";
+
+	using PhaseClock = std::chrono::steady_clock;
+	F64 msSince(PhaseClock::time_point t0) {
+		return std::chrono::duration<F64, std::milli>(PhaseClock::now() - t0).count();
+	}
+	// frontend phase times, printed with -ftime-passes
+	F64 gReadMs = 0, gPpMs = 0;
 
 	enum struct Emit { Tok, Ast, C, X86 };
 
@@ -247,16 +255,24 @@ namespace {
 		const TargetInfo& target = (kind == Emit::X86) ? (const TargetInfo&)x86 : generic;
 
 		Arena arena;
+		PhaseClock::time_point t0 = PhaseClock::now();
 		TransUnit* unit = parse(ts, arena);
+		F64 parseMs = msSince(t0);
 		if(!unit)
 			return 1;
 
 		Module mod;
 		Emitter emitter(mod, TargetLayout::forTriple(hostTargetTriple()));
-		if(!emitter.emit(*unit)) {
+		t0 = PhaseClock::now();
+		B32 emitOk = emitter.emit(*unit);
+		F64 emitMs = msSince(t0);
+		if(!emitOk) {
 			std::cerr << ts.file() << ": " << emitter.error() << "\n";
 			return 1;
 		}
+		if(opt.timePasses)
+			std::cerr << "frontend: read " << gReadMs << "ms, preprocess+tokens " << gPpMs
+								<< "ms, parse " << parseMs << "ms, ast-to-ir " << emitMs << "ms\n";
 
 		CompileOptions copt;
 		copt.backend = (kind == Emit::X86) ? Backend::X86 : Backend::C;
@@ -311,8 +327,10 @@ static I32 run(I32 argc, char** argv) {
 	}
 
 	String source, path;
+	PhaseClock::time_point tRead = PhaseClock::now();
 	if(!readInput(opt, source, path))
 		return 1;
+	gReadMs = msSince(tRead);
 
 	if(!opt.noStdInc)
 		for(const String& dir : hostIncludeDirs())
@@ -333,9 +351,14 @@ static I32 run(I32 argc, char** argv) {
 	}
 
 	TokenStream ts;
-	if(needToks && !preprocessToTokens(path, source, opt.pp, ts, ppErr)) {
-		std::cerr << "ratcc: " << ppErr << "\n";
-		return 1;
+	if(needToks) {
+		PhaseClock::time_point tPp = PhaseClock::now();
+		B32 ppOk = preprocessToTokens(path, source, opt.pp, ts, ppErr);
+		gPpMs = msSince(tPp);
+		if(!ppOk) {
+			std::cerr << "ratcc: " << ppErr << "\n";
+			return 1;
+		}
 	}
 
 	if(opt.preprocessOnly) {
