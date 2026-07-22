@@ -226,7 +226,15 @@ namespace rat::cc {
 		U32 curOffset = 0;
 		U32 flexCount = 0;
 		String curFunc;
-		List<Map<String, Local>> scopes;
+		// flat scope stack: one table + undo log rolled back on popScope
+		struct ScopeUndo {
+			const String* name; // table key, stable across rehash
+			Local prev;
+			B32 hadPrev;
+		};
+		Map<String, Local> localTable;
+		List<ScopeUndo> scopeUndo;
+		List<U32> scopeMarks;
 		List<LoopFrame> loops;
 		List<Map<const Stmt*, Function::Block*>> switches;
 		Map<String, FnSig> funcs;

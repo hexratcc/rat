@@ -73,21 +73,38 @@ namespace rat::cc {
 		failed = true;
 	}
 
-	void Emitter::pushScope() { scopes.emplace_back(); }
+	void Emitter::pushScope() { scopeMarks.push_back((U32)scopeUndo.size()); }
 
-	void Emitter::popScope() { scopes.pop_back(); }
+	void Emitter::popScope() {
+		U32 mark = scopeMarks.back();
+		scopeMarks.pop_back();
+		while(scopeUndo.size() > mark) {
+			ScopeUndo& u = scopeUndo.back();
+			auto it = localTable.find(*u.name);
+			if(u.hadPrev)
+				it->second = u.prev;
+			else
+				localTable.erase(it);
+			scopeUndo.pop_back();
+		}
+	}
 
-	void Emitter::declare(const String& name, Local local) { scopes.back()[name] = local; }
+	void Emitter::declare(const String& name, Local local) {
+		auto [it, inserted] = localTable.try_emplace(name, local);
+		if(inserted) {
+			scopeUndo.push_back({&it->first, Local{}, false});
+		} else {
+			scopeUndo.push_back({&it->first, it->second, true});
+			it->second = local;
+		}
+	}
 
 	B32 Emitter::lookup(const String& name, Local& out) const {
-		for(auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
-			auto found = it->find(name);
-			if(found != it->end()) {
-				out = found->second;
-				return true;
-			}
-		}
-		return false;
+		auto found = localTable.find(name);
+		if(found == localTable.end())
+			return false;
+		out = found->second;
+		return true;
 	}
 
 	Type* Emitter::irType(CType t) {
@@ -443,7 +460,9 @@ namespace rat::cc {
 		curRet = def->retType;
 		sretSlot = sretReturn ? fn->param(0) : nullptr;
 		U32 paramBase = sretReturn ? 1 : 0;
-		scopes.clear();
+		localTable.clear();
+		scopeUndo.clear();
+		scopeMarks.clear();
 		memVars.clear();
 		collectAddrTaken(def->body);
 		labelBlocks.clear();
