@@ -9,12 +9,17 @@
 
 namespace rat {
 	Node* MemoryOptPass::effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size) {
-		while(StoreNode* s = dyn_cast<StoreNode>(mem)) {
-			if(aa.alias(addr, size, s->getPointer(), aa.getAccessSize(s)) == AliasResult::NoAlias) {
-				mem = s->getMemory();
-				continue;
-			}
-			break;
+		// cap the chain walk: unbounded it is O(loads * chain) and blows up on
+		// huge by-value struct copies; hitting the cap only forgoes forwarding,
+		// still sound
+		constexpr U32 kMaxStoreWalk = 512;
+		for(U32 steps = 0; steps < kMaxStoreWalk; ++steps) {
+			StoreNode* s = dyn_cast<StoreNode>(mem);
+			if(!s)
+				break;
+			if(aa.alias(addr, size, s->getPointer(), aa.getAccessSize(s)) != AliasResult::NoAlias)
+				break;
+			mem = s->getMemory();
 		}
 		return mem;
 	}
