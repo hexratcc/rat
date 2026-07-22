@@ -190,8 +190,9 @@ namespace rat::cc {
 			return v;
 		}
 
-		List<PpToken> Preprocessor::replaceDefined(const List<PpToken>& in) {
+		List<PpToken> Preprocessor::replaceDefined(PpSpan in) {
 			List<PpToken> r;
+			r.reserve(in.size());
 			size_t i = 0, n = in.size();
 			while(i < n) {
 				const PpToken& t = in[i];
@@ -221,11 +222,11 @@ namespace rat::cc {
 			return r;
 		}
 
-		B32 Preprocessor::evalExpr(const List<PpToken>& toks) {
+		B32 Preprocessor::evalExpr(PpSpan toks) {
 			List<PpToken> e = replaceDefined(toks);
 			if(!ok)
 				return false;
-			e = expand(e);
+			e = expand(PpSpan(e));
 			for(PpToken& t : e)
 				if(t.kind == Pk::Id)
 					t = makeNum(0);

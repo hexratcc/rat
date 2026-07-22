@@ -65,6 +65,24 @@ namespace rat::cc {
 		// trigraph + splice + newline norm in one copy; sparse LineMarks
 		void splice(const String& src, String& out, List<LineMark>& marks);
 
+		// non-owning token view (directive operands, expansion input)
+		struct PpSpan {
+			const PpToken* b = nullptr;
+			const PpToken* e = nullptr;
+			PpSpan() = default;
+			PpSpan(const List<PpToken>& v)
+			: b(v.data()),
+				e(v.data() + v.size()) {}
+			PpSpan(const PpToken* pb, const PpToken* pe)
+			: b(pb),
+				e(pe) {}
+			size_t size() const { return (size_t)(e - b); }
+			B32 empty() const { return b == e; }
+			const PpToken& operator[](size_t i) const { return b[i]; }
+			const PpToken* begin() const { return b; }
+			const PpToken* end() const { return e; }
+		};
+
 		struct LexResult {
 			List<PpToken> toks;
 			B32 ok = true;
@@ -182,28 +200,29 @@ namespace rat::cc {
 															 const List<List<PpToken>>& args,
 															 const HideSet* hs,
 															 const List<const String*>& formals);
-			B32 gatherArgs(std::deque<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen);
+		// stack: next token is work.back()
+			B32 gatherArgs(List<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen);
 			B32 mapArgs(const Macro& m, const List<List<PpToken>>& raw, List<List<PpToken>>& actuals);
-			void requeueExpansion(List<PpToken>& r, const PpToken& invoker, std::deque<PpToken>& work);
-			List<PpToken> expand(List<PpToken> in);
+			void requeueExpansion(List<PpToken>& r, const PpToken& invoker, List<PpToken>& work);
+			List<PpToken> expand(PpSpan in);
 
 			// #if / #elif evaluation
-			List<PpToken> replaceDefined(const List<PpToken>& in);
-			B32 evalExpr(const List<PpToken>& toks);
+			List<PpToken> replaceDefined(PpSpan in);
+			B32 evalExpr(PpSpan toks);
 
 			// directives
-			void doDefine(const List<PpToken>& toks);
+			void doDefine(PpSpan toks);
 			void defineSimple(const String& name, const String& value);
 			static String dirOf(const String& path);
 			B32 readFile(const String& path, String& content);
-			void doInclude(const List<PpToken>& restIn, const String& curDir, B32 next = false);
-			void doLine(const List<PpToken>& restIn, U32 physicalNextLine);
-			void doPragma(const List<PpToken>& rest, const String& path);
+			void doInclude(PpSpan restIn, const String& curDir, B32 next = false);
+			void doLine(PpSpan restIn, U32 physicalNextLine);
+			void doPragma(PpSpan rest, const String& path);
 			String destringize(const String& lit);
 			List<PpToken> applyPragmaOperators(List<PpToken>& toks, const String& path);
 			void flush(List<PpToken>& textBuf);
 			static B32 condActive(const List<Cond>& stack);
-			B32 handleConditional(const String& name, const List<PpToken>& rest, List<Cond>& stack);
+			B32 handleConditional(const String& name, PpSpan rest, List<Cond>& stack);
 
 			// driver
 			void runFile(const String& path, const String& source);

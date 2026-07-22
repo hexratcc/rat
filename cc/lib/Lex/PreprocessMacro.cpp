@@ -221,16 +221,16 @@ namespace rat::cc {
 		}
 
 		B32
-		Preprocessor::gatherArgs(std::deque<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen) {
+		Preprocessor::gatherArgs(List<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen) {
 			int depth = 1;
 			List<PpToken> cur;
 			for(;;) {
-				if(work.empty() || work.front().kind == Pk::Eof) {
+				if(work.empty() || work.back().kind == Pk::Eof) {
 					fail("unterminated macro argument list");
 					return false;
 				}
-				PpToken w = work.front();
-				work.pop_front();
+				PpToken w = work.back();
+				work.pop_back();
 				if(isPunct(w, "(")) {
 					++depth;
 					cur.push_back(w);
@@ -288,21 +288,25 @@ namespace rat::cc {
 
 		void Preprocessor::requeueExpansion(List<PpToken>& r,
 																				const PpToken& invoker,
-																				std::deque<PpToken>& work) {
+																				List<PpToken>& work) {
 			if(!r.empty()) {
 				r.front().spaceBefore = invoker.spaceBefore;
 				r.front().bol = invoker.bol;
 			}
+			// push first result token last so it is read next
 			for(auto rit = r.rbegin(); rit != r.rend(); ++rit)
-				work.push_front(*rit);
+				work.push_back(*rit);
 		}
 
-		List<PpToken> Preprocessor::expand(List<PpToken> in) {
-			std::deque<PpToken> work(in.begin(), in.end());
+		List<PpToken> Preprocessor::expand(PpSpan in) {
+			List<PpToken> work;
+			work.reserve(in.size());
+			for(size_t k = in.size(); k > 0; --k)
+				work.push_back(in[k - 1]);
 			List<PpToken> os;
 			while(!work.empty()) {
-				PpToken t = work.front();
-				work.pop_front();
+				PpToken t = work.back();
+				work.pop_back();
 				if(t.kind != Pk::Id) {
 					os.push_back(t);
 					continue;
@@ -340,11 +344,11 @@ namespace rat::cc {
 					continue;
 				}
 				// function-like: requires a paren next
-				if(work.empty() || !isPunct(work.front(), "(")) {
+				if(work.empty() || !isPunct(work.back(), "(")) {
 					os.push_back(t);
 					continue;
 				}
-				work.pop_front(); // (
+				work.pop_back(); // (
 				List<List<PpToken>> raw;
 				PpToken rparen;
 				if(!gatherArgs(work, raw, rparen))
@@ -362,7 +366,7 @@ namespace rat::cc {
 			return os;
 		}
 
-		void Preprocessor::doDefine(const List<PpToken>& toks) {
+		void Preprocessor::doDefine(PpSpan toks) {
 			if(toks.empty() || toks[0].kind != Pk::Id) {
 				fail("#define expects a macro name");
 				return;

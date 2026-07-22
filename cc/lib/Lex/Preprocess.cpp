@@ -29,12 +29,11 @@ namespace rat::cc {
 			return true;
 		}
 
-		void Preprocessor::doInclude(const List<PpToken>& restIn, const String& curDir, B32 next) {
-			List<PpToken> rest = restIn;
+		void Preprocessor::doInclude(PpSpan restIn, const String& curDir, B32 next) {
 			B32 angled = false;
 			String fname;
 
-			auto reconstruct = [&](const List<PpToken>& toks) -> B32 {
+			auto reconstruct = [&](PpSpan toks) -> B32 {
 				if(toks.empty())
 					return false;
 				if(toks[0].kind == Pk::Str) {
@@ -57,10 +56,11 @@ namespace rat::cc {
 				return false;
 			};
 
-			if(!reconstruct(rest)) {
+		List<PpToken> expanded;
+			if(!reconstruct(restIn)) {
 				// try macro expansion of the operand
-				rest = expand(rest);
-				if(!reconstruct(rest)) {
+				expanded = expand(restIn);
+				if(!reconstruct(PpSpan(expanded))) {
 					fail("#include expects \"file\" or <file>");
 					return;
 				}
@@ -116,7 +116,7 @@ namespace rat::cc {
 			--includeDepth;
 		}
 
-		void Preprocessor::doLine(const List<PpToken>& restIn, U32 physicalNextLine) {
+		void Preprocessor::doLine(PpSpan restIn, U32 physicalNextLine) {
 			List<PpToken> rest = expand(restIn);
 			if(rest.empty() || rest[0].kind != Pk::Num) {
 				fail("#line expects a line number");
@@ -128,7 +128,7 @@ namespace rat::cc {
 				fileName = unquote(*rest[1].text);
 		}
 
-		void Preprocessor::doPragma(const List<PpToken>& rest, const String& path) {
+		void Preprocessor::doPragma(PpSpan rest, const String& path) {
 			if(rest.size() == 1 && rest[0].kind == Pk::Id && *rest[0].text == "once") {
 				pragmaOnce.insert(path);
 			} else if(rest.size() >= 1 && rest[0].kind == Pk::Id &&
@@ -187,7 +187,7 @@ namespace rat::cc {
 				if(toks[i].kind == Pk::Id && *toks[i].text == "_Pragma" && i + 3 < toks.size() &&
 					 isPunct(toks[i + 1], "(") && toks[i + 2].kind == Pk::Str && isPunct(toks[i + 3], ")")) {
 					List<PpToken> body = lexFragment(destringize(*toks[i + 2].text), intern(path));
-					doPragma(body, path);
+					doPragma(PpSpan(body), path);
 					i += 4;
 					continue;
 				}
@@ -200,7 +200,7 @@ namespace rat::cc {
 		void Preprocessor::flush(List<PpToken>& textBuf) {
 			if(textBuf.empty())
 				return;
-			List<PpToken> e = expand(textBuf);
+			List<PpToken> e = expand(PpSpan(textBuf));
 			e = applyPragmaOperators(e, fileName);
 			for(PpToken& t : e)
 				out.push_back(std::move(t));
@@ -211,9 +211,7 @@ namespace rat::cc {
 			return stack.empty() ? true : stack.back().active;
 		}
 
-		B32 Preprocessor::handleConditional(const String& name,
-																				const List<PpToken>& rest,
-																				List<Cond>& stack) {
+		B32 Preprocessor::handleConditional(const String& name, PpSpan rest, List<Cond>& stack) {
 			if(name == "if" || name == "ifdef" || name == "ifndef") {
 				B32 parent = condActive(stack);
 				B32 cond = false;
@@ -322,11 +320,10 @@ namespace rat::cc {
 
 				const PpToken& dir = toks[d];
 
-				if(dir.kind == Pk::Num) {
+			if(dir.kind == Pk::Num) {
 					if(condActive(stack)) {
-						List<PpToken> rest(toks.begin() + d, toks.begin() + j);
 						U32 phys = j < n ? toks[j].line : dir.line + 1;
-						doLine(rest, phys);
+						doLine(PpSpan(toks.data() + d, toks.data() + j), phys);
 					}
 					continue;
 				}
@@ -338,7 +335,7 @@ namespace rat::cc {
 				}
 
 				const String& name = *dir.text;
-				List<PpToken> rest(toks.begin() + d + 1, toks.begin() + j);
+				PpSpan rest(toks.data() + d + 1, toks.data() + j);
 
 				if(handleConditional(name, rest, stack))
 					continue;
