@@ -73,15 +73,17 @@ add_custom_target(test-c
 									WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 
 # bench
-enable_language(C)
-add_executable(bench bench/bench.c)
-if(NOT MSVC)
-	target_link_libraries(bench PRIVATE m)
+if(NOT WIN32)
+	enable_language(C)
+	set(BENCH_REPS 5 CACHE STRING "runs per bench")
+	add_custom_target(run-bench
+										COMMAND ${CMAKE_SOURCE_DIR}/bench/compare.sh
+														$<TARGET_FILE:ratcc> ${CMAKE_C_COMPILER}
+														${CMAKE_SOURCE_DIR}/bench/bench.c
+														${CMAKE_BINARY_DIR}/bench-out ${BENCH_REPS}
+										DEPENDS ratcc
+										USES_TERMINAL VERBATIM)
 endif()
-
-add_custom_target(run-bench
-									COMMAND bench
-									USES_TERMINAL VERBATIM)
 
 # format
 file(GLOB_RECURSE RAT_FORMAT_SOURCES CONFIGURE_DEPENDS
