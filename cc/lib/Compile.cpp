@@ -27,10 +27,7 @@ namespace rat::cc {
 			pm.add<CEmitterPass>(out);
 		} else {
 			pm.add<X86LowerPass>();
-			if(opt.regAlloc == RegAlloc::Graph)
-				pm.add<GraphColorRegAllocPass>();
-			else
-				pm.add<LinearScanRegAllocPass>();
+			pm.add<LinearScanRegAllocPass>();
 			pm.add<X86LayoutPass>();
 			pm.add<X86EncodePass>(out);
 		}

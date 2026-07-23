@@ -14,11 +14,9 @@ namespace rat {
 
 namespace rat::cc {
 	enum struct Backend { C, X86 };
-	enum struct RegAlloc { Linear, Graph };
 
 	struct CompileOptions {
 		Backend backend = Backend::X86;
-		RegAlloc regAlloc = RegAlloc::Linear;
 		List<UniquePtr<Pass>> optPasses;
 		String renameMain;
 	};

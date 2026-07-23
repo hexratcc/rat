@@ -114,7 +114,7 @@ namespace {
 					"  -emit <k,...>         any of: tok, ast, c, x86 (comma-separated)\n"
 					"  -target <triple>      x86_64-linux (default) or x86_64-windows;\n"
 					"  -O0                   no optimization (default)\n"
-					"  -O1                   all optimization passes + graph-coloring regalloc\n"
+					"  -O1                   all optimization passes\n"
 					"  -f<pass>              enable one opt pass: fold, gvn, sccp,\n"
 					"                        simplifycfg, memoryopt, inline\n"
 					"  -I<dir> -D<m> -U<m>   preprocessor options\n"
@@ -276,7 +276,6 @@ namespace {
 
 		CompileOptions copt;
 		copt.backend = (kind == Emit::X86) ? Backend::X86 : Backend::C;
-		copt.regAlloc = (opt.optLevel >= 1) ? RegAlloc::Graph : RegAlloc::Linear;
 		copt.optPasses = buildOptPasses(opt);
 
 		// Keep the PassManager local so we can print the timing report from it.

@@ -68,14 +68,6 @@ namespace {
 		return on;
 	}
 
-	B32 useGraphRegAlloc() {
-		static B32 on = [] {
-			const char* e = std::getenv("RATCC_REGALLOC");
-			return (B32)(e && String(e) == "graph");
-		}();
-		return on;
-	}
-
 	struct Expectation {
 		B32 hasValue = false;
 		B32 hasOsValue = false;
@@ -278,7 +270,6 @@ namespace {
 		copt.renameMain = "__ratcc_user_main";
 		if(x86) {
 			copt.backend = Backend::X86;
-			copt.regAlloc = useGraphRegAlloc() ? RegAlloc::Graph : RegAlloc::Linear;
 			auto make = [&](const String& base, Artifact& art, String& e) -> B32 {
 				art.path = base + ".o";
 				std::ofstream of(art.path, std::ios::binary);
@@ -529,7 +520,6 @@ I32 main(I32 argc, char** argv) {
 		(void)hostPredefs();
 		(void)hostIncludeDirs();
 		(void)useX86Backend();
-		(void)useGraphRegAlloc();
 	};
 	return runTestSuite(argc, argv, spec);
 }
