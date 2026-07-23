@@ -72,6 +72,17 @@ add_custom_target(test-c
 									COMMAND ${CMAKE_CTEST_COMMAND} -R "rat-ir|cc-c" --output-on-failure -C $<CONFIG>
 									WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 
+# bench
+enable_language(C)
+add_executable(bench bench/bench.c)
+if(NOT MSVC)
+	target_link_libraries(bench PRIVATE m)
+endif()
+
+add_custom_target(run-bench
+									COMMAND bench
+									USES_TERMINAL VERBATIM)
+
 # format
 file(GLOB_RECURSE RAT_FORMAT_SOURCES CONFIGURE_DEPENDS
 		 rat/lib/*.cpp rat/include/*.h rat/test/*.cpp
