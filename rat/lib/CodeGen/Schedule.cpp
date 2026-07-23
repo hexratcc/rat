@@ -504,6 +504,12 @@ namespace rat {
 				addEdge(prod, n);
 		}
 
+		// restore edge
+		for(Node* n : nodes)
+			for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
+				if(ProjNode* p = dyn_cast<ProjNode>(n->getInput(i)))
+					addEdge(p->getProducer(), n);
+
 		auto laterId = [](const Node* a, const Node* b) { return a->getId() > b->getId(); };
 		PriorityQueue<Node*, std::vector<Node*>, decltype(laterId)> ready(laterId);
 
