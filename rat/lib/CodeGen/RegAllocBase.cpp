@@ -197,7 +197,65 @@ namespace rat {
 	void RegAllocBase::rewrite() {
 		for(U32 b = 0; b < fn->blocks.size(); ++b) {
 			List<MachineInstr> out;
+			B32 memo = false;
+			I32 memoSlot = 0;
+			PhysReg memoReg = kNoReg;
+			U32 memoCls = 0;
+			U32 memoWidth = 0;
+
+			auto reloadInto = [&](PhysReg dst, const MachineOperand& u, const Assignment& a) {
+				if(auto rt = rematDef.find(u.vreg); rt != rematDef.end()) {
+					MachineInstr m = rt->second;
+					m.defs[0] = MachineOperand::fixed(dst, u.width);
+					out.push_back(std::move(m));
+				} else {
+					out.push_back(hooks->makeReload(dst, a.spillSlot, a.cls, u.width));
+				}
+			};
+
 			for(MachineInstr& in : fn->blocks[b].insts) {
+				// spilled-copy peepholes
+				if(hooks->isCopy && hooks->isCopy(in) && in.defs.size() == 1 && in.uses.size() == 1
+					 && in.defs[0].isVReg() && in.uses[0].isVReg()) {
+					Assignment da = assignmentOf(in.defs[0].vreg);
+					Assignment ua = assignmentOf(in.uses[0].vreg);
+					if(da.cls == ua.cls && (da.spilled || ua.spilled)) {
+						if(da.spilled && ua.spilled) {
+							if(da.spillSlot == ua.spillSlot)
+								continue; // slot self-copy
+							PhysReg sc;
+							if(memo && memoCls == ua.cls && memoSlot == ua.spillSlot
+								 && memoWidth == in.uses[0].width) {
+								sc = memoReg; // forward the just-stored value
+							} else {
+								sc = scratchAt(ua.cls, 0);
+								reloadInto(sc, in.uses[0], ua);
+							}
+							out.push_back(hooks->makeSpill(da.spillSlot, sc, da.cls, in.defs[0].width));
+							memo = true;
+							memoSlot = da.spillSlot;
+							memoReg = sc;
+							memoCls = da.cls;
+							memoWidth = in.defs[0].width;
+							continue;
+						}
+						if(da.spilled) {
+							// register -> slot
+							out.push_back(hooks->makeSpill(da.spillSlot, ua.reg, da.cls, in.defs[0].width));
+							memo = true;
+							memoSlot = da.spillSlot;
+							memoReg = ua.reg;
+							memoCls = da.cls;
+							memoWidth = in.defs[0].width;
+							continue;
+						}
+						// slot -> register
+						reloadInto(da.reg, in.uses[0], ua);
+						memo = false;
+						continue;
+					}
+				}
+
 				U32 useScratch = 0;
 				for(MachineOperand& u : in.uses) {
 					if(!u.isVReg())
@@ -208,14 +266,20 @@ namespace rat {
 							u = MachineOperand::frameSlot(a.spillSlot, u.width);
 							continue;
 						}
-						PhysReg sc = scratchAt(a.cls, useScratch++);
-						if(auto rt = rematDef.find(u.vreg); rt != rematDef.end()) {
-							MachineInstr m = rt->second;
-							m.defs[0] = MachineOperand::fixed(sc, u.width);
-							out.push_back(std::move(m));
-						} else {
-							out.push_back(hooks->makeReload(sc, a.spillSlot, a.cls, u.width));
+						// the previous instruction just stored this slot from a register nothing has
+						// touched since, reuse
+						B32 tied = false;
+						for(const MachineOperand& d : in.defs)
+							if(d.isVReg() && d.vreg == u.vreg)
+								tied = true;
+						if(memo && !tied && useScratch == 0 && memoCls == a.cls
+							 && memoSlot == a.spillSlot && memoWidth == u.width) {
+							u = MachineOperand::fixed(memoReg, u.width);
+							++useScratch; // reserve index 0 in case memoReg is scratch 0
+							continue;
 						}
+						PhysReg sc = scratchAt(a.cls, useScratch++);
+						reloadInto(sc, u, a);
 						u = MachineOperand::fixed(sc, u.width);
 					} else {
 						u = MachineOperand::fixed(a.reg, u.width);
@@ -237,9 +301,23 @@ namespace rat {
 					}
 				}
 
+				memo = false;
+
 				out.push_back(in);
 				for(MachineInstr& s : spills)
 					out.push_back(std::move(s));
+				if(!spills.empty() && !in.isCall) {
+					const MachineInstr& last = out.back();
+					// makeSpill shape: uses[0] = frame slot, uses[1] = source register
+					if(last.uses.size() == 2 && last.uses[0].kind == MachineOperand::Kind::FrameSlot
+						 && last.uses[1].kind == MachineOperand::Kind::Phys) {
+						memo = true;
+						memoSlot = last.uses[0].slot;
+						memoReg = last.uses[1].phys;
+						memoCls = last.regClass;
+						memoWidth = last.uses[1].width;
+					}
+				}
 			}
 			fn->blocks[b].insts = std::move(out);
 		}
