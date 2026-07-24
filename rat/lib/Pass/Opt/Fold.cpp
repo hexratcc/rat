@@ -217,6 +217,23 @@ namespace rat {
 				return lhs;
 			if(FoldPass::isAllOnesConst(lhs, w))
 				return rhs;
+			for(U32 side = 0; side < 2; ++side) {
+				Node* ext = side ? rhs : lhs;
+				Node* mask = side ? lhs : rhs;
+				ConvertNode* cv = dyn_cast<ConvertNode>(ext);
+				if(!cv || cv->getOpcode() != Opcode::SExt)
+					continue;
+				Type* srcTy = cv->getOperand()->getType();
+				if(!srcTy || !srcTy->isInt())
+					continue;
+				U32 sw = srcTy->getIntWidth();
+				if(sw >= 64)
+					continue;
+				ConstantNode* mc = dyn_cast<ConstantNode>(mask);
+				if(!mc || (U64)mc->getValue() != ((1ULL << sw) - 1))
+					continue;
+				return fn.create<ConvertNode>(Opcode::ZExt, ty, cv->getOperand());
+			}
 			break;
 		case Opcode::Or:
 			if(lhs == rhs)
