@@ -54,6 +54,8 @@ namespace rat {
 		void emitSetCC(const MachineInstr& in);
 		void emitFArith(const MachineInstr& in, U8 op);
 		void emitFNeg(const MachineInstr& in);
+		void emitFSqrt(const MachineInstr& in);
+		void emitFAbs(const MachineInstr& in);
 		void emitFCmp(const MachineInstr& in);
 		void emitCvt(const MachineInstr& in);
 		void fldSlot(I32 slot);

@@ -1,5 +1,7 @@
 #include "Pass/Emit/X86Lower.h"
 
+#include <cstdio>
+
 #include "CodeGen/MachineFunction.h"
 #include "CodeGen/MachineModule.h"
 #include "CodeGen/Schedule.h"
@@ -303,10 +305,25 @@ namespace rat {
 		a.disp = m.disp;
 		a.scaleLog2 = m.scaleLog2;
 		a.hasIndex = m.hasIndex;
-		a.base = gpValue(m.base);
+		if(AllocNode* al = dyn_cast<AllocNode>(m.base)) {
+			if(auto it = allocOff.find(al); it != allocOff.end()) {
+				a.frameBase = true;
+				a.disp += (I32)it->second;
+			} else {
+				a.base = gpValue(m.base);
+			}
+		} else {
+			a.base = gpValue(m.base);
+		}
 		if(m.hasIndex)
 			a.index = gpValue(m.index);
 		return a;
+	}
+
+	MachineOperand X86LowerPass::addrBase(const AddrParts& a) {
+		if(a.frameBase)
+			return MachineOperand::fixed(gpReg(RBP));
+		return MachineOperand::vr(a.base);
 	}
 
 	B32 X86LowerPass::addressOnlyAdd(Node* n) {
@@ -360,14 +377,27 @@ namespace rat {
 				return it->second; // materialized once at its scheduled block
 			U32 w = opWidth(n->getType());
 			VReg d = fresh(detail::kFp);
-			needScratch(); // FLoad-of-immediate materializes through the scratch slot
 			inst(X86Op::FLoad,
 					 detail::kFp,
 					 {MachineOperand::vr(d, w)},
-					 {MachineOperand::immVal((I64)(U64)c->getValue(), w)});
+					 {MachineOperand::symbol(fpPoolSym((U64)c->getValue(), w))});
 			return d;
 		}
 		return vregFor(n);
+	}
+
+	String X86LowerPass::fpPoolSym(U64 bits, U32 width) {
+		C8 buf[40];
+		std::snprintf(buf, sizeof buf, "__rat_fp%u_%016llx", width, (unsigned long long)bits);
+		String name(buf);
+		if(!mod->getGlobal(name)) {
+			List<U8> init(width);
+			for(U32 i = 0; i < width; ++i)
+				init[i] = (U8)(bits >> (8 * i));
+			Global* g = mod->createGlobal(name, mod->getFloat(width * 8), true, std::move(init));
+			g->setLinkage(Global::Linkage::Internal);
+		}
+		return name;
 	}
 
 	I32 X86LowerPass::x87Value(Node* n) {
@@ -551,6 +581,7 @@ namespace rat {
 
 	B32 X86LowerPass::run(Module& module, MachineModule& mm, const TargetInfo& target) {
 		U32 changed = 0;
+		mod = &module;
 		for(const Function* fn : module)
 			changed += runOnMachineFunction(*fn, mm.get(fn), target);
 		return changed != 0;

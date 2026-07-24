@@ -30,6 +30,36 @@ namespace rat {
 		return cl;
 	}
 
+	B32 X86LowerPass::emitMathIntrinsic(CallNode* c) {
+		const String& callee = c->getCallee();
+		B32 isSqrt = callee == "sqrt" || callee == "sqrtf";
+		B32 isAbs = callee == "fabs" || callee == "fabsf";
+		if(!isSqrt && !isAbs)
+			return false;
+		U32 w = (callee == "sqrtf" || callee == "fabsf") ? 4u : 8u;
+		if(c->getArgCount() != 1)
+			return false;
+		Node* arg = c->getArg(0);
+		if(!arg->getType() || !isSseTy(arg->getType()) || opWidth(arg->getType()) != w)
+			return false;
+		if(!c->returnsValue())
+			return false;
+		const Type* rt = c->getType()->getTupleElement(CallNode::valueProjIndex());
+		if(!rt || !isSseTy(rt) || opWidth(rt) != w)
+			return false;
+		Node* vp = c->projection(CallNode::valueProjIndex());
+		if(!vp)
+			return true;
+		VReg s = sseValue(arg);
+		VReg d = vregFor(vp);
+		inst(isSqrt ? X86Op::FSqrt : X86Op::FAbs,
+				 detail::kFp,
+				 {MachineOperand::vr(d, w)},
+				 {MachineOperand::vr(s, w)},
+				 (I64)w);
+		return true;
+	}
+
 	void X86LowerPass::emitCall(CallNode* c) {
 		if(!c->isIndirect()) {
 			const String& callee = c->getCallee();
@@ -43,6 +73,8 @@ namespace rat {
 				emitVaArg(c);
 				return;
 			}
+			if(emitMathIntrinsic(c))
+				return;
 		}
 
 		using Kind = X86ArgAssigner::Kind;
@@ -95,7 +127,8 @@ namespace rat {
 			}
 		}
 
-		if(conv->alHoldsSseCount) {
+		B32 needAl = conv->alHoldsSseCount && c->isVarArgs();
+		if(needAl) {
 			VReg al = fresh(detail::kGp);
 			def1(X86Op::LoadImm, al, detail::kGp, {MachineOperand::immVal((I64)as.sseUsed)});
 			copy(MachineOperand::fixed(gpReg(RAX)), MachineOperand::vr(al), detail::kGp);
@@ -115,7 +148,7 @@ namespace rat {
 				call.uses.push_back(dst);
 			}
 		}
-		if(conv->alHoldsSseCount)
+		if(needAl)
 			call.uses.push_back(MachineOperand::fixed(gpReg(RAX)));
 
 		if(c->isIndirect()) {

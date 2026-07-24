@@ -77,15 +77,17 @@ namespace rat {
 			U32 scaleLog2 = 0;
 			I32 disp = 0;
 			B32 hasIndex = false;
+			B32 frameBase = false; // address is rbp-relative
 		};
 		B32 scaleOf(Node* n, Node*& idx, U32& scaleLog2);
 		AddrMatch decodeAddr(Node* ptr);
 		AddrParts matchAddr(Node* ptr);
 		B32 addressOnlyAdd(Node* n);
 		B32 addressOnlyScale(Node* n);
-		VReg storeAddr(const AddrParts& a);
+		MachineOperand addrBase(const AddrParts& a);
 		I64 sibBits(I64 sign, const AddrParts& a);
 		VReg sseValue(Node* n);
+		String fpPoolSym(U64 bits, U32 width);
 		I32 x87Value(Node* n);
 		void emitStore(StoreNode* s);
 		void emitLoad(LoadNode* l);
@@ -106,6 +108,7 @@ namespace rat {
 		void emitConvertX87(ConvertNode* n, Node* src, Opcode op);
 		List<PhysReg> callerSavedClobbers() const;
 		void emitCall(CallNode* c);
+		B32 emitMathIntrinsic(CallNode* c);
 		VReg x87ByRefArg(Node* arg);
 		void emitPrologue();
 		void loadStackParam(ProjNode* p, Type* t, I32 disp);
@@ -124,6 +127,7 @@ namespace rat {
 		MachineFunc* out = nullptr;
 		X86FrameLayout* fl = nullptr;
 		Map<const Node*, VReg> vregOf;
+		Module* mod = nullptr;
 		Map<const Node*, I32> x87Slot;
 		Map<const Node*, I32> allocOff;
 		MachineBlock* mb = nullptr;

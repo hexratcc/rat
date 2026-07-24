@@ -56,7 +56,7 @@ namespace rat {
 		Lea,			 // dst = lea [use[0] + use[1]*(1<<imm2) + imm]
 		// integer memory: use[0] = address reg, imm = displacement
 		Load,	 // dst = [addr + index*scale + disp], sign/zero-extended per width/imm2
-		Store, // [addr + disp] = src, width
+		Store, // [addr + index * scale + disp] = src (index in use[2] per imm2), width
 		// integer ALU (two-address on the def reg; def and use[0] are coalesced)
 		Add,
 		Sub,
@@ -84,7 +84,9 @@ namespace rat {
 		FSub,
 		FMul,
 		FDiv, // two-address on the def xmm
-		FNeg, // pxor-based scalar negate
+		FNeg,	// pxor-based scalar negate
+		FSqrt,// dst = sqrt(use[0]); width in imm
+		FAbs,	// dst = |use[0]| via lane shifts; width in imm
 		FCmp, // ucomis use[0],use[1]; cc in imm, swap in imm2
 		Cvt,	// SSE convert; pfx/opc/w packed in imm
 		// x87 ops

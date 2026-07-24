@@ -323,6 +323,12 @@ namespace rat {
 		case X86Op::FNeg:
 			emitFNeg(in);
 			return;
+		case X86Op::FSqrt:
+			emitFSqrt(in);
+			return;
+		case X86Op::FAbs:
+			emitFAbs(in);
+			return;
 		case X86Op::FCmp:
 			emitFCmp(in);
 			return;

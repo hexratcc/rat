@@ -257,6 +257,32 @@ namespace rat {
 			modrmMem(src, base, disp);
 		}
 
+		void storeMemSib(Reg base, Reg index, U32 scaleLog2, I32 disp, Reg src, U32 width) {
+			if(width == 2)
+				b(0x66);
+			if(width == 1 && src >= RSP && src <= RDI)
+				rexForce(false, src, index, base);
+			else
+				rex(width == 8, src, index, base);
+			b(width == 1 ? 0x88 : 0x89);
+			modrmMemSib(src, base, index, scaleLog2, disp);
+		}
+
+		void storeMemImmSib(Reg base, Reg index, U32 scaleLog2, I32 disp, I64 imm, U32 width) {
+			if(width == 2)
+				b(0x66);
+			rex(width == 8, 0, index, base);
+			b(width == 1 ? 0xc6 : 0xc7);
+			modrmMemSib(0, base, index, scaleLog2, disp);
+			if(width == 1)
+				b((U8)imm);
+			else if(width == 2) {
+				b((U8)imm);
+				b((U8)((U16)imm >> 8));
+			} else
+				d32((U32)(I32)imm);
+		}
+
 		// mov imm, [base+disp]
 		void storeMemImm(Reg base, I32 disp, I64 imm, U32 width) {
 			if(width == 2)
@@ -556,12 +582,29 @@ namespace rat {
 		}
 		void loadXmm(U32 xmm, Reg base, I32 disp, U32 width) { movXmm(0x10, xmm, base, disp, width); }
 		void storeXmm(U32 xmm, Reg base, I32 disp, U32 width) { movXmm(0x11, xmm, base, disp, width); }
+		void storeXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width) {
+			ssePrefix(width);
+			rex(false, xmm, index, base);
+			b(0x0f);
+			b(0x11); // movss/movsd store
+			modrmMemSib(xmm, base, index, scaleLog2, disp);
+		}
 		void loadXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width) {
 			ssePrefix(width);
 			rex(false, xmm, index, base);
 			b(0x0f);
 			b(0x10); // movss/movsd load
 			modrmMemSib(xmm, base, index, scaleLog2, disp);
+		}
+		void loadXmmRipSym(U32 xmm, const String& sym, U32 width) {
+			ssePrefix(width);
+			rex(false, xmm, 0, 0);
+			b(0x0f);
+			b(0x10);
+			b((U8)(0x05 | ((xmm & 7) << 3))); // rip-relative
+			U32 at = here();
+			relocs.push_back({at, sym, RelocKind::Pc32, -4});
+			d32(0);
 		}
 		void movaps(U32 dst, U32 src) {
 			rex(false, dst, 0, src);
@@ -583,6 +626,14 @@ namespace rat {
 			b(0x0f);
 			b(0x2e);
 			modrmReg(a, bx);
+		}
+		void sseShiftImm(U32 laneBits, U8 ext, U32 reg, U8 cnt) {
+			b(0x66);
+			rex(false, 0, 0, reg);
+			b(0x0f);
+			b(laneBits == 64 ? 0x73 : 0x72);
+			modrmReg(ext, reg);
+			b(cnt);
 		}
 		void pxor(U32 a, U32 bx) {
 			b(0x66);

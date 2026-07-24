@@ -13,19 +13,6 @@
 #include "Target/X86Asm.h"
 
 namespace rat {
-	VReg X86LowerPass::storeAddr(const AddrParts& a) {
-		if(!a.hasIndex)
-			return a.base;
-		VReg addr = fresh(detail::kGp);
-		inst(X86Op::Lea,
-				 detail::kGp,
-				 {MachineOperand::vr(addr)},
-				 {MachineOperand::vr(a.base), MachineOperand::vr(a.index)},
-				 0,
-				 (I64)a.scaleLog2);
-		return addr;
-	}
-
 	void X86LowerPass::emitStore(StoreNode* s) {
 		Node* val = s->getValue();
 		U32 w = opWidth(val->getType());
@@ -40,32 +27,23 @@ namespace rat {
 			return;
 		}
 		AddrParts a = matchAddr(s->getPointer());
-		VReg addr = storeAddr(a);
+		auto emitOne = [&](X86Op op, U32 cls, MachineOperand src) {
+			List<MachineOperand> uses = {addrBase(a), std::move(src)};
+			if(a.hasIndex)
+				uses.push_back(MachineOperand::vr(a.index));
+			inst(op, cls, {}, std::move(uses), a.disp, sibBits(0, a));
+		};
 		if(isSseTy(val->getType())) {
-			VReg v = sseValue(val);
-			inst(X86Op::FStore,
-					 detail::kFp,
-					 {},
-					 {MachineOperand::vr(addr), MachineOperand::vr(v, w)},
-					 a.disp);
+			emitOne(X86Op::FStore, detail::kFp, MachineOperand::vr(sseValue(val), w));
 		} else {
 			if(ConstantNode* c = dyn_cast<ConstantNode>(val)) {
 				I64 v = c->getValue();
 				if(w < 8 || v == (I64)(I32)v) {
-					inst(X86Op::Store,
-							 detail::kGp,
-							 {},
-							 {MachineOperand::vr(addr), MachineOperand::immVal(v, w)},
-							 a.disp);
+					emitOne(X86Op::Store, detail::kGp, MachineOperand::immVal(v, w));
 					return;
 				}
 			}
-			VReg v = gpValue(val);
-			inst(X86Op::Store,
-					 detail::kGp,
-					 {},
-					 {MachineOperand::vr(addr), MachineOperand::vr(v, w)},
-					 a.disp);
+			emitOne(X86Op::Store, detail::kGp, MachineOperand::vr(gpValue(val), w));
 		}
 	}
 
@@ -81,7 +59,7 @@ namespace rat {
 			return;
 		}
 		AddrParts a = matchAddr(l->getPointer());
-		List<MachineOperand> uses = {MachineOperand::vr(a.base)};
+		List<MachineOperand> uses = {addrBase(a)};
 		if(a.hasIndex)
 			uses.push_back(MachineOperand::vr(a.index));
 		if(isSseTy(l->getType())) {

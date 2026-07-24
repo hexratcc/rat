@@ -103,6 +103,15 @@ namespace rat {
 				a->storeMem(RBP, a0.slot, gpOf(src), 8);
 			return;
 		}
+		if(in.imm2 & 2) { // scaled index in use[2]
+			Reg index = gpOf(in.uses[2]);
+			U32 sc = (U32)((in.imm2 >> 2) & 3);
+			if(src.kind == MachineOperand::Kind::Imm)
+				a->storeMemImmSib(gpOf(a0), index, sc, (I32)in.imm, src.imm, src.width);
+			else
+				a->storeMemSib(gpOf(a0), index, sc, (I32)in.imm, gpOf(src), src.width);
+			return;
+		}
 		if(src.kind == MachineOperand::Kind::Imm) {
 			a->storeMemImm(gpOf(a0), (I32)in.imm, src.imm, src.width);
 			return;
@@ -114,6 +123,10 @@ namespace rat {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& addr = in.uses[0];
 		U32 w = d.width;
+		if(addr.kind == MachineOperand::Kind::Sym) {
+			a->loadXmmRipSym(xmmOf(d), addr.sym, w);
+			return;
+		}
 		if(addr.kind == MachineOperand::Kind::Imm) {
 			a->movRegImm64(R11, (U64)addr.imm);
 			a->storeMem(RBP, fl->ldScratch, R11, 8);
@@ -137,6 +150,12 @@ namespace rat {
 		const MachineOperand& src = in.uses[1];
 		if(a0.kind == MachineOperand::Kind::FrameSlot) {
 			a->storeXmm(xmmOf(src), RBP, a0.slot, src.width);
+			return;
+		}
+		if(in.imm2 & 2) { // scaled index in use[2]
+			Reg index = gpOf(in.uses[2]);
+			U32 sc = (U32)((in.imm2 >> 2) & 3);
+			a->storeXmmSib(xmmOf(src), gpOf(a0), index, sc, (I32)in.imm, src.width);
 			return;
 		}
 		a->storeXmm(xmmOf(src), gpOf(a0), (I32)in.imm, src.width);
@@ -225,7 +244,11 @@ namespace rat {
 
 	void X86EncodePass::emitCmp(const MachineInstr& in) {
 		if(in.uses[1].kind == MachineOperand::Kind::Imm) {
-			a->cmpRegImm32(gpOf(in.uses[0]), (I32)in.uses[1].imm);
+			Reg l = gpOf(in.uses[0]);
+			if(in.uses[1].imm == 0)
+				a->testRR(l, l); // shorter encoding, same flags for eq/ne/sign
+			else
+				a->cmpRegImm32(l, (I32)in.uses[1].imm);
 			return;
 		}
 		a->cmpRR(gpOf(in.uses[0]), gpOf(in.uses[1]));
@@ -251,6 +274,21 @@ namespace rat {
 		a->sseArith(0x5c, w, z, s == d ? d : s);
 		if(d != z)
 			a->movaps(d, z);
+	}
+
+	void X86EncodePass::emitFSqrt(const MachineInstr& in) {
+		U32 w = (U32)in.imm;
+		a->sseArith(0x51, w, xmmOf(in.defs[0]), xmmOf(in.uses[0]));
+	}
+
+	void X86EncodePass::emitFAbs(const MachineInstr& in) {
+		U32 w = (U32)in.imm;
+		U32 d = xmmOf(in.defs[0]);
+		U32 s = xmmOf(in.uses[0]);
+		if(d != s)
+			a->movaps(d, s);
+		a->sseShiftImm(w * 8, 6, d, 1);
+		a->sseShiftImm(w * 8, 2, d, 1);
 	}
 
 	void X86EncodePass::emitFCmp(const MachineInstr& in) {
