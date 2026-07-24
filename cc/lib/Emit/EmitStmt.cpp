@@ -8,18 +8,38 @@ namespace rat::cc {
 		return toBool(fn, v);
 	}
 
-	B32 Emitter::emitIf(Function& fn, const Stmt* s) {
-		Node* pred = emitCondPred(fn, s->expr);
+	B32 Emitter::emitCondBranch(Function& fn,
+															const Expr* e,
+															Function::Block* trueB,
+															Function::Block* falseB) {
+		if(e->kind == ExprKind::Binary
+			 && (e->binary.op == ExprOp::LogAnd || e->binary.op == ExprOp::LogOr)) {
+			B32 isAnd = e->binary.op == ExprOp::LogAnd;
+			Function::Block* rhsB = fn.createBlock(isAnd ? "and.rhs" : "or.rhs");
+			if(!emitCondBranch(fn, e->binary.lhs, isAnd ? rhsB : trueB, isAnd ? falseB : rhsB))
+				return false;
+			fn.seal(rhsB);
+			fn.setInsertBlock(rhsB);
+			return emitCondBranch(fn, e->binary.rhs, trueB, falseB);
+		}
+		if(e->kind == ExprKind::Unary && e->unary.op == ExprOp::Not)
+			return emitCondBranch(fn, e->unary.operand, falseB, trueB);
+		Node* pred = emitCondPred(fn, e);
 		if(!pred)
 			return false;
+		fn.jumpif(pred, trueB);
+		fn.jmp(falseB);
+		return true;
+	}
 
+	B32 Emitter::emitIf(Function& fn, const Stmt* s) {
 		Function::Block* thenB = fn.createBlock("if.then");
 		Function::Block* elseB = s->elseBody ? fn.createBlock("if.else") : nullptr;
 		Function::Block* endB = fn.createBlock("if.end");
 		B32 reaches = false;
 
-		fn.jumpif(pred, thenB);
-		fn.jmp(elseB ? elseB : endB);
+		if(!emitCondBranch(fn, s->expr, thenB, elseB ? elseB : endB))
+			return false;
 		if(!elseB)
 			reaches = true;
 
@@ -56,11 +76,8 @@ namespace rat::cc {
 
 		fn.jmp(header);
 		fn.setInsertBlock(header);
-		Node* pred = emitCondPred(fn, s->expr);
-		if(!pred)
+		if(!emitCondBranch(fn, s->expr, bodyB, exitB))
 			return false;
-		fn.jumpif(pred, bodyB);
-		fn.jmp(exitB);
 
 		fn.seal(bodyB);
 		fn.setInsertBlock(bodyB);
@@ -95,11 +112,8 @@ namespace rat::cc {
 
 		fn.seal(condB);
 		fn.setInsertBlock(condB);
-		Node* pred = emitCondPred(fn, s->expr);
-		if(!pred)
+		if(!emitCondBranch(fn, s->expr, bodyB, exitB))
 			return false;
-		fn.jumpif(pred, bodyB);
-		fn.jmp(exitB);
 
 		fn.seal(bodyB);
 		fn.seal(exitB);
@@ -123,13 +137,10 @@ namespace rat::cc {
 		fn.setInsertBlock(header);
 		B32 exitReachable = false;
 		if(s->expr) {
-			Value cond = emitExpr(fn, s->expr);
-			if(!cond.node) {
+			if(!emitCondBranch(fn, s->expr, bodyB, exitB)) {
 				popScope();
 				return false;
 			}
-			fn.jumpif(toBool(fn, cond), bodyB);
-			fn.jmp(exitB);
 			exitReachable = true;
 		} else {
 			fn.jmp(bodyB);
@@ -287,11 +298,37 @@ namespace rat::cc {
 			blocks[defaultStmt] = defaultBlock;
 		}
 
-		for(U32 i = 0; i < caseValues.size(); ++i) {
-			Node* c = fn.eq(val, fn.constInt(irType(ct), caseValues[i]));
-			fn.jumpif(c, caseBlocks[i]);
-		}
-		fn.jmp(defaultBlock ? defaultBlock : exitB);
+		// dispatch
+		Function::Block* missB = defaultBlock ? defaultBlock : exitB;
+		List<U32> order(caseValues.size());
+		for(U32 i = 0; i < order.size(); ++i)
+			order[i] = i;
+		B32 uns = ct.isUnsigned();
+		std::sort(order.begin(), order.end(), [&](U32 a, U32 b) {
+			if(uns)
+				return (U64)caseValues[a] < (U64)caseValues[b];
+			return caseValues[a] < caseValues[b];
+		});
+		constexpr U32 kLinearMax = 4;
+		auto emitRange = [&](auto&& self, U32 lo, U32 hi) -> void {
+			if(hi - lo <= kLinearMax) {
+				for(U32 i = lo; i < hi; ++i) {
+					Node* c = fn.eq(val, fn.constInt(irType(ct), caseValues[order[i]]));
+					fn.jumpif(c, caseBlocks[order[i]]);
+				}
+				fn.jmp(missB);
+				return;
+			}
+			U32 mid = lo + (hi - lo) / 2;
+			Function::Block* ltB = fn.createBlock("switch.lt");
+			Node* pivot = fn.constInt(irType(ct), caseValues[order[mid]]);
+			fn.jumpif(fn.compare(uns ? Opcode::Ult : Opcode::Slt, val, pivot), ltB);
+			self(self, mid, hi); // fallthrough side: val >= pivot
+			fn.seal(ltB);
+			fn.setInsertBlock(ltB);
+			self(self, lo, mid);
+		};
+		emitRange(emitRange, 0, (U32)order.size());
 		switches.push_back(std::move(blocks));
 		loops.push_back({exitB, nullptr, false, true});
 		B32 ok = emitStmt(fn, body);

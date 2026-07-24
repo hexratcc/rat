@@ -143,6 +143,7 @@ namespace rat::cc {
 		Node* toBool(Function& fn, const Value& v);
 		Node* fromBool(Function& fn, Node* boolean);
 		Node* emitCondPred(Function& fn, const Expr* cond);
+		B32 emitCondBranch(Function& fn, const Expr* cond, Function::Block* trueB, Function::Block* falseB);
 
 		struct Local {
 			enum class Kind : U8 { Var, Mem };
