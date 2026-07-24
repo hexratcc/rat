@@ -158,22 +158,24 @@ namespace rat {
 		return nullptr;
 	}
 
-	Node* Function::call(const String& callee, Type* retType, const List<Node*>& args) {
+	Node* Function::call(const String& callee, Type* retType, const List<Node*>& args, B32 varArgs) {
 		List<Node*> ins{control(), readVar(memVar)};
 		for(Node* a : args)
 			ins.push_back(a);
 
 		CallNode* c = create<CallNode>(callTupleType(retType), callee, retType != nullptr, ins);
+		c->setVarArgs(varArgs);
 		return attachCallProjections(c, retType);
 	}
 
-	Node* Function::callIndirect(Node* target, Type* retType, const List<Node*>& args) {
+	Node* Function::callIndirect(Node* target, Type* retType, const List<Node*>& args, B32 varArgs) {
 		// inputs: control, memory, target pointer, then the call arguments
 		List<Node*> ins{control(), readVar(memVar), target};
 		for(Node* a : args)
 			ins.push_back(a);
 
 		CallNode* c = create<CallNode>(callTupleType(retType), String(), retType != nullptr, ins, true);
+		c->setVarArgs(varArgs);
 		return attachCallProjections(c, retType);
 	}
 

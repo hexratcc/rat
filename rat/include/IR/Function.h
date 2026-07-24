@@ -109,8 +109,9 @@ namespace rat {
 		Node* alloc(Type* type);
 		Node* allocVLA(Type* type, Node* byteCount);
 
-		Node* call(const String& callee, Type* retType, const List<Node*>& args);
-		Node* callIndirect(Node* target, Type* retType, const List<Node*>& args);
+		Node* call(const String& callee, Type* retType, const List<Node*>& args, B32 varArgs = true);
+		Node*
+		callIndirect(Node* target, Type* retType, const List<Node*>& args, B32 varArgs = true);
 
 		// control
 		IfNode* iff(Node* predicate);

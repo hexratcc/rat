@@ -220,6 +220,10 @@ namespace rat {
 		B32 isIndirect() const;
 		Node* getTarget() const;
 
+		// whether the callee may be variadic
+		B32 isVarArgs() const { return varArgs; }
+		void setVarArgs(B32 v) { varArgs = v; }
+
 		// psot-call
 		static constexpr U32 controlProjIndex() { return 0; }
 		static constexpr U32 memoryProjIndex() { return 1; }
@@ -227,6 +231,7 @@ namespace rat {
 	private:
 		String callee;
 		B32 hasReturnValue;
+		B32 varArgs = true;
 		B32 indirect;
 	};
 

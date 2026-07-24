@@ -194,6 +194,9 @@ namespace rat::cc {
 				return {};
 			}
 		}
+		B32 va = true;
+		if(c.prototyped && !unproto)
+			va = c.direct ? c.sig.isVarArgs : c.ft->isVarArgs;
 		List<Node*> args;
 		Node* resultSlot = nullptr;
 		if(isAggregate(ret)) {
@@ -204,22 +207,22 @@ namespace rat::cc {
 			return {};
 		if(resultSlot) {
 			if(c.direct)
-				fn.call(*e->call.callee, mod.getPtr(), args);
+				fn.call(*e->call.callee, mod.getPtr(), args, va);
 			else
-				fn.callIndirect(c.target, mod.getPtr(), args);
+				fn.callIndirect(c.target, mod.getPtr(), args, va);
 			return {resultSlot, ret};
 		}
 		if(c.direct) {
 			if(isVoidType(c.sig.ret)) {
-				fn.call(*e->call.callee, nullptr, args);
+				fn.call(*e->call.callee, nullptr, args, va);
 				return {fn.constInt(i32, 0), c.sig.ret};
 			}
-			return {fn.call(*e->call.callee, irType(c.sig.ret), args), c.sig.ret};
+			return {fn.call(*e->call.callee, irType(c.sig.ret), args, va), c.sig.ret};
 		}
 		if(isVoidType(ret)) {
-			fn.callIndirect(c.target, nullptr, args);
+			fn.callIndirect(c.target, nullptr, args, va);
 			return {fn.constInt(i32, 0), ret};
 		}
-		return {fn.callIndirect(c.target, irType(ret), args), ret};
+		return {fn.callIndirect(c.target, irType(ret), args, va), ret};
 	}
 } // namespace rat::cc
