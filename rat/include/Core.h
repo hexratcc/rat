@@ -104,6 +104,21 @@ namespace rat {
 				registerDtor(obj, [](void* p) { static_cast<T*>(p)->~T(); });
 			return obj;
 		}
+
+		template <typename T> T* makeArray(U64 count) {
+			static_assert(std::is_trivially_destructible_v<T>, "arena arrays are never destroyed");
+			if(count == 0)
+				return nullptr;
+			return static_cast<T*>(allocate(sizeof(T) * count, alignof(T)));
+		}
+
+		const C8* internString(const C8* s, U64 len) {
+			C8* p = makeArray<C8>(len + 1);
+			if(len)
+				std::memcpy(p, s, len);
+			p[len] = '\0';
+			return p;
+		}
 	private:
 		void* allocate(U64 size, U64 align) {
 			C8* aligned = cur ? detail::alignUp(cur, align) : nullptr;
