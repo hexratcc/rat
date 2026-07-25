@@ -13,6 +13,21 @@
 #include "Target/X86Asm.h"
 
 namespace rat {
+	// narrow load used only by zext: load zero-extended, later zext is a no-op
+	B32 X86LowerPass::zextOnlyLoad(const LoadNode* l) {
+		const Type* t = l->getType();
+		if(!t || !t->isInt() || intBits(t) >= 64)
+			return false;
+		if(l->getUsers().empty())
+			return false;
+		for(Node* u : l->getUsers()) {
+			ConvertNode* cv = dyn_cast<ConvertNode>(u);
+			if(!cv || cv->getOpcode() != Opcode::ZExt || cv->getOperand() != l)
+				return false;
+		}
+		return true;
+	}
+
 	void X86LowerPass::emitStore(StoreNode* s) {
 		Node* val = s->getValue();
 		U32 w = opWidth(val->getType());
@@ -70,7 +85,7 @@ namespace rat {
 					 a.disp,
 					 sibBits(0, a));
 		} else {
-			B32 sign = l->getType() && l->getType()->isInt();
+			B32 sign = l->getType() && l->getType()->isInt() && !zextOnlyLoad(l);
 			inst(X86Op::Load,
 					 detail::kGp,
 					 {MachineOperand::vr(vregFor(l), w)},
@@ -359,10 +374,14 @@ namespace rat {
 			VReg s = gpValue(src);
 			VReg d = vregFor(n);
 			copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
-			if(op == Opcode::Trunc)
+			if(op == Opcode::Trunc) {
 				signExtBits(d, intBits(n->getType()));
-			else if(op == Opcode::ZExt)
-				maskBits(d, intBits(src->getType()));
+			} else if(op == Opcode::ZExt) {
+				// already zero-extended when the source load emitted movzx
+				LoadNode* ld = dyn_cast<LoadNode>(src);
+				if(!ld || !zextOnlyLoad(ld))
+					maskBits(d, intBits(src->getType()));
+			}
 			return;
 		}
 		case Opcode::SIToFP:
