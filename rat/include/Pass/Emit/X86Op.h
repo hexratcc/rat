@@ -112,7 +112,8 @@ namespace rat {
 		// control / calls
 		Call, // direct (sym in sym) or indirect (target reg in use[0]); imm = xmmUsed
 		Ret,
-		Jmp, // unconditional, target block in use[0].block
+		Jmp,				// unconditional, target block in use[0].block
+		SwitchJump, // table jump: use[0] = selector reg, use[1..] = slot target blocks
 		Br,	 // test+jcc: predicate in use[0], then in use[1].block, else in use[2].block
 		// variadic support
 		VaStart, // init va_list at [use0]; imm = gpOffset start, imm2 = fpOffset start

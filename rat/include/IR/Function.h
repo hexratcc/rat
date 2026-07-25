@@ -133,6 +133,7 @@ namespace rat {
 		void seal(Block* block);
 		void jmp(Block* target);
 		void jumpif(Node* cond, Block* target);
+		void switchJump(Node* selector, const List<Block*>& targets);
 
 		// locals: declare with newVar (define later) or declareLocal (with an
 		// initializer), then get / set. SSA phi placement is handled for you.

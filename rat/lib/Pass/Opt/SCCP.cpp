@@ -86,6 +86,7 @@ namespace rat {
 				pushPhis(cast<RegionNode>(u));
 				break;
 			case Opcode::If:
+			case Opcode::Switch:
 				if(u->getControlInput() == c)
 					markExec(u);
 				break;

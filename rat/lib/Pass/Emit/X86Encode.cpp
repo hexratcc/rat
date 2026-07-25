@@ -28,6 +28,7 @@ namespace rat {
 		a = &asm_;
 		blockOffset.clear();
 		fixes.clear();
+		tables.clear();
 		frameSize = 0;
 		calleeSaved = std::move(callee);
 		calleeBase = 0;
@@ -217,6 +218,23 @@ namespace rat {
 		a->ret();
 	}
 
+	void X86EncodePass::emitSwitchJump(const MachineInstr& in) {
+		// lea r10,[rip+table]; movsxd r11,[r10+sel*4]; add r11,r10; jmp r11
+		// entries are offsets from the table base, so it is PIC, no relocations
+		Reg sel = gpOf(in.uses[0]);
+		// a spilled selector reloads into scratch r10/r11; route around it
+		Reg base = sel == R10 ? R11 : R10;
+		Reg entry = base == R10 ? R11 : R10; // may alias sel: read before written
+		PendingTable t;
+		t.leaDispAt = a->leaRipDisp(base);
+		for(U32 i = 1; i < (U32)in.uses.size(); ++i)
+			t.targets.push_back(in.uses[i].block);
+		a->movsxdSib4(entry, base, sel);
+		a->addRR(entry, base);
+		a->jmpReg(entry);
+		tables.push_back(std::move(t));
+	}
+
 	void X86EncodePass::emitJmp(const MachineInstr& in, I32 fallthrough) {
 		I32 target = in.uses[0].block;
 		if(target == fallthrough)
@@ -393,6 +411,9 @@ namespace rat {
 		case X86Op::Jmp:
 			emitJmp(in, fallthrough);
 			return;
+		case X86Op::SwitchJump:
+			emitSwitchJump(in);
+			return;
 		case X86Op::Br:
 			emitBr(in, fallthrough);
 			return;
@@ -492,6 +513,13 @@ namespace rat {
 			I32 fallthrough = (bi + 1 < fn->blocks.size()) ? (I32)fn->blocks[bi + 1].id : -1;
 			for(const MachineInstr& in : blk.insts)
 				emitInst(in, fallthrough);
+		}
+		// jump tables: 4-byte offsets from the table base, emitted after the code
+		for(const PendingTable& t : tables) {
+			U32 base = a->here();
+			a->patchRel32(t.leaDispAt, base);
+			for(I32 tb : t.targets)
+				a->d32(blockOffset[tb] - base);
 		}
 		for(const JumpFix& f : fixes)
 			a->patchRel32(f.dispAt, blockOffset[f.targetBlock]);

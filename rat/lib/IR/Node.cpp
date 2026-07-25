@@ -125,6 +125,13 @@ namespace rat {
 	Node* IfNode::getControl() const { return getInput(0); }
 	Node* IfNode::getPredicate() const { return getInput(1); }
 
+	SwitchNode::SwitchNode(Function& fn, Type* tupleType, Node* control, Node* selector)
+	: Node(fn, Opcode::Switch, tupleType, {control, selector}) {}
+
+	Node* SwitchNode::getControl() const { return getInput(0); }
+	Node* SwitchNode::getSelector() const { return getInput(1); }
+	U32 SwitchNode::getSlotCount() const { return getType()->getTupleElementCount(); }
+
 	ProjNode::ProjNode(Function& fn, Type* type, Node* tuple, U32 index, String label)
 	: Node(fn, Opcode::Proj, type, {tuple}),
 		index(index),
@@ -234,6 +241,7 @@ namespace rat {
 		case Opcode::Return:
 		case Opcode::Region:
 		case Opcode::If:
+		case Opcode::Switch:
 			return true;
 		case Opcode::Proj:
 			return n->getType()->isControl();
@@ -264,6 +272,8 @@ namespace rat {
 		}
 		case Opcode::If:
 			return into.create<IfNode>(t, nullptr, nullptr);
+		case Opcode::Switch:
+			return into.create<SwitchNode>(t, nullptr, nullptr);
 		case Opcode::Proj: {
 			const ProjNode* p = cast<ProjNode>(n);
 			return into.create<ProjNode>(t, nullptr, p->getIndex(), p->getLabel());

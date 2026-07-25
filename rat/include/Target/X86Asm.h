@@ -560,6 +560,32 @@ namespace rat {
 			d32(0);
 		}
 
+		// lea dst, [rip+disp32]; returns the disp offset for later patching
+		U32 leaRipDisp(Reg dst) {
+			rex(true, dst, 0, 0);
+			b(0x8d);
+			b((U8)(0x05 | ((dst & 7) << 3)));
+			U32 at = here();
+			d32(0);
+			return at;
+		}
+
+		// movsxd dst, dword [base + index*4]
+		void movsxdSib4(Reg dst, Reg base, Reg index) {
+			rex(true, dst, index, base);
+			b(0x63);
+			modrmMemSib(dst, base, index, 2, 0);
+		}
+
+		void addRR(Reg dst, Reg src) { aluRR(0x01, dst, src); }
+
+		void jmpReg(Reg r) {
+			if(r >= R8)
+				b(0x41);
+			b(0xff);
+			modrmReg(4, r);
+		}
+
 		void callReg(Reg r) {
 			if(r >= R8)
 				b(0x41);

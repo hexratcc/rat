@@ -60,6 +60,7 @@ namespace rat {
 				{"call", 0, 1, 0, 0, 2, -1, OpClass::None},
 				{"global", 0, 0, 0, -1, 0, 0, OpClass::None},
 				{"alloc", 0, 0, 0, -1, 0, 1, OpClass::None},
+				{"switch", 1, 0, 0, 0, 2, 2, OpClass::None},
 		};
 	} // namespace detail
 

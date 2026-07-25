@@ -23,6 +23,11 @@ namespace rat {
 			I32 targetBlock; // block the jump targets
 		};
 
+		struct PendingTable {
+			U32 leaDispAt;		 // rip-relative disp of the lea that loads the table base
+			List<I32> targets; // slot target blocks
+		};
+
 		void emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes);
 
 		void reset(const MachineFunc& f, const X86FrameLayout& layout, Asm& asm_, List<PhysReg> callee);
@@ -82,6 +87,7 @@ namespace rat {
 		void recordFix(U32 dispAt, I32 targetBlock);
 		void emitRet(const MachineInstr&);
 		void emitJmp(const MachineInstr& in, I32 fallthrough);
+		void emitSwitchJump(const MachineInstr& in);
 		void emitBr(const MachineInstr& in, I32 fallthrough);
 		void emitInst(const MachineInstr& in, I32 fallthrough);
 		void prologue();
@@ -93,6 +99,7 @@ namespace rat {
 		Asm* a = nullptr;
 		List<U32> blockOffset; // block id -> byte offset in code
 		List<JumpFix> fixes;
+		List<PendingTable> tables;
 		U32 frameSize = 0;
 		B32 omitFrame = false;
 		B32 hasDynAlloca = false;

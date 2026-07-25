@@ -309,6 +309,59 @@ namespace rat::cc {
 				return (U64)caseValues[a] < (U64)caseValues[b];
 			return caseValues[a] < caseValues[b];
 		});
+		// dense case sets dispatch via a jump table: rebase selector to a zero-based
+		// slot, range-check, jump indirect; each slot gets a trampoline block (holes
+		// -> default) for phi edges, empty ones forwarded away by layout
+		U32 n = (U32)order.size();
+		if(n >= 6) {
+			I64 minV = caseValues[order[0]];
+			I64 maxV = caseValues[order[n - 1]];
+			U64 span = (U64)maxV - (U64)minV + 1;
+			if(span <= 512 && span <= 4ull * n) {
+				Type* selTy = irType(ct);
+				Type* i64t = mod.getInt(64);
+				Node* idx = fn.binary(Opcode::Sub, val, fn.constInt(selTy, minV));
+				Node* idx64 = ct.bits < 64 ? fn.zext(idx, i64t) : idx;
+				Function::Block* tableB = fn.createBlock("switch.table");
+				fn.jumpif(fn.compare(Opcode::Ult, idx64, fn.constInt(i64t, (I64)span)), tableB);
+				fn.jmp(missB);
+				fn.seal(tableB);
+				fn.setInsertBlock(tableB);
+
+				List<Function::Block*> slotTarget(span, missB);
+				for(U32 i = 0; i < n; ++i)
+					slotTarget[(U64)caseValues[order[i]] - (U64)minV] = caseBlocks[order[i]];
+				List<Function::Block*> edges;
+				edges.reserve(span);
+				for(U64 sl = 0; sl < span; ++sl)
+					edges.push_back(fn.createBlock("switch.slot"));
+				fn.switchJump(idx64, edges);
+				for(U64 sl = 0; sl < span; ++sl) {
+					fn.seal(edges[sl]);
+					fn.setInsertBlock(edges[sl]);
+					fn.jmp(slotTarget[sl]);
+				}
+				switches.push_back(std::move(blocks));
+				loops.push_back({exitB, nullptr, false, true});
+				B32 tok = emitStmt(fn, body);
+				LoopFrame tframe = loops.back();
+				loops.pop_back();
+				switches.pop_back();
+				if(!tok)
+					return false;
+				if(!fn.blockFinished()) {
+					fn.jmp(exitB);
+					tframe.exitReachable = true;
+				}
+				if(!defaultBlock)
+					tframe.exitReachable = true;
+				fn.seal(exitB);
+				if(tframe.exitReachable)
+					fn.setInsertBlock(exitB);
+				return true;
+			}
+		}
+
 		constexpr U32 kLinearMax = 4;
 		auto emitRange = [&](auto&& self, U32 lo, U32 hi) -> void {
 			if(hi - lo <= kLinearMax) {

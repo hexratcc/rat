@@ -122,7 +122,16 @@ namespace rat {
 		static constexpr U32 elseProjIndex() { return 1; }
 	};
 
-	// selects element from a tuple producer (Start, If, Call)
+	// multi-way branch on a dense selector: proj i = the slot-i control edge
+	struct SwitchNode : Node {
+		SwitchNode(Function& fn, Type* tupleType, Node* control, Node* selector);
+
+		Node* getControl() const;
+		Node* getSelector() const;
+		U32 getSlotCount() const;
+	};
+
+	// selects element from a tuple producer (Start, If, Call, Switch)
 	struct ProjNode : Node {
 		ProjNode(Function& fn, Type* type, Node* tuple, U32 index, String label = "");
 
@@ -265,6 +274,7 @@ namespace rat {
 		template <> inline B32 nodeIsa<ReturnNode>(const Node* n)   { return n->getOpcode() == Opcode::Return; }
 		template <> inline B32 nodeIsa<RegionNode>(const Node* n)   { return n->getOpcode() == Opcode::Region; }
 		template <> inline B32 nodeIsa<IfNode>(const Node* n)       { return n->getOpcode() == Opcode::If; }
+		template <> inline B32 nodeIsa<SwitchNode>(const Node* n)   { return n->getOpcode() == Opcode::Switch; }
 		template <> inline B32 nodeIsa<ProjNode>(const Node* n)     { return n->getOpcode() == Opcode::Proj; }
 		template <> inline B32 nodeIsa<PhiNode>(const Node* n)      { return n->getOpcode() == Opcode::Phi; }
 		template <> inline B32 nodeIsa<ConstantNode>(const Node* n) { return n->getOpcode() == Opcode::Constant; }

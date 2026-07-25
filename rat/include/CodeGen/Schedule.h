@@ -21,6 +21,7 @@ namespace rat {
 			Return, // block ends in a return
 			Branch, // block ends in a two-way If (thenB / elseB)
 			Goto,		// block falls through to a single successor region (gotoB)
+			Switch, // block ends in a multi-way branch (caseB, one per slot)
 		};
 
 		struct Block {
@@ -30,6 +31,7 @@ namespace rat {
 			I32 thenB = -1, elseB = -1; // branch successors
 			I32 gotoB = -1;							// goto successor (a region block)
 			I32 gotoPredIdx = -1;				// which predecessor slot of gotoB this edge is
+			List<I32> caseB;						// switch successors, slot order
 			List<I32> preds;						// predecessor block indices
 
 			I32 idom = -1;		 // immediate dominator (entry dominates itself)

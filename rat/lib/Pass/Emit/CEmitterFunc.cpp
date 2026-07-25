@@ -234,6 +234,9 @@ namespace rat {
 				isTarget[blk.elseB] = 1;
 			} else if(blk.term == TK::Goto) {
 				isTarget[blk.gotoB] = 1;
+			} else if(blk.term == TK::Switch) {
+				for(I32 t : blk.caseB)
+					isTarget[t] = 1;
 			}
 		}
 
@@ -441,6 +444,15 @@ namespace rat {
 			auto* iff = cast<IfNode>(blk.termNode);
 			os << "  if (" << valueExpr(iff->getPredicate()) << ") goto L" << blk.thenB << "; else goto L"
 				 << blk.elseB << ";\n";
+			return;
+		}
+		case TK::Switch: {
+			auto* sw = cast<SwitchNode>(blk.termNode);
+			os << "  switch (" << valueExpr(sw->getSelector()) << ") {\n";
+			for(U32 i = 0; i + 1 < (U32)blk.caseB.size(); ++i)
+				os << "  case " << i << ": goto L" << blk.caseB[i] << ";\n";
+			// selector is range-checked, so the last slot doubles as default
+			os << "  default: goto L" << blk.caseB.back() << ";\n  }\n";
 			return;
 		}
 		case TK::Goto:

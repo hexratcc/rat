@@ -31,7 +31,7 @@ namespace rat {
 			return true;
 		if(const ProjNode* p = dyn_cast<ProjNode>(n)) {
 			Node* prod = p->getProducer();
-			if(isa<IfNode>(prod))
+			if(isa<IfNode>(prod) || isa<SwitchNode>(prod))
 				return true;
 			if(isa<StartNode>(prod) && p->getIndex() == 0)
 				return true;
@@ -102,6 +102,7 @@ namespace rat {
 						}
 						break;
 					case Opcode::If:
+					case Opcode::Switch:
 						if(u->getControlInput() == cur)
 							ifTerm = u;
 						break;
@@ -127,7 +128,16 @@ namespace rat {
 				}
 
 				Block& t = blocks[b];
-				if(ifTerm) {
+				if(ifTerm && ifTerm->getOpcode() == Opcode::Switch) {
+					t.term = TermKind::Switch;
+					t.termNode = ifTerm;
+					SwitchNode* sw = cast<SwitchNode>(ifTerm);
+					for(U32 k = 0, e = sw->getSlotCount(); k < e; ++k) {
+						I32 tb = headIndex.at(requireProj(ifTerm, k));
+						t.caseB.push_back(tb);
+						blocks[tb].preds.push_back(b);
+					}
+				} else if(ifTerm) {
 					t.term = TermKind::Branch;
 					t.termNode = ifTerm;
 					Node* thenP = requireProj(ifTerm, IfNode::thenProjIndex());
@@ -158,6 +168,8 @@ namespace rat {
 			return {t.thenB, t.elseB};
 		case TermKind::Goto:
 			return {t.gotoB};
+		case TermKind::Switch:
+			return t.caseB;
 		case TermKind::Return:
 			return {};
 		}

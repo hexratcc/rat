@@ -189,9 +189,9 @@ namespace rat {
 			auto* p = cast<ProjNode>(n);
 			Node* prod = p->getProducer();
 			Opcode po = prod->getOpcode();
-			if(check(po == Opcode::Start || po == Opcode::If || po == Opcode::Call,
+			if(check(po == Opcode::Start || po == Opcode::If || po == Opcode::Call || po == Opcode::Switch,
 							 n,
-							 "Proj producer " + vref(prod) + " is not a multi-output node (Start/If/Call)") &&
+							 "Proj producer " + vref(prod) + " is not a multi-output node (Start/If/Call/Switch)") &&
 				 check(prod->getType()->isTuple(), n, "Proj producer is not tuple-typed") &&
 				 check(p->getIndex() < prod->getType()->getTupleElementCount(),
 							 n,

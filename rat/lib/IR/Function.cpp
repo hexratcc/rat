@@ -251,6 +251,21 @@ namespace rat {
 		cur->finished = true;
 	}
 
+	// multi-way jump: slot i of the range-checked selector goes to targets[i]
+	void Function::switchJump(Node* selector, const List<Block*>& targets) {
+		if(!cur->ctrl) {
+			cur->finished = true;
+			return;
+		}
+		List<Type*> elems(targets.size(), ctrlTy());
+		SwitchNode* sw = create<SwitchNode>(mod->getTuple(elems), control(), selector);
+		for(U32 i = 0; i < (U32)targets.size(); ++i) {
+			Node* p = proj(sw, i, ctrlTy(), "case");
+			addEdge(p, cur, targets[i]);
+		}
+		cur->finished = true;
+	}
+
 	void Function::jumpif(Node* cond, Block* target) {
 		if(!cur->ctrl) {
 			Block* fall = createBlock("ft");

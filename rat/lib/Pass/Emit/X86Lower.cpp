@@ -576,6 +576,15 @@ namespace rat {
 						MachineOperand::blockRef(blk.elseB)});
 			return;
 		}
+		case Schedule::TermKind::Switch: {
+			// per-edge trampoline blocks carry phi copies, so the table jump is direct
+			SwitchNode* sw = cast<SwitchNode>(blk.termNode);
+			List<MachineOperand> uses{MachineOperand::vr(gpValue(sw->getSelector()))};
+			for(I32 tb : blk.caseB)
+				uses.push_back(MachineOperand::blockRef(tb));
+			inst(X86Op::SwitchJump, detail::kGp, {}, std::move(uses));
+			return;
+		}
 		case Schedule::TermKind::Goto:
 			emitPhiCopies(blk.gotoB, blk.gotoPredIdx);
 			inst(X86Op::Jmp, detail::kGp, {}, {MachineOperand::blockRef(blk.gotoB)});

@@ -81,6 +81,10 @@ namespace rat {
 		// storage: a pointer to a module global or a stack allocation
 		Global,
 		Alloc,
+
+		// multi-way branch: control + selector in, one control proj per slot;
+		// selector must be in [0, slots) (emitter guards it)
+		Switch,
 	};
 
 	enum class OpClass : U8 {
