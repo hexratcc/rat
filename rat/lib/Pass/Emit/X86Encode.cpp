@@ -202,8 +202,17 @@ namespace rat {
 	}
 
 	void X86EncodePass::emitRet(const MachineInstr&) {
-		for(U32 i = 0; i < calleeSaved.size(); ++i)
-			a->load64(toGp(calleeSaved[i]), RBP, calleeBase - (I32)(8 * (i + 1)));
+		if(omitFrame) {
+			a->ret();
+			return;
+		}
+		if(!calleeSaved.empty()) {
+			// dynamic allocas move rsp, so re-point it at the save area first
+			if(hasDynAlloca)
+				a->leaMem(RSP, RBP, -(I32)(frameSize + 8u * (U32)calleeSaved.size()));
+			for(U32 i = (U32)calleeSaved.size(); i-- > 0;)
+				a->pop(toGp(calleeSaved[i]));
+		}
 		a->leave();
 		a->ret();
 	}
@@ -393,6 +402,8 @@ namespace rat {
 	}
 
 	void X86EncodePass::prologue() {
+		if(omitFrame)
+			return; // frameless leaf: no frame pointer
 		a->push(RBP);
 		a->movRR(RBP, RSP);
 		if(conv->probeStack && frameSize > 4096) {
@@ -408,8 +419,9 @@ namespace rat {
 		} else if(frameSize) {
 			a->subRegImm32(RSP, (I32)frameSize);
 		}
+		// callee saves below the frame slots, via push/pop
 		for(U32 i = 0; i < calleeSaved.size(); ++i)
-			a->storeMem(RBP, calleeBase - (I32)(8 * (i + 1)), toGp(calleeSaved[i]), 8);
+			a->push(toGp(calleeSaved[i]));
 		if(!fl->variadic)
 			return;
 		if(conv->vaList == X86VaList::CharPtr) {
@@ -429,7 +441,43 @@ namespace rat {
 
 	void X86EncodePass::encodeFunction() {
 		calleeBase = -(I32)fn->frameBytes;
-		frameSize = (fn->frameBytes + 8u * (U32)calleeSaved.size() + 15u) & ~15u;
+		// frame slots in [rbp-frameSize, rbp); saves pushed below, total 16-aligned
+		U32 saveBytes = 8u * (U32)calleeSaved.size();
+		frameSize = ((fn->frameBytes + saveBytes + 15u) & ~15u) - saveBytes;
+
+		// frameless when nothing touches rbp/rsp: no slots, saves, calls, variadic,
+		// or frame-addressing instruction
+		hasDynAlloca = false;
+		B32 framey = fn->frameBytes != 0 || !calleeSaved.empty() || fl->variadic;
+		B32 hasCall = false;
+		PhysReg rbpPhys = X86Target::kGpBase + (PhysReg)RBP;
+		for(const MachineBlock& blk : fn->blocks)
+			for(const MachineInstr& in : blk.insts) {
+				X86Op op = (X86Op)in.op;
+				if(op == X86Op::FrameAddr) {
+					framey = true;
+					if(in.imm == -1)
+						hasDynAlloca = true;
+				}
+				if(op == X86Op::VaStart || op == X86Op::VaArg
+					 || (op >= X86Op::X87LoadMem && op <= X86Op::X87Cmp))
+					framey = true;
+				if(op == X86Op::FLoad && !in.uses.empty()
+					 && in.uses[0].kind == MachineOperand::Kind::Imm)
+					framey = true; // materializes through the rbp scratch slot
+				if(in.isCall)
+					hasCall = true;
+				for(const MachineOperand& o : in.defs)
+					if(o.kind == MachineOperand::Kind::FrameSlot
+						 || (o.kind == MachineOperand::Kind::Phys && o.phys == rbpPhys))
+						framey = true;
+				for(const MachineOperand& o : in.uses)
+					if(o.kind == MachineOperand::Kind::FrameSlot
+						 || (o.kind == MachineOperand::Kind::Phys && o.phys == rbpPhys))
+						framey = true;
+			}
+		omitFrame = !framey && !hasCall;
+
 		blockOffset.assign(fn->blocks.size(), 0);
 		prologue();
 		for(U32 bi = 0; bi < fn->blocks.size(); ++bi) {

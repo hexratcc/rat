@@ -516,6 +516,11 @@ namespace rat {
 				b(0x41);
 			b((U8)(0x50 + (r & 7)));
 		}
+		void pop(Reg r) {
+			if(r >= R8)
+				b(0x41);
+			b((U8)(0x58 + (r & 7)));
+		}
 		void ret() { b(0xc3); }
 		void leave() { b(0xc9); }
 
