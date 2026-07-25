@@ -57,8 +57,16 @@ namespace rat {
 		return isCompareOpcode(op) && op < Opcode::FEq;
 	}
 
+	B32 X86LowerPass::isSseCompare(Node* n) {
+		Opcode op = n->getOpcode();
+		if(!isCompareOpcode(op) || op < Opcode::FEq)
+			return false;
+		CompareNode* c = cast<CompareNode>(n);
+		return !isX87Ty(c->getLHS()->getType());
+	}
+
 	B32 X86LowerPass::branchOnlyCompare(Node* n) {
-		if(!isIntCompare(n))
+		if(!isIntCompare(n) && !isSseCompare(n))
 			return false;
 		for(Node* u : n->getUsers())
 			if(!isa<IfNode>(u))
@@ -423,12 +431,12 @@ namespace rat {
 		case Opcode::Constant: {
 			ConstantNode* c = cast<ConstantNode>(n);
 			if(isSseTy(n->getType())) {
+				// rip-relative load from the constant pool
 				U32 w = opWidth(n->getType());
-				needScratch();
 				inst(X86Op::FLoad,
 						 detail::kFp,
 						 {MachineOperand::vr(vregFor(n), w)},
-						 {MachineOperand::immVal((I64)(U64)c->getValue(), w)});
+						 {MachineOperand::symbol(fpPoolSym((U64)c->getValue(), w))});
 			}
 			return;
 		}
@@ -536,6 +544,27 @@ namespace rat {
 						 {MachineOperand::blockRef(blk.thenB), MachineOperand::blockRef(blk.elseB)},
 						 (I64)detail::kIntCc[(U32)c->getOpcode() - (U32)Opcode::Eq],
 						 1); // imm2 = 1: condition code in imm, no predicate register
+				return;
+			}
+			if(isSseCompare(pred)) {
+				// fuse: ucomis lhs, rhs; jcc (swap keeps lt/le NaN-correct)
+				CompareNode* c = cast<CompareNode>(pred);
+				U32 w = opWidth(c->getLHS()->getType());
+				U32 idx = (U32)c->getOpcode() - (U32)Opcode::FEq;
+				VReg lhs = sseValue(c->getLHS());
+				VReg rhs = sseValue(c->getRHS());
+				inst(X86Op::FCmpFlags,
+						 detail::kFp,
+						 {},
+						 {MachineOperand::vr(lhs, w), MachineOperand::vr(rhs, w)},
+						 0,
+						 detail::kFpSwap[idx]);
+				inst(X86Op::Br,
+						 detail::kGp,
+						 {},
+						 {MachineOperand::blockRef(blk.thenB), MachineOperand::blockRef(blk.elseB)},
+						 (I64)detail::kFpCc[idx],
+						 1); // imm2 = 1: condition code in imm
 				return;
 			}
 			VReg p = gpValue(pred);

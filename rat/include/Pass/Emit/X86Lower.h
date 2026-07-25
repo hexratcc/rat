@@ -41,6 +41,7 @@ namespace rat {
 		static B32 isIntCompare(Node* n);
 		static B32 immOf(Node* n, I64& out);
 		static B32 branchOnlyCompare(Node* n);
+		static B32 isSseCompare(Node* n);
 		static U32 opWidth(const Type* t);
 		static String libcName(const String& callee);
 

@@ -332,6 +332,9 @@ namespace rat {
 		case X86Op::FCmp:
 			emitFCmp(in);
 			return;
+		case X86Op::FCmpFlags:
+			emitFCmpFlags(in);
+			return;
 		case X86Op::Cvt:
 			emitCvt(in);
 			return;

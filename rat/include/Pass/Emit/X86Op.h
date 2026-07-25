@@ -43,6 +43,9 @@ namespace rat {
 
 
 		constexpr U8 kIntCc[] = {CC_E, CC_NE, CC_L, CC_LE, CC_B, CC_BE};
+		// FEq..FGe -> condition code / operand swap (swap keeps lt/le NaN-correct)
+		constexpr U8 kFpCc[] = {CC_E, CC_NE, CC_A, CC_AE, CC_A, CC_AE};
+		constexpr U8 kFpSwap[] = {0, 0, 1, 1, 0, 0};
 
 		constexpr U8 kSseOp[] = {0x58, 0x5c, 0x59, 0x5e};
 	} // namespace detail
@@ -87,7 +90,8 @@ namespace rat {
 		FNeg,	// pxor-based scalar negate
 		FSqrt,// dst = sqrt(use[0]); width in imm
 		FAbs,	// dst = |use[0]| via lane shifts; width in imm
-		FCmp, // ucomis use[0],use[1]; cc in imm, swap in imm2
+		FCmp,			// ucomis use[0],use[1] + setcc; cc in imm, swap in imm2
+		FCmpFlags, // flags-only ucomis use[0],use[1]; swap in imm2 (cc consumed by a fused Br)
 		Cvt,	// SSE convert; pfx/opc/w packed in imm
 		// x87 ops
 		X87LoadMem,	 // def(slot) = fld [use0 addr]; imm = mem width (4/8/80)

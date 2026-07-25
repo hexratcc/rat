@@ -315,15 +315,8 @@ namespace rat {
 			U8 cc;
 			B32 swap;
 		};
-		static const FCmp kFCmp[] = {
-				{CC_E, false},	// FEq
-				{CC_NE, false}, // FNe
-				{CC_A, true},		// FLt
-				{CC_AE, true},	// FLe
-				{CC_A, false},	// FGt
-				{CC_AE, false}, // FGe
-		};
-		const FCmp& fc = kFCmp[(U32)n->getOpcode() - (U32)Opcode::FEq];
+		U32 fcIdx = (U32)n->getOpcode() - (U32)Opcode::FEq;
+		const FCmp fc = {detail::kFpCc[fcIdx], detail::kFpSwap[fcIdx] != 0};
 		VReg d = vregFor(n);
 		if(isX87Ty(n->getLHS()->getType())) {
 			I32 lhs = x87Value(n->getLHS());

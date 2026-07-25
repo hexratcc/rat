@@ -304,6 +304,16 @@ namespace rat {
 		a->movzxByte(d, d);
 	}
 
+	void X86EncodePass::emitFCmpFlags(const MachineInstr& in) {
+		U32 w = in.uses[0].width;
+		U32 lhs = xmmOf(in.uses[0]);
+		U32 rhs = xmmOf(in.uses[1]);
+		if(in.imm2)
+			a->ucomis(w, rhs, lhs);
+		else
+			a->ucomis(w, lhs, rhs);
+	}
+
 	void X86EncodePass::emitCvt(const MachineInstr& in) {
 		U8 pfx = (U8)((in.imm >> 16) & 0xff);
 		U8 opc = (U8)((in.imm >> 8) & 0xff);
