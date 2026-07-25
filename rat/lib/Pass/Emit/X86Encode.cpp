@@ -297,6 +297,10 @@ namespace rat {
 		case X86Op::LShr:
 			emitShift(in, 5);
 			return;
+		case X86Op::Rotl:
+		case X86Op::Rotr:
+			emitRot(in, (X86Op)in.op == X86Op::Rotl);
+			return;
 		case X86Op::SDiv:
 		case X86Op::SRem:
 			emitDiv(in, true);

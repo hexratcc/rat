@@ -465,6 +465,14 @@ namespace rat {
 			modrmReg(ext, r);
 		}
 
+		// C1 /ext ib rotate/shift with explicit operand width (ext 0 = rol, 1 = ror)
+		void rotImm(U8 ext, Reg r, U8 cnt, B32 wide) {
+			rex(wide, 0, 0, r);
+			b(0xc1);
+			modrmReg(ext, r);
+			b(cnt);
+		}
+
 		void shiftImm(U8 ext, Reg r, U8 cnt) {
 			rex(true, 0, 0, r);
 			b(0xc1);

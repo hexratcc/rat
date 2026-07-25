@@ -105,6 +105,17 @@ namespace rat {
 			return s + "(" + u + a + " >> " + b + ")";
 		case Opcode::AShr:
 			return s + a + " >> " + b;
+		case Opcode::Rotl:
+		case Opcode::Rotr: {
+			String wm = std::to_string(width ? width - 1 : 63);
+			String w = std::to_string(width ? width : 64);
+			String x = u + a, c = "(" + b + ")";
+			String ls = "(" + x + " << (" + c + " & " + wm + "))";
+			String rs = "(" + x + " >> ((" + w + " - " + c + ") & " + wm + "))";
+			if(op == Opcode::Rotr)
+				std::swap(ls, rs);
+			return s + "(" + ls + " | " + rs + ")";
+		}
 		default:
 			break;
 		}
@@ -115,6 +126,7 @@ namespace rat {
 				"%", nullptr,            // SRem URem
 				"&", "|", "^",           // And Or Xor
 				"<<", nullptr, nullptr,  // Shl LShr AShr
+				nullptr, nullptr,        // Rotl Rotr
 				"+", "-", "*", "/",      // FAdd FSub FMul FDiv
 		};
 		// clang-format on

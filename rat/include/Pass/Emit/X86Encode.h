@@ -47,6 +47,7 @@ namespace rat {
 		void emitMul(const MachineInstr& in);
 		void emitNegNot(const MachineInstr& in, B32 neg);
 		void emitShift(const MachineInstr& in, U8 ext);
+		void emitRot(const MachineInstr& in, B32 left);
 		void emitDiv(const MachineInstr& in, B32 isSigned);
 		void emitMaskBits(const MachineInstr& in);
 		void emitSignExtBits(const MachineInstr& in);

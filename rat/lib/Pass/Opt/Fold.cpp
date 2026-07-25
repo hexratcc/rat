@@ -99,6 +99,16 @@ namespace rat {
 			if(b >= 0 && b < (I64)w)
 				return k(signExtend(a, w) >> b);
 			return false;
+		case Opcode::Rotl:
+		case Opcode::Rotr: {
+			if(b < 0)
+				return false;
+			U64 ua = FoldPass::maskW(a, w);
+			U32 c = (U32)((U64)b & (w - 1));
+			if(op == Opcode::Rotr)
+				c = c ? w - c : 0;
+			return k((I64)(c ? ((ua << c) | (ua >> (w - c))) : ua));
+		}
 		case Opcode::SDiv: {
 			I64 sa = signExtend(a, w), sb = signExtend(b, w);
 			if(FoldPass::wouldSignedDivOverflow(sa, sb))
@@ -244,6 +254,24 @@ namespace rat {
 				return rhs;
 			if(FoldPass::isAllOnesConst(rhs, w) || FoldPass::isAllOnesConst(lhs, w))
 				return constant(fn, ty, FoldPass::normalizeConst(-1, w));
+			// (x<<c)|(x>>(w-c)) == rotate (32/64-bit only, one rol/ror)
+			if(w == 32 || w == 64) {
+				BinaryNode* bl = dyn_cast<BinaryNode>(lhs);
+				BinaryNode* br = dyn_cast<BinaryNode>(rhs);
+				if(bl && br) {
+					if(bl->getOpcode() == Opcode::LShr && br->getOpcode() == Opcode::Shl)
+						std::swap(bl, br);
+					if(bl->getOpcode() == Opcode::Shl && br->getOpcode() == Opcode::LShr
+						 && bl->getLHS() == br->getLHS()) {
+						ConstantNode* cl = dyn_cast<ConstantNode>(bl->getRHS());
+						ConstantNode* cr = dyn_cast<ConstantNode>(br->getRHS());
+						if(cl && cr && cl->getValue() > 0 && cr->getValue() > 0
+							 && cl->getValue() + cr->getValue() == (I64)w) {
+							return fn.create<BinaryNode>(Opcode::Rotr, ty, br->getLHS(), br->getRHS());
+						}
+					}
+				}
+			}
 			break;
 		case Opcode::Xor:
 			if(FoldPass::isZeroConst(rhs))

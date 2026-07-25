@@ -178,6 +178,28 @@ namespace rat {
 			signExtBits(d, bits);
 	}
 
+	// rotates reach lowering only with a constant count (the fold rule builds
+	// them that way)
+	void X86LowerPass::emitRotate(BinaryNode* n, B32 left) {
+		U32 bits = intBits(n->getType());
+		I64 iv = 0;
+		if(!immOf(n->getRHS(), iv)) {
+			VReg lhs = gpValue(n->getLHS());
+			VReg d = vregFor(n);
+			copy(MachineOperand::vr(d), MachineOperand::vr(lhs), detail::kGp);
+			return; // degenerate; should not happen
+		}
+		VReg lhs = gpValue(n->getLHS());
+		VReg d = vregFor(n);
+		copy(MachineOperand::vr(d), MachineOperand::vr(lhs), detail::kGp);
+		inst(left ? X86Op::Rotl : X86Op::Rotr,
+				 detail::kGp,
+				 {MachineOperand::vr(d)},
+				 {MachineOperand::vr(d), MachineOperand::immVal(iv & (bits - 1))},
+				 (I64)bits);
+		signExtBits(d, bits); // restore in-register sign-extended convention
+	}
+
 	void X86LowerPass::emitBinary(BinaryNode* n) {
 		Opcode op = n->getOpcode();
 		if(op >= Opcode::FAdd && op <= Opcode::FDiv) {
@@ -200,6 +222,11 @@ namespace rat {
 			static const X86Op kShift[] = {X86Op::Shl, X86Op::LShr, X86Op::AShr};
 			static_assert((U32)Opcode::AShr - (U32)Opcode::Shl + 1 == 3, "kShift must cover Shl..AShr");
 			emitShift(n, kShift[(U32)op - (U32)Opcode::Shl]);
+			return;
+		}
+		case Opcode::Rotl:
+		case Opcode::Rotr: {
+			emitRotate(n, op == Opcode::Rotl);
 			return;
 		}
 		default:

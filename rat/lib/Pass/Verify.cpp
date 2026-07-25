@@ -277,7 +277,8 @@ namespace rat {
 				const Type* lt = b->getLHS()->getType();
 				const Type* rt = b->getRHS()->getType();
 				check(lt == t, n, "binary result type differs from its left operand");
-				B32 shift = op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr;
+				B32 shift = op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr
+						|| op == Opcode::Rotl || op == Opcode::Rotr;
 				if(lt->isPtr()) {
 					if(check(op == Opcode::Add || op == Opcode::Sub,
 									 n,

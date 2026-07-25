@@ -72,6 +72,8 @@ namespace rat {
 		Shl,
 		AShr,
 		LShr, // shift count in use[1] (fixed to RCX by lowering)
+		Rotl,
+		Rotr, // rotate; constant count in use[1], operand width in imm
 		SDiv,
 		SRem,
 		UDiv,

@@ -99,6 +99,7 @@ namespace rat {
 		void signExtBits(VReg d, U32 bits);
 		void emitDivLike(BinaryNode* n, X86Op op);
 		void emitShift(BinaryNode* n, X86Op op);
+		void emitRotate(BinaryNode* n, B32 left);
 		void emitBinary(BinaryNode* n);
 		void emitFloatBinary(BinaryNode* n);
 		void emitX87Binary(BinaryNode* n, U32 idx);

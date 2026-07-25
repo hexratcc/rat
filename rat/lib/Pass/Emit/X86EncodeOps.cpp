@@ -196,6 +196,11 @@ namespace rat {
 		a->shiftCL(ext, gpOf(in.defs[0]));
 	}
 
+	void X86EncodePass::emitRot(const MachineInstr& in, B32 left) {
+		Reg d = gpOf(in.defs[0]);
+		a->rotImm(left ? 0 : 1, d, (U8)in.uses[1].imm, in.imm == 64);
+	}
+
 	void X86EncodePass::emitDiv(const MachineInstr& in, B32 isSigned) {
 		B32 wide = (U32)in.imm > 32;
 		if(isSigned) {

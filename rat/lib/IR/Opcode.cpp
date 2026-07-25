@@ -25,6 +25,8 @@ namespace rat {
 				{"shl", 0, 0, 0, -1, 2, 2, OpClass::Binary},
 				{"lshr", 0, 0, 0, -1, 2, 2, OpClass::Binary},
 				{"ashr", 0, 0, 0, -1, 2, 2, OpClass::Binary},
+				{"rotl", 0, 0, 0, -1, 2, 2, OpClass::Binary},
+				{"rotr", 0, 0, 0, -1, 2, 2, OpClass::Binary},
 				{"fadd", 0, 0, 1, -1, 2, 2, OpClass::Binary},
 				{"fsub", 0, 0, 0, -1, 2, 2, OpClass::Binary},
 				{"fmul", 0, 0, 1, -1, 2, 2, OpClass::Binary},

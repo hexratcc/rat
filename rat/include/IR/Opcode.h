@@ -31,6 +31,8 @@ namespace rat {
 		Shl,
 		LShr,
 		AShr,
+		Rotl,
+		Rotr,
 		// floating-point arithmetic
 		FAdd,
 		FSub,
