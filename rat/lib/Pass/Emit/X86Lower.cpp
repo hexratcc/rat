@@ -658,7 +658,16 @@ namespace rat {
 		};
 		hooks.isCopy = [](const MachineInstr& in) { return in.op == (MachineOpcode)X86Op::Copy; };
 		hooks.isRemat = [](const MachineInstr& in) {
-			return in.op == (MachineOpcode)X86Op::LoadImm || in.op == (MachineOpcode)X86Op::LoadSym;
+			if(in.op == (MachineOpcode)X86Op::LoadImm || in.op == (MachineOpcode)X86Op::LoadSym)
+				return true;
+			// static frame address (the dynamic, variable-sized form has a use)
+			if(in.op == (MachineOpcode)X86Op::FrameAddr && in.uses.empty() && in.imm != -1)
+				return true;
+			// constant-pool load
+			if(in.op == (MachineOpcode)X86Op::FLoad && in.uses.size() == 1
+				 && in.uses[0].kind == MachineOperand::Kind::Sym)
+				return true;
+			return false;
 		};
 		return hooks;
 	}

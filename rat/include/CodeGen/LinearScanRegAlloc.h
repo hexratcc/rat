@@ -42,6 +42,7 @@ namespace rat {
 			I32 spillSlot = 0;
 			B32 spilled = false;
 			B32 crossesCall = false;
+			U32 uses = 0; // operand occurrences (spill cost proxy)
 		};
 
 		void resetState() override {

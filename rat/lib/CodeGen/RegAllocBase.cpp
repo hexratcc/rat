@@ -195,6 +195,15 @@ namespace rat {
 	}
 
 	void RegAllocBase::rewrite() {
+		// spill slots read by a call (stack-passed args): defs must be kept
+		Set<VReg> slotReadByCall;
+		for(U32 b = 0; b < fn->blocks.size(); ++b)
+			for(const MachineInstr& in : fn->blocks[b].insts)
+				if(in.isCall)
+					for(const MachineOperand& u : in.uses)
+						if(u.isVReg())
+							slotReadByCall.insert(u.vreg);
+
 		for(U32 b = 0; b < fn->blocks.size(); ++b) {
 			List<MachineInstr> out;
 			B32 memo = false;
@@ -214,6 +223,15 @@ namespace rat {
 			};
 
 			for(MachineInstr& in : fn->blocks[b].insts) {
+				// spilled remat def: drop it, every use re-materializes
+				if(in.defs.size() == 1 && in.defs[0].isVReg()) {
+					VReg dv = in.defs[0].vreg;
+					if(rematDef.find(dv) != rematDef.end() && assignmentOf(dv).spilled
+						 && !slotReadByCall.count(dv)) {
+						memo = false;
+						continue;
+					}
+				}
 				// spilled-copy peepholes
 				if(hooks->isCopy && hooks->isCopy(in) && in.defs.size() == 1 && in.uses.size() == 1
 					 && in.defs[0].isVReg() && in.uses[0].isVReg()) {

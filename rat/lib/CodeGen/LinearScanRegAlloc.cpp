@@ -52,6 +52,7 @@ namespace rat {
 				const MachineInstr& in = fn->blocks[b].insts[(U32)i];
 				for(const MachineOperand& d : in.defs)
 					if(d.isVReg()) {
+						++ivFor(d.vreg).uses;
 						if(live.test(d.vreg)) {
 							ivFor(d.vreg).segs.push_back({pt, segEnd[d.vreg]});
 							live.reset(d.vreg);
@@ -60,9 +61,12 @@ namespace rat {
 						}
 					}
 				for(const MachineOperand& u : in.uses)
-					if(u.isVReg() && !live.test(u.vreg)) {
-						live.set(u.vreg);
-						segEnd[u.vreg] = pt;
+					if(u.isVReg()) {
+						++ivFor(u.vreg).uses;
+						if(!live.test(u.vreg)) {
+							live.set(u.vreg);
+							segEnd[u.vreg] = pt;
+						}
 					}
 			}
 			live.forEach([&](VReg v) { ivFor(v).segs.push_back({first, segEnd[v]}); });
@@ -262,6 +266,16 @@ namespace rat {
 	void LinearScanRegAllocPass::spillAt(Interval* cur, List<Interval*>& active) {
 		const RegClass& rc = regClass(cur->cls);
 		U64 bad = forbidden(*cur);
+
+		// spill cost ~ memory ops added: one reload per use; remat values reload
+		// without a store so cost far less
+		auto costOf = [&](const Interval* iv) -> F64 {
+			F64 c = (F64)(iv->uses ? iv->uses : 1);
+			if(rematDef.find(iv->vreg) != rematDef.end())
+				c *= 0.3;
+			return c;
+		};
+
 		Interval* victim = nullptr;
 		for(Interval* a : active)
 			if(a->cls == cur->cls && !a->spilled) {
@@ -277,11 +291,12 @@ namespace rat {
 					}
 				if(shared)
 					continue;
-				if(!victim || a->end > victim->end)
+				if(!victim || costOf(a) < costOf(victim)
+					 || (costOf(a) == costOf(victim) && a->end > victim->end))
 					victim = a;
 			}
 
-		if(victim && victim->end > cur->end) {
+		if(victim && costOf(victim) < costOf(cur)) {
 			cur->assigned = victim->assigned;
 			if(isCalleeSaved(rc, cur->assigned))
 				usedCallee.insert(cur->assigned);
