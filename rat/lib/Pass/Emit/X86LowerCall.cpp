@@ -323,7 +323,8 @@ namespace rat {
 				 {},
 				 {MachineOperand::vr(ptr)},
 				 (I64)fl->namedGp,
-				 (I64)fl->namedFp);
+				 (I64)fl->namedFp)
+				.clobbers = {gpReg(R10), gpReg(R11)};
 	}
 
 	void X86LowerPass::emitVaArg(CallNode* c) {
@@ -345,7 +346,8 @@ namespace rat {
 				 {def},
 				 {MachineOperand::vr(ptr)},
 				 (I64)kind,
-				 imm2);
+				 imm2)
+				.clobbers = {gpReg(R10), gpReg(R11)};
 	}
 
 	void X86LowerPass::emitReturn(ReturnNode* r) {

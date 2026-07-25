@@ -104,7 +104,8 @@ namespace rat {
 				 detail::kGp,
 				 {MachineOperand::vr(vregFor(al))},
 				 {MachineOperand::vr(sz)},
-				 -1); // imm -1 marks a dynamic frame address
+				 -1) // imm -1 marks a dynamic frame address
+				.clobbers = {gpReg(R10), gpReg(R11)};
 	}
 
 	void X86LowerPass::twoAddr(X86Op op, VReg d, VReg lhs, VReg rhs) {
@@ -114,12 +115,15 @@ namespace rat {
 	}
 
 	void X86LowerPass::maskBits(VReg d, U32 bits) {
-		if(bits > 0 && bits < 64)
-			inst(X86Op::MaskBits,
+		if(bits > 0 && bits < 64) {
+			MachineInstr& m = inst(X86Op::MaskBits,
 					 detail::kGp,
 					 {MachineOperand::vr(d)},
 					 {MachineOperand::vr(d)},
 					 (I64)bits);
+			if(bits > 32)
+				m.clobbers = {gpReg(R11)}; // mask built via scratch reg
+		}
 	}
 
 	void X86LowerPass::signExtBits(VReg d, U32 bits) {
@@ -314,11 +318,13 @@ namespace rat {
 			U32 w = opWidth(n->getType());
 			VReg s = sseValue(n->getOperand());
 			needScratch();
+			// encoder builds 0-x via the top volatile xmm
 			inst(X86Op::FNeg,
 					 detail::kFp,
 					 {MachineOperand::vr(vregFor(n), w)},
 					 {MachineOperand::vr(s, w)},
-					 (I64)w);
+					 (I64)w)
+					.clobbers = {xmmReg(conv->sseVolatileCount - 1)};
 			return;
 		}
 		VReg s = gpValue(n->getOperand());

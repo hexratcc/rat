@@ -45,6 +45,13 @@ namespace rat {
 			U32 uses = 0; // operand occurrences (spill cost proxy)
 		};
 
+		B32 anySpilled() const override {
+			for(const auto& kv : intervals)
+				if(kv.second.spilled)
+					return true;
+			return false;
+		}
+
 		void resetState() override {
 			intervals.clear();
 			pinsByPoint.clear();

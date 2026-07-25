@@ -63,6 +63,7 @@ namespace rat {
 		virtual void resetState() = 0;							 // clear solver state between functions
 		virtual void solve() = 0;										 // compute assignments (number() already ran)
 		virtual Assignment assignmentOf(VReg v) = 0; // result lookup used by rewrite()
+		virtual B32 anySpilled() const = 0;					 // did solve() spill anything?
 
 		B32 allocate(MachineFunc& fn,
 								 const RegisterInfo& ri,

@@ -376,7 +376,34 @@ namespace rat {
 		number();
 		collectCopyHints();
 		collectRematDefs();
-		solve();
+
+		// optimistic first pass: spill-scratch regs join the allocatable pool; if
+		// nothing spills keep them, else re-solve with scratch reserved for rewrite
+		const RegisterInfo* realRi = ri;
+		RegisterInfo wide = *ri;
+		B32 widened = false;
+		for(RegClass& rc : wide.classes)
+			for(PhysReg p : rc.scratch)
+				if(!isAllocatable(rc, p)) {
+					rc.allocatable.push_back(p);
+					widened = true;
+				}
+		U32 savedFrameBytes = fn->frameBytes;
+		if(widened) {
+			ri = &wide;
+			solve();
+			ri = realRi;
+			if(anySpilled()) {
+				// roll back and re-solve with the normal register set
+				fn->frameBytes = savedFrameBytes;
+				slotPool.clear();
+				usedCallee.clear();
+				resetState();
+				solve();
+			}
+		} else {
+			solve();
+		}
 		rewrite();
 
 		if(usedCalleeSaved) {

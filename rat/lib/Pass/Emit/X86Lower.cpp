@@ -582,7 +582,8 @@ namespace rat {
 			List<MachineOperand> uses{MachineOperand::vr(gpValue(sw->getSelector()))};
 			for(I32 tb : blk.caseB)
 				uses.push_back(MachineOperand::blockRef(tb));
-			inst(X86Op::SwitchJump, detail::kGp, {}, std::move(uses));
+			inst(X86Op::SwitchJump, detail::kGp, {}, std::move(uses))
+					.clobbers = {gpReg(R10), gpReg(R11)};
 			return;
 		}
 		case Schedule::TermKind::Goto:
@@ -615,6 +616,15 @@ namespace rat {
 				out->blocks[s].preds.push_back(b);
 			}
 		}
+
+		// x87 sequences stage through r10/r11 in the encoder; declare so the
+		// allocator can use them elsewhere
+		for(MachineBlock& blk : out->blocks)
+			for(MachineInstr& in : blk.insts)
+				if((X86Op)in.op >= X86Op::X87LoadMem && (X86Op)in.op <= X86Op::X87Cmp) {
+					in.clobbers.push_back(gpReg(R10));
+					in.clobbers.push_back(gpReg(R11));
+				}
 	}
 
 	B32 X86LowerPass::run(Module& module, MachineModule& mm, const TargetInfo& target) {
