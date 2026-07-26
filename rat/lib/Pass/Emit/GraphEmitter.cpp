@@ -5,29 +5,28 @@
 #include "IR/Node.h"
 
 namespace rat {
-	String GraphEmitterPass::getNodeId(const Function& fn, const Node* n) {
-		return "n" + std::to_string(reinterpret_cast<U64>(&fn) & 0xffffff) + "_" +
-					 std::to_string(n->getId());
+	void GraphEmitterPass::writeNodeId(std::ostream& os, U64 tag, const Node* n) {
+		os << "n" << tag << "_" << n->getId();
 	}
 
-	void GraphEmitterPass::getStyle(const Node* n, String& label, String& attrs) {
-		std::ostringstream l;
-		l << "v" << n->getId() << " " << n->getMnemonic();
+	const C8* GraphEmitterPass::writeLabel(std::ostream& os, const Node* n) {
+		const C8* attrs = "shape=ellipse";
+		os << "v" << n->getId() << " " << n->getMnemonic();
 		switch(n->getOpcode()) {
 		case Opcode::Constant:
-			l << " " << cast<ConstantNode>(n)->getValue();
+			os << " " << cast<ConstantNode>(n)->getValue();
 			attrs = "shape=note, style=filled, fillcolor=\"#fff2cc\"";
 			break;
 		case Opcode::Proj: {
 			const auto* p = cast<ProjNode>(n);
-			l << " #" << p->getIndex();
-			if(!p->getLabel().empty())
-				l << " " << p->getLabel();
+			os << " #" << p->getIndex();
+			if(*p->getLabel())
+				os << " " << p->getLabel();
 			attrs = "shape=ellipse, style=filled, fillcolor=\"#eeeeee\"";
 			break;
 		}
 		case Opcode::Call:
-			l << " \"" << cast<CallNode>(n)->getCallee() << "\"";
+			os << " \"" << cast<CallNode>(n)->getCallee() << "\"";
 			attrs = "shape=box, style=filled, fillcolor=\"#d9d2e9\"";
 			break;
 		case Opcode::Start:
@@ -57,8 +56,9 @@ namespace rat {
 			attrs = "shape=ellipse";
 			break;
 		}
-		l << "\\n: " << n->getType()->str();
-		label = l.str();
+		os << "\\n: ";
+		n->getType()->print(os);
+		return attrs;
 	}
 
 	const C8* GraphEmitterPass::getEdgeStyle(const Node* producer) {
@@ -73,10 +73,14 @@ namespace rat {
 	}
 
 	void GraphEmitterPass::emitFunctionBody(const Function& fn) {
+		// the per-function tag only depends on the function address
+		const U64 tag = reinterpret_cast<U64>(&fn) & 0xffffff;
 		for(const Node* n : fn) {
-			String label, attrs;
-			getStyle(n, label, attrs);
-			*os << "  " << getNodeId(fn, n) << " [label=\"" << label << "\", " << attrs << "];\n";
+			*os << "  ";
+			writeNodeId(*os, tag, n);
+			*os << " [label=\"";
+			const C8* attrs = writeLabel(*os, n);
+			*os << "\", " << attrs << "];\n";
 		}
 		*os << "\n";
 		for(const Node* n : fn) {
@@ -84,7 +88,11 @@ namespace rat {
 				const Node* in = n->getInput(i);
 				if(!in)
 					continue;
-				*os << "  " << getNodeId(fn, in) << " -> " << getNodeId(fn, n) << " [" << getEdgeStyle(in);
+				*os << "  ";
+				writeNodeId(*os, tag, in);
+				*os << " -> ";
+				writeNodeId(*os, tag, n);
+				*os << " [" << getEdgeStyle(in);
 				if(n->getOpcode() == Opcode::Phi && i >= 1)
 					*os << ", label=\"" << (i - 1) << "\"";
 				else if(n->getOpcode() == Opcode::Region)

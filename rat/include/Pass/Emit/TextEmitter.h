@@ -36,9 +36,9 @@ namespace rat {
 		void emitNode(const Node* node);
 		void emitOperands(const Node* node);
 
-		String comment(const String& text);
+		void comment(std::ostream& os, const C8* text);
 		String quoteBytes(const List<U8>& bytes);
-		String ref(const Node* node);
+		void ref(std::ostream& os, const Node* node);
 	private:
 		std::ostream* os;
 	};
