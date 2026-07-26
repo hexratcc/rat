@@ -18,13 +18,64 @@
 #include "Pass/Opt/SimplifyCFG.h"
 
 namespace rat {
-	void PassRegistry::add(String name, String description, Factory make) {
-		items.push_back({std::move(name), std::move(description), make});
-	}
+	namespace {
+		template <typename P> UniquePtr<Pass> makeRegistered(std::ostream& os) {
+			(void)os;
+			if constexpr(std::is_constructible_v<P, std::ostream&>)
+				return std::make_unique<P>(os);
+			else
+				return std::make_unique<P>();
+		}
 
-	const PassRegistry::Entry* PassRegistry::find(const String& name) const {
-		for(const Entry& e : items)
-			if(e.name == name)
+		constexpr PassRegistry::Entry kPasses[] = {
+				{"fold", "constant folding and algebraic simplification", &makeRegistered<FoldPass>},
+				{"gvn", "global value numbering", &makeRegistered<GVNPass>},
+				{"sccp", "sparse conditional constant propagation", &makeRegistered<SCCPPass>},
+				{"simplifycfg", "control-flow simplification", &makeRegistered<SimplifyCFGPass>},
+				{"memoryopt", "load/store forwarding", &makeRegistered<MemoryOptPass>},
+				{"inline", "function inlining", &makeRegistered<InlinePass>},
+				{"strengthreduce",
+				 "loop induction-variable strength reduction",
+				 &makeRegistered<StrengthReducePass>},
+				{"dfe",
+				 "dead (unreferenced internal) function elimination",
+				 &makeRegistered<DeadFuncElimPass>},
+				{"verify", "edge consistency + structural invariants", &makeRegistered<VerifyPass>},
+				{"text-emitter", "textual IR visualization", &makeRegistered<TextEmitterPass>},
+				{"graph-emitter", "Graphviz DOT IR visualization", &makeRegistered<GraphEmitterPass>},
+				{"c-emitter", "C code generation", &makeRegistered<CEmitterPass>},
+		};
+		constexpr U32 kPassCount = (U32)(sizeof(kPasses) / sizeof(kPasses[0]));
+
+		// the -O1 pipeline, as direct constructors: no names, no lookups.
+		template <typename P> UniquePtr<Pass> makeOpt() { return std::make_unique<P>(); }
+
+		struct PipelineStep {
+			const C8* name;
+			UniquePtr<Pass> (*make)();
+		};
+
+		constexpr PipelineStep kDefaultPipeline[] = {
+				{"sccp", &makeOpt<SCCPPass>},
+				{"fold", &makeOpt<FoldPass>},
+				{"simplifycfg", &makeOpt<SimplifyCFGPass>},
+				{"gvn", &makeOpt<GVNPass>},
+				{"memoryopt", &makeOpt<MemoryOptPass>},
+				{"inline", &makeOpt<InlinePass>},
+				{"fold", &makeOpt<FoldPass>},
+				{"gvn", &makeOpt<GVNPass>},
+				{"strengthreduce", &makeOpt<StrengthReducePass>},
+				{"fold", &makeOpt<FoldPass>},
+				{"gvn", &makeOpt<GVNPass>},
+				{"dfe", &makeOpt<DeadFuncElimPass>},
+		};
+		constexpr U32 kDefaultPipelineLen =
+				(U32)(sizeof(kDefaultPipeline) / sizeof(kDefaultPipeline[0]));
+	} // namespace
+
+	const PassRegistry::Entry* PassRegistry::find(const String& name) {
+		for(const Entry& e : kPasses)
+			if(name == e.name)
 				return &e;
 		return nullptr;
 	}
@@ -34,43 +85,27 @@ namespace rat {
 		return e ? e->make(out) : nullptr;
 	}
 
-	void PassRegistry::registerAll(PassRegistry& r) {
-		r.add<FoldPass>("fold", "constant folding and algebraic simplification");
-		r.add<GVNPass>("gvn", "global value numbering");
-		r.add<SCCPPass>("sccp", "sparse conditional constant propagation");
-		r.add<SimplifyCFGPass>("simplifycfg", "control-flow simplification");
-		r.add<MemoryOptPass>("memoryopt", "load/store forwarding");
-		r.add<InlinePass>("inline", "function inlining");
-		r.add<StrengthReducePass>("strengthreduce", "loop induction-variable strength reduction");
-		r.add<DeadFuncElimPass>("dfe", "dead (unreferenced internal) function elimination");
-		r.add<VerifyPass>("verify", "edge consistency + structural invariants");
-		r.add<TextEmitterPass>("text-emitter", "textual IR visualization");
-		r.add<GraphEmitterPass>("graph-emitter", "Graphviz DOT IR visualization");
-		r.add<CEmitterPass>("c-emitter", "C code generation");
-	}
+	PassRegistry::EntryTable PassRegistry::entries() { return {kPasses, kPassCount}; }
 
-	PassRegistry& passRegistry() {
-		static PassRegistry reg = [] {
-			PassRegistry r;
-			PassRegistry::registerAll(r);
-			return r;
-		}();
+	const PassRegistry& passRegistry() {
+		static const PassRegistry reg;
 		return reg;
 	}
 
+	List<UniquePtr<Pass>> makeDefaultOptPasses() {
+		List<UniquePtr<Pass>> passes;
+		passes.reserve(kDefaultPipelineLen);
+		for(const PipelineStep& s : kDefaultPipeline)
+			passes.push_back(s.make());
+		return passes;
+	}
+
 	List<String> defaultOptPipeline() {
-		return {"sccp",
-						"fold",
-						"simplifycfg",
-						"gvn",
-						"memoryopt",
-						"inline",
-						"fold",
-						"gvn",
-						"strengthreduce",
-						"fold",
-						"gvn",
-						"dfe"};
+		List<String> names;
+		names.reserve(kDefaultPipelineLen);
+		for(const PipelineStep& s : kDefaultPipeline)
+			names.push_back(s.name);
+		return names;
 	}
 
 	B32 buildPipeline(PassManager& pm, const String& spec, std::ostream& out, String& err) {

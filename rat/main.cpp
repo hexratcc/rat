@@ -1,6 +1,7 @@
 #include "rat.h"
 
 #include <fstream>
+#include <iomanip>
 
 #include "IR/TextParser.h"
 #include "Support/StringUtil.h"
@@ -8,6 +9,13 @@
 using namespace rat;
 
 namespace {
+	B32 startsWith(const C8* s, const C8* prefix) {
+		while(*prefix)
+			if(*s++ != *prefix++)
+				return false;
+		return true;
+	}
+
 	void usage(std::ostream& os, const char* prog) {
 		os << "usage: " << prog << " [options] [input.rat]\n"
 			 << "  -passes=<a,b,...>   pipeline to run, in order\n"
@@ -21,9 +29,11 @@ namespace {
 
 	void listPasses(std::ostream& os) {
 		os << "passes:\n";
-		for(const PassRegistry::Entry& e : passRegistry().entries())
-			os << "  " << e.name << std::string(14 > e.name.size() ? 14 - e.name.size() : 1, ' ')
+		for(const PassRegistry::Entry& e : PassRegistry::entries()) {
+			U64 len = std::strlen(e.name);
+			os << "  " << std::left << std::setw((I32)(len < 14 ? 14 : len + 1)) << e.name
 				 << e.description << "\n";
+		}
 	}
 
 	void addEmitter(PassManager& pm, const String& kind, std::ostream& os) {
@@ -45,28 +55,28 @@ static I32 run(I32 argc, char** argv) {
 	B32 doVerify = false;
 
 	for(I32 i = 1; i < argc; ++i) {
-		String arg = argv[i];
-		if(arg == "-h" || arg == "--help") {
+		const C8* arg = argv[i];
+		if(std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
 			usage(std::cout, argv[0]);
 			return 0;
-		} else if(arg == "-list-passes") {
+		} else if(std::strcmp(arg, "-list-passes") == 0) {
 			listPasses(std::cout);
 			return 0;
-		} else if(arg == "-stats") {
+		} else if(std::strcmp(arg, "-stats") == 0) {
 			stats = true;
-		} else if(arg == "-verify") {
+		} else if(std::strcmp(arg, "-verify") == 0) {
 			doVerify = true;
-		} else if(arg.rfind("-passes=", 0) == 0) {
-			passSpec = arg.substr(8);
-		} else if(arg.rfind("-emit=", 0) == 0) {
-			emitKind = arg.substr(6);
-		} else if(arg == "-o") {
+		} else if(startsWith(arg, "-passes=")) {
+			passSpec = arg + 8;
+		} else if(startsWith(arg, "-emit=")) {
+			emitKind = arg + 6;
+		} else if(std::strcmp(arg, "-o") == 0) {
 			if(++i >= argc) {
 				std::cerr << "rat: -o requires a file argument\n";
 				return 2;
 			}
 			outputPath = argv[i];
-		} else if(!arg.empty() && arg[0] == '-') {
+		} else if(arg[0] == '-') {
 			std::cerr << "rat: unknown option '" << arg << "'\n";
 			usage(std::cerr, argv[0]);
 			return 2;
