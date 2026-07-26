@@ -1,24 +1,31 @@
 #include "Target/ObjectFile.h"
 
-#include "Target/X86Coff.h"
-#include "Target/X86Elf.h"
-
 namespace rat {
 	void ObjectFile::put8(List<U8>& b, U8 v) { b.push_back(v); }
 	void ObjectFile::put16(List<U8>& b, U16 v) {
-		b.push_back((U8)(v));
-		b.push_back((U8)(v >> 8));
+		const U8 tmp[2] = {(U8)(v), (U8)(v >> 8)};
+		b.insert(b.end(), tmp, tmp + 2);
 	}
 	void ObjectFile::put32(List<U8>& b, U32 v) {
-		for(U32 i = 0; i < 4; ++i)
-			b.push_back((U8)(v >> (i * 8)));
+		const U8 tmp[4] = {(U8)(v), (U8)(v >> 8), (U8)(v >> 16), (U8)(v >> 24)};
+		b.insert(b.end(), tmp, tmp + 4);
 	}
 	void ObjectFile::put64(List<U8>& b, U64 v) {
-		for(U32 i = 0; i < 8; ++i)
-			b.push_back((U8)(v >> (i * 8)));
+		const U8 tmp[8] = {(U8)(v),
+											 (U8)(v >> 8),
+											 (U8)(v >> 16),
+											 (U8)(v >> 24),
+											 (U8)(v >> 32),
+											 (U8)(v >> 40),
+											 (U8)(v >> 48),
+											 (U8)(v >> 56)};
+		b.insert(b.end(), tmp, tmp + 8);
 	}
 
-	ObjectFile::ObjectFile() { syms.push_back({"", Text, 0, true, false, false}); }
+	ObjectFile::ObjectFile(ObjectFormat fmt)
+	: format(fmt) {
+		syms.push_back({"", Text, 0, true, false, false});
+	}
 
 	void ObjectFile::padTo(List<U8>& b, U64 target) {
 		if(b.size() < target)
@@ -100,9 +107,19 @@ namespace rat {
 		relocs.push_back({sec, offset, symbolIndex(symbol), kind, addend});
 	}
 
+	void ObjectFile::partitionRelocs(RelBuckets buckets) const {
+		for(const Rel& r : relocs)
+			buckets[(U32)r.sec].push_back(&r);
+	}
+
+	void ObjectFile::write(std::ostream& os, ObjectFormat fmt) {
+		if(fmt == ObjectFormat::Coff)
+			writeCoff(os);
+		else
+			writeElf(os);
+	}
+
 	UniquePtr<ObjectFile> createObjectFile(OS os) {
-		if(os == OS::Windows)
-			return std::make_unique<CoffObject>();
-		return std::make_unique<ElfObject>();
+		return std::make_unique<ObjectFile>(objectFormatFor(os));
 	}
 } // namespace rat

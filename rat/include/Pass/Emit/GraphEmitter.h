@@ -18,8 +18,8 @@ namespace rat {
 		void emitModule(const Module& module);
 		void emitFunctionBody(const Function& fn);
 
-		String getNodeId(const Function& fn, const Node* n);
-		void getStyle(const Node* n, String& label, String& attrs);
+		void writeNodeId(std::ostream& os, U64 tag, const Node* n);
+		const C8* writeLabel(std::ostream& os, const Node* n);
 		const C8* getEdgeStyle(const Node* producer);
 	private:
 		std::ostream* os;

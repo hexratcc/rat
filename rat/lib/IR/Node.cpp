@@ -6,15 +6,18 @@ namespace rat {
 	Node::Node(Function& fn, Opcode op, Type* type, const List<Node*>& inputs)
 	: op(op),
 		ty(type),
-		fn(&fn),
-		inputs(inputs) {
+		fn(&fn) {
 		id = fn.allocateId();
-		for(Node* in : this->inputs)
-			if(in)
-				in->users.push_back(this);
+		inputCount = (U32)inputs.size();
+		if(inputCount) {
+			inputCap = inputCount;
+			this->inputs = fn.allocEdges(inputCap);
+			std::memcpy(this->inputs, inputs.data(), sizeof(Node*) * inputCount);
+			for(U32 i = 0; i < inputCount; ++i)
+				if(Node* in = this->inputs[i])
+					in->addUser(this);
+		}
 	}
-
-	Node::~Node() = default;
 
 	Opcode Node::getOpcode() const { return op; }
 	const C8* Node::getMnemonic() const { return getOpcodeMnemonic(op); }
@@ -22,23 +25,51 @@ namespace rat {
 	U32 Node::getId() const { return id; }
 	Function& Node::getFunction() const { return *fn; }
 
-	U32 Node::getInputCount() const { return (U32)inputs.size(); }
+	U32 Node::getInputCount() const { return inputCount; }
 	Node* Node::getInput(U32 index) const { return inputs[index]; }
 
-	const List<Node*>& Node::getUsers() const { return users; }
-	B32 Node::hasUsers() const { return !users.empty(); }
+	NodeSpan Node::getUsers() const { return NodeSpan{users, userCount}; }
+	B32 Node::hasUsers() const { return userCount != 0; }
+
+	void Node::addUser(Node* user) {
+		if(userCount == userCap) {
+			U32 cap = userCap ? userCap * 2 : 4;
+			Node** grown = fn->allocEdges(cap);
+			if(userCount)
+				std::memcpy(grown, users, sizeof(Node*) * userCount);
+			users = grown;
+			userCap = cap;
+		}
+		users[userCount++] = user;
+	}
+
+	void Node::growInputs(U32 needed) {
+		if(needed <= inputCap)
+			return;
+		U32 cap = inputCap ? inputCap * 2 : 4;
+		if(cap < needed)
+			cap = needed;
+		Node** grown = fn->allocEdges(cap);
+		if(inputCount)
+			std::memcpy(grown, inputs, sizeof(Node*) * inputCount);
+		inputs = grown;
+		inputCap = cap;
+	}
 
 	void Node::addInput(Node* value) {
-		inputs.push_back(value);
+		growInputs(inputCount + 1);
+		inputs[inputCount++] = value;
 		if(value)
-			value->users.push_back(this);
+			value->addUser(this);
 	}
 
 	void Node::removeUser(Node* user) {
 		// remove a single occurrence: each using operand contributes one entry
-		auto it = std::find(users.begin(), users.end(), user);
-		if(it != users.end())
-			users.erase(it);
+		for(U32 i = 0; i < userCount; ++i)
+			if(users[i] == user) {
+				users[i] = users[--userCount];
+				return;
+			}
 	}
 
 	void Node::setInput(U32 index, Node* value) {
@@ -49,27 +80,37 @@ namespace rat {
 			old->removeUser(this);
 		inputs[index] = value;
 		if(value)
-			value->users.push_back(this);
+			value->addUser(this);
 	}
 
 	void Node::removeInput(U32 index) {
 		if(inputs[index])
 			inputs[index]->removeUser(this);
-		inputs.erase(inputs.begin() + index);
+		for(U32 i = index + 1; i < inputCount; ++i)
+			inputs[i - 1] = inputs[i];
+		--inputCount;
 	}
 
 	void Node::clearInputs() {
-		while(getInputCount() > 0)
-			removeInput(getInputCount() - 1);
+		for(U32 i = 0; i < inputCount; ++i)
+			if(inputs[i])
+				inputs[i]->removeUser(this);
+		inputCount = 0;
 	}
 
 	void Node::replaceAllUsesWith(Node* value) {
-		// snapshot users
-		List<Node*> snapshot = users;
-		for(Node* user : snapshot)
-			for(U32 i = 0, e = user->getInputCount(); i < e; ++i)
-				if(user->getInput(i) == this)
-					user->setInput(i, value);
+		if(value == this)
+			return;
+		for(U32 u = 0; u < userCount; ++u) {
+			Node* user = users[u];
+			for(U32 i = 0, e = user->inputCount; i < e; ++i)
+				if(user->inputs[i] == this) {
+					user->inputs[i] = value;
+					if(value)
+						value->addUser(user);
+				}
+		}
+		userCount = 0;
 	}
 
 	B32 Node::isCFG() const { return getOpcodeInfo(op).isCFG; }
@@ -87,8 +128,8 @@ namespace rat {
 	}
 
 	ProjNode* Node::projection(U32 index) const {
-		for(Node* u : users)
-			if(ProjNode* p = dyn_cast<ProjNode>(u))
+		for(U32 i = 0; i < userCount; ++i)
+			if(ProjNode* p = dyn_cast<ProjNode>(users[i]))
 				if(p->getIndex() == index)
 					return p;
 		return nullptr;
@@ -132,14 +173,19 @@ namespace rat {
 	Node* SwitchNode::getSelector() const { return getInput(1); }
 	U32 SwitchNode::getSlotCount() const { return getType()->getTupleElementCount(); }
 
-	ProjNode::ProjNode(Function& fn, Type* type, Node* tuple, U32 index, String label)
+	ProjNode::ProjNode(Function& fn, Type* type, Node* tuple, U32 index, const String& label)
 	: Node(fn, Opcode::Proj, type, {tuple}),
 		index(index),
-		label(std::move(label)) {}
+		label(fn.internString(label.c_str(), label.size())) {}
+
+	ProjNode::ProjNode(Function& fn, Type* type, Node* tuple, U32 index, const C8* label)
+	: Node(fn, Opcode::Proj, type, {tuple}),
+		index(index),
+		label(fn.internString(label, label ? std::strlen(label) : 0)) {}
 
 	Node* ProjNode::getProducer() const { return getInput(0); }
 	U32 ProjNode::getIndex() const { return index; }
-	const String& ProjNode::getLabel() const { return label; }
+	const C8* ProjNode::getLabel() const { return label; }
 
 	PhiNode::PhiNode(Function& fn, Type* type, const List<Node*>& inputs)
 	: Node(fn, Opcode::Phi, type, inputs) {}
@@ -316,45 +362,4 @@ namespace rat {
 		return nullptr;
 	}
 
-	String nodeSignature(const Node* n) {
-		String key =
-				std::to_string((U32)n->getOpcode()) + "|" + std::to_string(n->getType()->getUid()) + "|";
-
-		// immediate (non-edge) fields, by opcode
-		switch(n->getOpcode()) {
-		case Opcode::Constant:
-			key += "c" + std::to_string(cast<ConstantNode>(n)->getValue());
-			break;
-		case Opcode::Global:
-			key += "g" + cast<GlobalNode>(n)->getSymbol();
-			break;
-		case Opcode::Proj: {
-			const ProjNode* p = cast<ProjNode>(n);
-			key += "p" + std::to_string(p->getIndex()) + ":" + p->getLabel();
-			break;
-		}
-		case Opcode::Call:
-			key += "f" + cast<CallNode>(n)->getCallee();
-			break;
-		case Opcode::Alloc:
-			key += "a" + std::to_string(cast<AllocNode>(n)->getAllocType()->getUid());
-			break;
-		default:
-			break;
-		}
-		key += "|";
-
-		// sort for commutative opcodes
-		List<U32> ops;
-		ops.reserve(n->getInputCount());
-		for(U32 i = 0, e = n->getInputCount(); i < e; ++i) {
-			Node* in = n->getInput(i);
-			ops.push_back(in ? in->getId() : ~0u);
-		}
-		if(n->isCommutative())
-			std::sort(ops.begin(), ops.end());
-		for(U32 id : ops)
-			key += std::to_string(id) + ",";
-		return key;
-	}
 } // namespace rat

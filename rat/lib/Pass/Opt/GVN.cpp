@@ -77,23 +77,41 @@ namespace rat {
 	U32 GVNPass::runOnFunction(Function& fn, const TargetInfo&) {
 		U32 removed = 0;
 
+		struct Slot {
+			GVNKey key;
+			Node* val = nullptr;
+		};
+		U32 cap = 16;
+		while(cap < fn.size() * 2)
+			cap <<= 1;
+		List<Slot> slots(cap);
+		const U32 mask = cap - 1;
+		GVNKeyHash hasher;
+
 		B32 changed = true;
 		while(changed) {
 			changed = false;
-			std::unordered_map<GVNKey, Node*, GVNKeyHash> table;
-			table.reserve(fn.size());
+			for(Slot& s : slots)
+				s.val = nullptr;
+			U32 filled = 0;
 			for(Node* n : fn) {
 				if(!GVNPass::isPureValue(n) || !n->hasUsers())
 					continue;
 				GVNKey key;
 				if(!makeKey(n, key))
 					continue;
-				auto it = table.find(key);
-				if(it == table.end()) {
-					table.emplace(key, n);
+				U32 i = (U32)hasher(key) & mask;
+				while(slots[i].val && !(slots[i].key == key))
+					i = (i + 1) & mask;
+				if(!slots[i].val) {
+					slots[i].key = key;
+					slots[i].val = n;
+					++filled;
+					if(filled * 2 >= cap)
+						break;
 				} else {
 					// n is a duplicate of the earlier representative; redirect its uses
-					n->replaceAllUsesWith(it->second);
+					n->replaceAllUsesWith(slots[i].val);
 					++removed;
 					changed = true;
 				}

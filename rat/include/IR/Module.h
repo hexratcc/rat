@@ -65,6 +65,14 @@ namespace rat {
 		String name;
 		List<Function*> funcs;
 		List<Global*> globs;
+
+		mutable Map<String, Function*> funcIndex;
+		mutable Map<String, Global*> globIndex;
+		mutable B32 funcIndexValid = false;
+		mutable B32 globIndexValid = false;
+
+		void rebuildFuncIndex() const;
+		void rebuildGlobIndex() const;
 	};
 } // namespace rat
 

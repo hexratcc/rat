@@ -22,8 +22,8 @@ namespace rat {
 		B32 run(Module& module, const TargetInfo& target) override;
 
 		static void emitSignatureInto(const Function& fn, std::ostream& os);
-		static String intCType(U32 width, B32 isSigned);
-		static String cType(const Type* t, B32 isSigned = true);
+		static const C8* intCType(U32 width, B32 isSigned);
+		static const C8* cType(const Type* t, B32 isSigned = true);
 		static B32 isCompilerBuiltin(const String& name);
 		static const C8* variadicExternProto(const String& name);
 	private:
@@ -43,13 +43,14 @@ namespace rat {
 			static B32 producesTemp(const Node* n);
 			void computeNeedTemp();
 
-			String temp(const Node* n) const;
-			String floatLiteral(Node* n);
-			String valueExpr(Node* n);
-			String binExpr(Node* n);
-			String cmpExpr(Node* n);
-			String convExpr(Node* n);
-			String loadExpr(Node* n);
+			void writeTemp(std::ostream& os, const Node* n) const;
+			void writeFloatLiteral(std::ostream& os, Node* n);
+			void writeValue(std::ostream& os, Node* n);
+			void writeBin(std::ostream& os, Node* n);
+			void writeCmp(std::ostream& os, Node* n);
+			void writeConv(std::ostream& os, Node* n);
+			void writeLoad(std::ostream& os, Node* n);
+			void writeArgs(std::ostream& os, CallNode* c);
 
 			void emit();
 			void emitStatement(Node* n);

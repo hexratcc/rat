@@ -18,13 +18,18 @@ namespace rat {
 	}
 
 	RegAllocBase::Assignment LinearScanRegAllocPass::assignmentOf(VReg v) {
-		const Interval& iv = intervals[v];
-		return {iv.assigned, iv.spillSlot, iv.cls, iv.spilled};
+		if(const Interval* iv = ivFind(v))
+			return {iv->assigned, iv->spillSlot, iv->cls, iv->spilled};
+		return {kNoReg, 0, 0, false};
 	}
 
 	void LinearScanRegAllocPass::buildIntervals() {
-		List<VRegSet> liveIn, liveOut;
 		liveness(liveIn, liveOut);
+
+		if(intervals.size() < fn->nextVReg)
+			intervals.resize(fn->nextVReg);
+		for(U32 i = 0; i < fn->nextVReg; ++i)
+			intervals[i].reset();
 
 		auto ivFor = [&](VReg v) -> Interval& {
 			Interval& iv = intervals[v];
@@ -36,15 +41,14 @@ namespace rat {
 		};
 
 		// backward walk per block
-		Map<VReg, I32> segEnd;
+		segEnd.assign(fn->nextVReg, 0);
 		for(U32 b = 0; b < fn->blocks.size(); ++b) {
 			if(blkPts[b].empty())
 				continue;
 			I32 first = (I32)blkPts[b].front();
 			I32 last = (I32)blkPts[b].back();
 
-			VRegSet live = liveOut[b];
-			segEnd.clear();
+			live.copyFrom(liveOut[b]);
 			live.forEach([&](VReg v) { segEnd[v] = last; });
 
 			for(I32 i = (I32)fn->blocks[b].insts.size() - 1; i >= 0; --i) {
@@ -72,8 +76,9 @@ namespace rat {
 			live.forEach([&](VReg v) { ivFor(v).segs.push_back({first, segEnd[v]}); });
 		}
 
-		for(auto& kv : intervals) {
-			Interval& iv = kv.second;
+		for(Interval& iv : intervals) {
+			if(!iv.live())
+				continue;
 			coalesceSegs(iv);
 			for(I32 c : callPts) {
 				for(const Seg& sg : iv.segs)
@@ -88,17 +93,21 @@ namespace rat {
 	}
 
 	void LinearScanRegAllocPass::coalesceSegs(Interval& iv) {
+		if(iv.segs.empty())
+			return;
 		std::sort(iv.segs.begin(), iv.segs.end(), [](const Seg& a, const Seg& b) {
 			return a.start != b.start ? a.start < b.start : a.end < b.end;
 		});
-		List<Seg> out;
-		for(const Seg& sg : iv.segs) {
-			if(!out.empty() && sg.start <= out.back().end + 1)
-				out.back().end = std::max(out.back().end, sg.end);
+		// merge in place
+		U32 w = 0;
+		for(U32 r = 0; r < iv.segs.size(); ++r) {
+			const Seg sg = iv.segs[r];
+			if(w && sg.start <= iv.segs[w - 1].end + 1)
+				iv.segs[w - 1].end = std::max(iv.segs[w - 1].end, sg.end);
 			else
-				out.push_back(sg);
+				iv.segs[w++] = sg;
 		}
-		iv.segs = std::move(out);
+		iv.segs.resize(w);
 		iv.start = iv.segs.front().start;
 		iv.end = iv.segs.back().end;
 	}
@@ -158,31 +167,38 @@ namespace rat {
 
 	void LinearScanRegAllocPass::assignRegs() {
 		List<Interval*> sorted;
-		for(auto& kv : intervals)
-			sorted.push_back(&kv.second);
+		sorted.reserve(intervals.size());
+		for(Interval& iv : intervals)
+			if(iv.live())
+				sorted.push_back(&iv);
 		std::sort(sorted.begin(), sorted.end(), [](const Interval* a, const Interval* b) {
 			return a->start != b->start ? a->start < b->start : a->vreg < b->vreg;
 		});
 
 		List<Interval*> active;
-		Map<U32, Set<PhysReg>> freeRegs;
+		U32 maxCls = 0;
+		for(const RegClass& rc : ri->classes)
+			maxCls = std::max(maxCls, rc.id);
+		freeRegs.assign(maxCls + 1, 0);
 		for(const RegClass& rc : ri->classes)
 			for(PhysReg p : rc.allocatable)
-				freeRegs[rc.id].insert(p);
+				freeRegs[rc.id] |= (U64)1 << p;
 
 		auto expire = [&](I32 start) {
-			List<Interval*> stillActive;
-			List<const Interval*> expired;
-			for(Interval* a : active) {
+			// compact in place
+			expiredBuf.clear();
+			U32 w = 0;
+			for(U32 r = 0; r < active.size(); ++r) {
+				Interval* a = active[r];
 				if(a->end < start)
-					expired.push_back(a);
+					expiredBuf.push_back(a);
 				else
-					stillActive.push_back(a);
+					active[w++] = a;
 			}
-			active = std::move(stillActive);
+			active.resize(w);
 			// move partners may share a register, it becomes free only when its last active holder
 			// expires
-			for(const Interval* e : expired) {
+			for(const Interval* e : expiredBuf) {
 				if(e->spilled || e->assigned == kNoReg)
 					continue;
 				B32 stillHeld = false;
@@ -192,7 +208,7 @@ namespace rat {
 						break;
 					}
 				if(!stillHeld)
-					freeRegs[e->cls].insert(e->assigned);
+					freeRegs[e->cls] |= (U64)1 << e->assigned;
 			}
 		};
 
@@ -200,14 +216,14 @@ namespace rat {
 			expire(iv->start);
 
 			const RegClass& rc = regClass(iv->cls);
-			Set<PhysReg>& pool = freeRegs[iv->cls];
+			U64& pool = freeRegs[iv->cls];
 			U64 bad = forbidden(*iv);
 
 			// biased pick
 			PhysReg pick = kNoReg;
 			auto colorOf = [&](VReg p) {
-				auto it = intervals.find(p);
-				return it == intervals.end() ? kNoReg : it->second.assigned;
+				const Interval* pi = ivFind(p);
+				return pi ? pi->assigned : kNoReg;
 			};
 			for(PhysReg h : hintedRegs(iv->vreg, colorOf)) {
 				if((bad >> h) & 1)
@@ -216,7 +232,7 @@ namespace rat {
 					continue;
 				if(isCalleeSaved(rc, h) && !usedCallee.count(h))
 					continue;
-				if(pool.count(h)) {
+				if((pool >> h) & 1) {
 					pick = h;
 					break;
 				}
@@ -237,14 +253,14 @@ namespace rat {
 			if(pick == kNoReg) {
 				if(iv->crossesCall) {
 					for(PhysReg p : rc.calleeSaved)
-						if(pool.count(p) && !((bad >> p) & 1)) {
+						if(((pool >> p) & 1) && !((bad >> p) & 1)) {
 							pick = p;
 							break;
 						}
 				} else {
 					// short-lived value
 					for(PhysReg p : rc.allocatable)
-						if(pool.count(p) && !((bad >> p) & 1)) {
+						if(((pool >> p) & 1) && !((bad >> p) & 1)) {
 							pick = p;
 							break;
 						}
@@ -252,7 +268,7 @@ namespace rat {
 			}
 
 			if(pick != kNoReg) {
-				pool.erase(pick);
+				pool &= ~((U64)1 << pick);
 				iv->assigned = pick;
 				if(isCalleeSaved(rc, pick))
 					usedCallee.insert(pick);
@@ -313,9 +329,9 @@ namespace rat {
 	void LinearScanRegAllocPass::assignSpillSlots() {
 		// pack
 		List<Interval*> spilled;
-		for(auto& kv : intervals)
-			if(kv.second.spilled)
-				spilled.push_back(&kv.second);
+		for(Interval& iv : intervals)
+			if(iv.live() && iv.spilled)
+				spilled.push_back(&iv);
 		std::sort(spilled.begin(), spilled.end(), [](const Interval* a, const Interval* b) {
 			return a->start != b->start ? a->start < b->start : a->vreg < b->vreg;
 		});

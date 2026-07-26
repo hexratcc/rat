@@ -163,8 +163,11 @@ namespace rat {
 		void removeNode(Node* n);
 
 		friend struct Node;
+		friend struct ProjNode;
 	private:
 		U32 allocateId();
+		Node** allocEdges(U32 count) { return arena.makeArray<Node*>(count); }
+		const C8* internString(const C8* s, U64 len) { return arena.internString(s, len); }
 
 		void writeVar(Var var, Node* value);
 		Node* readVar(Var var);

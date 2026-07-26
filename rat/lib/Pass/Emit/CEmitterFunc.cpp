@@ -38,11 +38,11 @@ namespace rat {
 		}
 	}
 
-	String CEmitterPass::FunctionEmitter::temp(const Node* n) const {
-		return "t" + std::to_string(n->getId());
+	void CEmitterPass::FunctionEmitter::writeTemp(std::ostream& os, const Node* n) const {
+		os << "t" << n->getId();
 	}
 
-	String CEmitterPass::FunctionEmitter::floatLiteral(Node* n) {
+	void CEmitterPass::FunctionEmitter::writeFloatLiteral(std::ostream& os, Node* n) {
 		I64 raw = cast<ConstantNode>(n)->getValue();
 		C8 buf[64];
 		if(n->getType()->getFloatWidth() == 32) {
@@ -61,60 +61,102 @@ namespace rat {
 			std::memcpy(&d, &u, sizeof(d));
 			std::snprintf(buf, sizeof(buf), "%a", d);
 		}
-		return String(buf);
+		os << buf;
 	}
 
-	String CEmitterPass::FunctionEmitter::valueExpr(Node* n) {
+	void CEmitterPass::FunctionEmitter::writeValue(std::ostream& os, Node* n) {
 		if(n->getOpcode() == Opcode::Constant) {
-			if(n->getType()->isFloat())
-				return floatLiteral(n);
-			if(n->getType()->isPtr())
-				return "((char *)" + std::to_string(cast<ConstantNode>(n)->getValue()) + "LL)";
+			if(n->getType()->isFloat()) {
+				writeFloatLiteral(os, n);
+				return;
+			}
+			if(n->getType()->isPtr()) {
+				os << "((char *)" << cast<ConstantNode>(n)->getValue() << "LL)";
+				return;
+			}
 			U32 width = n->getType()->getIntWidth();
 			I64 raw = cast<ConstantNode>(n)->getValue();
 			I64 v = width > 1 ? signExtend(raw, width) : raw;
-			return std::to_string(v) + (width > 32 ? "LL" : "");
+			os << v << (width > 32 ? "LL" : "");
+			return;
 		}
 		if(const ProjNode* p = dyn_cast<ProjNode>(n)) {
 			Node* prod = p->getProducer();
-			if(prod->getOpcode() == Opcode::Start && p->getIndex() >= 2)
-				return "arg" + std::to_string(p->getIndex() - 2);
-			return temp(n);
+			if(prod->getOpcode() == Opcode::Start && p->getIndex() >= 2) {
+				os << "arg" << (p->getIndex() - 2);
+				return;
+			}
+			writeTemp(os, n);
+			return;
 		}
-		if(GlobalNode* g = dyn_cast<GlobalNode>(n))
-			return "((char *)&" + g->getSymbol() + ")";
-		if(isa<AllocNode>(n))
-			return "((char *)" + temp(n) + ")";
-		return temp(n);
+		if(GlobalNode* g = dyn_cast<GlobalNode>(n)) {
+			os << "((char *)&" << g->getSymbol() << ")";
+			return;
+		}
+		if(isa<AllocNode>(n)) {
+			os << "((char *)";
+			writeTemp(os, n);
+			os << ")";
+			return;
+		}
+		writeTemp(os, n);
 	}
 
-	String CEmitterPass::FunctionEmitter::binExpr(Node* n) {
+	void CEmitterPass::FunctionEmitter::writeBin(std::ostream& os, Node* n) {
 		auto* bin = cast<BinaryNode>(n);
 		U32 width = n->getType()->isInt() ? n->getType()->getIntWidth() : 0;
-		String a = valueExpr(bin->getLHS());
-		String b = valueExpr(bin->getRHS());
-		String u = "(" + intCType(width, false) + ")";
-		String s = "(" + intCType(width, true) + ")";
 		Opcode op = n->getOpcode();
 		switch(op) {
 		case Opcode::UDiv:
-			return u + a + " / " + u + b; // unsigned semantics need both sides cast
+			// unsigned semantics need both sides cast
+			os << "(" << intCType(width, false) << ")";
+			writeValue(os, bin->getLHS());
+			os << " / (" << intCType(width, false) << ")";
+			writeValue(os, bin->getRHS());
+			return;
 		case Opcode::URem:
-			return u + a + " % " + u + b;
+			os << "(" << intCType(width, false) << ")";
+			writeValue(os, bin->getLHS());
+			os << " % (" << intCType(width, false) << ")";
+			writeValue(os, bin->getRHS());
+			return;
 		case Opcode::LShr:
-			return s + "(" + u + a + " >> " + b + ")";
+			os << "(" << intCType(width, true) << ")((" << intCType(width, false) << ")";
+			writeValue(os, bin->getLHS());
+			os << " >> ";
+			writeValue(os, bin->getRHS());
+			os << ")";
+			return;
 		case Opcode::AShr:
-			return s + a + " >> " + b;
+			os << "(" << intCType(width, true) << ")";
+			writeValue(os, bin->getLHS());
+			os << " >> ";
+			writeValue(os, bin->getRHS());
+			return;
 		case Opcode::Rotl:
 		case Opcode::Rotr: {
-			String wm = std::to_string(width ? width - 1 : 63);
-			String w = std::to_string(width ? width : 64);
-			String x = u + a, c = "(" + b + ")";
-			String ls = "(" + x + " << (" + c + " & " + wm + "))";
-			String rs = "(" + x + " >> ((" + w + " - " + c + ") & " + wm + "))";
-			if(op == Opcode::Rotr)
-				std::swap(ls, rs);
-			return s + "(" + ls + " | " + rs + ")";
+			U32 wm = width ? width - 1 : 63;
+			U32 w = width ? width : 64;
+			// "((uN)a << ((b) & wm))" / "((uN)a >> ((w - (b)) & wm))"
+			auto half = [&](B32 left) {
+				os << "((" << intCType(width, false) << ")";
+				writeValue(os, bin->getLHS());
+				if(left) {
+					os << " << ((";
+					writeValue(os, bin->getRHS());
+					os << ") & " << wm << "))";
+				} else {
+					os << " >> ((" << w << " - (";
+					writeValue(os, bin->getRHS());
+					os << ")) & " << wm << "))";
+				}
+			};
+			os << "(" << intCType(width, true) << ")(";
+			half(op == Opcode::Rotl);
+			os << " | ";
+			half(op != Opcode::Rotl);
+			os << ")";
+			return;
 		}
 		default:
 			break;
@@ -133,65 +175,91 @@ namespace rat {
 		static_assert(sizeof(kInfix) / sizeof(kInfix[0]) == (U32)Opcode::FDiv - (U32)Opcode::Add + 1,
 									"kInfix must cover Add..FDiv");
 		U32 idx = (U32)op - (U32)Opcode::Add;
-		if(idx >= sizeof(kInfix) / sizeof(kInfix[0]) || !kInfix[idx])
-			return "0"; // not a binary opcode
-		return a + " " + kInfix[idx] + " " + b;
+		if(idx >= sizeof(kInfix) / sizeof(kInfix[0]) || !kInfix[idx]) {
+			os << "0"; // not a binary opcode
+			return;
+		}
+		writeValue(os, bin->getLHS());
+		os << " " << kInfix[idx] << " ";
+		writeValue(os, bin->getRHS());
 	}
 
-	String CEmitterPass::FunctionEmitter::cmpExpr(Node* n) {
+	void CEmitterPass::FunctionEmitter::writeCmp(std::ostream& os, Node* n) {
 		auto* cmp = cast<CompareNode>(n);
 		const Type* ot = cmp->getLHS()->getType();
 		U32 width = ot->isInt() ? ot->getIntWidth() : 0;
-		String a = valueExpr(cmp->getLHS());
-		String b = valueExpr(cmp->getRHS());
 		Opcode op = n->getOpcode();
-		if(!isCompareOpcode(op))
-			return "0";
+		if(!isCompareOpcode(op)) {
+			os << "0";
+			return;
+		}
 		static const C8* const kInfix[] = {
 				"==", "!=", "<", "<=", "<", "<=", "==", "!=", "<", "<=", ">", ">="};
 		U32 idx = (U32)op - (U32)Opcode::Eq;
 		if(op == Opcode::Ult || op == Opcode::Ule) {
-			String u = "(" + intCType(width, false) + ")";
-			return u + a + " " + kInfix[idx] + " " + u + b;
+			const C8* u = intCType(width, false);
+			os << "(" << u << ")";
+			writeValue(os, cmp->getLHS());
+			os << " " << kInfix[idx] << " (" << u << ")";
+			writeValue(os, cmp->getRHS());
+			return;
 		}
-		return a + " " + kInfix[idx] + " " + b;
+		writeValue(os, cmp->getLHS());
+		os << " " << kInfix[idx] << " ";
+		writeValue(os, cmp->getRHS());
 	}
 
-	String CEmitterPass::FunctionEmitter::convExpr(Node* n) {
+	void CEmitterPass::FunctionEmitter::writeConv(std::ostream& os, Node* n) {
 		auto* cv = cast<ConvertNode>(n);
 		Node* src = cv->getOperand();
-		String a = valueExpr(src);
-		if(n->getType()->isPtr())
-			return "((char *)(" + a + "))";
-		if(src->getType()->isPtr())
-			return "((" + intCType(n->getType()->getIntWidth(), true) + ")(" + a + "))";
+		if(n->getType()->isPtr()) {
+			os << "((char *)(";
+			writeValue(os, src);
+			os << "))";
+			return;
+		}
+		if(src->getType()->isPtr()) {
+			os << "((" << intCType(n->getType()->getIntWidth(), true) << ")(";
+			writeValue(os, src);
+			os << "))";
+			return;
+		}
 		U32 dstW = n->getType()->getIntWidth();
 		U32 srcW = src->getType()->getIntWidth();
 		switch(n->getOpcode()) {
 		case Opcode::Trunc:
 		case Opcode::SExt:
-			return "(" + intCType(dstW, true) + ")" + a;
+			os << "(" << intCType(dstW, true) << ")";
+			break;
 		case Opcode::ZExt:
-			return "(" + intCType(dstW, true) + ")(" + intCType(srcW, false) + ")" + a;
+			os << "(" << intCType(dstW, true) << ")(" << intCType(srcW, false) << ")";
+			break;
 		case Opcode::SIToFP:
 		case Opcode::FPExt:
 		case Opcode::FPTrunc:
-			return "(" + cType(n->getType()) + ")" + a;
+			os << "(" << cType(n->getType()) << ")";
+			break;
 		case Opcode::UIToFP:
-			return "(" + cType(n->getType()) + ")(" + intCType(srcW, false) + ")" + a;
+			os << "(" << cType(n->getType()) << ")(" << intCType(srcW, false) << ")";
+			break;
 		case Opcode::FPToSI:
-			return "(" + intCType(dstW, true) + ")" + a;
+			os << "(" << intCType(dstW, true) << ")";
+			break;
 		case Opcode::FPToUI:
-			return "(" + intCType(dstW, false) + ")" + a;
+			os << "(" << intCType(dstW, false) << ")";
+			break;
 		default:
-			return "0"; // not a convert opcode
+			os << "0"; // not a convert opcode
+			return;
 		}
+		writeValue(os, src);
 	}
 
-	String CEmitterPass::FunctionEmitter::loadExpr(Node* n) {
+	void CEmitterPass::FunctionEmitter::writeLoad(std::ostream& os, Node* n) {
 		auto* l = cast<LoadNode>(n);
-		String ptrTy = cType(n->getType(), true) + " *";
-		return "*(" + ptrTy + ")(" + valueExpr(l->getPointer()) + ")";
+		os << "*(" << cType(n->getType(), true) << " *)(";
+		writeValue(os, l->getPointer());
+		os << ")";
 	}
 
 	void CEmitterPass::FunctionEmitter::emit() {
@@ -202,7 +270,9 @@ namespace rat {
 			Node* n = const_cast<Node*>(nc);
 			if(!needTemp.count(n))
 				continue;
-			os << "  " << cType(n->getType()) << " " << temp(n) << ";\n";
+			os << "  " << cType(n->getType()) << " ";
+			writeTemp(os, n);
+			os << ";\n";
 		}
 
 		// stack allocations become local byte buffers
@@ -210,12 +280,16 @@ namespace rat {
 		for(const Node* nc : fn) {
 			if(AllocNode* a = dyn_cast<AllocNode>(const_cast<Node*>(nc))) {
 				if(a->isVariableSized()) {
-					os << "  unsigned char *" << temp(a) << ";\n";
+					os << "  unsigned char *";
+					writeTemp(os, a);
+					os << ";\n";
 				} else {
 					U32 size = a->getAllocType()->byteSize(ptrBytes);
 					if(size == 0)
 						size = 1;
-					os << "  unsigned char " << temp(a) << "[" << size << "];\n";
+					os << "  unsigned char ";
+					writeTemp(os, a);
+					os << "[" << size << "];\n";
 				}
 				anyAlloc = true;
 			}
@@ -258,37 +332,51 @@ namespace rat {
 			return;
 		case Opcode::Store: {
 			auto* s = cast<StoreNode>(n);
-			String ptrTy = cType(s->getValue()->getType(), true) + " *";
-			os << "  *(" << ptrTy << ")(" << valueExpr(s->getPointer())
-				 << ") = " << valueExpr(s->getValue()) << ";\n";
+			os << "  *(" << cType(s->getValue()->getType(), true) << " *)(";
+			writeValue(os, s->getPointer());
+			os << ") = ";
+			writeValue(os, s->getValue());
+			os << ";\n";
 			return;
 		}
 		case Opcode::Load:
-			os << "  " << temp(n) << " = " << loadExpr(n) << ";\n";
+			os << "  ";
+			writeTemp(os, n);
+			os << " = ";
+			writeLoad(os, n);
+			os << ";\n";
 			return;
 		case Opcode::Call:
 			emitCall(cast<CallNode>(n));
 			return;
 		case Opcode::Alloc: {
 			auto* a = cast<AllocNode>(n);
-			if(a->isVariableSized())
-				os << "  " << temp(a) << " = __builtin_alloca(" << valueExpr(a->getSizeOperand()) << ");\n";
+			if(a->isVariableSized()) {
+				os << "  ";
+				writeTemp(os, a);
+				os << " = __builtin_alloca(";
+				writeValue(os, a->getSizeOperand());
+				os << ");\n";
+			}
 			return;
 		}
 		default:
 			break;
 		}
-		String rhs;
+		os << "  ";
+		writeTemp(os, n);
+		os << " = ";
 		if(isCompareOpcode(n->getOpcode()))
-			rhs = cmpExpr(n);
+			writeCmp(os, n);
 		else if(isConvertOpcode(n->getOpcode()))
-			rhs = convExpr(n);
+			writeConv(os, n);
 		else if(isUnaryOpcode(n->getOpcode())) {
 			auto* un = cast<UnaryNode>(n);
-			rhs = (n->getOpcode() == Opcode::Not ? "~" : "-") + valueExpr(un->getOperand());
+			os << (n->getOpcode() == Opcode::Not ? "~" : "-");
+			writeValue(os, un->getOperand());
 		} else
-			rhs = binExpr(n);
-		os << "  " << temp(n) << " = " << rhs << ";\n";
+			writeBin(os, n);
+		os << ";\n";
 	}
 
 	B32 CEmitterPass::FunctionEmitter::isVoidBuiltin(const String& name) {
@@ -297,58 +385,79 @@ namespace rat {
 					 name == "__atomic_thread_fence" || name == "__atomic_signal_fence";
 	}
 
-	void CEmitterPass::FunctionEmitter::emitCall(CallNode* c) {
-		std::ostringstream args;
+	void CEmitterPass::FunctionEmitter::writeArgs(std::ostream& os, CallNode* c) {
 		for(U32 i = 0, e = c->getArgCount(); i < e; ++i) {
 			if(i)
-				args << ", ";
-			args << valueExpr(c->getArg(i));
+				os << ", ";
+			writeValue(os, c->getArg(i));
 		}
+	}
+
+	void CEmitterPass::FunctionEmitter::emitCall(CallNode* c) {
 		Node* valProj = c->projection(CallNode::valueProjIndex());
 
 		if(valProj && !c->isIndirect() && isVoidBuiltin(c->getCallee())) {
-			os << "  " << temp(valProj) << " = (" << c->getCallee() << "(" << args.str() << "), 0);\n";
+			os << "  ";
+			writeTemp(os, valProj);
+			os << " = (" << c->getCallee() << "(";
+			writeArgs(os, c);
+			os << "), 0);\n";
 			return;
 		}
 
 		os << "  ";
-		if(valProj)
-			os << temp(valProj) << " = ";
+		if(valProj) {
+			writeTemp(os, valProj);
+			os << " = ";
+		}
 		if(c->isIndirect()) {
-			String ret = valProj ? cType(valProj->getType()) : String("void");
-			std::ostringstream sig;
-			sig << ret << " (*)(";
+			os << "((" << (valProj ? cType(valProj->getType()) : "void") << " (*)(";
 			for(U32 i = 0, e = c->getArgCount(); i < e; ++i) {
 				if(i)
-					sig << ", ";
-				sig << cType(c->getArg(i)->getType());
+					os << ", ";
+				os << cType(c->getArg(i)->getType());
 			}
 			if(c->getArgCount() == 0)
-				sig << "void";
-			sig << ")";
-			os << "((" << sig.str() << ")" << valueExpr(c->getTarget()) << ")(" << args.str() << ");\n";
+				os << "void";
+			os << "))";
+			writeValue(os, c->getTarget());
+			os << ")(";
+			writeArgs(os, c);
+			os << ");\n";
 		} else if(emitVaIntrinsic(c, valProj)) {
 			return;
 		} else {
-			os << c->getCallee() << "(" << args.str() << ");\n";
+			os << c->getCallee() << "(";
+			writeArgs(os, c);
+			os << ");\n";
 		}
 	}
 
 	B32 CEmitterPass::FunctionEmitter::emitVaIntrinsic(CallNode* c, Node* valProj) {
 		const String& callee = c->getCallee();
 		auto vaList = [&](U32 argIdx) {
-			return "*(__builtin_va_list *)(" + valueExpr(c->getArg(argIdx)) + ")";
+			os << "*(__builtin_va_list *)(";
+			writeValue(os, c->getArg(argIdx));
+			os << ")";
 		};
 		if(callee == "__builtin_va_arg") {
-			os << "__builtin_va_arg(" << vaList(0) << ", " << cType(valProj->getType()) << ");\n";
+			os << "__builtin_va_arg(";
+			vaList(0);
+			os << ", " << cType(valProj->getType()) << ");\n";
 			return true;
 		}
 		if(callee == "__builtin_va_start") {
-			os << "__builtin_va_start(" << vaList(0) << ", " << valueExpr(c->getArg(1)) << ");\n";
+			os << "__builtin_va_start(";
+			vaList(0);
+			os << ", ";
+			writeValue(os, c->getArg(1));
+			os << ");\n";
 			return true;
 		}
 		if(callee == "__builtin_va_end") {
-			os << "__builtin_va_end(" << vaList(0) << ");\n";
+			os << "__builtin_va_end(";
+			vaList(0);
+			os << ");\n";
 			return true;
 		}
 		return false;
@@ -391,7 +500,17 @@ namespace rat {
 					return true;
 			return false;
 		};
-		auto srcOf = [&](const Move& m) { return m.srcNode ? valueExpr(m.srcNode) : m.srcExpr; };
+		auto moveLine = [&](const Move& m) {
+			std::ostringstream ls;
+			writeTemp(ls, m.dst);
+			ls << " = (" << cType(m.dst->getType()) << ")(";
+			if(m.srcNode)
+				writeValue(ls, m.srcNode);
+			else
+				ls << m.srcExpr;
+			ls << ");";
+			return ls.str();
+		};
 
 		List<String> lines;
 		List<String> scratchDecls;
@@ -405,7 +524,7 @@ namespace rat {
 					++i;
 					continue;
 				}
-				lines.push_back(temp(m.dst) + " = (" + cType(m.dst->getType()) + ")(" + srcOf(m) + ");");
+				lines.push_back(moveLine(m));
 				pending.erase(pending.begin() + i);
 				progress = true;
 			}
@@ -415,8 +534,14 @@ namespace rat {
 				// break a cycle
 				Move& c = pending.front();
 				String nm = "__pc" + std::to_string(scratchN++);
-				scratchDecls.push_back(cType(c.dst->getType()) + " " + nm + ";");
-				lines.push_back(nm + " = " + temp(c.dst) + ";");
+				std::ostringstream ds;
+				ds << cType(c.dst->getType()) << " " << nm << ";";
+				scratchDecls.push_back(ds.str());
+				std::ostringstream ms;
+				ms << nm << " = ";
+				writeTemp(ms, c.dst);
+				ms << ";";
+				lines.push_back(ms.str());
 				Node* cycleDst = c.dst;
 				for(Move& m : pending)
 					if(m.srcNode == cycleDst) {
@@ -434,21 +559,27 @@ namespace rat {
 		switch(blk.term) {
 		case TK::Return: {
 			auto* r = cast<ReturnNode>(blk.termNode);
-			if(r->hasValue())
-				os << "  return " << valueExpr(r->getValue()) << ";\n";
-			else
+			if(r->hasValue()) {
+				os << "  return ";
+				writeValue(os, r->getValue());
+				os << ";\n";
+			} else {
 				os << "  return;\n";
+			}
 			return;
 		}
 		case TK::Branch: {
 			auto* iff = cast<IfNode>(blk.termNode);
-			os << "  if (" << valueExpr(iff->getPredicate()) << ") goto L" << blk.thenB << "; else goto L"
-				 << blk.elseB << ";\n";
+			os << "  if (";
+			writeValue(os, iff->getPredicate());
+			os << ") goto L" << blk.thenB << "; else goto L" << blk.elseB << ";\n";
 			return;
 		}
 		case TK::Switch: {
 			auto* sw = cast<SwitchNode>(blk.termNode);
-			os << "  switch (" << valueExpr(sw->getSelector()) << ") {\n";
+			os << "  switch (";
+			writeValue(os, sw->getSelector());
+			os << ") {\n";
 			for(U32 i = 0; i + 1 < (U32)blk.caseB.size(); ++i)
 				os << "  case " << i << ": goto L" << blk.caseB[i] << ";\n";
 			// selector is range-checked, so the last slot doubles as default

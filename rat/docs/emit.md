@@ -9,7 +9,7 @@ Both the SysV (linux) and Windows x64 conventions are supported, selected by the
 - **Derived register file:** Allocation order, callee-saved sets, and call clobbers (allocatable minus callee-saved, plus scratch) are all built from the same table, so adding a convention means adding a row, not a code path.
 
 ## object files
-rat exposes a simple object file abstraction ([`Target/ObjectFile.h`](../include/Target/ObjectFile.h)): A minimal writer with `text`, `rodata`, `data`, and `bss` sections, symbols, and three relocation kinds: `Abs64` (absolute 64-bit, `S + A`), `Pc32` (pc-relative, `S + A - P`, used by rip-relative lea), and `Plt32` (pc-relative call, `L + A - P`). Backed by [`X86Elf`](../include/Target/X86Elf.h) for linux and [`X86Coff`](../include/Target/X86Coff.h) for windows, link the result with any system linker.
+rat exposes a simple object file abstraction ([`Target/ObjectFile.h`](../include/Target/ObjectFile.h)): A minimal writer with `text`, `rodata`, `data`, and `bss` sections, symbols, and three relocation kinds: `Abs64` (absolute 64-bit, `S + A`), `Pc32` (pc-relative, `S + A - P`, used by rip-relative lea), and `Plt32` (pc-relative call, `L + A - P`). Backed by [`X86Elf`](../lib/Target/X86Elf.cpp) for linux and [`X86Coff`](../lib/Target/X86Coff.cpp) for windows, link the result with any system linker.
 
 ## c emitter
 [**c-emitter:**](../include/Pass/Emit/CEmitter.h) emits the module as portable C, using the same schedule as the x86 path: one labeled C block per scheduled block, phis lowered to assignments on the incoming edges, node values as numbered temporaries. Useful as a second backend for differential testing and as a bootstrapping escape hatch on targets without native support.

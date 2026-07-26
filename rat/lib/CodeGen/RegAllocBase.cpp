@@ -123,7 +123,16 @@ namespace rat {
 	void RegAllocBase::liveness(List<VRegSet>& liveIn, List<VRegSet>& liveOut) {
 		U32 nb = (U32)fn->blocks.size();
 		U32 nv = fn->nextVReg;
-		List<VRegSet> useSet(nb, VRegSet(nv)), defSet(nb, VRegSet(nv));
+		auto prep = [&](List<VRegSet>& v) {
+			if(v.size() < nb)
+				v.resize(nb);
+			for(U32 i = 0; i < nb; ++i)
+				v[i].resetAll(nv);
+		};
+		prep(liveUseScratch);
+		prep(liveDefScratch);
+		List<VRegSet>& useSet = liveUseScratch;
+		List<VRegSet>& defSet = liveDefScratch;
 		for(U32 b = 0; b < nb; ++b) {
 			for(const MachineInstr& in : fn->blocks[b].insts) {
 				for(const MachineOperand& u : in.uses)
@@ -134,29 +143,30 @@ namespace rat {
 						defSet[b].set(d.vreg);
 			}
 		}
-		liveIn.assign(nb, VRegSet(nv));
-		liveOut.assign(nb, VRegSet(nv));
+		prep(liveIn);
+		prep(liveOut);
 		B32 changed = true;
+		VRegSet out, in;
+		out.resetAll(nv);
+		in.resetAll(nv);
 		while(changed) {
 			changed = false;
-			VRegSet out(nv), in(nv);
 			for(I32 b = (I32)nb - 1; b >= 0; --b) {
-				out = VRegSet(nv);
+				out.resetAll(nv);
 				for(I32 s : fn->blocks[b].succs)
 					out.orWith(liveIn[s]);
 				in.assignUnionMasked(useSet[b], out, defSet[b]); // use | (out & ~def)
 				if(!(in == liveIn[b]) || !(out == liveOut[b])) {
 					changed = true;
-					liveIn[b] = in;
-					liveOut[b] = out;
+					liveIn[b].copyFrom(in);
+					liveOut[b].copyFrom(out);
 				}
 			}
 		}
 	}
 
 	U32 RegAllocBase::classOf(VReg v) const {
-		auto it = fn->vregClass.find(v);
-		return it == fn->vregClass.end() ? 0 : it->second;
+		return v < fn->vregClass.size() ? fn->vregClass[v] : 0;
 	}
 
 	const RegClass& RegAllocBase::regClass(U32 cls) const { return ri->classes[cls]; }

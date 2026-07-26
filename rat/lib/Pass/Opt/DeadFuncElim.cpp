@@ -19,28 +19,61 @@ namespace rat {
 	}
 
 	B32 DeadFuncElimPass::run(Module& module, const TargetInfo&) {
-		B32 changed = false;
-		for(;;) {
-			Set<String> referenced;
-			for(Function* fn : module)
-				collectReferenced(*fn, referenced);
-			for(const Global* g : module.globals())
-				for(const Reloc& r : g->getRelocs())
-					referenced.insert(r.symbol);
+		List<Function*> funcs;
+		for(Function* fn : module)
+			funcs.push_back(fn);
+		const U32 n = (U32)funcs.size();
 
-			Function* victim = nullptr;
-			for(Function* fn : module) {
-				if(!fn->isInternal())
-					continue;
-				if(referenced.find(fn->getName()) != referenced.end())
-					continue;
-				victim = fn;
-				break;
+		List<List<String>> outgoing(n);
+		Map<String, U32> refCount;
+		Map<String, List<U32>> byName;
+		Set<String> scratch;
+		for(U32 i = 0; i < n; ++i) {
+			scratch.clear();
+			collectReferenced(*funcs[i], scratch);
+			outgoing[i].reserve(scratch.size());
+			for(const String& s : scratch) {
+				outgoing[i].push_back(s);
+				++refCount[s];
 			}
-			if(!victim)
-				break;
-			module.removeFunction(victim);
+			byName[funcs[i]->getName()].push_back(i);
+		}
+		for(const Global* g : module.globals())
+			for(const Reloc& r : g->getRelocs())
+				++refCount[r.symbol];
+
+		auto countOf = [&](const String& s) -> U32 {
+			auto it = refCount.find(s);
+			return it == refCount.end() ? 0 : it->second;
+		};
+
+		List<B32> removed(n, false);
+		List<U32> work;
+		for(U32 i = 0; i < n; ++i)
+			if(funcs[i]->isInternal() && countOf(funcs[i]->getName()) == 0)
+				work.push_back(i);
+
+		B32 changed = false;
+		while(!work.empty()) {
+			U32 i = work.back();
+			work.pop_back();
+			if(removed[i])
+				continue;
+			removed[i] = true;
+			module.removeFunction(funcs[i]);
 			changed = true;
+
+			for(const String& s : outgoing[i]) {
+				auto rc = refCount.find(s);
+				if(rc == refCount.end() || rc->second == 0 || --rc->second != 0)
+					continue;
+				auto bn = byName.find(s);
+				if(bn == byName.end())
+					continue;
+				for(U32 j : bn->second)
+					if(!removed[j] && funcs[j]->isInternal())
+						work.push_back(j);
+			}
 		}
 		return changed;
 	}

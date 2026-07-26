@@ -19,16 +19,39 @@ namespace rat {
 
 	const String& Module::getName() const { return name; }
 
+	void Module::rebuildFuncIndex() const {
+		funcIndex.clear();
+		for(Function* fn : funcs)
+			funcIndex.emplace(fn->getName(), fn);
+		funcIndexValid = true;
+	}
+
+	void Module::rebuildGlobIndex() const {
+		globIndex.clear();
+		for(Global* g : globs)
+			globIndex.emplace(g->getName(), g);
+		globIndexValid = true;
+	}
+
 	Function* Module::createFunction(const String& name, const List<Type*>& params, Type* ret) {
 		Function* fn = arena.make<Function>(*this, name, params, ret);
 		funcs.push_back(fn);
+		if(funcIndexValid)
+			funcIndex.emplace(name, fn);
 		return fn;
 	}
 
 	Function* Module::getFunction(const String& name) const {
+		if(!funcIndexValid)
+			rebuildFuncIndex();
+		auto it = funcIndex.find(name);
+		if(it != funcIndex.end() && it->second->getName() == name)
+			return it->second;
 		for(Function* fn : funcs) {
-			if(fn->getName() == name)
+			if(fn->getName() == name) {
+				rebuildFuncIndex();
 				return fn;
+			}
 		}
 		return nullptr;
 	}
@@ -37,6 +60,7 @@ namespace rat {
 		for(auto it = funcs.begin(); it != funcs.end(); ++it) {
 			if(*it == fn) {
 				funcs.erase(it);
+				funcIndexValid = false;
 				return true;
 			}
 		}
@@ -47,13 +71,22 @@ namespace rat {
 			const String& name, Type* type, B32 isConst, List<U8> init, List<Reloc> relocs) {
 		Global* g = arena.make<Global>(name, type, isConst, std::move(init), std::move(relocs));
 		globs.push_back(g);
+		if(globIndexValid)
+			globIndex.emplace(name, g);
 		return g;
 	}
 
 	Global* Module::getGlobal(const String& name) const {
+		if(!globIndexValid)
+			rebuildGlobIndex();
+		auto it = globIndex.find(name);
+		if(it != globIndex.end() && it->second->getName() == name)
+			return it->second;
 		for(Global* g : globs) {
-			if(g->getName() == name)
+			if(g->getName() == name) {
+				rebuildGlobIndex();
 				return g;
+			}
 		}
 		return nullptr;
 	}

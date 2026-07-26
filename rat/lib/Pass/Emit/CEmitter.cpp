@@ -7,7 +7,7 @@
 #include "Target/Target.h"
 
 namespace rat {
-	String CEmitterPass::intCType(U32 width, B32 isSigned) {
+	const C8* CEmitterPass::intCType(U32 width, B32 isSigned) {
 		if(width <= 1)
 			return "int"; // booleans
 		const C8* s;
@@ -23,7 +23,7 @@ namespace rat {
 		return s;
 	}
 
-	String CEmitterPass::cType(const Type* t, B32 isSigned) {
+	const C8* CEmitterPass::cType(const Type* t, B32 isSigned) {
 		if(t->isInt())
 			return intCType(t->getIntWidth(), isSigned);
 		if(t->isFloat()) {
@@ -68,8 +68,7 @@ namespace rat {
 	void CEmitterPass::emitSignature(const Function& fn) { emitSignatureInto(fn, *os); }
 
 	void CEmitterPass::emitSignatureInto(const Function& fn, std::ostream& os) {
-		os << (fn.returnsValue() ? cType(fn.getReturnType()) : String("void")) << " " << fn.getName()
-			 << "(";
+		os << (fn.returnsValue() ? cType(fn.getReturnType()) : "void") << " " << fn.getName() << "(";
 		if(fn.getParamCount() == 0)
 			os << "void";
 		for(U32 i = 0, e = fn.getParamCount(); i < e; ++i) {
@@ -129,8 +128,7 @@ namespace rat {
 				*os << proto;
 				continue;
 			}
-			*os << "extern " << (externs[name] ? cType(externs[name]) : String("void")) << " " << name
-					<< "();\n";
+			*os << "extern " << (externs[name] ? cType(externs[name]) : "void") << " " << name << "();\n";
 		}
 
 		Set<String>& known = defined;

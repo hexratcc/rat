@@ -51,7 +51,7 @@ namespace rat {
 	}
 
 	void X86EncodePass::emitLoadSym(const MachineInstr& in) {
-		a->leaRipSym(gpOf(in.defs[0]), in.uses[0].sym, 0);
+		a->leaRipSym(gpOf(in.defs[0]), in.uses[0].sym(), 0);
 	}
 
 	void X86EncodePass::emitFrameAddr(const MachineInstr& in) {
@@ -124,7 +124,7 @@ namespace rat {
 		const MachineOperand& addr = in.uses[0];
 		U32 w = d.width;
 		if(addr.kind == MachineOperand::Kind::Sym) {
-			a->loadXmmRipSym(xmmOf(d), addr.sym, w);
+			a->loadXmmRipSym(xmmOf(d), addr.sym(), w);
 			return;
 		}
 		if(addr.kind == MachineOperand::Kind::Imm) {
@@ -169,7 +169,7 @@ namespace rat {
 			a->aluImm(ext, d, (I32)in.uses[1].imm);
 			return;
 		}
-		a->aluRR(aluOp, gpOf(in.defs[0]), gpOf(in.uses[1]));
+		a->aluRR(aluOp, d, gpOf(in.uses[1]));
 	}
 
 	void X86EncodePass::emitMul(const MachineInstr& in) {

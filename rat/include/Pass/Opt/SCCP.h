@@ -44,6 +44,9 @@ namespace rat {
 		static B32 isValueNode(Node* n);
 		static Lattice meet(Lattice a, Lattice b);
 
+		void ensureSize(U32 id);
+		B32 isExec(Node* c) const;
+
 		Lattice get(Node* n);
 		void markExec(Node* c);
 		void pushPhis(RegionNode* r);
@@ -56,10 +59,10 @@ namespace rat {
 		void solve(Function& fn);
 		U32 rewrite(Function& fn);
 	private:
-		Map<Node*, Lattice> values; // lattice for value producing nodes
-		Set<Node*> exec;						// control nodes proven executable
-		List<Node*> flowWork;				// executable control nodes to propagate
-		List<Node*> ssaWork;				// value / if nodes to re-evaluate
+		List<Lattice> values; // lattice for value producing nodes, Top when unset
+		List<char> exec;			// control nodes proven executable
+		List<Node*> flowWork; // executable control nodes to propagate
+		List<Node*> ssaWork;	// value / if nodes to re-evaluate
 	};
 } // namespace rat
 

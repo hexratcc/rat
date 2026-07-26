@@ -1,4 +1,4 @@
-#include "Target/X86Elf.h"
+#include "Target/ObjectFile.h"
 
 namespace rat {
 	namespace detail {
@@ -34,7 +34,7 @@ namespace rat {
 		constexpr U64 kRelaEntSize = 24; // Elf64_Rela
 	} // namespace detail
 
-	void ElfObject::write(std::ostream& os) {
+	void ObjectFile::writeElf(std::ostream& os) {
 		List<U32> order;
 		order.push_back(0);
 		for(U32 i = 1; i < syms.size(); ++i)
@@ -81,15 +81,17 @@ namespace rat {
 			put64(symtab, 0);																// st_size
 		}
 
+		List<const Rel*> relBySec[kSections];
+		partitionRelocs(relBySec);
 		auto buildRela = [&](Section target) {
+			const List<const Rel*>& bucket = relBySec[(U32)target];
 			List<U8> out;
-			for(const Rel& r : relocs) {
-				if(r.sec != target)
-					continue;
-				U64 info = ((U64)remap[r.symIndex] << 32) | (U64)(U32)r.kind;
-				put64(out, r.offset);			 // r_offset
-				put64(out, info);					 // r_info
-				put64(out, (U64)r.addend); // r_addend
+			out.reserve(bucket.size() * detail::kRelaEntSize);
+			for(const Rel* r : bucket) {
+				U64 info = ((U64)remap[r->symIndex] << 32) | (U64)(U32)r->kind;
+				put64(out, r->offset);			// r_offset
+				put64(out, info);						// r_info
+				put64(out, (U64)r->addend); // r_addend
 			}
 			return out;
 		};
@@ -138,6 +140,7 @@ namespace rat {
 		U64 offSh = (off + 7) & ~7ull; // section header table
 
 		List<U8> out;
+		out.reserve(offSh + shCount * detail::kShEntSize);
 		for(U8 c : detail::kElfMag)
 			put8(out, c);
 		put8(out, detail::ELFCLASS64);

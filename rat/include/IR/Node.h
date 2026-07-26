@@ -20,10 +20,22 @@
 namespace rat {
 	struct Function;
 	struct ProjNode;
+	struct Node;
+
+	struct NodeSpan {
+		Node* const* ptr = nullptr;
+		U32 count = 0;
+
+		Node* const* begin() const { return ptr; }
+		Node* const* end() const { return ptr + count; }
+		U32 size() const { return count; }
+		B32 empty() const { return count == 0; }
+		Node* operator[](U32 i) const { return ptr[i]; }
+	};
 
 	struct Node {
 		Node(Function& fn, Opcode op, Type* type, const List<Node*>& inputs);
-		virtual ~Node();
+		~Node() = default;
 
 		Node(const Node&) = delete;
 		Node& operator=(const Node&) = delete;
@@ -37,7 +49,7 @@ namespace rat {
 		U32 getInputCount() const;
 		Node* getInput(U32 index) const;
 
-		const List<Node*>& getUsers() const;
+		NodeSpan getUsers() const;
 		B32 hasUsers() const;
 
 		// all edge mutation keeps the users index consistent
@@ -61,13 +73,19 @@ namespace rat {
 		ProjNode* projection(U32 index) const;
 	protected:
 		void removeUser(Node* user);
+		void addUser(Node* user);
+		void growInputs(U32 needed);
 
 		Opcode op;
 		Type* ty;
 		U32 id; // unique per function
 		Function* fn;
-		List<Node*> inputs; // ordered defs; may contain null placeholders
-		List<Node*> users;	// reverse edges; one entry per using operand
+		Node** inputs = nullptr; // ordered defs; may contain null placeholders
+		Node** users = nullptr;	 // reverse edges; one entry per using operand
+		U32 inputCount = 0;
+		U32 inputCap = 0;
+		U32 userCount = 0;
+		U32 userCap = 0;
 	};
 
 	// function entry
@@ -133,14 +151,15 @@ namespace rat {
 
 	// selects element from a tuple producer (Start, If, Call, Switch)
 	struct ProjNode : Node {
-		ProjNode(Function& fn, Type* type, Node* tuple, U32 index, String label = "");
+		ProjNode(Function& fn, Type* type, Node* tuple, U32 index, const String& label = String());
+		ProjNode(Function& fn, Type* type, Node* tuple, U32 index, const C8* label);
 
 		Node* getProducer() const;
 		U32 getIndex() const;
-		const String& getLabel() const;
+		const C8* getLabel() const;
 	private:
 		U32 index;
-		String label;
+		const C8* label;
 	};
 
 	// SSA merge, memory phis merge memory states the same way data phis merge values
@@ -308,7 +327,6 @@ namespace rat {
 
 	B32 isControlNode(const Node* n);
 	Node* cloneShell(Function& into, const Node* n);
-	String nodeSignature(const Node* n);
 } // namespace rat
 
 #endif

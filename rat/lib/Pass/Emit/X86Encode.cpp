@@ -184,16 +184,18 @@ namespace rat {
 			// variadic callees read every register argument from the gp set
 			for(U32 i = targetIdx + 1; i-- > 0;) {
 				const MachineOperand& u = in.uses[i];
-				if(u.kind == MachineOperand::Kind::Phys && X86Target::isXmm(u.phys) &&
-					 toXmm(u.phys) < conv->gpArgCount)
-					a->movqGpXmm(conv->gpArgs[toXmm(u.phys)], toXmm(u.phys));
+				if(u.kind != MachineOperand::Kind::Phys || !X86Target::isXmm(u.phys))
+					continue;
+				U32 x = toXmm(u.phys);
+				if(x < conv->gpArgCount)
+					a->movqGpXmm(conv->gpArgs[x], x);
 			}
 		}
 
 		if(indirect)
 			a->callReg(R11);
 		else
-			a->callSym(in.uses[targetIdx].sym);
+			a->callSym(in.uses[targetIdx].sym());
 		if(total)
 			a->addRegImm32(RSP, (I32)total);
 	}
@@ -560,13 +562,21 @@ namespace rat {
 		for(const Global* g : mod.globals())
 			emitGlobal(*obj, g, target.getPointerSizeInBytes());
 
+		List<U8> code;
+		List<AsmReloc> relocs;
+
 		for(const Function* fn : mod) {
 			MachineFunc& mf = mm.get(fn);
 
 			const X86FrameLayout& fl = *static_cast<const X86FrameLayout*>(mf.aux.get());
 
-			List<U8> code;				 // emitted machine code bytes
-			List<AsmReloc> relocs; // relocations into code
+			code.clear();
+			relocs.clear();
+			U32 instCount = 0;
+			for(const MachineBlock& blk : mf.blocks)
+				instCount += (U32)blk.insts.size();
+			code.reserve((size_t)instCount * 16u + 64u); // cheap upper estimate
+
 			Asm a(code, relocs);
 			reset(mf, fl, a, mf.usedCalleeSaved);
 			encodeFunction();

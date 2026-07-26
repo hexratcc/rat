@@ -313,7 +313,16 @@ namespace rat::cc {
 		// slot, range-check, jump indirect; each slot gets a trampoline block (holes
 		// -> default) for phi edges, empty ones forwarded away by layout
 		U32 n = (U32)order.size();
-		if(n >= 6) {
+		// the table's one indirect jump mispredicts badly in hot dispatch loops  so hot
+		//  switches stay on the well-predicted compare tree, enclosing-loop is our static hotness proxy
+		// (own switch frame is not pushed yet). cold switches still take the table
+		B32 inLoop = false;
+		for(const LoopFrame& lf : loops)
+			if(!lf.isSwitch) {
+				inLoop = true;
+				break;
+			}
+		if(!inLoop && n >= 6) {
 			I64 minV = caseValues[order[0]];
 			I64 maxV = caseValues[order[n - 1]];
 			U64 span = (U64)maxV - (U64)minV + 1;

@@ -51,42 +51,58 @@ namespace rat {
 		I32 blockOf(const Node* n) const;
 
 		List<I32> successors(I32 b) const;
+		void successorsInto(I32 b, List<I32>& out) const;
 		B32 dominates(I32 a, I32 b) const;
 
 		static B32 isFloating(const Node* n);
 	private:
 		I32 blockOfHead(const Node* head) const;
+		I32 headBlock(const Node* head) const;
+		U32 succCount(I32 b) const;
+		I32 succAt(I32 b, U32 i) const;
 
 		void collectHeads();
 		void buildCFG();
 		void computeDominators();
 		void computeLoops();
-		void scheduleEarly(Map<const Node*, I32>& early);
-		void scheduleLate(const Map<const Node*, I32>& early);
+		void scheduleEarly(List<I32>& early);
+		void scheduleLate(const List<I32>& early);
 		void buildBlockLists();
 
 		static B32 isHeadNode(const Node* n);
 		Node* headOf(Node* ctrl) const;
-		mutable Map<Node*, Node*> headMemo;
 
 		I32 intersectWith(const List<I32>& idom, I32 a, I32 b) const;
 		I32 lca(I32 a, I32 b) const;
 
 		I32 useBlock(Node* u, Node* n) const;
 		I32 predBlockForRegionInput(I32 regionBlock, U32 i) const;
-		List<Node*> topoOrder(List<Node*>& nodes) const;
 
-		I32 fixedDataBlock(Node* n, const Map<const Node*, I32>& early) const;
+		struct TopoScratch {
+			List<I32> localOf;		// node id -> local index in the current block (-1)
+			List<I32> inDeg;			// per local index
+			List<I32> memHead;		// memory node id -> local index of a load on it (-1)
+			List<I32> memNext;		// per local index: next load sharing that memory
+			List<I32> touchedMem; // memory node ids to reset after the block
+			List<I32> succHead;		// per local index: head of the extra-edge chain (-1)
+			List<I32> succNext;		// edge -> next edge in the chain
+			List<I32> succTo;			// edge -> target local index
+			List<Node*> ready;		// binary heap of ready nodes
+		};
+		List<Node*> topoOrder(List<Node*>& nodes, TopoScratch& scratch) const;
+
+		I32 fixedDataBlock(Node* n, const List<I32>& early) const;
 		static Node* requireProj(Node* n, U32 index);
 		static Node* memoryInputOf(const Node* n);
 	private:
 		const Function& fn;
 		List<Block> blocks;
-		Map<const Node*, I32> headIndex; // head node -> block
-		Map<const Node*, I32> nodeBlock; // placed node -> block
+		List<I32> headIndex; // node id -> block, for head nodes (-1 = not a head)
+		List<I32> nodeBlock; // node id -> block, for placed nodes (-1 = unplaced)
 		List<I32> post;									 // postorder number per block
 		List<I32> rpoOrder;
 		I32 entryBlock = -1;
+		mutable List<Node*> headMemo;
 	};
 } // namespace rat
 

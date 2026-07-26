@@ -18,14 +18,23 @@ namespace rat {
 	struct Function;
 	struct Module;
 	struct Node;
+	struct PhiNode;
 
 	struct SimplifyCFGPass : FunctionPass {
 		const C8* name() const override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
-		Set<Node*> reachableControl(Function& fn);
-		List<Node*> nodesOfOpcode(Function& fn, Opcode op);
+		void reachableControl(Function& fn);
+		void collectPhis(Node* region, List<PhiNode*>& out);
 		void detachFromRegions(Node* ctrl);
+
+		Set<Node*> reach;
+		List<Node*> work;
+		List<Node*> ifs;
+		List<Node*> regions;
+		List<Node*> regionUsers;
+		List<PhiNode*> phis;
+		List<PhiNode*> detachPhis;
 	};
 } // namespace rat
 

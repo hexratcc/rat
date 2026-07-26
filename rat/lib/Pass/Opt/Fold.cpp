@@ -711,24 +711,70 @@ namespace rat {
 
 	U32 FoldPass::runOnFunction(Function& fn, const TargetInfo&) {
 		U32 changed = 0;
-		B32 again = true;
-		while(again) {
-			again = false;
-			List<Node*> work;
-			for(Node* n : fn)
-				if(isArithmeticOpcode(n->getOpcode()))
-					work.push_back(n);
-			for(Node* n : work) {
-				if(!n->hasUsers())
-					continue;
-				Node* s = simplify(fn, n);
-				if(s != n) {
-					n->replaceAllUsesWith(s);
-					++changed;
-					again = true;
+		List<Node*> work;
+		List<char> queued;
+		U32 fresh = 0;
+
+		work.reserve(fn.size());
+		queued.resize(fn.size(), 0);
+
+		auto push = [&](Node* n) {
+			if(!isArithmeticOpcode(n->getOpcode()))
+				return;
+			U32 id = n->getId();
+			if(id >= queued.size())
+				queued.resize(id + 1, 0);
+			if(queued[id])
+				return;
+			queued[id] = 1;
+			work.push_back(n);
+		};
+
+		for(Node* n : fn) {
+			if(n->getId() >= fresh)
+				fresh = n->getId() + 1;
+			push(n);
+		}
+
+		List<Node*> stack;
+		auto pushFresh = [&](Node* root) {
+			stack.clear();
+			if(root->getId() >= fresh)
+				stack.push_back(root);
+			U32 top = fresh;
+			while(!stack.empty()) {
+				Node* c = stack.back();
+				stack.pop_back();
+				if(c->getId() >= top)
+					top = c->getId() + 1;
+				push(c);
+				for(U32 i = 0, e = c->getInputCount(); i < e; ++i) {
+					Node* in = c->getInput(i);
+					if(in && in->getId() >= fresh)
+						stack.push_back(in);
 				}
 			}
+			fresh = top;
+		};
+
+		for(U32 i = 0; i < work.size(); ++i) {
+			Node* n = work[i];
+			U32 id = n->getId();
+			if(id < queued.size())
+				queued[id] = 0;
+			if(!n->hasUsers())
+				continue;
+			Node* s = simplify(fn, n);
+			if(s != n) {
+				n->replaceAllUsesWith(s);
+				++changed;
+				push(s);
+				for(Node* u : s->getUsers())
+					push(u);
+				pushFresh(s);
+			}
 		}
+
 		if(changed)
 			fn.eliminateDeadNodes();
 		return changed;

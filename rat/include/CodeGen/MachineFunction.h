@@ -13,6 +13,9 @@ namespace rat {
 
 	constexpr VReg kNoVReg = 0;
 
+	U32 internMachineSym(const String& s);
+	const String& machineSymName(U32 id);
+
 	struct MachineOperand {
 		enum class Kind { None, VReg, Phys, Imm, FrameSlot, Sym, Block };
 
@@ -21,9 +24,11 @@ namespace rat {
 		PhysReg phys = kNoReg;
 		I64 imm = 0;
 		I32 slot = 0;
-		String sym;
+		U32 symId = 0;
 		I32 block = -1;
 		U32 width = 8;
+
+		const String& sym() const { return machineSymName(symId); }
 
 		static MachineOperand vr(VReg v, U32 w = 8);
 		static MachineOperand fixed(PhysReg p, U32 w = 8);
@@ -62,7 +67,7 @@ namespace rat {
 		const Function* src = nullptr;
 		List<MachineBlock> blocks;
 		U32 nextVReg = 1;
-		Map<VReg, U32> vregClass;
+		List<U32> vregClass;
 		U32 frameBytes = 0;
 		List<PhysReg> usedCalleeSaved;
 		UniquePtr<MachineFuncAux> aux;

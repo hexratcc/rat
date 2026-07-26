@@ -31,18 +31,31 @@ namespace rat {
 		return a.value == b.value ? a : Lattice::bottom();
 	}
 
+	void SCCPPass::ensureSize(U32 id) {
+		if(id >= values.size()) {
+			values.resize(id + 1);
+			exec.resize(id + 1, 0);
+		}
+	}
+
+	B32 SCCPPass::isExec(Node* c) const { return c && c->getId() < exec.size() && exec[c->getId()]; }
+
 	SCCPPass::Lattice SCCPPass::get(Node* n) {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n))
 			return Lattice::constant(c->getValue());
 		if(!isValueNode(n))
 			return Lattice::bottom();
-		auto it = values.find(n);
-		return it == values.end() ? Lattice::top() : it->second;
+		U32 id = n->getId();
+		return id < values.size() ? values[id] : Lattice::top();
 	}
 
 	void SCCPPass::markExec(Node* c) {
-		if(exec.insert(c).second)
+		U32 id = c->getId();
+		ensureSize(id);
+		if(!exec[id]) {
+			exec[id] = 1;
 			flowWork.push_back(c);
+		}
 	}
 
 	void SCCPPass::pushPhis(RegionNode* r) {
@@ -51,7 +64,7 @@ namespace rat {
 	}
 
 	void SCCPPass::evalIf(IfNode* iff) {
-		if(!exec.count(iff))
+		if(!isExec(iff))
 			return;
 		Lattice p = get(iff->getPredicate());
 		if(p.kind == Lattice::Kind::Top)
@@ -108,7 +121,9 @@ namespace rat {
 			return;
 		Lattice nw = evaluate(n);
 		if(nw != get(n)) {
-			values[n] = nw;
+			U32 id = n->getId();
+			ensureSize(id);
+			values[id] = nw;
 			for(Node* u : n->getUsers())
 				ssaWork.push_back(u);
 		}
@@ -129,7 +144,7 @@ namespace rat {
 			return Lattice::bottom();
 		Lattice res = Lattice::top();
 		for(U32 i = 0, e = phi->getValueCount(); i < e; ++i) {
-			if(!exec.count(r->getPredecessor(i)))
+			if(!isExec(r->getPredecessor(i)))
 				continue;
 			res = meet(res, get(phi->getValue(i)));
 			if(res.kind == Lattice::Kind::Bottom)
@@ -218,6 +233,7 @@ namespace rat {
 		exec.clear();
 		flowWork.clear();
 		ssaWork.clear();
+		ensureSize(fn.size());
 		solve(fn);
 		return rewrite(fn);
 	}

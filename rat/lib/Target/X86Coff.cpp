@@ -1,4 +1,4 @@
-#include "Target/X86Coff.h"
+#include "Target/ObjectFile.h"
 
 #include <cstring>
 
@@ -29,8 +29,8 @@ namespace rat {
 		constexpr U32 kRelocEntSize = 10;
 	} // namespace detail
 
-	void CoffObject::write(std::ostream& os) {
-		constexpr U32 kNumSections = 4;
+	void ObjectFile::writeCoff(std::ostream& os) {
+		constexpr U32 kNumSections = kSections;
 		const C8* secNames[kNumSections] = {".text", ".rdata", ".data", ".bss"};
 		const U32 secFlags[kNumSections] = {
 				detail::IMAGE_SCN_CNT_CODE | detail::IMAGE_SCN_MEM_EXECUTE | detail::IMAGE_SCN_MEM_READ |
@@ -43,20 +43,21 @@ namespace rat {
 						detail::IMAGE_SCN_MEM_WRITE | detail::IMAGE_SCN_ALIGN_8BYTES,
 		};
 
-		List<U8> secBytes[kByteSections] = {bytesOf(Text), bytesOf(Rodata), bytesOf(Data)};
+		List<const Rel*> relBySec[kNumSections];
+		partitionRelocs(relBySec);
+
 		auto patchField = [&](Section sec, U32 offset, U64 v, U32 len) {
-			List<U8>& b = secBytes[(U32)sec];
+			List<U8>& b = bytesOf(sec);
 			for(U32 i = 0; i < len; ++i)
 				b[offset + i] = (U8)(v >> (i * 8));
 		};
-		for(const Rel& r : relocs) {
-			if(r.sec == Bss)
-				continue;
-			if(r.kind == RelocKind::Abs64)
-				patchField(r.sec, r.offset, (U64)r.addend, 8);
-			else
-				patchField(r.sec, r.offset, (U64)(U32)(I32)(r.addend + 4), 4);
-		}
+		for(U32 s = 0; s < kByteSections; ++s)
+			for(const Rel* r : relBySec[s]) {
+				if(r->kind == RelocKind::Abs64)
+					patchField(r->sec, r->offset, (U64)r->addend, 8);
+				else
+					patchField(r->sec, r->offset, (U64)(U32)(I32)(r->addend + 4), 4);
+			}
 
 		// symbol table
 		List<U8> strtab;
@@ -75,8 +76,8 @@ namespace rat {
 		};
 
 		U32 relocCount[kNumSections] = {};
-		for(const Rel& r : relocs)
-			++relocCount[(U32)r.sec];
+		for(U32 s = 0; s < kNumSections; ++s)
+			relocCount[s] = (U32)relBySec[s].size();
 
 		List<U8> symtab;
 		U32 symEntries = 0;
@@ -123,8 +124,8 @@ namespace rat {
 		U32 rawOff[kNumSections] = {};
 		for(U32 s = 0; s + 1 < kNumSections; ++s) { // .bss has no raw data
 			off = (off + 15u) & ~15u;
-			rawOff[s] = secBytes[s].empty() ? 0 : off;
-			off += (U32)secBytes[s].size();
+			rawOff[s] = raw[s].empty() ? 0 : off;
+			off += (U32)raw[s].size();
 		}
 		U32 relOff[kNumSections] = {};
 		for(U32 s = 0; s < kNumSections; ++s) {
@@ -134,6 +135,7 @@ namespace rat {
 		U32 symOff = off;
 
 		List<U8> out;
+		out.reserve((U64)symOff + symtab.size() + strtab.size());
 		put16(out, detail::IMAGE_FILE_MACHINE_AMD64);
 		put16(out, (U16)kNumSections);
 		put32(out, 0); // timestamp
@@ -158,10 +160,10 @@ namespace rat {
 		}
 
 		for(U32 s = 0; s + 1 < kNumSections; ++s) {
-			if(secBytes[s].empty())
+			if(raw[s].empty())
 				continue;
 			padTo(out, rawOff[s]);
-			out.insert(out.end(), secBytes[s].begin(), secBytes[s].end());
+			out.insert(out.end(), raw[s].begin(), raw[s].end());
 		}
 
 		// pad out to the first relocation block
@@ -172,9 +174,6 @@ namespace rat {
 				break;
 			}
 		padTo(out, firstTail);
-		List<const Rel*> relBySec[kNumSections];
-		for(const Rel& r : relocs)
-			relBySec[(U32)r.sec].push_back(&r);
 		for(U32 s = 0; s < kNumSections; ++s) {
 			for(const Rel* r : relBySec[s]) {
 				put32(out, r->offset);
