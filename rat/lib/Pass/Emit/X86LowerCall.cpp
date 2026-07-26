@@ -15,6 +15,12 @@
 namespace rat {
 	List<PhysReg> X86LowerPass::callerSavedClobbers() const {
 		// volatile = allocatable minus callee-saved, plus the encoder scratch regs
+		static thread_local const RegisterInfo* cachedRegs = nullptr;
+		static thread_local const X86CallConv* cachedConv = nullptr;
+		static thread_local List<PhysReg> cached;
+		if(cachedRegs == regs && cachedConv == conv)
+			return cached;
+
 		List<PhysReg> cl;
 		for(const RegClass& rc : regs->classes) {
 			for(PhysReg p : rc.allocatable) {
@@ -27,7 +33,10 @@ namespace rat {
 			for(PhysReg p : rc.scratch)
 				cl.push_back(p);
 		}
-		return cl;
+		cached = std::move(cl);
+		cachedRegs = regs;
+		cachedConv = conv;
+		return cached;
 	}
 
 	B32 X86LowerPass::emitMathIntrinsic(CallNode* c) {
