@@ -25,19 +25,39 @@ namespace rat {
 		static constexpr U32 kCallerGrowthBudget = 384;		 // max nodes a caller may gain
 
 		const C8* name() const override;
+		B32 run(Module& module, const TargetInfo& target) override;
 		U32 runOnFunction(Function& caller, const TargetInfo& target) override;
 	private:
 		B32 isStartProj(const Function& callee, Node* n);
 
-		B32 isCyclic(Function* fn);
-		B32 reaches(Function* from, Function* target, Set<const Function*>& seen);
+		void buildCallGraph(Module& m);
+		void refreshCallees(Function& fn);
+		Function* lookup(const String& name) const;
+		B32 reachesIndex(U32 from, U32 target);
 
+		B32 isCyclic(Function* fn);
+
+		Module* graphModule = nullptr;
+		List<Function*> graphFuncs;
+		List<List<U32>> graphCallees;
+		Map<String, U32> graphByName;
+		Map<const Function*, U32> graphIndex;
+		List<U32> visitStamp;
+		List<U32> edgeStamp;
+		U32 visitStampCur = 0;
+		U32 edgeStampCur = 0;
 		Map<const Function*, B32> cyclicCache;
 
 		Node* incomingForStartProj(CallNode* call, U32 startProjIdx);
 		B32 shouldInline(const Function& caller, CallNode* call, Function* callee);
 
-		B32 inlineCallSite(Function& caller, CallNode* call, Function& callee);
+		B32 inlineCallSite(
+				Function& caller, CallNode* call, Function& callee, List<CallNode*>& newCalls);
+
+		// callee node id -> caller node, reused across call sites
+		List<Node*> cloneMap;
+		List<CallNode*> worklist;
+		List<Node*> ctrls, mems, vals;
 	};
 } // namespace rat
 

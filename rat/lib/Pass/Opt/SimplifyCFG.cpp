@@ -6,16 +6,16 @@
 #include "IR/Type.h"
 
 namespace rat {
-	Set<Node*> SimplifyCFGPass::reachableControl(Function& fn) {
-		Set<Node*> seen;
-		seen.insert(fn.getStart());
-		List<Node*> work;
+	void SimplifyCFGPass::reachableControl(Function& fn) {
+		reach.clear();
+		reach.insert(fn.getStart());
+		work.clear();
 		if(Node* e = fn.getStart()->projection(StartNode::controlProjIndex()))
 			work.push_back(e);
 		while(!work.empty()) {
 			Node* n = work.back();
 			work.pop_back();
-			if(!seen.insert(n).second)
+			if(!reach.insert(n).second)
 				continue;
 			for(Node* u : n->getUsers()) {
 				if(isControlNode(u)) {
@@ -27,29 +27,27 @@ namespace rat {
 				}
 			}
 		}
-		return seen;
 	}
 
-	List<Node*> SimplifyCFGPass::nodesOfOpcode(Function& fn, Opcode op) {
-		List<Node*> out;
-		for(Node* n : fn)
-			if(n->getOpcode() == op)
-				out.push_back(n);
-		return out;
+	void SimplifyCFGPass::collectPhis(Node* region, List<PhiNode*>& out) {
+		out.clear();
+		for(Node* u : region->getUsers())
+			if(PhiNode* p = dyn_cast<PhiNode>(u))
+				out.push_back(p);
 	}
 
 	void SimplifyCFGPass::detachFromRegions(Node* ctrl) {
-		List<Node*> regionUsers;
+		regionUsers.clear();
 		for(Node* u : ctrl->getUsers())
 			if(isa<RegionNode>(u))
 				regionUsers.push_back(u);
 		for(Node* n : regionUsers) {
 			RegionNode* r = cast<RegionNode>(n);
-			List<PhiNode*> phis = usersOfType<PhiNode>(r);
+			collectPhis(r, detachPhis);
 			for(I32 i = (I32)r->getPredecessorCount() - 1; i >= 0; --i) {
 				if(r->getPredecessor(i) != ctrl)
 					continue;
-				for(PhiNode* phi : phis)
+				for(PhiNode* phi : detachPhis)
 					phi->removeInput(1 + i);
 				r->removeInput(i);
 			}
@@ -64,12 +62,25 @@ namespace rat {
 		while(again) {
 			again = false;
 
-			for(Node* n : nodesOfOpcode(fn, Opcode::If)) {
+			ifs.clear();
+			regions.clear();
+			for(Node* n : fn) {
+				Opcode op = n->getOpcode();
+				if(op == Opcode::If)
+					ifs.push_back(n);
+				else if(op == Opcode::Region)
+					regions.push_back(n);
+			}
+
+			U32 live = 0;
+			for(Node* n : ifs) {
 				IfNode* iff = cast<IfNode>(n);
 				Node* pred = iff->getPredicate();
 				ConstantNode* c = dyn_cast<ConstantNode>(pred);
-				if(!c)
+				if(!c) {
+					ifs[live++] = n;
 					continue;
+				}
 				U32 takenIdx = c->getValue() != 0 ? IfNode::thenProjIndex() : IfNode::elseProjIndex();
 				U32 deadIdx =
 						takenIdx == IfNode::thenProjIndex() ? IfNode::elseProjIndex() : IfNode::thenProjIndex();
@@ -88,8 +99,9 @@ namespace rat {
 				++changed;
 				again = true;
 			}
+			ifs.resize(live);
 
-			auto reach = reachableControl(fn);
+			reachableControl(fn);
 
 			if(StopNode* stop = fn.getStop()) {
 				for(I32 i = (I32)stop->getInputCount() - 1; i >= 0; --i) {
@@ -112,13 +124,15 @@ namespace rat {
 					dead = ci != fn.getStart() && !reach.count(ci);
 				if(!dead)
 					continue;
-				if(RegionNode* r = dyn_cast<RegionNode>(n))
-					for(PhiNode* phi : usersOfType<PhiNode>(r))
+				if(RegionNode* r = dyn_cast<RegionNode>(n)) {
+					collectPhis(r, phis);
+					for(PhiNode* phi : phis)
 						if(phi->getInputCount() > 0) {
 							phi->clearInputs();
 							++changed;
 							again = true;
 						}
+				}
 				if(n->getInputCount() > 0) {
 					n->clearInputs();
 					++changed;
@@ -126,14 +140,12 @@ namespace rat {
 				}
 			}
 
-			auto regions = nodesOfOpcode(fn, Opcode::Region);
-
 			// drop region predecessors whose control is no longer reachable
 			for(Node* n : regions) {
 				RegionNode* r = cast<RegionNode>(n);
 				if(!reach.count(r))
 					continue;
-				List<PhiNode*> phis = usersOfType<PhiNode>(r);
+				collectPhis(r, phis);
 				for(I32 i = (I32)r->getPredecessorCount() - 1; i >= 0; --i) {
 					if(reach.count(r->getPredecessor(i)))
 						continue;
@@ -146,7 +158,7 @@ namespace rat {
 			}
 
 			// fold ifs whose successor structure has degenerated
-			for(Node* n : nodesOfOpcode(fn, Opcode::If)) {
+			for(Node* n : ifs) {
 				IfNode* iff = cast<IfNode>(n);
 				ProjNode* thenP = iff->projection(IfNode::thenProjIndex());
 				ProjNode* elseP = iff->projection(IfNode::elseProjIndex());
@@ -171,7 +183,8 @@ namespace rat {
 				RegionNode* r = cast<RegionNode>(n);
 				if(!reach.count(r) || r->getPredecessorCount() != 1)
 					continue;
-				for(PhiNode* phi : usersOfType<PhiNode>(r))
+				collectPhis(r, phis);
+				for(PhiNode* phi : phis)
 					phi->replaceAllUsesWith(phi->getValue(0));
 				r->replaceAllUsesWith(r->getPredecessor(0));
 				++changed;

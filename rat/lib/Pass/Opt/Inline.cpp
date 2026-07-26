@@ -20,13 +20,25 @@ namespace rat {
 		return a < call->getArgCount() ? call->getArg(a) : nullptr;
 	}
 
-	B32 InlinePass::inlineCallSite(Function& caller, CallNode* call, Function& callee) {
-		Map<Node*, Node*> map;
+	B32 InlinePass::inlineCallSite(
+			Function& caller, CallNode* call, Function& callee, List<CallNode*>& newCalls) {
+		cloneMap.clear();
+		auto put = [&](Node* key, Node* val) {
+			U32 id = key->getId();
+			if(id >= cloneMap.size())
+				cloneMap.resize(id + 1, nullptr);
+			cloneMap[id] = val;
+		};
+		auto mapped = [&](Node* key) -> Node* {
+			U32 id = key->getId();
+			return id < cloneMap.size() ? cloneMap[id] : nullptr;
+		};
+
 		for(ProjNode* p : usersOfType<ProjNode>(callee.getStart())) {
 			Node* incoming = incomingForStartProj(call, p->getIndex());
 			if(!incoming)
 				return false;
-			map[p] = incoming;
+			put(p, incoming);
 		}
 
 		// shallow-clone every body node
@@ -35,30 +47,41 @@ namespace rat {
 				continue;
 			if(n->getOpcode() == Opcode::Return)
 				continue;
-			if(map.count(n))
+			if(mapped(n))
 				continue;
 			Node* c = cloneShell(caller, n);
 			if(!c)
 				return false;
-			map[n] = c;
+			put(n, c);
+			if(CallNode* cc = dyn_cast<CallNode>(c))
+				newCalls.push_back(cc);
 		}
 
 		auto resolve = [&](Node* n) -> Node* {
-			auto it = map.find(n);
-			return it == map.end() ? n : it->second;
+			if(!n)
+				return n;
+			Node* m = mapped(n);
+			return m ? m : n;
 		};
 
 		// wire each clone's inputs through the map
-		for(auto& kv : map) {
-			Node* orig = kv.first;
-			if(isStartProj(callee, orig))
+		for(Node* n : callee) {
+			if(n == callee.getStart() || n == callee.getStop())
+				continue;
+			if(n->getOpcode() == Opcode::Return)
+				continue;
+			if(isStartProj(callee, n))
 				continue; // seeded with an external value; nothing to wire
-			Node* clone = kv.second;
-			for(U32 i = 0, e = orig->getInputCount(); i < e; ++i)
-				clone->setInput(i, resolve(orig->getInput(i)));
+			Node* clone = mapped(n);
+			if(!clone)
+				continue;
+			for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
+				clone->setInput(i, resolve(n->getInput(i)));
 		}
 		// collect the callee's mapped return triples and merge them
-		List<Node*> ctrls, mems, vals;
+		ctrls.clear();
+		mems.clear();
+		vals.clear();
 		StopNode* stop = callee.getStop();
 		for(U32 i = 0, e = stop ? stop->getInputCount() : 0; i < e; ++i) {
 			ReturnNode* r = dyn_cast<ReturnNode>(stop->getInput(i));
@@ -114,20 +137,64 @@ namespace rat {
 		return true;
 	}
 
-	B32 InlinePass::reaches(Function* from, Function* target, Set<const Function*>& seen) {
-		if(!seen.insert(from).second)
-			return false;
-		Module& m = from->getModule();
-		for(Node* n : *from) {
+	Function* InlinePass::lookup(const String& name) const {
+		auto it = graphByName.find(name);
+		return it == graphByName.end() ? nullptr : graphFuncs[it->second];
+	}
+
+	void InlinePass::refreshCallees(Function& fn) {
+		auto self = graphIndex.find(&fn);
+		if(self == graphIndex.end())
+			return;
+		List<U32>& row = graphCallees[self->second];
+		row.clear();
+		++edgeStampCur;
+		for(Node* n : fn) {
 			CallNode* c = dyn_cast<CallNode>(n);
 			if(!c)
 				continue;
-			Function* next = m.getFunction(c->getCallee());
+			Function* next = lookup(c->getCallee());
 			if(!next)
 				continue;
-			if(next == target || reaches(next, target, seen))
-				return true;
+			auto ni = graphIndex.find(next);
+			if(ni == graphIndex.end())
+				continue;
+			U32 j = ni->second;
+			if(edgeStamp[j] == edgeStampCur)
+				continue;
+			edgeStamp[j] = edgeStampCur;
+			row.push_back(j);
 		}
+	}
+
+	void InlinePass::buildCallGraph(Module& m) {
+		graphModule = &m;
+		graphFuncs.clear();
+		graphByName.clear();
+		graphIndex.clear();
+		for(Function* fn : m) {
+			U32 i = (U32)graphFuncs.size();
+			graphByName.emplace(fn->getName(), i);
+			graphIndex[fn] = i;
+			graphFuncs.push_back(fn);
+		}
+		graphCallees.assign(graphFuncs.size(), List<U32>());
+		visitStamp.assign(graphFuncs.size(), 0);
+		edgeStamp.assign(graphFuncs.size(), 0);
+		visitStampCur = 0;
+		edgeStampCur = 0;
+		cyclicCache.clear();
+		for(Function* fn : graphFuncs)
+			refreshCallees(*fn);
+	}
+
+	B32 InlinePass::reachesIndex(U32 from, U32 target) {
+		if(visitStamp[from] == visitStampCur)
+			return false;
+		visitStamp[from] = visitStampCur;
+		for(U32 next : graphCallees[from])
+			if(next == target || reachesIndex(next, target))
+				return true;
 		return false;
 	}
 
@@ -135,8 +202,12 @@ namespace rat {
 		auto it = cyclicCache.find(fn);
 		if(it != cyclicCache.end())
 			return it->second;
-		Set<const Function*> seen;
-		B32 cyc = reaches(fn, fn, seen);
+		B32 cyc = false;
+		auto gi = graphIndex.find(fn);
+		if(gi != graphIndex.end()) {
+			++visitStampCur;
+			cyc = reachesIndex(gi->second, gi->second);
+		}
 		cyclicCache[fn] = cyc;
 		return cyc;
 	}
@@ -158,32 +229,50 @@ namespace rat {
 		return callee->size() <= kInlineNodeBudget;
 	}
 
+	B32 InlinePass::run(Module& module, const TargetInfo& target) {
+		graphModule = nullptr;
+		return FunctionPass::run(module, target);
+	}
+
 	U32 InlinePass::runOnFunction(Function& caller, const TargetInfo&) {
 		Module& m = caller.getModule();
-		cyclicCache.clear(); // earlier inlining may have added call edges
+		if(graphModule != &m)
+			buildCallGraph(m);
+
 		U32 count = 0;
 		U32 baseline = caller.size();
+
+		worklist.clear();
+		for(Node* n : caller)
+			if(CallNode* c = dyn_cast<CallNode>(n))
+				worklist.push_back(c);
+
 		B32 changed = true;
 		while(changed && count < kMaxInlinesPerFunction &&
 					caller.size() <= baseline + kCallerGrowthBudget) {
 			changed = false;
-			List<CallNode*> calls;
-			for(Node* n : caller)
-				if(CallNode* c = dyn_cast<CallNode>(n))
-					calls.push_back(c);
-			for(CallNode* c : calls) {
-				Function* callee = m.getFunction(c->getCallee());
-				if(!shouldInline(caller, c, callee))
+			for(U32 i = 0; i < worklist.size(); ++i) {
+				CallNode* c = worklist[i];
+				if(!c)
 					continue;
-				if(inlineCallSite(caller, c, *callee)) {
+				Function* callee = lookup(c->getCallee());
+				if(!shouldInline(caller, c, callee)) {
+					worklist[i] = nullptr;
+					continue;
+				}
+				if(inlineCallSite(caller, c, *callee, worklist)) {
+					worklist[i] = nullptr;
 					++count;
 					changed = true;
 					break;
 				}
 			}
 		}
-		if(count)
+		if(count) {
 			caller.eliminateDeadNodes();
+			refreshCallees(caller);
+			cyclicCache.clear();
+		}
 		return count;
 	}
 
