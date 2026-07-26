@@ -186,12 +186,19 @@ namespace rat {
 		U32 here() const { return (U32)code.size(); }
 		void b(U8 v) { code.push_back(v); }
 		void d32(U32 v) {
-			for(U32 i = 0; i < 4; ++i)
-				b((U8)(v >> (i * 8)));
+			const U8 t[4] = {(U8)v, (U8)(v >> 8), (U8)(v >> 16), (U8)(v >> 24)};
+			code.insert(code.end(), t, t + 4);
 		}
 		void d64(U64 v) {
-			for(U32 i = 0; i < 8; ++i)
-				b((U8)(v >> (i * 8)));
+			const U8 t[8] = {(U8)v,
+											 (U8)(v >> 8),
+											 (U8)(v >> 16),
+											 (U8)(v >> 24),
+											 (U8)(v >> 32),
+											 (U8)(v >> 40),
+											 (U8)(v >> 48),
+											 (U8)(v >> 56)};
+			code.insert(code.end(), t, t + 8);
 		}
 
 		static U8 rexByte(B32 w, U32 r, U32 x, U32 rm) {
@@ -222,6 +229,54 @@ namespace rat {
 			d32((U32)disp);
 		}
 
+		enum MemFlags : U8 {
+			kMemW = 1,				// REX.W
+			kMemRexForce = 2, // emit REX even when it would be a bare 0x40
+			kMemEsc = 4,			// 0x0f two-byte opcode escape
+			kMemSib = 8,			// [base + index * scale + disp] instead of [base + disp]
+		};
+
+		void memOp(U8 pfx,
+							 U8 flags,
+							 U8 opcode,
+							 U32 reg,
+							 Reg base,
+							 I32 disp,
+							 Reg index = (Reg)0,
+							 U32 scaleLog2 = 0) {
+			if(pfx)
+				b(pfx);
+			B32 w = (flags & kMemW) != 0;
+			if(flags & kMemRexForce)
+				rexForce(w, reg, index, base);
+			else
+				rex(w, reg, index, base);
+			if(flags & kMemEsc)
+				b(0x0f);
+			b(opcode);
+			if(flags & kMemSib)
+				modrmMemSib(reg, base, index, scaleLog2, disp);
+			else
+				modrmMem(reg, base, disp);
+		}
+
+		void memImmTail(I64 imm, U32 width) {
+			if(width == 1)
+				b((U8)imm);
+			else if(width == 2) {
+				b((U8)imm);
+				b((U8)((U16)imm >> 8));
+			} else
+				d32((U32)(I32)imm);
+		}
+
+		static U8 memStoreFlags(U32 width, Reg src) {
+			U8 f = width == 8 ? (U8)kMemW : (U8)0;
+			if(width == 1 && src >= RSP && src <= RDI)
+				f |= (U8)kMemRexForce;
+			return f;
+		}
+
 		void movRegImm64(Reg r, U64 imm) {
 			rex(true, 0, 0, r);
 			b((U8)(0xb8 + (r & 7)));
@@ -247,117 +302,74 @@ namespace rat {
 		}
 
 		void storeMem(Reg base, I32 disp, Reg src, U32 width) {
-			if(width == 2)
-				b(0x66);
-			if(width == 1 && src >= RSP && src <= RDI)
-				rexForce(false, src, 0, base);
-			else
-				rex(width == 8, src, 0, base);
-			b(width == 1 ? 0x88 : 0x89);
-			modrmMem(src, base, disp);
+			memOp(width == 2 ? 0x66 : 0,
+						memStoreFlags(width, src),
+						width == 1 ? 0x88 : 0x89,
+						src,
+						base,
+						disp);
 		}
 
 		void storeMemSib(Reg base, Reg index, U32 scaleLog2, I32 disp, Reg src, U32 width) {
-			if(width == 2)
-				b(0x66);
-			if(width == 1 && src >= RSP && src <= RDI)
-				rexForce(false, src, index, base);
-			else
-				rex(width == 8, src, index, base);
-			b(width == 1 ? 0x88 : 0x89);
-			modrmMemSib(src, base, index, scaleLog2, disp);
+			memOp(width == 2 ? 0x66 : 0,
+						(U8)(memStoreFlags(width, src) | kMemSib),
+						width == 1 ? 0x88 : 0x89,
+						src,
+						base,
+						disp,
+						index,
+						scaleLog2);
 		}
 
 		void storeMemImmSib(Reg base, Reg index, U32 scaleLog2, I32 disp, I64 imm, U32 width) {
-			if(width == 2)
-				b(0x66);
-			rex(width == 8, 0, index, base);
-			b(width == 1 ? 0xc6 : 0xc7);
-			modrmMemSib(0, base, index, scaleLog2, disp);
-			if(width == 1)
-				b((U8)imm);
-			else if(width == 2) {
-				b((U8)imm);
-				b((U8)((U16)imm >> 8));
-			} else
-				d32((U32)(I32)imm);
+			memOp(width == 2 ? 0x66 : 0,
+						(U8)((width == 8 ? kMemW : 0) | kMemSib),
+						width == 1 ? 0xc6 : 0xc7,
+						0,
+						base,
+						disp,
+						index,
+						scaleLog2);
+			memImmTail(imm, width);
 		}
 
 		// mov imm, [base+disp]
 		void storeMemImm(Reg base, I32 disp, I64 imm, U32 width) {
-			if(width == 2)
-				b(0x66);
-			rex(width == 8, 0, 0, base);
-			b(width == 1 ? 0xc6 : 0xc7);
-			modrmMem((Reg)0, base, disp);
-			if(width == 1)
-				b((U8)imm);
-			else if(width == 2) {
-				b((U8)imm);
-				b((U8)((U16)imm >> 8));
-			} else
-				d32((U32)(I32)imm);
+			memOp(width == 2 ? 0x66 : 0,
+						(U8)(width == 8 ? kMemW : 0),
+						width == 1 ? 0xc6 : 0xc7,
+						0,
+						base,
+						disp);
+			memImmTail(imm, width);
 		}
 
-		void load64(Reg dst, Reg base, I32 disp) {
-			rex(true, dst, 0, base);
-			b(0x8b);
-			modrmMem(dst, base, disp);
+		void load64(Reg dst, Reg base, I32 disp) { memOp(0, kMemW, 0x8b, dst, base, disp); }
+
+		// REX.W / opcode (and the 0x0f escape) for a width-and-sign extending load
+		static void loadExtForm(U32 width, B32 sign, U8& flags, U8& opcode) {
+			if(width == 8) {
+				flags = kMemW;
+				opcode = 0x8b;
+			} else if(width == 4) {
+				flags = sign ? (U8)kMemW : (U8)0;
+				opcode = sign ? 0x63 : 0x8b; // movsxd / mov r32
+			} else { // movzx/movsx
+				flags = kMemW | kMemEsc;
+				opcode = width == 1 ? (sign ? 0xbe : 0xb6) : (sign ? 0xbf : 0xb7);
+			}
 		}
 
 		void loadExt(Reg dst, Reg base, I32 disp, U32 width, B32 sign) {
-			if(width == 8) {
-				load64(dst, base, disp);
-				return;
-			}
-			if(width == 4) {
-				if(sign) {
-					rex(true, dst, 0, base);
-					b(0x63); // movsxd
-					modrmMem(dst, base, disp);
-				} else {
-					rex(false, dst, 0, base);
-					b(0x8b);
-					modrmMem(dst, base, disp);
-				}
-				return;
-			}
-			// movzx/movsx
-			rex(true, dst, 0, base);
-			b(0x0f);
-			if(width == 1)
-				b(sign ? 0xbe : 0xb6);
-			else
-				b(sign ? 0xbf : 0xb7);
-			modrmMem(dst, base, disp);
+			U8 flags, opcode;
+			loadExtForm(width, sign, flags, opcode);
+			memOp(0, flags, opcode, dst, base, disp);
 		}
 
 		void loadExtSib(Reg dst, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width, B32 sign) {
-			if(width == 8) {
-				rex(true, dst, index, base);
-				b(0x8b);
-				modrmMemSib(dst, base, index, scaleLog2, disp);
-				return;
-			}
-			if(width == 4) {
-				if(sign) {
-					rex(true, dst, index, base);
-					b(0x63); // movsxd
-				} else {
-					rex(false, dst, index, base);
-					b(0x8b);
-				}
-				modrmMemSib(dst, base, index, scaleLog2, disp);
-				return;
-			}
-			// movzx/movsx
-			rex(true, dst, index, base);
-			b(0x0f);
-			if(width == 1)
-				b(sign ? 0xbe : 0xb6);
-			else
-				b(sign ? 0xbf : 0xb7);
-			modrmMemSib(dst, base, index, scaleLog2, disp);
+			U8 flags, opcode;
+			loadExtForm(width, sign, flags, opcode);
+			memOp(0, (U8)(flags | kMemSib), opcode, dst, base, disp, index, scaleLog2);
 		}
 
 		void aluRR(U8 op, Reg dst, Reg src) {
@@ -432,11 +444,7 @@ namespace rat {
 		}
 
 		// dst += [base + disp]  (64-bit)
-		void addRegMem(Reg dst, Reg base, I32 disp) {
-			rex(true, dst, 0, base);
-			b(0x03);
-			modrmMem(dst, base, disp);
-		}
+		void addRegMem(Reg dst, Reg base, I32 disp) { memOp(0, kMemW, 0x03, dst, base, disp); }
 
 		void unaryF7(U8 ext, Reg r) {
 			rex(true, 0, 0, r);
@@ -497,17 +505,11 @@ namespace rat {
 			modrmReg(dst, src);
 		}
 
-		void leaMem(Reg dst, Reg base, I32 disp) {
-			rex(true, dst, 0, base);
-			b(0x8d);
-			modrmMem(dst, base, disp);
-		}
+		void leaMem(Reg dst, Reg base, I32 disp) { memOp(0, kMemW, 0x8d, dst, base, disp); }
 
 		// lea dst, [base + index*(1<<scaleLog2) + disp]
 		void leaSib(Reg dst, Reg base, Reg index, U32 scaleLog2, I32 disp) {
-			rex(true, dst, index, base);
-			b(0x8d);
-			modrmMemSib(dst, base, index, scaleLog2, disp);
+			memOp(0, kMemW | kMemSib, 0x8d, dst, base, disp, index, scaleLog2);
 		}
 
 		void leaRipSym(Reg dst, const String& sym, I64 addend) {
@@ -572,9 +574,7 @@ namespace rat {
 
 		// movsxd dst, dword [base + index*4]
 		void movsxdSib4(Reg dst, Reg base, Reg index) {
-			rex(true, dst, index, base);
-			b(0x63);
-			modrmMemSib(dst, base, index, 2, 0);
+			memOp(0, kMemW | kMemSib, 0x63, dst, base, 0, index, 2);
 		}
 
 		void addRR(Reg dst, Reg src) { aluRR(0x01, dst, src); }
@@ -613,27 +613,19 @@ namespace rat {
 		static U8 ssePrefixByte(U32 width) { return width == 4 ? 0xf3 : 0xf2; }
 		void ssePrefix(U32 width) { b(ssePrefixByte(width)); }
 		void movXmm(U8 op, U32 xmm, Reg base, I32 disp, U32 width) {
-			ssePrefix(width);
-			rex(false, xmm, 0, base);
-			b(0x0f);
-			b(op);
-			modrmMem(xmm, base, disp);
+			memOp(ssePrefixByte(width), kMemEsc, op, xmm, base, disp);
+		}
+		// movss/movsd, op 0x10 = load, 0x11 = store
+		void movXmmSib(U8 op, U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width) {
+			memOp(ssePrefixByte(width), kMemEsc | kMemSib, op, xmm, base, disp, index, scaleLog2);
 		}
 		void loadXmm(U32 xmm, Reg base, I32 disp, U32 width) { movXmm(0x10, xmm, base, disp, width); }
 		void storeXmm(U32 xmm, Reg base, I32 disp, U32 width) { movXmm(0x11, xmm, base, disp, width); }
 		void storeXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width) {
-			ssePrefix(width);
-			rex(false, xmm, index, base);
-			b(0x0f);
-			b(0x11); // movss/movsd store
-			modrmMemSib(xmm, base, index, scaleLog2, disp);
+			movXmmSib(0x11, xmm, base, index, scaleLog2, disp, width);
 		}
 		void loadXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width) {
-			ssePrefix(width);
-			rex(false, xmm, index, base);
-			b(0x0f);
-			b(0x10); // movss/movsd load
-			modrmMemSib(xmm, base, index, scaleLog2, disp);
+			movXmmSib(0x10, xmm, base, index, scaleLog2, disp, width);
 		}
 		void loadXmmRipSym(U32 xmm, const String& sym, U32 width) {
 			ssePrefix(width);
@@ -689,11 +681,7 @@ namespace rat {
 			modrmReg(dst, src);
 		}
 
-		void x87Mem(U8 esc, U8 reg, Reg base, I32 disp) {
-			rex(false, 0, 0, base);
-			b(esc);
-			modrmMem(reg, base, disp);
-		}
+		void x87Mem(U8 esc, U8 reg, Reg base, I32 disp) { memOp(0, 0, esc, reg, base, disp); }
 		void fldT(Reg base, I32 disp) { x87Mem(0xdb, 5, base, disp); }
 		void fstpT(Reg base, I32 disp) { x87Mem(0xdb, 7, base, disp); }
 		void fldD(Reg base, I32 disp) { x87Mem(0xd9, 0, base, disp); }
