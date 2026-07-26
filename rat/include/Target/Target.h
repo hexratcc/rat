@@ -61,7 +61,8 @@ namespace rat {
 		virtual const RegisterInfo* registers() const { return nullptr; }
 		virtual RegAllocHooks regAllocHooks() const;
 
-		U32 getPointerSizeInBytes() const { return getPointerSizeInBits() / 8; }
+		static constexpr U32 kPointerSizeInBits = 64;
+		U32 getPointerSizeInBytes() const { return kPointerSizeInBits / 8; }
 	};
 
 	struct Generic64 final : TargetInfo {

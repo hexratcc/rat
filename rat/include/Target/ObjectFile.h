@@ -12,19 +12,26 @@ namespace rat {
 		Plt32 = 4, // 32-bit pc-relative call       (L + A - P), call to a function
 	};
 
+	enum class ObjectFormat : U32 { Coff, Elf };
+
+	constexpr ObjectFormat objectFormatFor(OS os) {
+		return os == OS::Windows ? ObjectFormat::Coff : ObjectFormat::Elf;
+	}
+
 	struct ObjectFile {
 		enum Section { Text, Rodata, Data, Bss };
 
-		ObjectFile();
-		virtual ~ObjectFile() = default;
+		explicit ObjectFile(ObjectFormat fmt = ObjectFormat::Elf);
 
 		U32 append(Section sec, const U8* bytes, U32 len);
 		U32 appendZero(Section sec, U32 len);
 		U32 align(Section sec, U32 align);
 		void defineSymbol(const String& name, Section sec, U32 offset, B32 global, B32 isFunc);
 		void addReloc(Section sec, U32 offset, const String& symbol, RelocKind kind, I64 addend);
-		virtual void write(std::ostream& os) = 0;
-	protected:
+
+		void write(std::ostream& os, ObjectFormat fmt);
+		void write(std::ostream& os) { write(os, format); }
+	private:
 		struct Sym {
 			String name;
 			Section sec;
@@ -41,6 +48,9 @@ namespace rat {
 			I64 addend;
 		};
 
+		void writeCoff(std::ostream& os);
+		void writeElf(std::ostream& os);
+
 		static void put8(List<U8>& b, U8 v);
 		static void put16(List<U8>& b, U16 v);
 		static void put32(List<U8>& b, U32 v);
@@ -52,7 +62,13 @@ namespace rat {
 		List<U8>& bytesOf(Section sec);
 		const List<U8>& bytesOf(Section sec) const;
 
+		static constexpr U32 kSections = 4;
 		static constexpr U32 kByteSections = 3;
+
+		using RelBuckets = List<const Rel*>[kSections];
+		void partitionRelocs(RelBuckets buckets) const;
+
+		ObjectFormat format;
 		List<U8> raw[kByteSections];
 		U32 bssSize = 0;
 
