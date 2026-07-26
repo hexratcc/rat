@@ -18,6 +18,9 @@ namespace rat {
 
 		B32 operator==(const VRegSet& o) const { return words == o.words; }
 
+		void resetAll(U32 bits) { words.assign((bits + 63) / 64, 0); }
+		void copyFrom(const VRegSet& o) { words = o.words; }
+
 		void orWith(const VRegSet& o) {
 			for(U32 i = 0; i < (U32)words.size(); ++i)
 				words[i] |= o.words[i];
@@ -107,6 +110,8 @@ namespace rat {
 		Map<VReg, Map<I32, PhysReg>> copyPinAt; // pin exemptions
 		Map<VReg, MachineInstr> rematDef;				// single pure def per remat vreg
 		B32 ok = true;
+		List<VRegSet> liveUseScratch;
+		List<VRegSet> liveDefScratch;
 	private:
 		struct PooledSlot {
 			I32 slot;

@@ -42,18 +42,33 @@ namespace rat {
 			I32 spillSlot = 0;
 			B32 spilled = false;
 			B32 crossesCall = false;
-			U32 uses = 0; // operand occurrences (spill cost proxy)
+			U32 uses = 0; // operand occurrences
+
+			void reset() {
+				vreg = kNoVReg;
+				cls = 0;
+				start = -1;
+				end = -1;
+				segs.clear();
+				assigned = kNoReg;
+				spillSlot = 0;
+				spilled = false;
+				crossesCall = false;
+				uses = 0;
+			}
+			B32 live() const { return vreg != kNoVReg; }
 		};
 
 		B32 anySpilled() const override {
-			for(const auto& kv : intervals)
-				if(kv.second.spilled)
+			for(const Interval& iv : intervals)
+				if(iv.live() && iv.spilled)
 					return true;
 			return false;
 		}
 
 		void resetState() override {
-			intervals.clear();
+			for(Interval& iv : intervals)
+				iv.reset();
 			pinsByPoint.clear();
 		}
 		void solve() override;
@@ -67,8 +82,18 @@ namespace rat {
 		void assignSpillSlots();
 		void spillAt(Interval* cur, List<Interval*>& active);
 	private:
-		Map<VReg, Interval> intervals;
+		Interval& ivAt(VReg v) { return intervals[v]; }
+		const Interval* ivFind(VReg v) const {
+			return v < intervals.size() && intervals[v].live() ? &intervals[v] : nullptr;
+		}
+
+		List<Interval> intervals;
 		List<std::pair<I32, U64>> pinsByPoint;
+		List<Interval*> expiredBuf;
+		List<I32> segEnd;
+		List<VRegSet> liveIn, liveOut;
+		VRegSet live;
+		List<U64> freeRegs;
 	};
 } // namespace rat
 
