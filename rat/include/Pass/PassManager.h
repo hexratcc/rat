@@ -32,6 +32,7 @@ namespace rat {
 		}
 
 		Pass* add(UniquePtr<Pass> pass);
+		void gateLastOnChangesSinceSelf();
 		B32 run(Module& module, std::ostream* log = nullptr);
 
 		void printTimingReport(std::ostream& os) const;
@@ -40,6 +41,7 @@ namespace rat {
 
 		const TargetInfo* target;
 		List<UniquePtr<Pass>> passes;
+		List<B32> gated;
 		List<UniquePtr<MachinePass>> machinePasses;
 		MachineModule mm;
 		List<PassTiming> timing;

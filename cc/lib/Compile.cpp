@@ -20,8 +20,13 @@ namespace rat::cc {
 		if(!opt.renameMain.empty())
 			pm.add<RenameSymbolPass>("main", opt.renameMain);
 
-		for(UniquePtr<Pass>& p : opt.optPasses)
+		Set<String> seen;
+		for(UniquePtr<Pass>& p : opt.optPasses) {
+			String name = p->name();
 			pm.add(std::move(p));
+			if(!seen.insert(name).second)
+				pm.gateLastOnChangesSinceSelf();
+		}
 
 		if(opt.backend == Backend::C) {
 			pm.add<CEmitterPass>(out);

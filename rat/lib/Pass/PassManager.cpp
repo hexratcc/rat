@@ -3,6 +3,7 @@
 #include "IR/Module.h"
 
 #include <chrono>
+#include <cstring>
 #include <iomanip>
 
 namespace rat {
@@ -10,6 +11,11 @@ namespace rat {
 		Pass* raw = pass.get();
 		passes.push_back(std::move(pass));
 		return raw;
+	}
+
+	void PassManager::gateLastOnChangesSinceSelf() {
+		gated.resize(passes.size(), false);
+		gated.back() = true;
 	}
 
 	void PassManager::record(const C8* name, U64 nanos) {
@@ -26,7 +32,8 @@ namespace rat {
 	B32 PassManager::run(Module& module, std::ostream* log) {
 		using Clock = std::chrono::steady_clock;
 		B32 changed = false;
-		auto runOne = [&](const C8* name, auto&& fn) {
+		List<B32> changedAt(passes.size(), false);
+		auto runOne = [&](const C8* name, auto&& fn) -> B32 {
 			auto start = Clock::now();
 			B32 c = fn();
 			U64 nanos =
@@ -35,9 +42,28 @@ namespace rat {
 			if(log)
 				*log << "; " << name << (c ? " : changed\n" : " : unchanged\n");
 			changed = changed || c;
+			return c;
 		};
-		for(auto& pass : passes)
-			runOne(pass->name(), [&] { return pass->run(module, *target); });
+		for(U32 i = 0; i < (U32)passes.size(); ++i) {
+			Pass* pass = passes[i].get();
+			if(i < gated.size() && gated[i]) {
+				I32 prev = -1;
+				for(I32 j = (I32)i - 1; j >= 0; --j)
+					if(std::strcmp(passes[(U32)j]->name(), pass->name()) == 0) {
+						prev = j;
+						break;
+					}
+				B32 due = prev < 0;
+				for(I32 j = prev + 1; !due && j < (I32)i; ++j)
+					due = changedAt[(U32)j];
+				if(!due) {
+					if(log)
+						*log << "; " << pass->name() << " : skipped (no changes since last run)\n";
+					continue;
+				}
+			}
+			changedAt[i] = runOne(pass->name(), [&] { return pass->run(module, *target); });
+		}
 		for(auto& pass : machinePasses)
 			runOne(pass->name(), [&] { return pass->run(module, mm, *target); });
 		return changed;
