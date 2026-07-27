@@ -12,6 +12,7 @@ namespace rat {
 				I32 pt = (I32)order.size();
 				blkPts[b].push_back((U32)pt);
 				order.push_back({b, i});
+				fixedAt.push_back(0);
 				const MachineInstr& in = fn->blocks[b].insts[i];
 				if(in.isCall)
 					callPts.push_back(pt);

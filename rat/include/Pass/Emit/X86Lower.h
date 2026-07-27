@@ -8,6 +8,8 @@
 #include "Pass/Emit/X86Op.h"
 #include "Pass/Pass.h"
 
+#include <cstdint>
+
 namespace rat {
 	struct AllocNode;
 	struct BinaryNode;
@@ -129,10 +131,11 @@ namespace rat {
 		Schedule* sched = nullptr;
 		MachineFunc* out = nullptr;
 		X86FrameLayout* fl = nullptr;
-		Map<const Node*, VReg> vregOf;
+		static constexpr I32 kNoSlot = INT32_MIN;
+		List<VReg> vregOf;
 		Module* mod = nullptr;
-		Map<const Node*, I32> x87Slot;
-		Map<const Node*, I32> allocOff;
+		List<I32> x87Slot;
+		List<I32> allocOff;
 		MachineBlock* mb = nullptr;
 	};
 } // namespace rat

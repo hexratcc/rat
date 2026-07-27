@@ -103,7 +103,7 @@ namespace rat {
 		List<Loc> order;								// linear point -> (block, instruction)
 		List<List<U32>> blkPts;					// block -> its linear points
 		List<I32> callPts;							// points that are calls
-		Map<I32, U64> fixedAt;					// physical registers pinned at a point
+		List<U64> fixedAt;							// physical registers pinned at each point
 		Set<PhysReg> usedCallee;
 		Map<VReg, List<CopyHint>> copyHints;		// vreg <-> vreg move affinities
 		Map<VReg, List<PhysReg>> physHints;			// vreg <-> fixed-register move affinities

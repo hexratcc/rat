@@ -156,6 +156,7 @@ namespace rat {
 		NodeIterator begin() const;
 		NodeIterator end() const;
 		U32 size() const;
+		U32 idBound() const { return nextId; }
 		B32 hasReturn() const;
 
 		U32 eliminateDeadNodes(B32 includeControl = false);

@@ -5,12 +5,9 @@
 namespace rat {
 	void LinearScanRegAllocPass::solve() {
 		pinsByPoint.clear();
-		pinsByPoint.reserve(fixedAt.size());
-		for(const auto& kv : fixedAt)
-			pinsByPoint.emplace_back(kv.first, kv.second);
-		std::sort(pinsByPoint.begin(), pinsByPoint.end(), [](const auto& a, const auto& b) {
-			return a.first < b.first;
-		});
+		for(U32 pt = 0; pt < (U32)fixedAt.size(); ++pt)
+			if(fixedAt[pt])
+				pinsByPoint.emplace_back((I32)pt, fixedAt[pt]);
 
 		buildIntervals();
 		assignRegs();

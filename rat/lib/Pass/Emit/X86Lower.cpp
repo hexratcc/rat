@@ -85,9 +85,9 @@ namespace rat {
 		sched = &s;
 		out = &o;
 		fl = &layout;
-		vregOf.clear();
-		x87Slot.clear();
-		allocOff.clear();
+		vregOf.assign(f.idBound(), kNoVReg);
+		x87Slot.assign(f.idBound(), kNoSlot);
+		allocOff.assign(f.idBound(), kNoSlot);
 		mb = nullptr;
 	}
 
@@ -110,7 +110,7 @@ namespace rat {
 					if(sz == 0)
 						sz = 8;
 					sz = (sz + 7u) & ~7u;
-					allocOff[n] = reserve(sz);
+					allocOff[n->getId()] = reserve(sz);
 				}
 			}
 		}
@@ -157,20 +157,18 @@ namespace rat {
 	VReg X86LowerPass::fresh(U32 cls) { return out->newVReg(cls); }
 
 	I32 X86LowerPass::x87SlotOf(const Node* n) {
-		auto it = x87Slot.find(n);
-		if(it != x87Slot.end())
-			return it->second;
-		I32 s = reserve(16);
-		x87Slot[n] = s;
-		return s;
+		I32& slot = x87Slot[n->getId()];
+		if(slot == kNoSlot)
+			slot = reserve(16);
+		return slot;
 	}
 
 	VReg X86LowerPass::vregFor(const Node* n) {
-		auto it = vregOf.find(n);
-		if(it != vregOf.end())
-			return it->second;
+		VReg& v0 = vregOf[n->getId()];
+		if(v0 != kNoVReg)
+			return v0;
 		VReg v = fresh(classOf(n->getType()));
-		vregOf[n] = v;
+		v0 = v;
 		return v;
 	}
 
@@ -207,18 +205,18 @@ namespace rat {
 			return d;
 		}
 		if(GlobalNode* g = dyn_cast<GlobalNode>(n)) {
-			if(auto it = vregOf.find(n); it != vregOf.end())
-				return it->second; // materialized once at its scheduled block
+			if(vregOf[n->getId()] != kNoVReg)
+				return vregOf[n->getId()]; // materialized once at its scheduled block
 			VReg d = fresh(detail::kGp);
 			def1(X86Op::LoadSym, d, detail::kGp, {MachineOperand::symbol(g->getSymbol())});
 			return d;
 		}
 		if(AllocNode* al = dyn_cast<AllocNode>(n)) {
-			auto it = allocOff.find(al);
-			if(it == allocOff.end())
+			I32 aoff = allocOff[al->getId()];
+			if(aoff == kNoSlot)
 				return vregFor(al); // variable-sized: already materialized
 			VReg d = fresh(detail::kGp);
-			inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(d)}, {}, it->second);
+			inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(d)}, {}, aoff);
 			return d;
 		}
 		return vregFor(n);
@@ -314,9 +312,9 @@ namespace rat {
 		a.scaleLog2 = m.scaleLog2;
 		a.hasIndex = m.hasIndex;
 		if(AllocNode* al = dyn_cast<AllocNode>(m.base)) {
-			if(auto it = allocOff.find(al); it != allocOff.end()) {
+			if(allocOff[al->getId()] != kNoSlot) {
 				a.frameBase = true;
-				a.disp += (I32)it->second;
+				a.disp += allocOff[al->getId()];
 			} else {
 				a.base = gpValue(m.base);
 			}
@@ -381,8 +379,8 @@ namespace rat {
 
 	VReg X86LowerPass::sseValue(Node* n) {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
-			if(auto it = vregOf.find(n); it != vregOf.end())
-				return it->second; // materialized once at its scheduled block
+			if(vregOf[n->getId()] != kNoVReg)
+				return vregOf[n->getId()]; // materialized once at its scheduled block
 			U32 w = opWidth(n->getType());
 			VReg d = fresh(detail::kFp);
 			inst(X86Op::FLoad,
