@@ -69,6 +69,11 @@ namespace rat {
 
 	Global* Module::createGlobal(
 			const String& name, Type* type, B32 isConst, List<U8> init, List<Reloc> relocs) {
+		if(type && type->byteSize(8) > 0) {
+			while(!init.empty() && init.back() == 0)
+				init.pop_back();
+			init.shrink_to_fit();
+		}
 		Global* g = arena.make<Global>(name, type, isConst, std::move(init), std::move(relocs));
 		globs.push_back(g);
 		if(globIndexValid)

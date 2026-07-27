@@ -110,12 +110,16 @@ namespace rat::cc {
 			count = (I64)d.init->args.size();
 		}
 		U32 elemSize = byteSize(d.type);
-		List<U8> img((U32)count * elemSize, 0);
-		ImageSink sink(*this, img);
-		if(d.init && !initArrayInit(sink, 0, d.type, (U32)count, d.init))
-			return false;
-		Global* g = mod.createGlobal(
-				symbol, byteArrayType((U32)img.size()), false, std::move(img), std::move(relocs));
+		U32 total = (U32)count * elemSize;
+		List<U8> img;
+		if(d.init) {
+			img.assign(total, 0);
+			ImageSink sink(*this, img);
+			if(!initArrayInit(sink, 0, d.type, (U32)count, d.init))
+				return false;
+		}
+		Global* g =
+				mod.createGlobal(symbol, byteArrayType(total), false, std::move(img), std::move(relocs));
 		if(d.isStatic)
 			g->setLinkage(Global::Linkage::Internal);
 		bindArrayGlobal(d, symbol, fn, (U32)count);
@@ -149,9 +153,11 @@ namespace rat::cc {
 			} else
 				count = (I64)arrayInitOuterExtent(d.type, d.init);
 		}
-		List<U8> img((U32)count * structSize, 0);
-		ImageSink sink(*this, img);
+		U32 total = (U32)count * structSize;
+		List<U8> img;
 		if(d.init) {
+			img.assign(total, 0);
+			ImageSink sink(*this, img);
 			if(flat) {
 				U32 pos = 0;
 				if(!initFlatArray(sink, 0, d.type, (U32)count, d.init->args, pos))
@@ -159,8 +165,8 @@ namespace rat::cc {
 			} else if(!initArrayInit(sink, 0, d.type, (U32)count, d.init))
 				return false;
 		}
-		Global* g = mod.createGlobal(
-				symbol, byteArrayType((U32)img.size()), false, std::move(img), std::move(relocs));
+		Global* g =
+				mod.createGlobal(symbol, byteArrayType(total), false, std::move(img), std::move(relocs));
 		if(d.isStatic)
 			g->setLinkage(Global::Linkage::Internal);
 		bindArrayGlobal(d, symbol, fn, (U32)count);
@@ -220,7 +226,6 @@ namespace rat::cc {
 				failArrayUnknownSize(*d.name);
 				return false;
 			}
-			init.assign((U32)count * elemSize, 0);
 		}
 
 		Global* g = mod.createGlobal(symbol,
@@ -251,10 +256,11 @@ namespace rat::cc {
 		U32 total = st->size;
 		if(flex > 0)
 			total += flex * byteSize(st->fields.back().type);
-		List<U8> init(total, 0);
+		List<U8> init;
 
 		flexCount = flex;
 		if(sinit && sinit->kind == ExprKind::InitList) {
+			init.assign(total, 0);
 			ImageSink sink(*this, init);
 			if(!initStructInit(sink, 0, st, sinit)) {
 				flexCount = 0;
