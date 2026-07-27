@@ -182,6 +182,14 @@ namespace rat::cc {
 		}
 
 		List<PpToken> Preprocessor::applyPragmaOperators(List<PpToken>& toks, const String& path) {
+			B32 any = false;
+			for(const PpToken& t : toks)
+				if(t.kind == Pk::Id && *t.text == "_Pragma") {
+					any = true;
+					break;
+				}
+			if(!any)
+				return std::move(toks);
 			List<PpToken> out;
 			for(size_t i = 0; i < toks.size();) {
 				if(toks[i].kind == Pk::Id && *toks[i].text == "_Pragma" && i + 3 < toks.size() &&
@@ -202,6 +210,7 @@ namespace rat::cc {
 				return;
 			List<PpToken> e = expand(PpSpan(textBuf));
 			e = applyPragmaOperators(e, fileName);
+			out.reserve(out.size() + e.size());
 			for(PpToken& t : e) {
 				// report lines through any #line adjustment
 				I64 adj = (I64)t.line + lineDelta;
@@ -311,8 +320,7 @@ namespace rat::cc {
 
 				if(!isDirective) {
 					if(condActive(stack))
-						for(size_t k = start; k < j; ++k)
-							textBuf.push_back(toks[k]);
+						textBuf.insert(textBuf.end(), toks.begin() + start, toks.begin() + j);
 					continue;
 				}
 
