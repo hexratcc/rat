@@ -58,8 +58,8 @@ namespace rat {
 			B32 active = false; // ctrl established
 			B32 loopHeader = false;
 			B32 finished = false; // ended in a terminator
-			Map<U32, Node*> defs; // cache current SSA value of each Var
-			Map<U32, PhiNode*> incompletePhis;
+			List<Node*> defs;										// current SSA value per Var
+			List<std::pair<U32, PhiNode*>> incompletePhis;
 		};
 
 		using Var = U32;

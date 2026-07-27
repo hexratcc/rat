@@ -292,6 +292,8 @@ namespace rat {
 	}
 
 	void Function::cacheDef(Block* block, Var var, Node* val) {
+		if(var >= block->defs.size())
+			block->defs.resize(var + 1, nullptr);
 		block->defs[var] = val;
 		if(PhiNode* p = dyn_cast<PhiNode>(val))
 			phiDefSites[p].push_back({block, var});
@@ -301,9 +303,8 @@ namespace rat {
 	Node* Function::readVar(Var var) { return readVariable(var, cur); }
 
 	Node* Function::readVariable(Var var, Block* block) {
-		auto it = block->defs.find(var);
-		if(it != block->defs.end())
-			return it->second;
+		if(var < block->defs.size() && block->defs[var])
+			return block->defs[var];
 		return readVariableRecursive(var, block);
 	}
 
@@ -316,7 +317,7 @@ namespace rat {
 		if(!block->sealed) {
 			// unsealed (loop header): an incomplete phi, completed at seal()
 			PhiNode* p = newIncompletePhi(var, block);
-			block->incompletePhis[var] = p;
+			block->incompletePhis.push_back({var, p});
 			val = p;
 		} else if(block->preds.size() == 1) {
 			val = readVariable(var, block->predBlocks[0]);
@@ -343,8 +344,8 @@ namespace rat {
 		List<std::pair<Block*, Var>> sites = std::move(it->second);
 		phiDefSites.erase(it);
 		for(const std::pair<Block*, Var>& site : sites) {
-			auto d = site.first->defs.find(site.second);
-			if(d != site.first->defs.end() && d->second == phi)
+			List<Node*>& d = site.first->defs;
+			if(site.second < d.size() && d[site.second] == phi)
 				cacheDef(site.first, site.second, with);
 		}
 	}
