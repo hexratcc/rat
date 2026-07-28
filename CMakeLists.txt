@@ -36,9 +36,22 @@ add_executable(rat-test rat/test/Runner.cpp)
 target_link_libraries(rat-test PRIVATE rat)
 
 # ratcc
+file(GLOB_RECURSE CC_BUILTIN_HEADERS CONFIGURE_DEPENDS cc/headers/*.h)
+set(CC_HEADERS_INC ${CMAKE_BINARY_DIR}/generated/BuiltinHeaders.inc)
+add_custom_command(
+	OUTPUT ${CC_HEADERS_INC}
+	COMMAND ${CMAKE_COMMAND}
+					-DHDR_DIR=${CMAKE_SOURCE_DIR}/cc/headers
+					-DOUT=${CC_HEADERS_INC}
+					-P ${CMAKE_SOURCE_DIR}/cmake/EmbedHeaders.cmake
+	DEPENDS ${CC_BUILTIN_HEADERS} ${CMAKE_SOURCE_DIR}/cmake/EmbedHeaders.cmake
+	COMMENT "Embedding ratcc builtin headers"
+	VERBATIM)
+
 file(GLOB_RECURSE CC_SOURCES CONFIGURE_DEPENDS cc/lib/*.cpp)
-add_library(ratcclib STATIC ${CC_SOURCES})
+add_library(ratcclib STATIC ${CC_SOURCES} ${CC_HEADERS_INC})
 target_include_directories(ratcclib PUBLIC cc/include)
+target_include_directories(ratcclib PRIVATE ${CMAKE_BINARY_DIR}/generated)
 target_link_libraries(ratcclib PUBLIC rat)
 add_executable(ratcc cc/main.cpp)
 target_link_libraries(ratcc PRIVATE ratcclib)
