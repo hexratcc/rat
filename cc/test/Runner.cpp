@@ -1,11 +1,15 @@
+#include "BuiltinHeaders.h"
 #include "Compile.h"
 #include "Host.h"
+#include "Predef.h"
 
 #include "Emit/Emit.h"
-#include "Lex/TokenStream.h"
 #include "Lex/Preprocess.h"
+#include "Lex/TokenStream.h"
 #include "Parse/Parser.h"
 #include <atomic>
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #if defined(_WIN32)
 #include <process.h>
@@ -28,6 +32,38 @@ namespace {
 	constexpr U32 kReadBufSize = 4096;
 
 	std::atomic<U32> oracleCounter{0};
+
+	FILE* shellOpen(const char* cmd) {
+#if defined(_WIN32)
+		return _popen(cmd, "r");
+#else
+		return popen(cmd, "r");
+#endif
+	}
+
+	I32 shellClose(FILE* p) {
+#if defined(_WIN32)
+		return _pclose(p);
+#else
+		return pclose(p);
+#endif
+	}
+
+	const char* nullDevice() {
+#if defined(_WIN32)
+		return "NUL";
+#else
+		return "/dev/null";
+#endif
+	}
+
+	const String& hostCC() {
+		static const String cc = [] {
+			const char* env = std::getenv("CC");
+			return String(env && *env ? env : "cc");
+		}();
+		return cc;
+	}
 
 	String tempDir() {
 		const char* env = std::getenv("TMPDIR");
@@ -227,8 +263,8 @@ namespace {
 				 << "}\n";
 		}
 
-		String cmd = hostCC() + " -w -O0 " + art.compileArgs + " \"" + wpath + "\" -o \"" + xpath +
-								 "\" -lm";
+		String cmd =
+				hostCC() + " -w -O0 " + art.compileArgs + " \"" + wpath + "\" -o \"" + xpath + "\" -lm";
 		if(std::system(cmd.c_str()) != 0) {
 			cleanup();
 			err = String(tag) + ": compilation/link failed";
@@ -279,7 +315,8 @@ namespace {
 				}
 				X86Target target(hostTargetTriple());
 				compileModule(mod, target, copt, of);
-				art.compileArgs = targetIsWindows() ? "\"" + art.path + "\"" : "-no-pie \"" + art.path + "\"";
+				art.compileArgs =
+						targetIsWindows() ? "\"" + art.path + "\"" : "-no-pie \"" + art.path + "\"";
 				return true;
 			};
 			return runBackend("x86", make, out, capturedOut, err);
@@ -319,8 +356,8 @@ namespace {
 			return true;
 
 		PpOptions pp;
-		pp.includeDirs = hostIncludeDirs();
-		String full = hostPredefs() + "#line 1 \"" + path + "\"\n" + source;
+		pp.includeDirs.push_back(builtinIncludeDir());
+		String full = builtinPredefs(hostTargetTriple()) + "#line 1 \"" + path + "\"\n" + source;
 		TokenStream ts;
 		if(!preprocessToTokens(path, full, pp, ts, err))
 			return false;
@@ -395,8 +432,8 @@ namespace {
 				return false;
 			}
 			if(capturedOut != refOut) {
-				err = "stdout differs from the C oracle:\n--- oracle ---\n" + refOut +
-							"\n--- x86 ---\n" + capturedOut + "\n---";
+				err = "stdout differs from the C oracle:\n--- oracle ---\n" + refOut + "\n--- x86 ---\n" +
+							capturedOut + "\n---";
 				return false;
 			}
 		}
@@ -513,12 +550,11 @@ I32 main(I32 argc, char** argv) {
 	spec.extension = ".c";
 	spec.dirCandidates = {"cc/test", "test"};
 	spec.run = [](const String& path, String& err) { return runCaseForked(path, err); };
-	// warm the lazily-initialized host/config caches before threads spawn so
-	// their first access does not race.
+	// warm the lazily-initialized caches before threads spawn so their first
+	// access does not race.
 	spec.prewarm = [] {
 		(void)hostCC();
-		(void)hostPredefs();
-		(void)hostIncludeDirs();
+		(void)builtinPredefs(hostTargetTriple());
 		(void)useX86Backend();
 	};
 	return runTestSuite(argc, argv, spec);

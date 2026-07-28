@@ -1,5 +1,7 @@
+#include "BuiltinHeaders.h"
 #include "Compile.h"
 #include "Host.h"
+#include "Predef.h"
 
 #include "Emit/Emit.h"
 #include "Lex/Lexer.h"
@@ -35,8 +37,8 @@ namespace {
 		B32 timePasses = false;
 		B32 preprocessOnly = false; // -E
 		String targetSpec;					// -target: <arch>-<os> triple
-		B32 noStdInc = false;				// -nostdinc: skip host system include dirs
-		B32 noPredefs = false;			// -undef: skip host predefined macros
+		B32 noStdInc = false;				// -nostdinc: skip the builtin standard headers
+		B32 noPredefs = false;			// -undef: skip the builtin predefined macros
 		PpOptions pp;
 	};
 
@@ -119,8 +121,8 @@ namespace {
 					"                        simplifycfg, memoryopt, inline\n"
 					"  -I<dir> -D<m> -U<m>   preprocessor options\n"
 					"  -E                    preprocess only\n"
-					"  -nostdinc             do not search the host compiler's system include dirs\n"
-					"  -undef                do not add the host compiler's predefined macros\n"
+					"  -nostdinc             do not provide the builtin C standard headers\n"
+					"  -undef                do not predefine the builtin target macros\n"
 					"  -ftime-passes         print per-pass timing to stderr\n"
 					"  -help                 show this help\n"
 					"  -version              show version and build date\n";
@@ -271,8 +273,8 @@ namespace {
 			return 1;
 		}
 		if(opt.timePasses)
-			std::cerr << "frontend: read " << gReadMs << "ms, preprocess+tokens " << gPpMs
-								<< "ms, parse " << parseMs << "ms, ast-to-ir " << emitMs << "ms\n";
+			std::cerr << "frontend: read " << gReadMs << "ms, preprocess+tokens " << gPpMs << "ms, parse "
+								<< parseMs << "ms, ast-to-ir " << emitMs << "ms\n";
 
 		CompileOptions copt;
 		copt.backend = (kind == Emit::X86) ? Backend::X86 : Backend::C;
@@ -332,10 +334,9 @@ static I32 run(I32 argc, char** argv) {
 	gReadMs = msSince(tRead);
 
 	if(!opt.noStdInc)
-		for(const String& dir : hostIncludeDirs())
-			opt.pp.includeDirs.push_back(dir);
+		opt.pp.includeDirs.push_back(builtinIncludeDir());
 	if(!opt.noPredefs)
-		source = hostPredefs() + "#line 1 \"" + path + "\"\n" + source;
+		source = builtinPredefs(hostTargetTriple()) + "#line 1 \"" + path + "\"\n" + source;
 
 	// -E and -emit tok need serialized text; else parse the pp token stream directly
 	B32 needText = opt.preprocessOnly;

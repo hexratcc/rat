@@ -1,7 +1,5 @@
 #include "Compile.h"
 
-#include "Host.h"
-
 #include "rat.h"
 
 #include <cstdio>
