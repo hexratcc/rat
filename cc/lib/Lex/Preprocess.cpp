@@ -3,6 +3,7 @@
 #include <ctime>
 #include <fstream>
 
+#include "BuiltinHeaders.h"
 #include "Lex/PreprocessDetail.h"
 
 namespace rat::cc {
@@ -20,6 +21,8 @@ namespace rat::cc {
 		}
 
 		B32 Preprocessor::readFile(const String& path, String& content) {
+			if(!path.empty() && path[0] == '<')
+				return readBuiltinHeader(path, content);
 			std::ifstream f(path, std::ios::binary);
 			if(!f)
 				return false;
@@ -56,7 +59,7 @@ namespace rat::cc {
 				return false;
 			};
 
-		List<PpToken> expanded;
+			List<PpToken> expanded;
 			if(!reconstruct(restIn)) {
 				// try macro expansion of the operand
 				expanded = expand(restIn);
@@ -332,7 +335,7 @@ namespace rat::cc {
 
 				const PpToken& dir = toks[d];
 
-			if(dir.kind == Pk::Num) {
+				if(dir.kind == Pk::Num) {
 					if(condActive(stack)) {
 						U32 phys = j < n ? toks[j].line : dir.line + 1;
 						doLine(PpSpan(toks.data() + d, toks.data() + j), phys);
