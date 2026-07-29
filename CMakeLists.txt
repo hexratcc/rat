@@ -23,10 +23,14 @@ else()
 endif()
 
 # targets
+add_library(base INTERFACE)
+target_include_directories(base INTERFACE base)
+
 # librat
 file(GLOB_RECURSE RAT_SOURCES CONFIGURE_DEPENDS rat/lib/*.cpp)
 add_library(rat STATIC ${RAT_SOURCES})
 target_include_directories(rat PUBLIC rat/include)
+target_link_libraries(rat PUBLIC base)
 
 # rat-cli
 add_executable(rat-driver rat/main.cpp)

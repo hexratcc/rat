@@ -1,5 +1,5 @@
-#ifndef RAT_SUPPORT_STRINGUTIL_H
-#define RAT_SUPPORT_STRINGUTIL_H
+#ifndef RAT_BASE_STRING_H
+#define RAT_BASE_STRING_H
 
 #include "Core.h"
 

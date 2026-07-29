@@ -4,7 +4,7 @@
 #include <iomanip>
 
 #include "IR/TextParser.h"
-#include "Support/StringUtil.h"
+#include "String.h"
 
 using namespace rat;
 

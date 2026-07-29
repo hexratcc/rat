@@ -20,7 +20,7 @@
 #include <unistd.h>
 #endif
 
-#include "Support/StringUtil.h"
+#include "String.h"
 #include "Support/TestHarness.h"
 
 #include "rat.h"
