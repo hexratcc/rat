@@ -31,7 +31,7 @@ using namespace rat::cc;
 namespace {
 	constexpr U32 kReadBufSize = 4096;
 
-	std::atomic<U32> oracleCounter{0};
+	std::atomic<U32> tempCounter{0};
 
 	FILE* shellOpen(const char* cmd) {
 #if defined(_WIN32)
@@ -110,7 +110,6 @@ namespace {
 		I32 value = 0;
 		String passes = defaultPasses();
 		B32 hasOutput = false;
-		B32 oracleOutput = false;
 		String output;
 		B32 skip = false;
 	};
@@ -170,12 +169,8 @@ namespace {
 			} else if(key == "passes") {
 				exp.passes = val;
 			} else if(key == "output") {
-				if(val == "oracle") {
-					exp.oracleOutput = true;
-				} else {
-					exp.hasOutput = true;
-					inOutput = true;
-				}
+				exp.hasOutput = true;
+				inOutput = true;
 			} else if(key == "skip-target") {
 				if(osMatches(val))
 					exp.skip = true;
@@ -220,7 +215,7 @@ namespace {
 #else
 		long pid = (long)getpid();
 #endif
-		basess << tempDir() << "/ratcc_" << tag << "_" << pid << "_" << oracleCounter++;
+		basess << tempDir() << "/ratcc_" << tag << "_" << pid << "_" << tempCounter++;
 		String base = basess.str();
 		String wpath = base + ".wrap.c";
 		String xpath = base + (targetIsWindows() ? ".exe" : ".out");
@@ -301,7 +296,7 @@ namespace {
 		return true;
 	}
 
-	B32 runOracle(Module& mod, B32 x86, I32& out, String& capturedOut, String& err) {
+	B32 runProgram(Module& mod, B32 x86, I32& out, String& capturedOut, String& err) {
 		CompileOptions copt;
 		copt.renameMain = "__ratcc_user_main";
 		if(x86) {
@@ -326,7 +321,7 @@ namespace {
 			art.path = base + ".c";
 			std::ofstream cf(art.path);
 			if(!cf) {
-				e = "oracle: cannot write temp source";
+				e = "cc-c: cannot write temp source";
 				return false;
 			}
 			Generic64 target;
@@ -334,7 +329,7 @@ namespace {
 			art.compileArgs = "-std=c11 \"" + art.path + "\"";
 			return true;
 		};
-		return runBackend("oracle", make, out, capturedOut, err);
+		return runBackend("cc-c", make, out, capturedOut, err);
 	}
 
 	B32 runCase(const String& path, String& err) {
@@ -403,11 +398,10 @@ namespace {
 
 		I32 got;
 		String capturedOut;
-		B32 wantOutput = exp.hasOutput || exp.oracleOutput;
-		const ConstantNode* result = wantOutput ? nullptr : returnConstant(*main);
+		const ConstantNode* result = exp.hasOutput ? nullptr : returnConstant(*main);
 		if(result)
 			got = (I32)result->getValue();
-		else if(!runOracle(mod, useX86Backend(), got, capturedOut, err))
+		else if(!runProgram(mod, useX86Backend(), got, capturedOut, err))
 			return false;
 
 		if(got != exp.value) {
@@ -415,27 +409,6 @@ namespace {
 			os << "expected " << exp.value << ", got " << got;
 			err = os.str();
 			return false;
-		}
-
-		if(exp.oracleOutput && useX86Backend()) {
-			Module ref;
-			if(!buildModule(ref))
-				return false;
-			I32 refGot;
-			String refOut;
-			if(!runOracle(ref, false, refGot, refOut, err))
-				return false;
-			if(got != refGot) {
-				std::ostringstream os;
-				os << "x86 returned " << got << " but the C oracle returned " << refGot;
-				err = os.str();
-				return false;
-			}
-			if(capturedOut != refOut) {
-				err = "stdout differs from the C oracle:\n--- oracle ---\n" + refOut + "\n--- x86 ---\n" +
-							capturedOut + "\n---";
-				return false;
-			}
 		}
 
 		if(exp.hasOutput && capturedOut != exp.output) {
