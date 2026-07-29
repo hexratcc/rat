@@ -345,7 +345,8 @@ namespace rat::cc {
 			if(hi)
 				n = fn.shl(n, fn.constInt(ty, hi));
 			if(lo)
-				n = lv.type.isUnsigned() ? fn.lshr(n, fn.constInt(ty, lo)) : fn.ashr(n, fn.constInt(ty, lo));
+				n = lv.type.isUnsigned() ? fn.lshr(n, fn.constInt(ty, lo))
+																 : fn.ashr(n, fn.constInt(ty, lo));
 			return n;
 		}
 		return fn.load(irType(lv.type), lv.addr);

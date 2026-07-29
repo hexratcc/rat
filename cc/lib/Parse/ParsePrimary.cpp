@@ -59,10 +59,9 @@ namespace rat::cc {
 		if(!expect(TokKind::RParen, "')'"))
 			return nullptr;
 		return makeInt(kw,
-										 off,
-										 64,
-										 (U8)(CType::Unsigned | CType::Long |
-													(lay.longBits < 64 ? CType::LongLong : 0)));
+									 off,
+									 64,
+									 (U8)(CType::Unsigned | CType::Long | (lay.longBits < 64 ? CType::LongLong : 0)));
 	}
 
 	B32 Parser::parseTypeName(CType& out) {
@@ -153,7 +152,7 @@ namespace rat::cc {
 			Expr* e = makeExpr(ExprKind::StrLit, first.offset);
 			if(wide) {
 				String w = lay.wcharBytes == 2 ? detail::decodeUtf8ToUtf16LE(bytes)
-																	: detail::decodeUtf8ToUtf32LE(bytes);
+																			 : detail::decodeUtf8ToUtf32LE(bytes);
 				e->str.bytes = arena.make<String>(std::move(w));
 				e->str.isWide = true;
 				e->str.charSize = lay.wcharBytes;

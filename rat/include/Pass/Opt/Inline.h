@@ -51,8 +51,8 @@ namespace rat {
 		Node* incomingForStartProj(CallNode* call, U32 startProjIdx);
 		B32 shouldInline(const Function& caller, CallNode* call, Function* callee);
 
-		B32 inlineCallSite(
-				Function& caller, CallNode* call, Function& callee, List<CallNode*>& newCalls);
+		B32
+		inlineCallSite(Function& caller, CallNode* call, Function& callee, List<CallNode*>& newCalls);
 
 		// callee node id -> caller node, reused across call sites
 		List<Node*> cloneMap;

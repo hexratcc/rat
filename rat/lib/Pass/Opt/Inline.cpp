@@ -20,8 +20,10 @@ namespace rat {
 		return a < call->getArgCount() ? call->getArg(a) : nullptr;
 	}
 
-	B32 InlinePass::inlineCallSite(
-			Function& caller, CallNode* call, Function& callee, List<CallNode*>& newCalls) {
+	B32 InlinePass::inlineCallSite(Function& caller,
+																 CallNode* call,
+																 Function& callee,
+																 List<CallNode*>& newCalls) {
 		cloneMap.clear();
 		auto put = [&](Node* key, Node* val) {
 			U32 id = key->getId();

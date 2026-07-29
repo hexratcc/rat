@@ -12,10 +12,10 @@
 #include "Pass/Opt/Fold.h"
 #include "Pass/Opt/GVN.h"
 #include "Pass/Opt/Inline.h"
-#include "Pass/Opt/StrengthReduce.h"
 #include "Pass/Opt/MemoryOpt.h"
 #include "Pass/Opt/SCCP.h"
 #include "Pass/Opt/SimplifyCFG.h"
+#include "Pass/Opt/StrengthReduce.h"
 
 namespace rat {
 	namespace {

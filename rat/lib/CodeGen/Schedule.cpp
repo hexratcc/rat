@@ -510,9 +510,7 @@ namespace rat {
 		}
 	}
 
-	I32 Schedule::blockOf(const Node* n) const {
-		return n ? idGet(nodeBlock, n->getId()) : -1;
-	}
+	I32 Schedule::blockOf(const Node* n) const { return n ? idGet(nodeBlock, n->getId()) : -1; }
 
 	void Schedule::buildBlockLists() {
 		for(Node* n : fn)

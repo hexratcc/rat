@@ -354,7 +354,7 @@ namespace rat {
 			} else if(width == 4) {
 				flags = sign ? (U8)kMemW : (U8)0;
 				opcode = sign ? 0x63 : 0x8b; // movsxd / mov r32
-			} else { // movzx/movsx
+			} else {											 // movzx/movsx
 				flags = kMemW | kMemEsc;
 				opcode = width == 1 ? (sign ? 0xbe : 0xb6) : (sign ? 0xbf : 0xb7);
 			}

@@ -10,8 +10,8 @@ namespace rat::cc {
 	// parser tokens straight from the pp, no serialize-then-relex; drop-in for
 	// Lexer: Token.offset indexes the stream, text() gives the interned spelling
 	struct TokenStream {
-		List<Token> toks;					// always ends with Eof
-		List<const String*> texts; // parallel to toks
+		List<Token> toks;							// always ends with Eof
+		List<const String*> texts;		// parallel to toks
 		std::deque<String> ownedText; // storage backing texts
 		String fileName;
 		String errMsg; // first conversion error

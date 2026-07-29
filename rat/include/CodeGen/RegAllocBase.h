@@ -100,10 +100,10 @@ namespace rat {
 		MachineFunc* fn = nullptr;
 		const RegisterInfo* ri = nullptr;
 		const RegAllocHooks* hooks = nullptr;
-		List<Loc> order;								// linear point -> (block, instruction)
-		List<List<U32>> blkPts;					// block -> its linear points
-		List<I32> callPts;							// points that are calls
-		List<U64> fixedAt;							// physical registers pinned at each point
+		List<Loc> order;				// linear point -> (block, instruction)
+		List<List<U32>> blkPts; // block -> its linear points
+		List<I32> callPts;			// points that are calls
+		List<U64> fixedAt;			// physical registers pinned at each point
 		Set<PhysReg> usedCallee;
 		Map<VReg, List<CopyHint>> copyHints;		// vreg <-> vreg move affinities
 		Map<VReg, List<PhysReg>> physHints;			// vreg <-> fixed-register move affinities

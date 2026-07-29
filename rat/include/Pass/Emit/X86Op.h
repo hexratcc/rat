@@ -41,7 +41,6 @@ namespace rat {
 		constexpr U8 kAluOr = 0x09;
 		constexpr U8 kAluXor = 0x31;
 
-
 		constexpr U8 kIntCc[] = {CC_E, CC_NE, CC_L, CC_LE, CC_B, CC_BE};
 		// FEq..FGe -> condition code / operand swap (swap keeps lt/le NaN-correct)
 		constexpr U8 kFpCc[] = {CC_E, CC_NE, CC_A, CC_AE, CC_A, CC_AE};
@@ -88,13 +87,13 @@ namespace rat {
 		FAdd,
 		FSub,
 		FMul,
-		FDiv, // two-address on the def xmm
-		FNeg,	// pxor-based scalar negate
-		FSqrt,// dst = sqrt(use[0]); width in imm
-		FAbs,	// dst = |use[0]| via lane shifts; width in imm
-		FCmp,			// ucomis use[0],use[1] + setcc; cc in imm, swap in imm2
+		FDiv,			 // two-address on the def xmm
+		FNeg,			 // pxor-based scalar negate
+		FSqrt,		 // dst = sqrt(use[0]); width in imm
+		FAbs,			 // dst = |use[0]| via lane shifts; width in imm
+		FCmp,			 // ucomis use[0],use[1] + setcc; cc in imm, swap in imm2
 		FCmpFlags, // flags-only ucomis use[0],use[1]; swap in imm2 (cc consumed by a fused Br)
-		Cvt,	// SSE convert; pfx/opc/w packed in imm
+		Cvt,			 // SSE convert; pfx/opc/w packed in imm
 		// x87 ops
 		X87LoadMem,	 // def(slot) = fld [use0 addr]; imm = mem width (4/8/80)
 		X87StoreMem, // [use0 addr] = fstp use1(slot); imm = mem width (4/8/80)
@@ -114,7 +113,7 @@ namespace rat {
 		Ret,
 		Jmp,				// unconditional, target block in use[0].block
 		SwitchJump, // table jump: use[0] = selector reg, use[1..] = slot target blocks
-		Br,	 // test+jcc: predicate in use[0], then in use[1].block, else in use[2].block
+		Br,					// test+jcc: predicate in use[0], then in use[1].block, else in use[2].block
 		// variadic support
 		VaStart, // init va_list at [use0]; imm = gpOffset start, imm2 = fpOffset start
 		VaArg,	 // fetch next vararg into def; use0 = va_list ptr; imm = kind, imm2 = width
@@ -132,6 +131,7 @@ namespace rat {
 		I32 sretSlot = 0;
 	};
 
-	RegAllocHooks x86RegAllocHooks();} // namespace rat
+	RegAllocHooks x86RegAllocHooks();
+} // namespace rat
 
 #endif

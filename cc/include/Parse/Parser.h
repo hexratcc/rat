@@ -94,7 +94,8 @@ namespace rat::cc {
 		B32 enterDepth();
 		struct DepthScope {
 			Parser& p;
-			explicit DepthScope(Parser& parser) : p(parser) {}
+			explicit DepthScope(Parser& parser)
+			: p(parser) {}
 			~DepthScope() { --p.parseDepth; }
 		};
 

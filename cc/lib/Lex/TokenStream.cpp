@@ -8,13 +8,13 @@ namespace rat::cc {
 
 		// keyword spellings, aligned with TokKind::KwAuto..KwTypeof
 		const char* const kKeywords[] = {
-				"auto",			"break",		"case",			"char",		 "const",		 "continue", "default",
-				"do",				"double",		"else",			"enum",		 "extern",	 "float",		 "for",
-				"goto",			"if",				"inline",		"int",		 "long",		 "register", "restrict",
-				"return",		"short",		"signed",		"sizeof",	 "static",	 "struct",	 "switch",
-				"typedef",	"union",		"unsigned", "void",		 "volatile", "while",		 "_Bool",
-				"_Complex", "_Imaginary", "_Generic", "_Static_assert", "__real__", "__imag__",
-				"typeof",
+				"auto",				"break",		"case",						"char",			"const",		"continue",
+				"default",		"do",				"double",					"else",			"enum",			"extern",
+				"float",			"for",			"goto",						"if",				"inline",		"int",
+				"long",				"register", "restrict",				"return",		"short",		"signed",
+				"sizeof",			"static",		"struct",					"switch",		"typedef",	"union",
+				"unsigned",		"void",			"volatile",				"while",		"_Bool",		"_Complex",
+				"_Imaginary", "_Generic", "_Static_assert", "__real__", "__imag__", "typeof",
 		};
 		static_assert(sizeof(kKeywords) / sizeof(kKeywords[0]) ==
 											(U32)TokKind::KwTypeof - (U32)TokKind::KwAuto + 1,
@@ -26,21 +26,21 @@ namespace rat::cc {
 			TokKind kind;
 		};
 		const PunctSpelling kPunctKinds[] = {
-				{"(", TokKind::LParen},		{")", TokKind::RParen},		{"{", TokKind::LBrace},
-				{"}", TokKind::RBrace},		{"[", TokKind::LBracket}, {"]", TokKind::RBracket},
-				{";", TokKind::Semicolon}, {",", TokKind::Comma},		{".", TokKind::Dot},
-				{"->", TokKind::Arrow},		{"...", TokKind::Ellipsis}, {"+", TokKind::Plus},
-				{"-", TokKind::Minus},		{"*", TokKind::Star},			{"/", TokKind::Slash},
-				{"%", TokKind::Percent},	{"++", TokKind::PlusPlus}, {"--", TokKind::MinusMinus},
-				{"&", TokKind::Amp},			{"|", TokKind::Pipe},			{"^", TokKind::Caret},
-				{"~", TokKind::Tilde},		{"!", TokKind::Bang},			{"&&", TokKind::AmpAmp},
-				{"||", TokKind::PipePipe}, {"<", TokKind::Lt},			{">", TokKind::Gt},
-				{"<=", TokKind::Le},			{">=", TokKind::Ge},			{"==", TokKind::EqEq},
-				{"!=", TokKind::BangEq},	{"<<", TokKind::Shl},			{">>", TokKind::Shr},
-				{"?", TokKind::Question}, {":", TokKind::Colon},		{"=", TokKind::Assign},
-				{"+=", TokKind::PlusEq},	{"-=", TokKind::MinusEq}, {"*=", TokKind::StarEq},
-				{"/=", TokKind::SlashEq}, {"%=", TokKind::PercentEq}, {"&=", TokKind::AmpEq},
-				{"|=", TokKind::PipeEq},	{"^=", TokKind::CaretEq}, {"<<=", TokKind::ShlEq},
+				{"(", TokKind::LParen},		 {")", TokKind::RParen},		 {"{", TokKind::LBrace},
+				{"}", TokKind::RBrace},		 {"[", TokKind::LBracket},	 {"]", TokKind::RBracket},
+				{";", TokKind::Semicolon}, {",", TokKind::Comma},			 {".", TokKind::Dot},
+				{"->", TokKind::Arrow},		 {"...", TokKind::Ellipsis}, {"+", TokKind::Plus},
+				{"-", TokKind::Minus},		 {"*", TokKind::Star},			 {"/", TokKind::Slash},
+				{"%", TokKind::Percent},	 {"++", TokKind::PlusPlus},	 {"--", TokKind::MinusMinus},
+				{"&", TokKind::Amp},			 {"|", TokKind::Pipe},			 {"^", TokKind::Caret},
+				{"~", TokKind::Tilde},		 {"!", TokKind::Bang},			 {"&&", TokKind::AmpAmp},
+				{"||", TokKind::PipePipe}, {"<", TokKind::Lt},				 {">", TokKind::Gt},
+				{"<=", TokKind::Le},			 {">=", TokKind::Ge},				 {"==", TokKind::EqEq},
+				{"!=", TokKind::BangEq},	 {"<<", TokKind::Shl},			 {">>", TokKind::Shr},
+				{"?", TokKind::Question},	 {":", TokKind::Colon},			 {"=", TokKind::Assign},
+				{"+=", TokKind::PlusEq},	 {"-=", TokKind::MinusEq},	 {"*=", TokKind::StarEq},
+				{"/=", TokKind::SlashEq},	 {"%=", TokKind::PercentEq}, {"&=", TokKind::AmpEq},
+				{"|=", TokKind::PipeEq},	 {"^=", TokKind::CaretEq},	 {"<<=", TokKind::ShlEq},
 				{">>=", TokKind::ShrEq},
 		};
 

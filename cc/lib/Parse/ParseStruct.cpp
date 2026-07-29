@@ -89,8 +89,8 @@ namespace rat::cc {
 				}
 				// optional bitfield : width
 				if(accept(TokKind::Colon)) {
-					if(isArr || ft.ptr != 0 || ft.isFloat() || ft.isComplex() || ft.isVoid() || isStruct(ft) ||
-						 ft.func != nullptr) {
+					if(isArr || ft.ptr != 0 || ft.isFloat() || ft.isComplex() || ft.isVoid() ||
+						 isStruct(ft) || ft.func != nullptr) {
 						fail(nameTok, "bit-field has invalid type");
 						return false;
 					}

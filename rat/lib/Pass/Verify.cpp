@@ -92,8 +92,7 @@ namespace rat {
 				continue;
 			}
 			if(!inFn.count(in)) {
-				err(n,
-						"input " + std::to_string(i) + " (" + vref(in) + ") is not a node of this function");
+				err(n, "input " + std::to_string(i) + " (" + vref(in) + ") is not a node of this function");
 				continue;
 			}
 			if(!listsAsUser(in, n))
@@ -189,8 +188,8 @@ namespace rat {
 			if(!(iff->getPredicate()->getType()->isInt() &&
 					 iff->getPredicate()->getType()->getIntWidth() == 1))
 				err(n, "If predicate must be i1");
-			if(!(t->isTuple() && t->getTupleElementCount() == 2 &&
-					 t->getTupleElement(0)->isControl() && t->getTupleElement(1)->isControl()))
+			if(!(t->isTuple() && t->getTupleElementCount() == 2 && t->getTupleElement(0)->isControl() &&
+					 t->getTupleElement(1)->isControl()))
 				err(n, "If type must be (ctrl, ctrl)");
 			for(Node* u : n->getUsers())
 				if(u->getOpcode() == Opcode::Proj && cast<ProjNode>(u)->getIndex() > 1)
@@ -201,8 +200,7 @@ namespace rat {
 			auto* p = cast<ProjNode>(n);
 			Node* prod = p->getProducer();
 			Opcode po = prod->getOpcode();
-			if(!(po == Opcode::Start || po == Opcode::If || po == Opcode::Call ||
-					 po == Opcode::Switch)) {
+			if(!(po == Opcode::Start || po == Opcode::If || po == Opcode::Call || po == Opcode::Switch)) {
 				err(n,
 						"Proj producer " + vref(prod) + " is not a multi-output node (Start/If/Call/Switch)");
 			} else if(!prod->getType()->isTuple()) {
@@ -312,8 +310,8 @@ namespace rat {
 				const Type* rt = b->getRHS()->getType();
 				if(lt != t)
 					err(n, "binary result type differs from its left operand");
-				B32 shift = op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr
-						|| op == Opcode::Rotl || op == Opcode::Rotr;
+				B32 shift = op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr ||
+										op == Opcode::Rotl || op == Opcode::Rotr;
 				if(lt->isPtr()) {
 					if(!(op == Opcode::Add || op == Opcode::Sub))
 						err(n, "pointer arithmetic supports only add/sub");

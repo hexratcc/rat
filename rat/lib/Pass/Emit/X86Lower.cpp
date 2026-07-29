@@ -580,8 +580,7 @@ namespace rat {
 			List<MachineOperand> uses{MachineOperand::vr(gpValue(sw->getSelector()))};
 			for(I32 tb : blk.caseB)
 				uses.push_back(MachineOperand::blockRef(tb));
-			inst(X86Op::SwitchJump, detail::kGp, {}, std::move(uses))
-					.clobbers = {gpReg(R10), gpReg(R11)};
+			inst(X86Op::SwitchJump, detail::kGp, {}, std::move(uses)).clobbers = {gpReg(R10), gpReg(R11)};
 			return;
 		}
 		case Schedule::TermKind::Goto:
@@ -681,8 +680,8 @@ namespace rat {
 			if(in.op == (MachineOpcode)X86Op::FrameAddr && in.uses.empty() && in.imm != -1)
 				return true;
 			// constant-pool load
-			if(in.op == (MachineOpcode)X86Op::FLoad && in.uses.size() == 1
-				 && in.uses[0].kind == MachineOperand::Kind::Sym)
+			if(in.op == (MachineOpcode)X86Op::FLoad && in.uses.size() == 1 &&
+				 in.uses[0].kind == MachineOperand::Kind::Sym)
 				return true;
 			return false;
 		};

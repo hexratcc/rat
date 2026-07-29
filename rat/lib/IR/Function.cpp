@@ -444,10 +444,9 @@ namespace rat {
 
 		if(dead.empty())
 			return 0;
-		nodes.erase(std::remove_if(nodes.begin(),
-															 nodes.end(),
-															 [&](Node* n) { return dead.count(n) != 0; }),
-								nodes.end());
+		nodes.erase(
+				std::remove_if(nodes.begin(), nodes.end(), [&](Node* n) { return dead.count(n) != 0; }),
+				nodes.end());
 		return (U32)dead.size();
 	}
 
