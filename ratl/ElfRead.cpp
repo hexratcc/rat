@@ -40,8 +40,8 @@ namespace rat {
 			}
 			U64 shoff = rd64(&img[40]);
 			U16 shentsize = rd16(&img[58]);
-			U16 shnum = rd16(&img[62]);
-			U16 shstrndx = rd16(&img[60]);
+			U16 shnum = rd16(&img[60]);
+			U16 shstrndx = rd16(&img[62]);
 			if(shentsize != 64 || shoff + (U64)shnum * 64 > img.size()) {
 				err = "malformed section header table";
 				return false;
