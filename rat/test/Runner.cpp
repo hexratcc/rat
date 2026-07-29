@@ -1,7 +1,7 @@
 #include "IR/TextParser.h"
 
 #include "String.h"
-#include "Support/TestHarness.h"
+#include "TestHarness.h"
 #include <fstream>
 
 #include "rat.h"

@@ -26,6 +26,10 @@ endif()
 add_library(base INTERFACE)
 target_include_directories(base INTERFACE base)
 
+add_library(testkit STATIC testkit/TestHarness.cpp)
+target_include_directories(testkit PUBLIC testkit)
+target_link_libraries(testkit PUBLIC base)
+
 # librat
 file(GLOB_RECURSE RAT_SOURCES CONFIGURE_DEPENDS rat/lib/*.cpp)
 add_library(rat STATIC ${RAT_SOURCES})
@@ -37,7 +41,7 @@ add_executable(rat-driver rat/main.cpp)
 set_target_properties(rat-driver PROPERTIES OUTPUT_NAME rat)
 target_link_libraries(rat-driver PRIVATE rat)
 add_executable(rat-test rat/test/Runner.cpp)
-target_link_libraries(rat-test PRIVATE rat)
+target_link_libraries(rat-test PRIVATE rat testkit)
 
 # ratcc
 file(GLOB_RECURSE CC_BUILTIN_HEADERS CONFIGURE_DEPENDS cc/headers/*.h)
@@ -60,7 +64,7 @@ target_link_libraries(ratcclib PUBLIC rat)
 add_executable(ratcc cc/main.cpp)
 target_link_libraries(ratcc PRIVATE ratcclib)
 add_executable(ratcc-test cc/test/Runner.cpp)
-target_link_libraries(ratcc-test PRIVATE ratcclib)
+target_link_libraries(ratcc-test PRIVATE ratcclib testkit)
 
 # tests
 enable_testing()

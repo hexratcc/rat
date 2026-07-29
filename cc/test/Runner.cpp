@@ -21,7 +21,7 @@
 #endif
 
 #include "String.h"
-#include "Support/TestHarness.h"
+#include "TestHarness.h"
 
 #include "rat.h"
 

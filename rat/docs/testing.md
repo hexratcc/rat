@@ -1,5 +1,4 @@
 # testing
-Two data-driven suites share a small multithreaded harness ([`Support/TestHarness.h`](../include/Support/TestHarness.h)), `ctest` runs both. Cases are plain files with directives, so adding a test is adding a file.
 
 ## IR tests (`rat/test/*.rat`)
 Run a pass pipeline over textual IR and compare against expected IR:
@@ -27,7 +26,6 @@ Directives are comments:
 - `// expect-<os>: N`: os-specific override (`linux`/`windows`)
 - `// passes: a,b,...`: pipeline for this case (default: the `-O1` pipeline)
 - `// output:`: expected stdout follows on `//| ...` continuation lines
-- `// output: oracle`: compile the same source with the host compiler and require identical stdout
 - `// skip-target: <os>`, `// skip-x86-target: <os>`
 
 When no output is expected and the optimized `main` reduces to `return <const>`, the runner reads the result straight out of the IR instead of executing, as the passes must have proven the answer at compile time.

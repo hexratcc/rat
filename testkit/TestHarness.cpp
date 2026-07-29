@@ -1,4 +1,4 @@
-#include "Support/TestHarness.h"
+#include "TestHarness.h"
 
 #include <atomic>
 #include <filesystem>
