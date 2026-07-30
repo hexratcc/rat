@@ -45,6 +45,9 @@ namespace rat {
 		// synthesized linker/crt sym addrs, filled at end of layout
 		Map<String, U64> linkerSyms;
 
+		// comdat group sigs seen, first wins
+		Set<String> seenGroups;
+
 		// _start
 		List<U8> startCode;
 		U64 startLeaDisp = 0;

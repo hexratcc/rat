@@ -79,7 +79,7 @@ namespace rat {
 				continue;
 			}
 			InObject obj;
-		if(!loadObject(std::move(img), p, obj, err))
+		if(!loadObject(std::move(img), p, obj, seenGroups, err))
 				return false;
 			objs.push_back(std::move(obj));
 		}
@@ -120,7 +120,7 @@ namespace rat {
 					List<U8> img(ar.data.begin() + dataOff, ar.data.begin() + dataOff + sz);
 					InObject obj;
 					String memPath = ar.path + "(" + std::to_string(memOff) + ")";
-					if(!loadObject(std::move(img), memPath, obj, err))
+					if(!loadObject(std::move(img), memPath, obj, seenGroups, err))
 						return false;
 					objs.push_back(std::move(obj));
 					ar.pulled.insert(memOff);

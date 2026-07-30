@@ -87,7 +87,8 @@ namespace rat {
 		return (B32)f.good() || f.eof();
 	}
 
-	B32 loadObject(List<U8> img, const String& path, InObject& obj, String& err) {
+	B32 loadObject(
+			List<U8> img, const String& path, InObject& obj, Set<String>& seenGroups, String& err) {
 		List<Shdr> shdrs;
 		const U8* shstr = nullptr;
 		if(!parseShdrs(img, shdrs, shstr, err))
@@ -115,6 +116,40 @@ namespace rat {
 			if(s.bucket == BRodata && s.name == ".eh_frame")
 				s.bucket = BEhFrame;
 			s.keep = s.bucket != BNone;
+		}
+
+		// comdat dup: drop only later copies' init/fini members (dup ctors corrupt state)
+		{
+			U32 gsymSec = 0;
+			for(U32 i = 0; i < shdrs.size(); ++i)
+				if(shdrs[i].type == SHT_SYMTAB)
+					gsymSec = i;
+			for(U32 i = 0; i < shdrs.size(); ++i) {
+				const Shdr& sh = shdrs[i];
+				if(sh.type != SHT_GROUP)
+					continue;
+				const U8* g = &im[sh.offset];
+				if(!(rd32(g) & GRP_COMDAT))
+					continue;
+				String sig;
+				if(gsymSec && sh.link == gsymSec) {
+					const Shdr& st = shdrs[sh.link];
+					const U8* sp = &im[st.offset + (U64)sh.info * 24];
+					const U8* gstr = &im[shdrs[st.link].offset];
+					sig = (const char*)(gstr + rd32(sp));
+				}
+				if(sig.empty() || seenGroups.insert(sig).second)
+					continue; // first or unnamed, keep whole
+				U32 nmem = (U32)(sh.size / 4);
+				for(U32 m = 1; m < nmem; ++m) { // entry 0 is flags word
+					U32 sidx = rd32(g + (U64)m * 4);
+					if(sidx >= obj.sections.size())
+						continue;
+					U8 b = obj.sections[sidx].bucket;
+					if(b == BInitArray || b == BFiniArray)
+						obj.sections[sidx].keep = false;
+				}
+			}
 		}
 
 		// symbols

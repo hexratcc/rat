@@ -93,7 +93,8 @@ namespace rat {
 
 	B32 readWhole(const String& path, List<U8>& out);
 
-	B32 loadObject(List<U8> img, const String& path, InObject& obj, String& err);
+	B32 loadObject(
+			List<U8> img, const String& path, InObject& obj, Set<String>& seenGroups, String& err);
 
 	U64 arMemberSize(const List<U8>& d, U64 hdrOff);
 	B32 parseArchive(const String& path, List<U8> bytes, ArchiveFile& ar, String& err);
