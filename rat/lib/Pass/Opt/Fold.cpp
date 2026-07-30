@@ -261,12 +261,12 @@ namespace rat {
 				if(bl && br) {
 					if(bl->getOpcode() == Opcode::LShr && br->getOpcode() == Opcode::Shl)
 						std::swap(bl, br);
-					if(bl->getOpcode() == Opcode::Shl && br->getOpcode() == Opcode::LShr
-						 && bl->getLHS() == br->getLHS()) {
+					if(bl->getOpcode() == Opcode::Shl && br->getOpcode() == Opcode::LShr &&
+						 bl->getLHS() == br->getLHS()) {
 						ConstantNode* cl = dyn_cast<ConstantNode>(bl->getRHS());
 						ConstantNode* cr = dyn_cast<ConstantNode>(br->getRHS());
-						if(cl && cr && cl->getValue() > 0 && cr->getValue() > 0
-							 && cl->getValue() + cr->getValue() == (I64)w) {
+						if(cl && cr && cl->getValue() > 0 && cr->getValue() > 0 &&
+							 cl->getValue() + cr->getValue() == (I64)w) {
 							return fn.create<BinaryNode>(Opcode::Rotr, ty, br->getLHS(), br->getRHS());
 						}
 					}

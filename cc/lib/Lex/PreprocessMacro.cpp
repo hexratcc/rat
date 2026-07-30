@@ -252,8 +252,7 @@ namespace rat::cc {
 			return res;
 		}
 
-		B32
-		Preprocessor::gatherArgs(List<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen) {
+		B32 Preprocessor::gatherArgs(List<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen) {
 			int depth = 1;
 			List<PpToken> cur;
 			for(;;) {
@@ -268,13 +267,13 @@ namespace rat::cc {
 					cur.push_back(w);
 				} else if(isPunct(w, ")")) {
 					--depth;
-				if(depth == 0) {
+					if(depth == 0) {
 						rparen = w;
 						raw.push_back(std::move(cur));
 						return true;
 					}
 					cur.push_back(w);
-			} else if(isPunct(w, ",") && depth == 1) {
+				} else if(isPunct(w, ",") && depth == 1) {
 					raw.push_back(std::move(cur));
 					cur.clear();
 				} else {
@@ -318,9 +317,8 @@ namespace rat::cc {
 			return true;
 		}
 
-		void Preprocessor::requeueExpansion(List<PpToken>& r,
-																				const PpToken& invoker,
-																				List<PpToken>& work) {
+		void
+		Preprocessor::requeueExpansion(List<PpToken>& r, const PpToken& invoker, List<PpToken>& work) {
 			if(!r.empty()) {
 				r.front().spaceBefore = invoker.spaceBefore;
 				r.front().bol = invoker.bol;
@@ -355,7 +353,8 @@ namespace rat::cc {
 					if(t.text == idFile) {
 						PpToken n;
 						n.kind = Pk::Str;
-						n.text = intern("\"" + (fileName.empty() ? (t.file ? *t.file : String()) : fileName) + "\"");
+						n.text =
+								intern("\"" + (fileName.empty() ? (t.file ? *t.file : String()) : fileName) + "\"");
 						n.spaceBefore = t.spaceBefore;
 						n.bol = t.bol;
 						os.push_back(n);

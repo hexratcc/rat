@@ -40,9 +40,9 @@ namespace rat::cc {
 
 		struct PpToken {
 			Pk kind = Pk::Eof;
-			const String* text = nullptr;	 // interned spelling
-			B32 spaceBefore = false;			 // had white space before it
-			B32 bol = false;							 // first token on its logical line
+			const String* text = nullptr; // interned spelling
+			B32 spaceBefore = false;			// had white space before it
+			B32 bol = false;							// first token on its logical line
 			U32 line = 0;
 			const String* file = nullptr;	 // interned file name
 			const HideSet* hide = nullptr; // interned hide set
@@ -210,7 +210,7 @@ namespace rat::cc {
 															 const List<List<PpToken>>& args,
 															 const HideSet* hs,
 															 const List<const String*>& formals);
-		// stack: next token is work.back()
+			// stack: next token is work.back()
 			B32 gatherArgs(List<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen);
 			B32 mapArgs(const Macro& m, const List<List<PpToken>>& raw, List<List<PpToken>>& actuals);
 			void requeueExpansion(List<PpToken>& r, const PpToken& invoker, List<PpToken>& work);

@@ -99,7 +99,7 @@ namespace rat {
 		List<Block> blocks;
 		List<I32> headIndex; // node id -> block, for head nodes (-1 = not a head)
 		List<I32> nodeBlock; // node id -> block, for placed nodes (-1 = unplaced)
-		List<I32> post;									 // postorder number per block
+		List<I32> post;			 // postorder number per block
 		List<I32> rpoOrder;
 		I32 entryBlock = -1;
 		mutable List<Node*> headMemo;

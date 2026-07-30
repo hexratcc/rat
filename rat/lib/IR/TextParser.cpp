@@ -7,7 +7,7 @@
 #include "IR/Node.h"
 #include "IR/Opcode.h"
 #include "IR/Type.h"
-#include "Support/StringUtil.h"
+#include "String.h"
 
 namespace rat {
 	namespace detail {

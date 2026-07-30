@@ -10,7 +10,7 @@
 #include <chrono>
 #include <fstream>
 
-#include "Support/StringUtil.h"
+#include "String.h"
 #include "rat.h"
 
 using namespace rat;

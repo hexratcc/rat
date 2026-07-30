@@ -58,16 +58,35 @@ namespace rat::cc {
 				if(c == '?' && p + 2 < n && src[p + 1] == '?') {
 					char r = 0;
 					switch(src[p + 2]) {
-					case '=': r = '#'; break;
-					case '(': r = '['; break;
-					case '/': r = '\\'; break;
-					case ')': r = ']'; break;
-					case '\'': r = '^'; break;
-					case '<': r = '{'; break;
-					case '!': r = '|'; break;
-					case '>': r = '}'; break;
-					case '-': r = '~'; break;
-					default: break;
+					case '=':
+						r = '#';
+						break;
+					case '(':
+						r = '[';
+						break;
+					case '/':
+						r = '\\';
+						break;
+					case ')':
+						r = ']';
+						break;
+					case '\'':
+						r = '^';
+						break;
+					case '<':
+						r = '{';
+						break;
+					case '!':
+						r = '|';
+						break;
+					case '>':
+						r = '}';
+						break;
+					case '-':
+						r = '~';
+						break;
+					default:
+						break;
 					}
 					if(r) {
 						c = r;
@@ -348,7 +367,7 @@ namespace rat::cc {
 					continue;
 				}
 
-			// punctuator
+				// punctuator
 				size_t plen = punctLen(s, i, n);
 				pushTok(Pk::Punct, i, i + plen);
 				i += plen;

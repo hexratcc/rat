@@ -486,21 +486,20 @@ namespace rat {
 					if(in.imm == -1)
 						hasDynAlloca = true;
 				}
-				if(op == X86Op::VaStart || op == X86Op::VaArg
-					 || (op >= X86Op::X87LoadMem && op <= X86Op::X87Cmp))
+				if(op == X86Op::VaStart || op == X86Op::VaArg ||
+					 (op >= X86Op::X87LoadMem && op <= X86Op::X87Cmp))
 					framey = true;
-				if(op == X86Op::FLoad && !in.uses.empty()
-					 && in.uses[0].kind == MachineOperand::Kind::Imm)
+				if(op == X86Op::FLoad && !in.uses.empty() && in.uses[0].kind == MachineOperand::Kind::Imm)
 					framey = true; // materializes through the rbp scratch slot
 				if(in.isCall)
 					hasCall = true;
 				for(const MachineOperand& o : in.defs)
-					if(o.kind == MachineOperand::Kind::FrameSlot
-						 || (o.kind == MachineOperand::Kind::Phys && o.phys == rbpPhys))
+					if(o.kind == MachineOperand::Kind::FrameSlot ||
+						 (o.kind == MachineOperand::Kind::Phys && o.phys == rbpPhys))
 						framey = true;
 				for(const MachineOperand& o : in.uses)
-					if(o.kind == MachineOperand::Kind::FrameSlot
-						 || (o.kind == MachineOperand::Kind::Phys && o.phys == rbpPhys))
+					if(o.kind == MachineOperand::Kind::FrameSlot ||
+						 (o.kind == MachineOperand::Kind::Phys && o.phys == rbpPhys))
 						framey = true;
 			}
 		omitFrame = !framey && !hasCall;

@@ -324,7 +324,8 @@ namespace rat::cc {
 						return false;
 				} else if(!initFlatStruct(sink, off, g, els, i, &init->designators))
 					return false;
-				for(++cur; cur < fields.size() && fields[cur].anonMember() && !fields[cur].anonFirst(); ++cur)
+				for(++cur; cur < fields.size() && fields[cur].anonMember() && !fields[cur].anonFirst();
+						++cur)
 					;
 				continue;
 			}

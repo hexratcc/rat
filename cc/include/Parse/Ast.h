@@ -124,11 +124,11 @@ namespace rat::cc {
 
 	struct Field {
 		enum Mods : U8 {
-			Array = 1u << 0,		   // count is the element count
-			Bitfield = 1u << 1,	   // bitWidth/bitOffset are meaningful
-			AnonMember = 1u << 2,  // lifted out of an anonymous struct/union
-			AnonFirst = 1u << 3,	 // first field of its anonymous group
-			AnonUnion = 1u << 4,	 // the anonymous group is a union
+			Array = 1u << 0,			// count is the element count
+			Bitfield = 1u << 1,		// bitWidth/bitOffset are meaningful
+			AnonMember = 1u << 2, // lifted out of an anonymous struct/union
+			AnonFirst = 1u << 3,	// first field of its anonymous group
+			AnonUnion = 1u << 4,	// the anonymous group is a union
 		};
 
 		const String* name = nullptr;

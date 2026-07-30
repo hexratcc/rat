@@ -83,8 +83,7 @@ namespace rat {
 				inputs[1 + (1 - recIdx)] = scaledInit;
 				inputs[1 + recIdx] = scaledInit; // placeholder
 				PhiNode* q = fn.create<PhiNode>(ty, inputs);
-				Node* stepNode =
-						fn.create<BinaryNode>(Opcode::Add, ty, q, constant(fn, ty, scaledStep));
+				Node* stepNode = fn.create<BinaryNode>(Opcode::Add, ty, q, constant(fn, ty, scaledStep));
 				q->setInput(1 + recIdx, stepNode);
 
 				mul->replaceAllUsesWith(q);

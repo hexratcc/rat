@@ -237,15 +237,15 @@ namespace rat {
 				// spilled remat def: drop it, every use re-materializes
 				if(in.defs.size() == 1 && in.defs[0].isVReg()) {
 					VReg dv = in.defs[0].vreg;
-					if(rematDef.find(dv) != rematDef.end() && assignmentOf(dv).spilled
-						 && !slotReadByCall.count(dv)) {
+					if(rematDef.find(dv) != rematDef.end() && assignmentOf(dv).spilled &&
+						 !slotReadByCall.count(dv)) {
 						memo = false;
 						continue;
 					}
 				}
 				// spilled-copy peepholes
-				if(hooks->isCopy && hooks->isCopy(in) && in.defs.size() == 1 && in.uses.size() == 1
-					 && in.defs[0].isVReg() && in.uses[0].isVReg()) {
+				if(hooks->isCopy && hooks->isCopy(in) && in.defs.size() == 1 && in.uses.size() == 1 &&
+					 in.defs[0].isVReg() && in.uses[0].isVReg()) {
 					Assignment da = assignmentOf(in.defs[0].vreg);
 					Assignment ua = assignmentOf(in.uses[0].vreg);
 					if(da.cls == ua.cls && (da.spilled || ua.spilled)) {
@@ -253,8 +253,8 @@ namespace rat {
 							if(da.spillSlot == ua.spillSlot)
 								continue; // slot self-copy
 							PhysReg sc;
-							if(memo && memoCls == ua.cls && memoSlot == ua.spillSlot
-								 && memoWidth == in.uses[0].width) {
+							if(memo && memoCls == ua.cls && memoSlot == ua.spillSlot &&
+								 memoWidth == in.uses[0].width) {
 								sc = memoReg; // forward the just-stored value
 							} else {
 								sc = scratchAt(ua.cls, 0);
@@ -301,8 +301,8 @@ namespace rat {
 						for(const MachineOperand& d : in.defs)
 							if(d.isVReg() && d.vreg == u.vreg)
 								tied = true;
-						if(memo && !tied && useScratch == 0 && memoCls == a.cls
-							 && memoSlot == a.spillSlot && memoWidth == u.width) {
+						if(memo && !tied && useScratch == 0 && memoCls == a.cls && memoSlot == a.spillSlot &&
+							 memoWidth == u.width) {
 							u = MachineOperand::fixed(memoReg, u.width);
 							++useScratch; // reserve index 0 in case memoReg is scratch 0
 							continue;
@@ -338,8 +338,8 @@ namespace rat {
 				if(!spills.empty() && !in.isCall) {
 					const MachineInstr& last = out.back();
 					// makeSpill shape: uses[0] = frame slot, uses[1] = source register
-					if(last.uses.size() == 2 && last.uses[0].kind == MachineOperand::Kind::FrameSlot
-						 && last.uses[1].kind == MachineOperand::Kind::Phys) {
+					if(last.uses.size() == 2 && last.uses[0].kind == MachineOperand::Kind::FrameSlot &&
+						 last.uses[1].kind == MachineOperand::Kind::Phys) {
 						memo = true;
 						memoSlot = last.uses[0].slot;
 						memoReg = last.uses[1].phys;

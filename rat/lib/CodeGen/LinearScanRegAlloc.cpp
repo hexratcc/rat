@@ -304,8 +304,8 @@ namespace rat {
 					}
 				if(shared)
 					continue;
-				if(!victim || costOf(a) < costOf(victim)
-					 || (costOf(a) == costOf(victim) && a->end > victim->end))
+				if(!victim || costOf(a) < costOf(victim) ||
+					 (costOf(a) == costOf(victim) && a->end > victim->end))
 					victim = a;
 			}
 

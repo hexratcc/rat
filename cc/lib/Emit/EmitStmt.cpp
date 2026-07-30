@@ -12,8 +12,8 @@ namespace rat::cc {
 															const Expr* e,
 															Function::Block* trueB,
 															Function::Block* falseB) {
-		if(e->kind == ExprKind::Binary
-			 && (e->binary.op == ExprOp::LogAnd || e->binary.op == ExprOp::LogOr)) {
+		if(e->kind == ExprKind::Binary &&
+			 (e->binary.op == ExprOp::LogAnd || e->binary.op == ExprOp::LogOr)) {
 			B32 isAnd = e->binary.op == ExprOp::LogAnd;
 			Function::Block* rhsB = fn.createBlock(isAnd ? "and.rhs" : "or.rhs");
 			if(!emitCondBranch(fn, e->binary.lhs, isAnd ? rhsB : trueB, isAnd ? falseB : rhsB))

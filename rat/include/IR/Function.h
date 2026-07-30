@@ -58,7 +58,7 @@ namespace rat {
 			B32 active = false; // ctrl established
 			B32 loopHeader = false;
 			B32 finished = false; // ended in a terminator
-			List<Node*> defs;										// current SSA value per Var
+			List<Node*> defs;			// current SSA value per Var
 			List<std::pair<U32, PhiNode*>> incompletePhis;
 		};
 
@@ -110,8 +110,7 @@ namespace rat {
 		Node* allocVLA(Type* type, Node* byteCount);
 
 		Node* call(const String& callee, Type* retType, const List<Node*>& args, B32 varArgs = true);
-		Node*
-		callIndirect(Node* target, Type* retType, const List<Node*>& args, B32 varArgs = true);
+		Node* callIndirect(Node* target, Type* retType, const List<Node*>& args, B32 varArgs = true);
 
 		// control
 		IfNode* iff(Node* predicate);

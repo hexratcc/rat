@@ -117,10 +117,10 @@ namespace rat {
 	void X86LowerPass::maskBits(VReg d, U32 bits) {
 		if(bits > 0 && bits < 64) {
 			MachineInstr& m = inst(X86Op::MaskBits,
-					 detail::kGp,
-					 {MachineOperand::vr(d)},
-					 {MachineOperand::vr(d)},
-					 (I64)bits);
+														 detail::kGp,
+														 {MachineOperand::vr(d)},
+														 {MachineOperand::vr(d)},
+														 (I64)bits);
 			if(bits > 32)
 				m.clobbers = {gpReg(R11)}; // mask built via scratch reg
 		}
