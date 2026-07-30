@@ -290,7 +290,7 @@ namespace rat {
 				}
 				continue;
 			}
-			B32 isData = nd.type == STT_FUNC;
+			B32 isData = nd.type == STT_OBJECT;
 			Import& im = intern(needNames[i], isData ? Import::Data : Import::Func);
 			if(isData)
 				im.size = nd.size;
