@@ -169,7 +169,7 @@ namespace rat {
 		size[OData] = bucketSize[BData];
 		size[OTdata] = bucketSize[BTdata];
 		size[OGot] = (U64)gotSlots.size() * 8;
-		size[OGotPlt] = (U64)(2 + nFunc) * 8;
+		size[OGotPlt] = (U64)(3 + nFunc) * 8;
 		size[OHash] = (U64)(2 + nDyn + nDyn) * 4;
 		{
 			U64 n = 1;
