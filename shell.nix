@@ -7,5 +7,6 @@ pkgs.mkShell {
 		pkgs.gcc
 		pkgs.gnumake
 		pkgs.clang-tools
+		pkgs.cmake
 	];
 }

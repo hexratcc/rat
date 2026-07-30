@@ -43,6 +43,12 @@ target_link_libraries(rat-driver PRIVATE rat)
 add_executable(rat-test rat/test/Runner.cpp)
 target_link_libraries(rat-test PRIVATE rat testkit)
 
+add_library(ratllib STATIC ratl/Linker.cpp ratl/ElfWrite.cpp ratl/ElfRead.cpp)
+target_include_directories(ratllib PUBLIC ratl)
+target_link_libraries(ratllib PUBLIC base)
+add_executable(ratl ratl/main.cpp)
+target_link_libraries(ratl PRIVATE ratllib)
+
 # ratcc
 file(GLOB_RECURSE CC_BUILTIN_HEADERS CONFIGURE_DEPENDS cc/headers/*.h)
 set(CC_HEADERS_INC ${CMAKE_BINARY_DIR}/generated/BuiltinHeaders.inc)
@@ -108,6 +114,7 @@ endif()
 
 # format
 file(GLOB_RECURSE RAT_FORMAT_SOURCES CONFIGURE_DEPENDS
+		 base/*.h testkit/*.cpp testkit/*.h ratl/*.cpp ratl/*.h
 		 rat/lib/*.cpp rat/include/*.h rat/test/*.cpp
 		 cc/lib/*.cpp cc/include/*.h cc/test/*.cpp)
 add_custom_target(format
