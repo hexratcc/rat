@@ -298,6 +298,49 @@ namespace rat {
 		return true;
 	}
 
+	void Linker::assignGot() {
+		// got slot per gotpcrel-family ref
+		auto want = [](U32 t) {
+			return t == R_X86_64_GOTPCREL || t == R_X86_64_GOTPCRELX || t == R_X86_64_REX_GOTPCRELX ||
+						 t == R_X86_64_GOTTPOFF;
+		};
+		for(U32 oi = 0; oi < objs.size(); ++oi) {
+			const InObject& obj = objs[oi];
+			for(const InRel& r : obj.rels) {
+				if(!want(r.type))
+					continue;
+				const InSym& s = obj.syms[r.sym];
+				String key;
+				B32 isImport = false;
+				U32 dynIdx = 0;
+				if(!s.undef && s.bind == STB_LOCAL) {
+					key = "L:" + std::to_string(oi) + ":" + std::to_string(r.sym);
+				} else if(globals.count(s.name)) {
+					key = "G:" + s.name;
+				} else {
+					auto im = importIndex.find(s.name);
+					if(im != importIndex.end()) {
+						key = "G:" + s.name;
+						isImport = true;
+						dynIdx = im->second; // dynindex resolved after layout
+					} else {
+						key = "G:" + s.name; // unresolved weak, defined 0
+					}
+				}
+				if(gotIndex.count(key))
+					continue;
+				U32 idx = (U32)gotSlots.size();
+				gotIndex.emplace(key, idx);
+				GotSlot g;
+				g.isImport = isImport;
+				g.defined = !isImport;
+				if(isImport)
+					g.dynIndex = dynIdx; // patched in write()
+				gotSlots.push_back(g);
+			}
+		}
+	}
+
 	B32 Linker::run() {
 		interp = !opt.interp.empty() ? opt.interp : hostLoader();
 		if(interp.empty())
@@ -312,6 +355,7 @@ namespace rat {
 		collectGlobals();
 		if(!resolveExternals())
 			return false;
+		assignGot();
 		return true;
 	}
 
