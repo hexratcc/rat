@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <fstream>
+#include <sys/stat.h>
 
 namespace rat {
 	using namespace elf;
@@ -219,5 +220,140 @@ namespace rat {
 				++o;
 		}
 		return true;
+	}
+
+	B32 loadLibrary(const String& path, Lib& lib, String& err) {
+		std::ifstream f(path, std::ios::binary);
+		auto fail = [&](const char* what) {
+			err = String(what) + " '" + path + "'";
+			return false;
+		};
+		if(!f)
+			return fail("cannot read library");
+
+		U8 eh[64];
+		f.read((char*)eh, 64);
+		if(!f || eh[0] != 0x7f || eh[1] != 'E' || eh[2] != 'L' || eh[3] != 'F' || eh[4] != ELFCLASS64 ||
+			 eh[5] != ELFDATA2LSB)
+			return fail("not a 64-bit LE ELF library");
+		U64 shoff = rd64(eh + 40);
+		if(rd16(eh + 58) != 64)
+			return fail("bad section header size in");
+		U32 shnum = rd16(eh + 60);
+
+		List<U8> sh(shnum * 64);
+		f.seekg((std::streamoff)shoff);
+		f.read((char*)sh.data(), (std::streamsize)sh.size());
+		if(!f)
+			return fail("truncated section headers in");
+
+		U64 symOff = 0, symSize = 0, strOff = 0, strSize = 0;
+		for(U32 i = 0; i < shnum; ++i) {
+			const U8* p = &sh[(U64)i * 64];
+			if(rd32(p + 4) != SHT_DYNSYM)
+				continue;
+			symOff = rd64(p + 24);
+			symSize = rd64(p + 32);
+			U32 link = rd32(p + 40);
+			if(link < shnum) {
+				const U8* d = &sh[(U64)link * 64];
+				strOff = rd64(d + 24);
+				strSize = rd64(d + 32);
+			}
+			break;
+		}
+		if(!symSize || !strSize)
+			return fail("no dynamic symbol table in");
+
+		lib.dynsym.resize(symSize);
+		f.seekg((std::streamoff)symOff);
+		f.read((char*)lib.dynsym.data(), (std::streamsize)symSize);
+		lib.dynstr.resize(strSize);
+		f.seekg((std::streamoff)strOff);
+		f.read((char*)lib.dynstr.data(), (std::streamsize)strSize);
+		if(!f)
+			return fail("truncated dynamic tables in");
+
+		lib.soname = path.substr(path.find_last_of('/') + 1);
+		return true;
+	}
+
+	B32 findLibrary(const String& l, const List<String>& paths, String& found) {
+		const char* suffixes[] = {".so.6", ".so.1", ".so"};
+		for(const String& dir : paths) {
+			String base = dir;
+			if(!base.empty() && base.back() != '/')
+				base += '/';
+			for(const char* suf : suffixes) {
+				String cand = base + "lib" + l + suf;
+				struct stat st;
+				if(stat(cand.c_str(), &st) == 0) {
+					found = cand;
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	// probe host loader/libdirs from /proc/self (fhs-independent); only when opt empty
+
+	// loader from ratl's own PT_INTERP, empty on failure
+	const String& hostLoader() {
+		static const String p = [] {
+			std::ifstream f("/proc/self/exe", std::ios::binary);
+			if(!f)
+				return String();
+			U8 eh[64];
+			if(!f.read((char*)eh, 64))
+				return String();
+			U64 phoff = rd64(eh + 32);
+			U16 phentsize = rd16(eh + 54);
+			U16 phnum = rd16(eh + 56);
+			for(U16 i = 0; i < phnum; ++i) {
+				U8 ph[56];
+				f.seekg((std::streamoff)(phoff + (U64)i * phentsize));
+				if(!f.read((char*)ph, 56))
+					break;
+				if(rd32(ph) != PT_INTERP)
+					continue;
+				U64 off = rd64(ph + 8), sz = rd64(ph + 32);
+				if(!sz || sz > 4096)
+					break;
+				String s(sz, '\0');
+				f.seekg((std::streamoff)off);
+				if(!f.read(&s[0], (std::streamsize)sz))
+					break;
+				if(!s.empty() && s.back() == '\0')
+					s.pop_back();
+				return s;
+			}
+			return String();
+		}();
+		return p;
+	}
+
+	// dirs of libs ratl has mapped, first-seen order
+	const List<String>& hostLibDirs() {
+		static const List<String> dirs = [] {
+			List<String> out;
+			Set<String> seen;
+			std::ifstream f("/proc/self/maps");
+			String line;
+			while(std::getline(f, line)) {
+				auto slash = line.find('/');
+				if(slash == String::npos)
+					continue;
+				String path = line.substr(slash);
+				auto base = path.find_last_of('/');
+				if(base == String::npos || path.find(".so", base) == String::npos)
+					continue;
+				String dir = path.substr(0, base);
+				if(seen.insert(dir).second)
+					out.push_back(dir);
+			}
+			return out;
+		}();
+		return dirs;
 	}
 } // namespace rat

@@ -67,12 +67,42 @@ namespace rat {
 		Set<U64> pulled;
 	};
 
+	// shared lib, resident only for its dynsym
+	struct Lib {
+		String soname;
+		List<U8> dynsym;
+		List<U8> dynstr;
+	};
+
+	// external symbol from a shared lib
+	struct Import {
+		enum Kind { Func, Data } kind;
+		U32 dynIndex = 0; // index in .dynsym
+		U64 addr = 0;			// PLT stub (Func) or .bss COPY (Data)
+		U64 size = 0;
+		U32 pltIndex = 0;
+	};
+
+	// GOT slot for a GOTPCREL-family reloc
+	struct GotSlot {
+		B32 isImport = false; // needs GLOB_DAT
+		U32 dynIndex = 0;			// imports
+		U64 addr = 0;					// defined targets, filled at write
+		B32 defined = false;
+	};
+
 	B32 readWhole(const String& path, List<U8>& out);
 
 	B32 loadObject(List<U8> img, const String& path, InObject& obj, String& err);
 
 	U64 arMemberSize(const List<U8>& d, U64 hdrOff);
 	B32 parseArchive(const String& path, List<U8> bytes, ArchiveFile& ar, String& err);
+	B32 loadLibrary(const String& path, Lib& lib, String& err);
+	B32 findLibrary(const String& l, const List<String>& paths, String& found);
+
+	// host loader + lib dirs probed from ratl's own image, used when opt empty
+	const String& hostLoader();
+	const List<String>& hostLibDirs();
 } // namespace rat
 
 #endif
