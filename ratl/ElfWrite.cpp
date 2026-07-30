@@ -97,6 +97,104 @@ namespace rat {
 	} // namespace
 
 	// .eh_frame_hdr: header + pc-sorted (initial_location, fde) table for bsearch
+	void Linker::buildEhFrameHdr() {
+		ehFrameHdr.clear();
+		const List<U8>& m = merged[BEhFrame];
+		U64 ehVa = vaddr[OEhFrame];
+		U64 hdrVa = vaddr[OEhFrameHdr];
+
+		Map<U64, U8> cieFdeEnc;					 // cie off -> fde ptr enc
+		List<std::pair<U64, U64>> table; // (initial_location va, fde va)
+
+		U64 off = 0;
+		while(off + 4 <= m.size()) {
+			U32 len = rd32(&m[off]);
+			if(len == 0) {
+				off += 4;
+				continue;
+			}
+			if(len == 0xffffffff)
+				break;
+			U64 recStart = off;
+			U64 idOff = off + 4;
+			U32 id = rd32(&m[idOff]);
+			U64 recEnd = idOff + len;
+			if(id == 0) {
+				// cie: parse augmentation for 'R' fde ptr enc
+				U64 i = idOff + 4;
+				U8 ver = m[i++];
+				(void)ver;
+				const char* aug = (const char*)&m[i];
+				U64 augLen = 0;
+				while(m[i + augLen])
+					++augLen;
+				U64 augStart = i;
+				i += augLen + 1;
+				readUleb(m.data(), i); // code align
+				readSleb(m.data(), i); // data align
+				readUleb(m.data(), i); // ra reg
+				U8 fdeEnc = 0x00;			 // absptr default
+				if(aug[0] == 'z') {
+					readUleb(m.data(), i); // aug data len
+					for(U64 a = 1; a < augLen; ++a) {
+						char c = ((const char*)&m[augStart])[a];
+						if(c == 'L') {
+							++i; // lsda enc byte
+						} else if(c == 'P') {
+							U8 penc = m[i++];
+							i += encSize(penc); // personality ptr
+						} else if(c == 'R') {
+							fdeEnc = m[i++];
+						} else if(c == 'S') {
+							// signal frame, no data
+						}
+					}
+				}
+				cieFdeEnc[recStart] = fdeEnc;
+			} else {
+				// fde: cie ptr = idOff - id
+				U64 cieStart = idOff - id;
+				U8 fdeEnc = 0x00;
+				auto it = cieFdeEnc.find(cieStart);
+				if(it != cieFdeEnc.end())
+					fdeEnc = it->second;
+				U64 pcOff = idOff + 4; // offset in .eh_frame
+				U64 pcFieldVa = ehVa + pcOff;
+				I64 raw = 0;
+				U32 sz = encSize(fdeEnc);
+				if((fdeEnc & 0x0f) == 0x0b || (fdeEnc & 0x0f) == 0x0a || (fdeEnc & 0x0f) == 0x0c)
+					raw = (I64)signExtend((I64)rd64(&m[pcOff]) & ((sz == 4) ? 0xffffffffull : ~0ull), sz * 8);
+				else if(sz == 4)
+					raw = (I64)(I32)rd32(&m[pcOff]);
+				else
+					raw = (I64)rd64(&m[pcOff]);
+				U64 pcVa;
+				if((fdeEnc & 0x70) == 0x10) // pcrel
+					pcVa = (U64)((I64)pcFieldVa + raw);
+				else
+					pcVa = (U64)raw; // absolute (filled by reloc)
+				table.push_back({pcVa, ehVa + recStart});
+			}
+			off = recEnd;
+		}
+
+		std::sort(table.begin(), table.end());
+
+		auto put32 = [&](U32 v) {
+			for(U32 k = 0; k < 4; ++k)
+				ehFrameHdr.push_back((U8)(v >> (k * 8)));
+		};
+		ehFrameHdr.push_back(1);		// version
+		ehFrameHdr.push_back(0x1b); // eh_frame_ptr: pcrel sdata4
+		ehFrameHdr.push_back(0x03); // fde_count: udata4
+		ehFrameHdr.push_back(0x3b); // table: datarel sdata4
+		put32((U32)(I32)((I64)ehVa - (I64)(hdrVa + 4)));
+		put32((U32)table.size());
+		for(auto& e : table) {
+			put32((U32)(I32)((I64)e.first - (I64)hdrVa));
+			put32((U32)(I32)((I64)e.second - (I64)hdrVa));
+		}
+	}
 
 	void Linker::layout() {
 		// 1. concat kept sections into buckets, assign offsets; _start last in .text

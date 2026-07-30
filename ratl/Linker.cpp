@@ -383,6 +383,8 @@ namespace rat {
 		layout();
 		if(!applyRelocs())
 			return false;
+		if(size[OEhFrameHdr])
+			buildEhFrameHdr();
 		return true;
 	}
 
