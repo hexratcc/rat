@@ -133,8 +133,8 @@ namespace rat {
 			InSym s;
 			s.name = (const char*)(strtab + rd32(p));
 			U8 info = p[4];
-			s.bind = (U8)(info & 0xf);
-			s.type = (U8)(info >> 4);
+			s.bind = (U8)(info >> 4);
+			s.type = (U8)(info & 0xf);
 			s.other = (U8)(p[5] & 0x3);
 			U16 shndx = rd16(p + 6);
 			s.shndx = shndx;
