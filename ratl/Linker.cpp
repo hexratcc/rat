@@ -9,6 +9,32 @@ namespace rat {
 
 	namespace {
 		constexpr const char* kInterp = "/lib64/ld-linux-x86-64.so.2";
+
+		B32 isLinkerSym(const String& n) {
+			static const char* names[] = {"__dso_handle",
+																		"_GLOBAL_OFFSET_TABLE_",
+																		"__init_array_start",
+																		"__init_array_end",
+																		"__preinit_array_start",
+																		"__preinit_array_end",
+																		"__fini_array_start",
+																		"__fini_array_end",
+																		"__bss_start",
+																		"_edata",
+																		"edata",
+																		"_end",
+																		"end",
+																		"__end__",
+																		"__ehdr_start",
+																		"_DYNAMIC",
+																		"__data_start",
+																		"data_start",
+																		"__TMC_END__"};
+			for(const char* s : names)
+				if(n == s)
+					return true;
+			return false;
+		}
 	} // namespace
 
 	Import& Linker::intern(const String& name, Import::Kind kind) {
@@ -135,6 +161,143 @@ namespace rat {
 		return true;
 	}
 
+	void Linker::collectGlobals() {
+		// pick defining object per global
+		for(U32 oi = 0; oi < objs.size(); ++oi) {
+			const InObject& obj = objs[oi];
+			for(U32 si = 0; si < obj.syms.size(); ++si) {
+				const InSym& s = obj.syms[si];
+				if(s.undef || s.bind == STB_LOCAL || s.abs)
+					continue;
+				Def& d = globals[s.name];
+				if(s.common) {
+					if(d.defined && !d.common)
+						continue; // real def beats tentative
+					d.common = true;
+					d.defined = true;
+					if(s.size > d.comSize)
+						d.comSize = s.size;
+					if(s.value > d.comAlign)
+						d.comAlign = s.value ? s.value : 1;
+					d.isFunc = false;
+					continue;
+				}
+				B32 weak = s.bind == STB_WEAK;
+				if(d.defined && !d.common) {
+					// only a strong replaces an existing weak
+					B32 existingWeak = d.obj != 0xffffffffu && objs[d.obj].syms[d.sym].bind == STB_WEAK;
+					if(!(existingWeak && !weak))
+						continue;
+				}
+				d.common = false;
+				d.defined = true;
+				d.obj = oi;
+				d.sym = si;
+				d.isFunc = s.type == STT_FUNC || s.type == STT_GNU_IFUNC;
+				d.isTls = s.type == STT_TLS;
+			}
+		}
+	}
+
+	B32 Linker::resolveExternals() {
+		struct Need {
+			B32 required = false;
+			B32 found = false;
+			U8 type = STT_NOTYPE;
+			U64 size = 0;
+		};
+		Arena names;
+		Map<std::string_view, U32> needIndex;
+		List<String> needNames;
+		List<Need> needs;
+		auto note = [&](std::string_view name) -> Need& {
+			auto it = needIndex.find(name);
+			if(it != needIndex.end())
+				return needs[it->second];
+			const C8* stable = names.internString(name.data(), name.size());
+			U32 idx = (U32)needNames.size();
+			needIndex.emplace(std::string_view(stable, name.size()), idx);
+			needNames.emplace_back(name);
+			needs.push_back({});
+			return needs[idx];
+		};
+		note("__libc_start_main").required = true;
+
+		for(const InObject& obj : objs) {
+			for(const InRel& r : obj.rels) {
+				const InSym& s = obj.syms[r.sym];
+				if(!s.undef || globals.count(s.name))
+					continue;
+				if(s.name.empty() || isLinkerSym(s.name))
+					continue;
+				if(s.bind != STB_WEAK)
+					note(s.name).required = true;
+				else
+					note(s.name);
+			}
+		}
+		U32 totalRequired = 0;
+		for(const Need& nd : needs)
+			totalRequired += nd.required ? 1 : 0;
+
+		U32 foundRequired = 0;
+		for(const String& path : libFiles) {
+			if(foundRequired == totalRequired)
+				break;
+			Lib lib;
+			if(!loadLibrary(path, lib, err))
+				return false;
+			B32 used = false;
+			U32 n = (U32)(lib.dynsym.size() / 24);
+			const U8* syms = lib.dynsym.data();
+			const char* strs = (const char*)lib.dynstr.data();
+			U64 strMax = lib.dynstr.size();
+			for(U32 i = 0; i < n; ++i) {
+				const U8* p = syms + (U64)i * 24;
+				if(rd16(p + 6) == SHN_UNDEF)
+					continue;
+				U8 bind = (U8)(p[4] >> 4);
+				if(bind != STB_GLOBAL && bind != STB_WEAK && bind != STB_GNU_UNIQUE)
+					continue;
+				U32 nameOff = rd32(p);
+				if(nameOff >= strMax || !strs[nameOff])
+					continue;
+				auto it = needIndex.find(strs + nameOff);
+				if(it == needIndex.end() || needs[it->second].found)
+					continue;
+				Need& nd = needs[it->second];
+				nd.found = true;
+				nd.type = (U8)(p[4] & 0xf);
+				nd.size = rd64(p + 16);
+				used = true;
+				if(nd.required)
+					foundRequired++;
+			}
+			if(used)
+				neededLibs.push_back(lib.soname);
+		}
+
+		for(U32 i = 0; i < needNames.size(); ++i) {
+			const Need& nd = needs[i];
+			if(!nd.found) {
+				if(needNames[i] == "__libc_start_main") {
+					err = "libc is missing __libc_start_main";
+					return false;
+				}
+				if(nd.required) {
+					err = "undefined symbol '" + needNames[i] + "'";
+					return false;
+				}
+				continue;
+			}
+			B32 isData = nd.type == STT_FUNC;
+			Import& im = intern(needNames[i], isData ? Import::Data : Import::Func);
+			if(isData)
+				im.size = nd.size;
+		}
+		return true;
+	}
+
 	B32 Linker::run() {
 		interp = !opt.interp.empty() ? opt.interp : hostLoader();
 		if(interp.empty())
@@ -145,6 +308,9 @@ namespace rat {
 		if(!pullArchives())
 			return false;
 		if(!loadLibraries())
+			return false;
+		collectGlobals();
+		if(!resolveExternals())
 			return false;
 		return true;
 	}
