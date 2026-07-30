@@ -396,7 +396,7 @@ namespace rat {
 				case R_X86_64_PC32:
 				case R_X86_64_PLT32:
 				case R_X86_64_GOT32: // pc-rel to symbol (small model)
-					put32(b, patchOff, (U32)(I32)((I64)S + A));
+					put32(b, patchOff, (U32)(I32)((I64)S + A - (I64)P));
 					break;
 				case R_X86_64_PC64:
 					put64(b, patchOff, (U64)((I64)S + A - (I64)P));
