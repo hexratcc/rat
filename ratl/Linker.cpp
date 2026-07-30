@@ -380,6 +380,7 @@ namespace rat {
 			return false;
 		assignGot();
 		buildStart();
+		layout();
 		return true;
 	}
 
