@@ -341,6 +341,29 @@ namespace rat {
 		}
 	}
 
+	void Linker::buildStart() {
+		auto emit = [&](std::initializer_list<U8> b) {
+			for(U8 x : b)
+				startCode.push_back(x);
+		};
+		emit({0x31, 0xed});							// xor  ebp, ebp
+		emit({0x49, 0x89, 0xd1});				// mov  r9, rdx
+		emit({0x5e});										// pop  rsi
+		emit({0x48, 0x89, 0xe2});				// mov  rdx, rsp
+		emit({0x48, 0x83, 0xe4, 0xf0}); // and  rsp, -16
+		emit({0x50});										// push rax
+		emit({0x54});										// push rsp
+		emit({0x45, 0x31, 0xc0});				// xor  r8d, r8d
+		emit({0x31, 0xc9});							// xor  ecx, ecx
+		emit({0x48, 0x8d, 0x3d});				// lea  rdi, [rip+disp32]
+		startLeaDisp = startCode.size();
+		emit({0, 0, 0, 0});
+		emit({0xe8}); // call rel32
+		startCallDisp = startCode.size();
+		emit({0, 0, 0, 0});
+		emit({0xf4}); // hlt
+	}
+
 	B32 Linker::run() {
 		interp = !opt.interp.empty() ? opt.interp : hostLoader();
 		if(interp.empty())
@@ -356,6 +379,7 @@ namespace rat {
 		if(!resolveExternals())
 			return false;
 		assignGot();
+		buildStart();
 		return true;
 	}
 
