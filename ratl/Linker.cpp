@@ -381,6 +381,8 @@ namespace rat {
 		assignGot();
 		buildStart();
 		layout();
+		if(!applyRelocs())
+			return false;
 		return true;
 	}
 

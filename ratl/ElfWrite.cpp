@@ -310,4 +310,176 @@ namespace rat {
 		linkerSyms["data_start"] = vaddr[OData];
 		linkerSyms["__TMC_END__"] = vaddr[OData];
 	}
+	B32 Linker::symbolTarget(const InObject& obj, U32 symIdx, U64& addr, B32& isFunc, B32& isTls) {
+		const InSym& s = obj.syms[symIdx];
+		isTls = s.type == STT_TLS;
+		if(s.abs) {
+			addr = s.value;
+			isFunc = false;
+			return true;
+		}
+		if(!s.undef && s.bind == STB_LOCAL && !s.common) {
+			const InSection& sec = obj.sections[s.shndx];
+			if(isTls)
+				addr = sec.outOff + s.value;
+			else
+				addr = bucketVaddr[sec.bucket] + sec.outOff + s.value;
+			isFunc = s.type == STT_FUNC || s.type == STT_GNU_IFUNC;
+			return true;
+		}
+		auto g = globals.find(s.name);
+		if(g != globals.end() && g->second.defined) {
+			addr = g->second.addr;
+			isFunc = g->second.isFunc;
+			isTls = g->second.isTls;
+			return true;
+		}
+		auto im = importIndex.find(s.name);
+		if(im != importIndex.end()) {
+			const Import& imp = imports[im->second];
+			addr = imp.addr;
+			isFunc = imp.kind == Import::Func;
+			return true;
+		}
+		auto ls = linkerSyms.find(s.name);
+		if(ls != linkerSyms.end()) {
+			addr = ls->second;
+			isFunc = false;
+			return true;
+		}
+		if(s.bind == STB_WEAK) {
+			addr = 0;
+			isFunc = false;
+			return true;
+		}
+		err = "unresolved symbol '" + s.name + "'";
+		return false;
+	}
+
+	B32 Linker::applyRelocs() {
+		auto put16 = [&](U8 bucket, U64 off, U16 v) {
+			U8* p = &merged[bucket][off];
+			p[0] = (U8)v;
+			p[1] = (U8)(v >> 8);
+		};
+		auto put32 = [&](U8 bucket, U64 off, U32 v) {
+			U8* p = &merged[bucket][off];
+			for(U32 i = 0; i < 4; ++i)
+				p[i] = (U8)(v >> (i * 8));
+		};
+		auto put64 = [&](U8 bucket, U64 off, U64 v) {
+			U8* p = &merged[bucket][off];
+			for(U32 i = 0; i < 8; ++i)
+				p[i] = (U8)(v >> (i * 8));
+		};
+		U64 tlsBlockSize = size[OTdata] + size[OTbss];
+		U64 tlsAlignedSize = (tlsBlockSize + 15) & ~15ull;
+
+		for(U32 oi = 0; oi < objs.size(); ++oi) {
+			const InObject& obj = objs[oi];
+			for(const InRel& r : obj.rels) {
+				const InSection& rsec = obj.sections[r.secIdx];
+				U8 b = rsec.bucket;
+				if(b == BBss || b == BTbss)
+					continue; // nobits carries no relocs
+				U64 patchOff = rsec.outOff + r.offset;
+				U64 P = bucketVaddr[b] + patchOff;
+				U64 S = 0;
+				B32 isFunc = false, isTls = false;
+				if(!symbolTarget(obj, r.sym, S, isFunc, isTls))
+					return false;
+				I64 A = r.addend;
+				switch(r.type) {
+				case R_X86_64_64:
+					put64(b, patchOff, (U64)((I64)S + A));
+					break;
+				case R_X86_64_PC32:
+				case R_X86_64_PLT32:
+				case R_X86_64_GOT32: // pc-rel to symbol (small model)
+					put32(b, patchOff, (U32)(I32)((I64)S + A));
+					break;
+				case R_X86_64_PC64:
+					put64(b, patchOff, (U64)((I64)S + A - (I64)P));
+					break;
+				case R_X86_64_32:
+					put32(b, patchOff, (U32)((I64)S + A));
+					break;
+				case R_X86_64_32S:
+					put32(b, patchOff, (U32)(I32)((I64)S + A));
+					break;
+				case R_X86_64_16:
+					put16(b, patchOff, (U16)((I64)S + A));
+					break;
+				case R_X86_64_SIZE32:
+					put32(b, patchOff, (U32)((I64)obj.syms[r.sym].size + A));
+					break;
+				case R_X86_64_SIZE64:
+					put64(b, patchOff, (U64)((I64)obj.syms[r.sym].size + A));
+					break;
+				case R_X86_64_GOTPCREL:
+				case R_X86_64_GOTPCRELX:
+				case R_X86_64_REX_GOTPCRELX: {
+					const InSym& s = obj.syms[r.sym];
+					String key;
+					if(!s.undef && s.bind == STB_LOCAL)
+						key = "L:" + std::to_string(oi) + ":" + std::to_string(r.sym);
+					else
+						key = "G:" + s.name;
+					U32 slot = gotIndex[key];
+					if(!gotSlots[slot].isImport)
+						gotSlots[slot].addr = S; // defined: slot holds addr
+					U64 gAddr = vaddr[OGot] + (U64)slot * 8;
+					put32(b, patchOff, (U32)(I32)((I64)gAddr + A - (I64)P));
+					break;
+				}
+				case R_X86_64_TPOFF32: {
+					// local-exec: neg offset from tp (end of tls block); S is block-relative
+					I64 tp = (I64)S + A - (I64)tlsAlignedSize;
+					put32(b, patchOff, (U32)(I32)tp);
+					break;
+				}
+				case R_X86_64_GOTTPOFF: {
+					// initial-exec: got slot holds tpoff (local-exec offset), ref is pc-rel to slot
+					const InSym& s = obj.syms[r.sym];
+					String key;
+					if(!s.undef && s.bind == STB_LOCAL)
+						key = "L:" + std::to_string(oi) + ":" + std::to_string(r.sym);
+					else
+						key = "G:" + s.name;
+					U32 slot = gotIndex[key];
+					I64 tp = (I64)S - (I64)tlsAlignedSize;
+					gotSlots[slot].addr = (U64)tp;
+					gotSlots[slot].defined = true;
+					gotSlots[slot].isImport = false;
+					U64 gAddr = vaddr[OGot] + (U64)slot * 8;
+					put32(b, patchOff, (U32)(I32)((I64)gAddr + A - (I64)P));
+					break;
+				}
+				default:
+					err = "unsupported relocation type " + std::to_string(r.type) + " in " + obj.path;
+					return false;
+				}
+			}
+		}
+
+		// _start fixups (main + __libc_start_main)
+		U64 startVaddr = vaddr[OText] + (size[OText] - startCode.size());
+		auto g = globals.find(opt.entry);
+		if(g == globals.end() || !g->second.defined) {
+			err = "entry symbol '" + opt.entry + "' is undefined";
+			return false;
+		}
+		U64 mainAddr = g->second.addr;
+		U64 lsmAddr = imports[importIndex["__libc_start_main"]].addr;
+		U64 leaVaddr = startVaddr + startLeaDisp;
+		U64 callVaddr = startVaddr + startCallDisp;
+		I32 leaDisp = (I32)((I64)mainAddr - (I64)(leaVaddr + 4));
+		I32 callDisp = (I32)((I64)lsmAddr - (I64)(callVaddr + 4));
+		U64 startFileOff = size[OText] - startCode.size();
+		for(U32 i = 0; i < 4; ++i) {
+			merged[BText][startFileOff + startLeaDisp + i] = (U8)((U32)leaDisp >> (i * 8));
+			merged[BText][startFileOff + startCallDisp + i] = (U8)((U32)callDisp >> (i * 8));
+		}
+		return true;
+	}
 } // namespace rat
