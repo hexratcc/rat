@@ -6,6 +6,7 @@
 #include "Emit/Emit.h"
 #include "Lex/Preprocess.h"
 #include "Lex/TokenStream.h"
+#include "Linker.h"
 #include "Parse/Parser.h"
 #include <atomic>
 #include <cstdio>
@@ -204,8 +205,52 @@ namespace {
 		String compileArgs;
 	};
 
+	B32 compileCToObject(const String& source,
+											 const String& name,
+											 const String& objPath,
+											 String& err) {
+		PpOptions pp;
+		pp.includeDirs.push_back(builtinIncludeDir());
+		String full = builtinPredefs(hostTargetTriple()) + "#line 1 \"" + name + "\"\n" + source;
+		TokenStream ts;
+		if(!preprocessToTokens(name, full, pp, ts, err))
+			return false;
+		Arena arena;
+		const TargetLayout lay = TargetLayout::forTriple(hostTargetTriple());
+		Parser parser(ts, arena, lay);
+		TransUnit* unit = parser.parseUnit();
+		if(!unit) {
+			err = parser.error();
+			return false;
+		}
+		Module mod;
+		Emitter emitter(mod, lay);
+		if(!emitter.emit(*unit)) {
+			err = emitter.error();
+			return false;
+		}
+		std::ofstream of(objPath, std::ios::binary);
+		if(!of) {
+			err = "cannot write '" + objPath + "'";
+			return false;
+		}
+		CompileOptions copt;
+		copt.backend = Backend::X86;
+		X86Target target(hostTargetTriple());
+		compileModule(mod, target, copt, of);
+		return true;
+	}
+
+	B32 ratLink(const List<String>& objs, const String& exe, String& err) {
+		LinkOptions lopt;
+		lopt.inputs = objs;
+		lopt.output = exe;
+		return link(lopt, err);
+	}
+
 	B32 runBackend(const char* tag,
 								 const Delegate<B32(const String& base, Artifact&, String&)>& makeArtifact,
+								 B32 useRat,
 								 I32& out,
 								 String& capturedOut,
 								 String& err) {
@@ -217,7 +262,7 @@ namespace {
 #endif
 		basess << tempDir() << "/ratcc_" << tag << "_" << pid << "_" << tempCounter++;
 		String base = basess.str();
-		String wpath = base + ".wrap.c";
+		String wpath = base + (useRat ? ".wrap.o" : ".wrap.c");
 		String xpath = base + (targetIsWindows() ? ".exe" : ".out");
 		String rpath = base + ".ret";
 
@@ -232,38 +277,53 @@ namespace {
 			std::remove(rpath.c_str());
 		};
 
-		{
+		std::ostringstream wrapss;
+		wrapss << "#include <stdio.h>\n"
+					 << "#ifdef _WIN32\n"
+					 << "#include <fcntl.h>\n"
+					 << "#include <io.h>\n"
+					 << "#endif\n"
+					 << "extern int __ratcc_user_main(int, char**);\n"
+					 << "static char* __ratcc_argv[] = { (char*)\"a.out\", 0 };\n"
+					 << "int main(void) {\n"
+					 << "#ifdef _WIN32\n"
+					 << "  _setmode(_fileno(stdout), _O_BINARY);\n"
+					 << "#endif\n"
+					 << "  int __r = (int)__ratcc_user_main(1, __ratcc_argv);\n"
+					 << "  fflush(stdout);\n"
+					 << "  FILE* __rf = fopen(\"" << rpath << "\", \"w\");\n"
+					 << "  if (__rf) { fprintf(__rf, \"%d\", __r); fclose(__rf); }\n"
+					 << "  return __r;\n"
+					 << "}\n";
+		String wrapper = wrapss.str();
+
+		if(useRat) {
+			if(!compileCToObject(wrapper, "<wrapper>", wpath, err)) {
+				cleanup();
+				err = String(tag) + ": wrapper compile failed: " + err;
+				return false;
+			}
+			if(!ratLink({wpath, art.path}, xpath, err)) {
+				cleanup();
+				err = String(tag) + ": ratl link failed: " + err;
+				return false;
+			}
+		} else {
 			std::ofstream wf(wpath);
 			if(!wf) {
 				cleanup();
 				err = String(tag) + ": cannot write wrapper source";
 				return false;
 			}
-			wf << "#include <stdio.h>\n"
-				 << "#ifdef _WIN32\n"
-				 << "#include <fcntl.h>\n"
-				 << "#include <io.h>\n"
-				 << "#endif\n"
-				 << "extern int __ratcc_user_main(int, char**);\n"
-				 << "static char* __ratcc_argv[] = { (char*)\"a.out\", 0 };\n"
-				 << "int main(void) {\n"
-				 << "#ifdef _WIN32\n"
-				 << "  _setmode(_fileno(stdout), _O_BINARY);\n"
-				 << "#endif\n"
-				 << "  int __r = (int)__ratcc_user_main(1, __ratcc_argv);\n"
-				 << "  fflush(stdout);\n"
-				 << "  FILE* __rf = fopen(\"" << rpath << "\", \"w\");\n"
-				 << "  if (__rf) { fprintf(__rf, \"%d\", __r); fclose(__rf); }\n"
-				 << "  return __r;\n"
-				 << "}\n";
-		}
-
-		String cmd =
-				hostCC() + " -w -O0 " + art.compileArgs + " \"" + wpath + "\" -o \"" + xpath + "\" -lm";
-		if(std::system(cmd.c_str()) != 0) {
-			cleanup();
-			err = String(tag) + ": compilation/link failed";
-			return false;
+			wf << wrapper;
+			wf.close();
+			String cmd =
+					hostCC() + " -w -O0 " + art.compileArgs + " \"" + wpath + "\" -o \"" + xpath + "\" -lm";
+			if(std::system(cmd.c_str()) != 0) {
+				cleanup();
+				err = String(tag) + ": compilation/link failed";
+				return false;
+			}
 		}
 
 		String runCmd = "\"" + xpath + "\" 2>" + nullDevice();
@@ -314,7 +374,9 @@ namespace {
 						targetIsWindows() ? "\"" + art.path + "\"" : "-no-pie \"" + art.path + "\"";
 				return true;
 			};
-			return runBackend("x86", make, out, capturedOut, err);
+			// TODO
+			B32 useRat = !targetIsWindows();
+			return runBackend("x86", make, useRat, out, capturedOut, err);
 		}
 		copt.backend = Backend::C;
 		auto make = [&](const String& base, Artifact& art, String& e) -> B32 {
@@ -329,7 +391,7 @@ namespace {
 			art.compileArgs = "-std=c11 \"" + art.path + "\"";
 			return true;
 		};
-		return runBackend("cc-c", make, out, capturedOut, err);
+		return runBackend("cc-c", make, false, out, capturedOut, err);
 	}
 
 	B32 runCase(const String& path, String& err) {

@@ -70,7 +70,7 @@ target_link_libraries(ratcclib PUBLIC rat)
 add_executable(ratcc cc/main.cpp)
 target_link_libraries(ratcc PRIVATE ratcclib)
 add_executable(ratcc-test cc/test/Runner.cpp)
-target_link_libraries(ratcc-test PRIVATE ratcclib testkit)
+target_link_libraries(ratcc-test PRIVATE ratcclib ratllib testkit)
 
 # tests
 enable_testing()
