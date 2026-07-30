@@ -60,9 +60,19 @@ namespace rat {
 		List<InRel> rels;
 	};
 
+	struct ArchiveFile {
+		String path;
+		List<U8> data;
+		Map<String, U64> index; // symbol -> member header offset
+		Set<U64> pulled;
+	};
+
 	B32 readWhole(const String& path, List<U8>& out);
 
 	B32 loadObject(List<U8> img, const String& path, InObject& obj, String& err);
+
+	U64 arMemberSize(const List<U8>& d, U64 hdrOff);
+	B32 parseArchive(const String& path, List<U8> bytes, ArchiveFile& ar, String& err);
 } // namespace rat
 
 #endif

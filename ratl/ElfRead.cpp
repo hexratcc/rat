@@ -1,5 +1,6 @@
 #include "ElfRead.h"
 
+#include <cstring>
 #include <fstream>
 
 namespace rat {
@@ -175,6 +176,47 @@ namespace rat {
 				rel.addend = (I64)rd64(p + 16);
 				obj.rels.push_back(rel);
 			}
+		}
+		return true;
+	}
+
+	U64 arMemberSize(const List<U8>& d, U64 hdrOff) {
+		String s((const char*)&d[hdrOff + 48], 10);
+		return (U64)strtoull(s.c_str(), nullptr, 10);
+	}
+
+	B32 parseArchive(const String& path, List<U8> bytes, ArchiveFile& ar, String& err) {
+		ar.path = path;
+		ar.data = std::move(bytes);
+		const List<U8>& d = ar.data;
+		if(d.size() < 8 || memcmp(d.data(), "!<arch>\n", 8) != 0) {
+			err = "not an archive '" + path + "'";
+			return false;
+		}
+		U64 o = 8;
+		while(o + 60 <= d.size()) {
+			char nm0 = (char)d[o], nm1 = (char)d[o + 1];
+			U64 sz = arMemberSize(d, o);
+			U64 dataOff = o + 60;
+			if(nm0 == '/' && nm1 == ' ') {
+				// sysv armap: BE count, BE offsets, NUL names
+				const U8* p = &d[dataOff];
+				U32 count = (U32)((p[3] << 24) | (p[2] << 16) | (p[1] << 8) | p[0]);
+				const U8* offs = p + 4;
+				const char* names = (const char*)(offs + (U64)count * 4);
+				U64 nameCursor = 0;
+				for(U32 i = 0; i < count; ++i) {
+					const U8* q = offs + (U64)i * 4;
+					U32 memOff = (U32)((q[3] << 24) | (q[2] << 16) | (q[1] << 8) | q[0]);
+					String nm = names + nameCursor;
+					nameCursor += nm.size() + 1;
+					if(!ar.index.count(nm))
+						ar.index.emplace(std::move(nm), memOff);
+				}
+			}
+			o = dataOff + sz;
+			if(o & 1)
+				++o;
 		}
 		return true;
 	}
