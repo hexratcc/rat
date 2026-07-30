@@ -408,6 +408,7 @@ namespace rat {
 		linkerSyms["data_start"] = vaddr[OData];
 		linkerSyms["__TMC_END__"] = vaddr[OData];
 	}
+
 	B32 Linker::symbolTarget(const InObject& obj, U32 symIdx, U64& addr, B32& isFunc, B32& isTls) {
 		const InSym& s = obj.syms[symIdx];
 		isTls = s.type == STT_TLS;
@@ -578,6 +579,294 @@ namespace rat {
 			merged[BText][startFileOff + startLeaDisp + i] = (U8)((U32)leaDisp >> (i * 8));
 			merged[BText][startFileOff + startCallDisp + i] = (U8)((U32)callDisp >> (i * 8));
 		}
+		return true;
+	}
+
+	B32 Linker::write() {
+		// .dynstr
+		List<U8> dynstr;
+		dynstr.push_back(0);
+		List<U32> importNameOff(imports.size(), 0);
+		for(U32 i = 0; i < importNames.size(); ++i) {
+			importNameOff[i] = (U32)dynstr.size();
+			const String& nm = importNames[i];
+			dynstr.insert(dynstr.end(), nm.begin(), nm.end());
+			dynstr.push_back(0);
+		}
+		List<U32> libNameOff(neededLibs.size(), 0);
+		for(U32 i = 0; i < neededLibs.size(); ++i) {
+			libNameOff[i] = (U32)dynstr.size();
+			const String& nm = neededLibs[i];
+			dynstr.insert(dynstr.end(), nm.begin(), nm.end());
+			dynstr.push_back(0);
+		}
+		U32 runpathOff = 0;
+		if(!rpaths.empty()) {
+			runpathOff = (U32)dynstr.size();
+			String rp = joinColon(rpaths);
+			dynstr.insert(dynstr.end(), rp.begin(), rp.end());
+			dynstr.push_back(0);
+		}
+
+		// .dynsym
+		U32 nDyn = 1 + (U32)imports.size();
+		List<U8> dynsym(nDyn * 24, 0);
+		auto writeSym = [&](U32 idx, U32 nameOff, U8 bind, U8 type, U16 shndx, U64 value, U64 sz) {
+			U8* p = &dynsym[(U64)idx * 24];
+			p[0] = (U8)nameOff;
+			p[1] = (U8)(nameOff >> 8);
+			p[2] = (U8)(nameOff >> 16);
+			p[3] = (U8)(nameOff >> 24);
+			p[4] = (U8)((bind << 4) | (type & 0xf));
+			p[5] = 0;
+			p[6] = (U8)shndx;
+			p[7] = (U8)(shndx >> 8);
+			for(U32 i = 0; i < 8; ++i)
+				p[8 + i] = (U8)(value >> (i * 8));
+			for(U32 i = 0; i < 8; ++i)
+				p[16 + i] = (U8)(sz >> (i * 8));
+		};
+		const U16 kDefinedShndx = 1;
+		for(U32 i = 0; i < imports.size(); ++i) {
+			const Import& im = imports[i];
+			if(im.kind == Import::Func)
+				writeSym(im.dynIndex, importNameOff[i], STB_GLOBAL, STT_FUNC, SHN_UNDEF, 0, 0);
+			else
+				writeSym(
+						im.dynIndex, importNameOff[i], STB_GLOBAL, STT_OBJECT, kDefinedShndx, im.addr, im.size);
+		}
+
+		// .hash
+		List<U8> hash;
+		{
+			U32 nbucket = nDyn;
+			List<U32> buckets(nbucket, 0);
+			List<U32> chain(nDyn, 0);
+			for(U32 i = 0; i < imports.size(); ++i) {
+				U32 di = imports[i].dynIndex;
+				U32 h = sysvHash(importNames[i].c_str()) % nbucket;
+				chain[di] = buckets[h];
+				buckets[h] = di;
+			}
+			wr32(hash, nbucket);
+			wr32(hash, nDyn);
+			for(U32 bkt : buckets)
+				wr32(hash, bkt);
+			for(U32 c : chain)
+				wr32(hash, c);
+		}
+
+		// .rela.plt + .got.plt
+		List<U8> relaPlt, gotPlt;
+		wr64(gotPlt, vaddr[ODynamic]);
+		wr64(gotPlt, 0);
+		wr64(gotPlt, 0);
+		for(U32 i = 0; i < imports.size(); ++i) {
+			const Import& im = imports[i];
+			if(im.kind != Import::Func)
+				continue;
+			U64 slot = vaddr[OGotPlt] + (U64)(3 + im.pltIndex) * 8;
+			wr64(relaPlt, slot);
+			wr64(relaPlt, ((U64)im.dynIndex << 32) | R_X86_64_JUMP_SLOT);
+			wr64(relaPlt, 0);
+			wr64(gotPlt, 0);
+		}
+
+		// .got (defined -> absolute, import -> GLOB_DAT)
+		List<U8> got;
+		List<U8> relaDyn;
+		for(U32 i = 0; i < imports.size(); ++i) {
+			const Import& im = imports[i];
+			if(im.kind != Import::Data)
+				continue;
+			wr64(relaDyn, im.addr);
+			wr64(relaDyn, ((U64)im.dynIndex << 32) | R_X86_64_COPY);
+			wr64(relaDyn, 0);
+		}
+		for(U32 s = 0; s < gotSlots.size(); ++s) {
+			GotSlot& g = gotSlots[s];
+			if(g.isImport) {
+				// g.dynIndex holds import list index from assignGot
+				U32 dynIdx = 0;
+				if(g.dynIndex < imports.size())
+					dynIdx = imports[g.dynIndex].dynIndex;
+				wr64(got, 0);
+				U64 slotAddr = vaddr[OGot] + (U64)s * 8;
+				wr64(relaDyn, slotAddr);
+				wr64(relaDyn, ((U64)dynIdx << 32) | R_X86_64_GLOB_DAT);
+				wr64(relaDyn, 0);
+			} else {
+				wr64(got, g.addr);
+			}
+		}
+
+		// .plt
+		List<U8> plt;
+		{
+			U32 slotN = 0;
+			for(U32 i = 0; i < imports.size(); ++i) {
+				if(imports[i].kind != Import::Func)
+					continue;
+				U64 entry = vaddr[OPlt] + (U64)slotN * kPltEntSize;
+				U64 slot = vaddr[OGotPlt] + (U64)(3 + slotN) * 8;
+				I32 disp = (I32)((I64)slot - (I64)(entry + 6));
+				plt.push_back(0xff);
+				plt.push_back(0x25);
+				for(U32 k = 0; k < 4; ++k)
+					plt.push_back((U8)((U32)disp >> (k * 8)));
+				while(plt.size() % kPltEntSize)
+					plt.push_back(0x90);
+				++slotN;
+			}
+		}
+
+		// .dynamic
+		List<U8> dyn;
+		auto dt = [&](I64 tag, U64 val) {
+			wr64(dyn, (U64)tag);
+			wr64(dyn, val);
+		};
+		for(U32 i = 0; i < neededLibs.size(); ++i)
+			dt(DT_NEEDED, libNameOff[i]);
+		if(!rpaths.empty())
+			dt(DT_RUNPATH, runpathOff);
+		dt(DT_HASH, vaddr[OHash]);
+		dt(DT_STRTAB, vaddr[ODynstr]);
+		dt(DT_SYMTAB, vaddr[ODynsym]);
+		dt(DT_STRSZ, dynstr.size());
+		dt(DT_SYMENT, 24);
+		dt(DT_PLTGOT, vaddr[OGotPlt]);
+		if(size[ORelaPlt]) {
+			dt(DT_PLTRELSZ, size[ORelaPlt]);
+			dt(DT_PLTREL, DT_RELA);
+			dt(DT_JMPREL, vaddr[ORelaPlt]);
+		}
+		if(!relaDyn.empty()) {
+			dt(DT_RELA, vaddr[ORelaDyn]);
+			dt(DT_RELASZ, relaDyn.size());
+			dt(DT_RELAENT, 24);
+		}
+		if(size[OInitArray]) {
+			dt(DT_INIT_ARRAY, vaddr[OInitArray]);
+			dt(DT_INIT_ARRAYSZ, size[OInitArray]);
+		}
+		if(size[OFiniArray]) {
+			dt(DT_FINI_ARRAY, vaddr[OFiniArray]);
+			dt(DT_FINI_ARRAYSZ, size[OFiniArray]);
+		}
+		dt(DT_FLAGS, DF_BIND_NOW);
+		dt(DT_FLAGS_1, DF_1_NOW);
+		dt(DT_NULL, 0);
+		if(dyn.size() < size[ODynamic])
+			dyn.insert(dyn.end(), size[ODynamic] - dyn.size(), 0);
+
+		// assemble
+		List<U8> out;
+		U64 fileEnd = foff[ODynamic] + size[ODynamic];
+		out.reserve(fileEnd + 1024);
+		auto emitAt = [&](U64 off, const List<U8>& blob) {
+			wrPad(out, off);
+			out.insert(out.end(), blob.begin(), blob.end());
+		};
+
+		U64 startVaddr = vaddr[OText] + (size[OText] - startCode.size());
+		U16 phnum = 8;
+		const U8 ident[16] = {
+				0x7f, 'E', 'L', 'F', ELFCLASS64, ELFDATA2LSB, EV_CURRENT, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+		for(U8 c : ident)
+			out.push_back(c);
+		wr16(out, ET_EXEC);
+		wr16(out, EM_X86_64);
+		wr32(out, EV_CURRENT);
+		wr64(out, startVaddr);
+		wr64(out, 64);
+		wr64(out, 0);
+		wr32(out, 0);
+		wr16(out, 64);
+		wr16(out, 56);
+		wr16(out, phnum);
+		wr16(out, 0);
+		wr16(out, 0);
+		wr16(out, 0);
+
+		U64 rxFilesz = foff[OEhFrameHdr] + size[OEhFrameHdr];
+		if(!rxFilesz)
+			rxFilesz = foff[ORodata] + size[ORodata];
+		U64 rwStart = foff[OInitArray];
+		U64 rwFilesz = (foff[ODynamic] + size[ODynamic]) - rwStart;
+		U64 rwMemsz = (vaddr[OBss] + size[OBss]) - vaddr[OInitArray];
+		auto phdr = [&](U32 type, U32 flags, U64 off, U64 va, U64 filesz, U64 memsz, U64 align) {
+			wr32(out, type);
+			wr32(out, flags);
+			wr64(out, off);
+			wr64(out, va);
+			wr64(out, va);
+			wr64(out, filesz);
+			wr64(out, memsz);
+			wr64(out, align);
+		};
+		phdr(PT_PHDR, PF_R, 64, kImageBase + 64, (U64)phnum * 56, (U64)phnum * 56, 8);
+		phdr(PT_INTERP, PF_R, foff[OInterp], vaddr[OInterp], size[OInterp], size[OInterp], 1);
+		phdr(PT_LOAD, PF_R | PF_X, 0, kImageBase, rxFilesz, rxFilesz, kPage);
+		phdr(PT_LOAD, PF_R | PF_W, rwStart, vaddr[OInitArray], rwFilesz, rwMemsz, kPage);
+		phdr(PT_DYNAMIC,
+				 PF_R | PF_W,
+				 foff[ODynamic],
+				 vaddr[ODynamic],
+				 size[ODynamic],
+				 size[ODynamic],
+				 8);
+		{
+			U64 tlsFilesz = size[OTdata];
+			U64 tlsMemsz = size[OTdata] + size[OTbss];
+			phdr(PT_TLS, PF_R, foff[OTdata], vaddr[OTdata], tlsFilesz, tlsMemsz, 16);
+		}
+		if(size[OEhFrameHdr])
+			phdr(PT_GNU_EH_FRAME,
+					 PF_R,
+					 foff[OEhFrameHdr],
+					 vaddr[OEhFrameHdr],
+					 size[OEhFrameHdr],
+					 size[OEhFrameHdr],
+					 4);
+		else
+			phdr(PT_NOTE, PF_R, 0, 0, 0, 0, 4); // filler to keep phnum fixed
+		phdr(PT_GNU_STACK, PF_R | PF_W, 0, 0, 0, 0, 16);
+
+		List<U8> interpBytes(interp.begin(), interp.end());
+		interpBytes.push_back(0);
+		emitAt(foff[OInterp], interpBytes);
+		emitAt(foff[OHash], hash);
+		emitAt(foff[ODynsym], dynsym);
+		emitAt(foff[ODynstr], dynstr);
+		emitAt(foff[ORelaDyn], relaDyn);
+		emitAt(foff[ORelaPlt], relaPlt);
+		emitAt(foff[OPlt], plt);
+		emitAt(foff[OText], merged[BText]);
+		emitAt(foff[ORodata], merged[BRodata]);
+		emitAt(foff[OEhFrame], merged[BEhFrame]);
+		emitAt(foff[OEhFrameHdr], ehFrameHdr);
+		emitAt(foff[OInitArray], merged[BInitArray]);
+		emitAt(foff[OFiniArray], merged[BFiniArray]);
+		emitAt(foff[OData], merged[BData]);
+		emitAt(foff[OTdata], merged[BTdata]);
+		emitAt(foff[OGot], got);
+		emitAt(foff[OGotPlt], gotPlt);
+		emitAt(foff[ODynamic], dyn);
+
+		std::ofstream os(opt.output, std::ios::binary | std::ios::trunc);
+		if(!os) {
+			err = "cannot write '" + opt.output + "'";
+			return false;
+		}
+		os.write((const char*)out.data(), (std::streamsize)out.size());
+		os.close();
+		if(!os) {
+			err = "write to '" + opt.output + "' failed";
+			return false;
+		}
+		if(opt.executable)
+			chmod(opt.output.c_str(), 0755);
 		return true;
 	}
 } // namespace rat

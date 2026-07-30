@@ -79,7 +79,7 @@ namespace rat {
 				continue;
 			}
 			InObject obj;
-		if(!loadObject(std::move(img), p, obj, seenGroups, err))
+			if(!loadObject(std::move(img), p, obj, seenGroups, err))
 				return false;
 			objs.push_back(std::move(obj));
 		}
@@ -385,7 +385,7 @@ namespace rat {
 			return false;
 		if(size[OEhFrameHdr])
 			buildEhFrameHdr();
-		return true;
+		return write();
 	}
 
 	B32 link(const LinkOptions& opt, String& err) {
