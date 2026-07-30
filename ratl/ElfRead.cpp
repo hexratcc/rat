@@ -84,4 +84,98 @@ namespace rat {
 			f.read((char*)out.data(), n);
 		return (B32)f.good() || f.eof();
 	}
+
+	B32 loadObject(List<U8> img, const String& path, InObject& obj, String& err) {
+		List<Shdr> shdrs;
+		const U8* shstr = nullptr;
+		if(!parseShdrs(img, shdrs, shstr, err))
+			return false;
+		if(rd16(&img[16]) != ET_REL) {
+			err = "'" + path + "' is not a relocatable object";
+			return false;
+		}
+		obj.path = path;
+		obj.image = std::move(img);
+		const List<U8>& im = obj.image;
+
+		// one InSection per index, syms/relocs reference original indices
+		obj.sections.resize(shdrs.size());
+		for(U32 i = 0; i < shdrs.size(); ++i) {
+			const Shdr& sh = shdrs[i];
+			InSection& s = obj.sections[i];
+			s.name = (const char*)(shstr + sh.name);
+			s.type = sh.type;
+			s.flags = sh.flags;
+			s.align = sh.addralign ? sh.addralign : 1;
+			s.fileOff = sh.offset;
+			s.size = sh.size;
+			s.bucket = classify(sh.type, sh.flags);
+			if(s.bucket == BRodata && s.name == ".eh_frame")
+				s.bucket = BEhFrame;
+			s.keep = s.bucket != BNone;
+		}
+
+		// symbols
+		U32 symSec = 0;
+		for(U32 i = 0; i < shdrs.size(); ++i)
+			if(shdrs[i].type == SHT_SYMTAB)
+				symSec = i;
+		if(!symSec) {
+			err = "'" + path + "' has no symbol table";
+			return false;
+		}
+		const Shdr& sym = shdrs[symSec];
+		const U8* strtab = &im[shdrs[sym.link].offset];
+		U32 nsym = (U32)(sym.size / 24);
+		obj.syms.reserve(nsym);
+		for(U32 i = 0; i < nsym; ++i) {
+			const U8* p = &im[sym.offset + (U64)i * 24];
+			InSym s;
+			s.name = (const char*)(strtab + rd32(p));
+			U8 info = p[4];
+			s.bind = (U8)(info & 0xf);
+			s.type = (U8)(info >> 4);
+			s.other = (U8)(p[5] & 0x3);
+			U16 shndx = rd16(p + 6);
+			s.shndx = shndx;
+			s.value = rd64(p + 8);
+			s.size = rd64(p + 16);
+			if(shndx == SHN_UNDEF) {
+				s.undef = true;
+			} else if(shndx == SHN_ABS) {
+				s.undef = false;
+				s.abs = true;
+			} else if(shndx == SHN_COMMON) {
+				s.undef = false;
+				s.common = true; // value=align, size=byte count
+			} else if(shndx < obj.sections.size() && obj.sections[shndx].keep) {
+				s.undef = false;
+			} else {
+				s.undef = true; // defined in dropped section
+			}
+			obj.syms.push_back(std::move(s));
+		}
+
+		// relocs, keep those patching a kept section
+		for(U32 i = 0; i < shdrs.size(); ++i) {
+			const Shdr& sh = shdrs[i];
+			if(sh.type != SHT_RELA)
+				continue;
+			if(sh.info >= obj.sections.size() || !obj.sections[sh.info].keep)
+				continue;
+			U32 n = (U32)(sh.size / 24);
+			for(U32 r = 0; r < n; ++r) {
+				const U8* p = &im[sh.offset + (U64)r * 24];
+				InRel rel;
+				rel.secIdx = sh.info;
+				rel.offset = rd64(p);
+				U64 info = rd64(p + 8);
+				rel.sym = (U32)(info >> 32);
+				rel.type = (U32)(info & 0xffffffff);
+				rel.addend = (I64)rd64(p + 16);
+				obj.rels.push_back(rel);
+			}
+		}
+		return true;
+	}
 } // namespace rat
