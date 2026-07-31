@@ -383,7 +383,7 @@ namespace {
 			art.path = base + ".c";
 			std::ofstream cf(art.path);
 			if(!cf) {
-				e = "cc-c: cannot write temp source";
+				e = "c: cannot write temp source";
 				return false;
 			}
 			Generic64 target;
@@ -391,7 +391,7 @@ namespace {
 			art.compileArgs = "-std=c11 \"" + art.path + "\"";
 			return true;
 		};
-		return runBackend("cc-c", make, false, out, capturedOut, err);
+		return runBackend("c", make, false, out, capturedOut, err);
 	}
 
 	B32 runCase(const String& path, String& err) {
@@ -581,9 +581,9 @@ B32 runCaseForked(const String& path, String& err) {
 
 I32 main(I32 argc, char** argv) {
 	TestSuiteSpec spec;
-	spec.tool = "ratcc-test";
+	spec.tool = "cc-test";
 	spec.extension = ".c";
-	spec.dirCandidates = {"cc/test", "test"};
+	spec.dirCandidates = {"src/compiler/test", "test"};
 	spec.run = [](const String& path, String& err) { return runCaseForked(path, err); };
 	// warm the lazily-initialized caches before threads spawn so their first
 	// access does not race.

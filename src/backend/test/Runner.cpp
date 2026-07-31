@@ -167,7 +167,7 @@ I32 main(I32 argc, char** argv) {
 	TestSuiteSpec spec;
 	spec.tool = "rat-test";
 	spec.extension = ".rat";
-	spec.dirCandidates = {"rat/test", "test"};
+	spec.dirCandidates = {"src/backend/test", "test"};
 	spec.run = [](const String& path, String& err) { return runRatCase(path, err); };
 	return runTestSuite(argc, argv, spec);
 }
