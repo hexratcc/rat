@@ -16,16 +16,11 @@ jobs:
 
       - name: toolchain versions
         run: |
-          cmake --version
           g++ --version
           cc --version
 
-      - name: configure
-        run: cmake -B build
-
       - name: build
-        run: cmake --build build -j
+        run: ./build.sh
 
       - name: test
-        working-directory: build
-        run: ctest --output-on-failure
+        run: ./test.sh

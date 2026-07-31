@@ -5,8 +5,6 @@ pkgs.mkShell {
 
 	packages = [
 		pkgs.gcc
-		pkgs.gnumake
 		pkgs.clang-tools
-		pkgs.cmake
 	];
 }
