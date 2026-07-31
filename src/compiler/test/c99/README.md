@@ -13,10 +13,10 @@ compiler:
 Each `*.c` file's `main` runs many `ASSERT(expected, actual)` checks and
 returns 0 on success. A failing assertion prints a diagnostic and calls
 `exit(1)`, so the program's exit status is the pass/fail signal. The ratcc test
-harness (`test/cc/Runner.cpp`):
+harness (`src/compiler/test/Runner.cpp`):
 
 1. preprocesses the source with ratcc's builtin predefined macros and
-   embedded standard headers (no host toolchain is consulted);
+   bundled standard headers (no host toolchain is consulted);
 2. emits C from ratcc's IR, compiles it with the host `cc`, runs it, and
    checks the program's return value against `// expect: 0`.
 

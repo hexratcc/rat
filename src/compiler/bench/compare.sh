@@ -1,5 +1,5 @@
 #!/bin/sh
-# build bench/bench.c with ratcc (all opt levels) and the local cc (o0..o3),
+# build bench.c with the compiler (all opt levels) and the local cc (o0..o3),
 # run each and print a side-by-side avg-ms-per-scenario table
 # usage: compare.sh <ratcc> <cc> <src> <outdir> [reps]
 set -eu

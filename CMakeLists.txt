@@ -23,54 +23,42 @@ else()
 endif()
 
 # targets
-add_library(base INTERFACE)
-target_include_directories(base INTERFACE base)
+# base carries the shared headers and the test harness
+add_library(base STATIC src/base/TestHarness.cpp)
+target_include_directories(base PUBLIC src/base)
 
-add_library(testkit STATIC testkit/TestHarness.cpp)
-target_include_directories(testkit PUBLIC testkit)
-target_link_libraries(testkit PUBLIC base)
-
-# librat
-file(GLOB_RECURSE RAT_SOURCES CONFIGURE_DEPENDS rat/lib/*.cpp)
+# backend
+file(GLOB_RECURSE RAT_SOURCES CONFIGURE_DEPENDS src/backend/lib/*.cpp)
 add_library(rat STATIC ${RAT_SOURCES})
-target_include_directories(rat PUBLIC rat/include)
+target_include_directories(rat PUBLIC src/backend/include)
 target_link_libraries(rat PUBLIC base)
 
-# rat-cli
-add_executable(rat-driver rat/main.cpp)
+add_executable(rat-driver src/backend/main.cpp)
 set_target_properties(rat-driver PROPERTIES OUTPUT_NAME rat)
 target_link_libraries(rat-driver PRIVATE rat)
-add_executable(rat-test rat/test/Runner.cpp)
-target_link_libraries(rat-test PRIVATE rat testkit)
+add_executable(rat-test src/backend/test/Runner.cpp)
+target_link_libraries(rat-test PRIVATE rat)
 
-add_library(ratllib STATIC ratl/Linker.cpp ratl/ElfWrite.cpp ratl/ElfRead.cpp)
-target_include_directories(ratllib PUBLIC ratl)
-target_link_libraries(ratllib PUBLIC base)
-add_executable(ratl ratl/main.cpp)
-target_link_libraries(ratl PRIVATE ratllib)
+# linker
+add_library(link STATIC src/linker/Linker.cpp src/linker/ElfWrite.cpp src/linker/ElfRead.cpp)
+target_include_directories(link PUBLIC src/linker)
+target_link_libraries(link PUBLIC base)
+add_executable(link-driver src/linker/main.cpp)
+set_target_properties(link-driver PROPERTIES OUTPUT_NAME link)
+target_link_libraries(link-driver PRIVATE link)
 
-# ratcc
-file(GLOB_RECURSE CC_BUILTIN_HEADERS CONFIGURE_DEPENDS cc/headers/*.h)
-set(CC_HEADERS_INC ${CMAKE_BINARY_DIR}/generated/BuiltinHeaders.inc)
-add_custom_command(
-	OUTPUT ${CC_HEADERS_INC}
-	COMMAND ${CMAKE_COMMAND}
-					-DHDR_DIR=${CMAKE_SOURCE_DIR}/cc/headers
-					-DOUT=${CC_HEADERS_INC}
-					-P ${CMAKE_SOURCE_DIR}/cmake/EmbedHeaders.cmake
-	DEPENDS ${CC_BUILTIN_HEADERS} ${CMAKE_SOURCE_DIR}/cmake/EmbedHeaders.cmake
-	COMMENT "Embedding ratcc builtin headers"
-	VERBATIM)
-
-file(GLOB_RECURSE CC_SOURCES CONFIGURE_DEPENDS cc/lib/*.cpp)
-add_library(ratcclib STATIC ${CC_SOURCES} ${CC_HEADERS_INC})
-target_include_directories(ratcclib PUBLIC cc/include)
-target_include_directories(ratcclib PRIVATE ${CMAKE_BINARY_DIR}/generated)
-target_link_libraries(ratcclib PUBLIC rat)
-add_executable(ratcc cc/main.cpp)
-target_link_libraries(ratcc PRIVATE ratcclib)
-add_executable(ratcc-test cc/test/Runner.cpp)
-target_link_libraries(ratcc-test PRIVATE ratcclib ratllib testkit)
+# compiler
+# builtin standard headers are read from src/compiler/headers at runtime,
+# located relative to the executable (see BuiltinHeaders.cpp)
+file(GLOB_RECURSE CC_SOURCES CONFIGURE_DEPENDS src/compiler/lib/*.cpp)
+add_library(cc STATIC ${CC_SOURCES})
+target_include_directories(cc PUBLIC src/compiler/include)
+target_link_libraries(cc PUBLIC rat)
+add_executable(cc-driver src/compiler/main.cpp)
+set_target_properties(cc-driver PROPERTIES OUTPUT_NAME cc)
+target_link_libraries(cc-driver PRIVATE cc)
+add_executable(cc-test src/compiler/test/Runner.cpp)
+target_link_libraries(cc-test PRIVATE cc link)
 
 # tests
 enable_testing()
@@ -78,13 +66,13 @@ cmake_host_system_information(RESULT RAT_NPROC QUERY NUMBER_OF_LOGICAL_CORES)
 
 add_test(NAME rat-ir
 				 COMMAND rat-test -j${RAT_NPROC}
-				 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/rat)
+				 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/src/backend)
 add_test(NAME cc-x86
-				 COMMAND ratcc-test -j${RAT_NPROC}
-				 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/cc)
+				 COMMAND cc-test -j${RAT_NPROC}
+				 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/src/compiler)
 add_test(NAME cc-c
-				 COMMAND ratcc-test -j${RAT_NPROC}
-				 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/cc)
+				 COMMAND cc-test -j${RAT_NPROC}
+				 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/src/compiler)
 set_tests_properties(cc-x86 PROPERTIES ENVIRONMENT "RATCC_X86=1" TIMEOUT 3600)
 set_tests_properties(cc-c PROPERTIES ENVIRONMENT "RATCC_X86=0" TIMEOUT 3600)
 set_tests_properties(rat-ir PROPERTIES TIMEOUT 600)
@@ -104,20 +92,20 @@ if(NOT WIN32)
 	enable_language(C)
 	set(BENCH_REPS 5 CACHE STRING "runs per bench")
 	add_custom_target(run-bench
-										COMMAND ${CMAKE_SOURCE_DIR}/bench/compare.sh
-														$<TARGET_FILE:ratcc> ${CMAKE_C_COMPILER}
-														${CMAKE_SOURCE_DIR}/bench/bench.c
+										COMMAND ${CMAKE_SOURCE_DIR}/src/compiler/bench/compare.sh
+														$<TARGET_FILE:cc-driver> ${CMAKE_C_COMPILER}
+														${CMAKE_SOURCE_DIR}/src/compiler/bench/bench.c
 														${CMAKE_BINARY_DIR}/bench-out ${BENCH_REPS}
-										DEPENDS ratcc
+										DEPENDS cc-driver
 										USES_TERMINAL VERBATIM)
 endif()
 
 # format
 file(GLOB_RECURSE RAT_FORMAT_SOURCES CONFIGURE_DEPENDS
-		 base/*.h testkit/*.cpp testkit/*.h ratl/*.cpp ratl/*.h
-		 rat/lib/*.cpp rat/include/*.h rat/test/*.cpp
-		 cc/lib/*.cpp cc/include/*.h cc/test/*.cpp)
+		 src/base/*.h src/base/*.cpp src/linker/*.cpp src/linker/*.h
+		 src/backend/lib/*.cpp src/backend/include/*.h src/backend/test/*.cpp
+		 src/compiler/lib/*.cpp src/compiler/include/*.h src/compiler/test/*.cpp)
 add_custom_target(format
 									COMMAND clang-format -i ${RAT_FORMAT_SOURCES}
-									${CMAKE_SOURCE_DIR}/rat/main.cpp ${CMAKE_SOURCE_DIR}/cc/main.cpp
+									${CMAKE_SOURCE_DIR}/src/backend/main.cpp ${CMAKE_SOURCE_DIR}/src/compiler/main.cpp
 									WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

@@ -4,8 +4,7 @@
 #include "Core.h"
 
 namespace rat::cc {
-	const char* builtinIncludeDir();
-	B32 readBuiltinHeader(const String& path, String& out);
+	const String& builtinIncludeDir();
 } // namespace rat::cc
 
 #endif
