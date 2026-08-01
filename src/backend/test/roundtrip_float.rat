@@ -1,0 +1,28 @@
+@name parser round-trip: float types and a float const survive parse+emit
+@passes
+
+@input
+func fmath(f32) -> f32 {
+	v0 = start : (ctrl, mem, f32)
+	v1 = stop : ctrl v8
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : f32  #2 "arg0" of v0
+	v5 = const : f32  1069547520
+	v6 = fadd : f32 v4, v5
+	v7 = fmul : f32 v6, v4
+	v8 = return : ctrl v2, v3, v7
+}
+
+@expect
+func fmath(f32) -> f32 {
+	v0 = start : (ctrl, mem, f32)
+	v1 = stop : ctrl v8
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : f32  #2 "arg0" of v0
+	v5 = const : f32  1069547520
+	v6 = fadd : f32 v4, v5
+	v7 = fmul : f32 v6, v4
+	v8 = return : ctrl v2, v3, v7
+}
