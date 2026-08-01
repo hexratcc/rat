@@ -192,6 +192,8 @@ namespace rat {
 				return mod.getPtr();
 			if(t.size() >= 2 && t[0] == 'i' && allDigits(t.substr(1)))
 				return mod.getInt((U32)std::stoul(t.substr(1)));
+			if(t.size() >= 2 && t[0] == 'f' && allDigits(t.substr(1)))
+				return mod.getFloat((U32)std::stoul(t.substr(1)));
 			fail("unknown type '" + t + "'");
 			return nullptr;
 		}
