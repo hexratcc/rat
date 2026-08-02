@@ -85,6 +85,11 @@ namespace rat {
 		// multi-way branch: control + selector in, one control proj per slot;
 		// selector must be in [0, slots) (emitter guards it)
 		Switch,
+
+		// vector lane ops
+		Splat,
+		Extract,
+		Pack,
 	};
 
 	enum class OpClass : U8 {
@@ -116,6 +121,9 @@ namespace rat {
 	constexpr B32 isConvertOpcode(Opcode op) { return op >= Opcode::Trunc && op <= Opcode::FPTrunc; }
 	constexpr B32 isArithmeticOpcode(Opcode op) {
 		return isBinaryOpcode(op) || isUnaryOpcode(op) || isCompareOpcode(op) || isConvertOpcode(op);
+	}
+	constexpr B32 isVectorUtilOpcode(Opcode op) {
+		return op == Opcode::Splat || op == Opcode::Extract || op == Opcode::Pack;
 	}
 } // namespace rat
 

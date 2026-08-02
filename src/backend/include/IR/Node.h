@@ -263,6 +263,31 @@ namespace rat {
 		B32 indirect;
 	};
 
+	// broadcast one scalar into every lane of a vector
+	struct SplatNode : Node {
+		SplatNode(Function& fn, Type* vecType, Node* scalar);
+
+		Node* getScalar() const;
+	};
+
+	// read a single lane of a vector as a scalar
+	struct ExtractNode : Node {
+		ExtractNode(Function& fn, Type* elemType, Node* vector, U32 lane);
+
+		Node* getVector() const;
+		U32 getLane() const;
+	private:
+		U32 lane;
+	};
+
+	// build a vector from one scalar per lane
+	struct PackNode : Node {
+		PackNode(Function& fn, Type* vecType, const List<Node*>& lanes);
+
+		U32 getLaneCount() const;
+		Node* getLane(U32 index) const;
+	};
+
 	// address of a module-level symbol (global or function), as a pointer
 	struct GlobalNode : Node {
 		GlobalNode(Function& fn, Type* ptrType, String symbol);
@@ -306,6 +331,9 @@ namespace rat {
 		template <> inline B32 nodeIsa<CallNode>(const Node* n)     { return n->getOpcode() == Opcode::Call; }
 		template <> inline B32 nodeIsa<GlobalNode>(const Node* n)   { return n->getOpcode() == Opcode::Global; }
 		template <> inline B32 nodeIsa<AllocNode>(const Node* n)    { return n->getOpcode() == Opcode::Alloc; }
+		template <> inline B32 nodeIsa<SplatNode>(const Node* n)    { return n->getOpcode() == Opcode::Splat; }
+		template <> inline B32 nodeIsa<ExtractNode>(const Node* n)  { return n->getOpcode() == Opcode::Extract; }
+		template <> inline B32 nodeIsa<PackNode>(const Node* n)     { return n->getOpcode() == Opcode::Pack; }
 	} // namespace detail
 
 	// isa/dyn_cast are null-safe

@@ -32,6 +32,7 @@ namespace rat {
 			for(U32 i = 0; i + 2 < conv.sseVolatileCount; ++i)
 				fpc.allocatable.push_back(xmm(i));
 			fpc.scratch = {xmm(conv.sseVolatileCount - 2), xmm(conv.sseVolatileCount - 1)};
+			fpc.spillBytes = 16; // an xmm vreg may hold a full 128-bit vector
 
 			RegClass x87c;
 			x87c.id = X86Target::kX87Class;

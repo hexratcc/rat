@@ -17,10 +17,13 @@ namespace rat {
 	struct CompareNode;
 	struct ConvertNode;
 	struct Function;
+	struct ExtractNode;
 	struct LoadNode;
 	struct Node;
+	struct PackNode;
 	struct ProjNode;
 	struct ReturnNode;
+	struct SplatNode;
 	struct StoreNode;
 	struct Type;
 	struct UnaryNode;
@@ -104,6 +107,12 @@ namespace rat {
 		void emitRotate(BinaryNode* n, B32 left);
 		void emitBinary(BinaryNode* n);
 		void emitFloatBinary(BinaryNode* n);
+		void emitVecBinary(BinaryNode* n);
+		void emitSplat(SplatNode* n);
+		void emitExtract(ExtractNode* n);
+		void emitPack(PackNode* n);
+		void needVecScratch();
+		String vecPoolSym(const List<U8>& bytes);
 		void emitX87Binary(BinaryNode* n, U32 idx);
 		void emitUnary(UnaryNode* n);
 		void emitCompare(CompareNode* n);

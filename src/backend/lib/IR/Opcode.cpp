@@ -61,6 +61,9 @@ namespace rat {
 				{"global", 0, 0, 0, -1, 0, 0, OpClass::None},
 				{"alloc", 0, 0, 0, -1, 0, 1, OpClass::None},
 				{"switch", 1, 0, 0, 0, 2, 2, OpClass::None},
+				{"splat", 0, 0, 0, -1, 1, 1, OpClass::None},
+				{"extract", 0, 0, 0, -1, 1, 1, OpClass::None},
+				{"pack", 0, 0, 0, -1, 1, -1, OpClass::None},
 		};
 	} // namespace detail
 

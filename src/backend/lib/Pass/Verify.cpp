@@ -253,6 +253,43 @@ namespace rat {
 				err(n, "Alloc has no allocated type");
 			break;
 
+		case Opcode::Splat: {
+			auto* s = cast<SplatNode>(n);
+			if(!t->isVec())
+				err(n, "Splat type must be a vector");
+			else if(!s->getScalar() || s->getScalar()->getType() != t->getVecElement())
+				err(n, "Splat scalar type does not match the vector element");
+			break;
+		}
+
+		case Opcode::Extract: {
+			auto* x = cast<ExtractNode>(n);
+			Type* vt = x->getVector() ? x->getVector()->getType() : nullptr;
+			if(!vt || !vt->isVec())
+				err(n, "Extract operand must be a vector");
+			else {
+				if(t != vt->getVecElement())
+					err(n, "Extract type does not match the vector element");
+				if(x->getLane() >= vt->getVecLanes())
+					err(n, "Extract lane is out of range");
+			}
+			break;
+		}
+
+		case Opcode::Pack: {
+			auto* p = cast<PackNode>(n);
+			if(!t->isVec()) {
+				err(n, "Pack type must be a vector");
+				break;
+			}
+			if(p->getLaneCount() != t->getVecLanes())
+				err(n, "Pack operand count does not match the lane count");
+			for(U32 i = 0, e = p->getLaneCount(); i < e; ++i)
+				if(!p->getLane(i) || p->getLane(i)->getType() != t->getVecElement())
+					err(n, "Pack lane " + std::to_string(i) + " type does not match the vector element");
+			break;
+		}
+
 		case Opcode::Load: {
 			auto* l = cast<LoadNode>(n);
 			if(!isCtrl(l->getControl()))
@@ -324,6 +361,20 @@ namespace rat {
 					} else if(rt != lt) {
 						err(n, "binary operands have different types");
 					}
+				} else if(lt->isVec()) {
+					if(rt != lt)
+						err(n, "binary operands have different types");
+					// only the SSE2-lowerable subset may appear at vector types
+					const Type* et = lt->getVecElement();
+					B32 legal = et->isInt() ? (op == Opcode::Add || op == Opcode::Sub ||
+																		 op == Opcode::And || op == Opcode::Or || op == Opcode::Xor)
+																	: (op == Opcode::FAdd || op == Opcode::FSub ||
+																		 op == Opcode::FMul || op == Opcode::FDiv);
+					if(!legal)
+						err(n, "binary opcode has no vector lowering");
+				} else if(lt->isFloat()) {
+					if(rt != lt)
+						err(n, "binary operands have different types");
 				} else {
 					err(n, "binary operates on a non-data type");
 				}

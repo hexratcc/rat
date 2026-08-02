@@ -371,6 +371,18 @@ namespace rat {
 		case X86Op::Cvt:
 			emitCvt(in);
 			return;
+		case X86Op::VArith:
+			emitVArith(in);
+			return;
+		case X86Op::VSplat:
+			emitVSplat(in);
+			return;
+		case X86Op::VExtract:
+			emitVExtract(in);
+			return;
+		case X86Op::VPack:
+			emitVPack(in);
+			return;
 		case X86Op::X87LoadMem:
 			emitX87LoadMem(in);
 			return;

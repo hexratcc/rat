@@ -610,8 +610,11 @@ namespace rat {
 			b(0x00);
 		}
 
-		static U8 ssePrefixByte(U32 width) { return width == 4 ? 0xf3 : 0xf2; }
-		void ssePrefix(U32 width) { b(ssePrefixByte(width)); }
+		static U8 ssePrefixByte(U32 width) { return width == 16 ? 0 : width == 4 ? 0xf3 : 0xf2; }
+		void ssePrefix(U32 width) {
+			if(U8 p = ssePrefixByte(width))
+				b(p);
+		}
 		void movXmm(U8 op, U32 xmm, Reg base, I32 disp, U32 width) {
 			memOp(ssePrefixByte(width), kMemEsc, op, xmm, base, disp);
 		}
@@ -649,6 +652,40 @@ namespace rat {
 			b(0x0f);
 			b(op);
 			modrmReg(dst, src);
+		}
+		// packed SSE op with an explicit mandatory prefix (0 = none)
+		void ssePacked(U8 pfx, U8 op, U32 dst, U32 src) {
+			if(pfx)
+				b(pfx);
+			rex(false, dst, 0, src);
+			b(0x0f);
+			b(op);
+			modrmReg(dst, src);
+		}
+		// pshufd dst, src, sel
+		void pshufd(U32 dst, U32 src, U8 sel) {
+			b(0x66);
+			rex(false, dst, 0, src);
+			b(0x0f);
+			b(0x70);
+			modrmReg(dst, src);
+			b(sel);
+		}
+		// movd/movq xmm, r32/r64
+		void movdXmmGp(U32 xmm, Reg src, B32 wide) {
+			b(0x66);
+			rexForce(wide, xmm, 0, src);
+			b(0x0f);
+			b(0x6e);
+			modrmReg(xmm, src);
+		}
+		// movd r32, xmm
+		void movdGpXmm(Reg dst, U32 xmm) {
+			b(0x66);
+			rex(false, xmm, 0, dst);
+			b(0x0f);
+			b(0x7e);
+			modrmReg(xmm, dst);
 		}
 		void ucomis(U32 width, U32 a, U32 bx) {
 			if(width == 8)

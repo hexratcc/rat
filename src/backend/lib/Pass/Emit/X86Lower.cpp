@@ -19,6 +19,8 @@ namespace rat {
 	U32 X86LowerPass::opWidth(const Type* t) {
 		if(!t)
 			return 8;
+		if(t->isVec())
+			return 16;
 		if(t->isPtr())
 			return 8;
 		if(t->isFloat())
@@ -38,7 +40,9 @@ namespace rat {
 	B32 X86LowerPass::isX87Ty(const Type* t) {
 		return t && t->isFloat() && t->getFloatWidth() == 128;
 	}
-	B32 X86LowerPass::isSseTy(const Type* t) { return isFloatTy(t) && !isX87Ty(t); }
+	B32 X86LowerPass::isSseTy(const Type* t) {
+		return (isFloatTy(t) && !isX87Ty(t)) || (t && t->isVec());
+	}
 	U32 X86LowerPass::intBits(const Type* t) { return t && t->isInt() ? t->getIntWidth() : 64; }
 
 	B32 X86LowerPass::immOf(Node* n, I64& out) {
@@ -149,7 +153,7 @@ namespace rat {
 	U32 X86LowerPass::classOf(const Type* t) const {
 		if(isX87Ty(t))
 			return detail::kX87;
-		if(isFloatTy(t))
+		if(isFloatTy(t) || (t && t->isVec()))
 			return detail::kFp;
 		return detail::kGp;
 	}
@@ -449,6 +453,15 @@ namespace rat {
 			return;
 		case Opcode::Alloc:
 			emitAlloc(cast<AllocNode>(n));
+			return;
+		case Opcode::Splat:
+			emitSplat(cast<SplatNode>(n));
+			return;
+		case Opcode::Extract:
+			emitExtract(cast<ExtractNode>(n));
+			return;
+		case Opcode::Pack:
+			emitPack(cast<PackNode>(n));
 			return;
 		default:
 			break;
