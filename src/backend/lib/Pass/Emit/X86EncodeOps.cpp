@@ -270,6 +270,70 @@ namespace rat {
 		a->sseArith(op, w, xmmOf(in.defs[0]), xmmOf(in.uses[1]));
 	}
 
+	void X86EncodePass::emitVArith(const MachineInstr& in) {
+		a->ssePacked((U8)((U64)in.imm >> 8), (U8)in.imm, xmmOf(in.defs[0]), xmmOf(in.uses[1]));
+	}
+
+	void X86EncodePass::emitVSplat(const MachineInstr& in) {
+		U32 d = xmmOf(in.defs[0]);
+		U32 esz = (U32)in.imm;
+		U8 sel = esz == 4 ? 0x00 : 0x44; // dword 0 everywhere / qword 0 twice
+		if(in.imm2) { // integer lane arrives in a gp register
+			a->movdXmmGp(d, gpOf(in.uses[0]), esz == 8);
+			a->pshufd(d, d, sel);
+			return;
+		}
+		a->pshufd(d, xmmOf(in.uses[0]), sel);
+	}
+
+	void X86EncodePass::emitVExtract(const MachineInstr& in) {
+		U32 lane = (U32)in.imm;
+		U32 esz = (U32)((U64)in.imm2 >> 1);
+		B32 isInt = (in.imm2 & 1) != 0;
+		U32 src = xmmOf(in.uses[0]);
+		if(!isInt) {
+			U32 d = xmmOf(in.defs[0]);
+			U8 sel;
+			if(esz == 4) {
+				sel = (U8)(lane | (lane << 2) | (lane << 4) | (lane << 6));
+			} else {
+				U32 lo = 2 * lane;
+				sel = (U8)(lo | ((lo + 1) << 2) | (lo << 4) | ((lo + 1) << 6));
+			}
+			a->pshufd(d, src, sel);
+			return;
+		}
+		Reg d = gpOf(in.defs[0]);
+		if(lane == 0) {
+			if(esz == 8) {
+				a->movqGpXmm(d, src);
+			} else {
+				a->movdGpXmm(d, src); // zero-extends
+				a->movsxd32(d, d);
+			}
+			return;
+		}
+		// staged through the 16-byte scratch slot
+		a->storeXmm(src, RBP, fl->vecScratch, 16);
+		if(esz == 8)
+			a->load64(d, RBP, fl->vecScratch + (I32)(lane * 8));
+		else
+			a->loadExt(d, RBP, fl->vecScratch + (I32)(lane * 4), 4, true);
+	}
+
+	void X86EncodePass::emitVPack(const MachineInstr& in) {
+		U32 esz = (U32)in.imm;
+		B32 isInt = in.imm2 != 0;
+		for(U32 i = 0; i < (U32)in.uses.size(); ++i) {
+			I32 disp = fl->vecScratch + (I32)(i * esz);
+			if(isInt)
+				a->storeMem(RBP, disp, gpOf(in.uses[i]), esz);
+			else
+				a->storeXmm(xmmOf(in.uses[i]), RBP, disp, esz);
+		}
+		a->loadXmm(xmmOf(in.defs[0]), RBP, fl->vecScratch, 16);
+	}
+
 	void X86EncodePass::emitFNeg(const MachineInstr& in) {
 		U32 w = (U32)in.imm;
 		U32 d = xmmOf(in.defs[0]);

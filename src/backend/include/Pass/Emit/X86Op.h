@@ -94,6 +94,11 @@ namespace rat {
 		FCmp,			 // ucomis use[0],use[1] + setcc; cc in imm, swap in imm2
 		FCmpFlags, // flags-only ucomis use[0],use[1]; swap in imm2 (cc consumed by a fused Br)
 		Cvt,			 // SSE convert; pfx/opc/w packed in imm
+		// SSE packed vector (128-bit)
+		VArith,		// dst = dst OP use[1] packed; imm = (prefix << 8) | opcode byte
+		VSplat,		// dst = broadcast use[0] to all lanes; imm = elem bytes, imm2 = int?
+		VExtract, // dst = lane imm of use[0]; imm2 = (elem bytes << 1) | int?
+		VPack,		// dst = lanes from use[0..k-1] via the vec scratch slot; imm = elem bytes
 		// x87 ops
 		X87LoadMem,	 // def(slot) = fld [use0 addr]; imm = mem width (4/8/80)
 		X87StoreMem, // [use0 addr] = fstp use1(slot); imm = mem width (4/8/80)
@@ -123,6 +128,7 @@ namespace rat {
 
 	struct X86FrameLayout : MachineFuncAux {
 		I32 ldScratch = 0;
+		I32 vecScratch = 0;
 		B32 variadic = false;
 		I32 saveArea = 0;
 		I32 overflowOff = 16;

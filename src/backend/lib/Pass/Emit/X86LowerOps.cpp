@@ -206,6 +206,10 @@ namespace rat {
 
 	void X86LowerPass::emitBinary(BinaryNode* n) {
 		Opcode op = n->getOpcode();
+		if(n->getType() && n->getType()->isVec()) {
+			emitVecBinary(n);
+			return;
+		}
 		if(op >= Opcode::FAdd && op <= Opcode::FDiv) {
 			emitFloatBinary(n);
 			return;
@@ -293,6 +297,136 @@ namespace rat {
 				 {MachineOperand::vr(d, w)},
 				 {MachineOperand::vr(d, w), MachineOperand::vr(rhs, w)},
 				 (I64)w);
+	}
+
+	void X86LowerPass::needVecScratch() {
+		if(fl->vecScratch == 0)
+			fl->vecScratch = reserve(16);
+	}
+
+	String X86LowerPass::vecPoolSym(const List<U8>& bytes) {
+		C8 buf[48];
+		U64 h = 1469598103934665603ull;
+		for(U8 x : bytes) {
+			h ^= x;
+			h *= 1099511628211ull;
+		}
+		std::snprintf(buf, sizeof buf, "__rat_vec_%016llx", (unsigned long long)h);
+		String name(buf);
+		if(!mod->getGlobal(name)) {
+			List<U8> init = bytes;
+			Global* g = mod->createGlobal(name, mod->getArray(mod->getInt(8), 16), true, std::move(init));
+			g->setLinkage(Global::Linkage::Internal);
+		}
+		return name;
+	}
+
+	void X86LowerPass::emitVecBinary(BinaryNode* n) {
+		Type* t = n->getType();
+		Type* et = t->getVecElement();
+		U32 esz = et->byteSize(ptrBytes);
+		Opcode op = n->getOpcode();
+
+		U8 pfx = 0, opc = 0;
+		if(et->isInt()) {
+			pfx = 0x66;
+			switch(op) {
+			case Opcode::Add: opc = esz == 4 ? 0xfe : 0xd4; break; // paddd / paddq
+			case Opcode::Sub: opc = esz == 4 ? 0xfa : 0xfb; break; // psubd / psubq
+			case Opcode::And: opc = 0xdb; break;									 // pand
+			case Opcode::Or: opc = 0xeb; break;										 // por
+			case Opcode::Xor: opc = 0xef; break;									 // pxor
+			default: return;
+			}
+		} else {
+			pfx = esz == 8 ? 0x66 : 0; // addpd... vs addps...
+			switch(op) {
+			case Opcode::FAdd: opc = 0x58; break;
+			case Opcode::FSub: opc = 0x5c; break;
+			case Opcode::FMul: opc = 0x59; break;
+			case Opcode::FDiv: opc = 0x5e; break;
+			default: return;
+			}
+		}
+
+		VReg lhs = sseValue(n->getLHS());
+		VReg rhs = sseValue(n->getRHS());
+		VReg d = vregFor(n);
+		copy(MachineOperand::vr(d, 16), MachineOperand::vr(lhs, 16), detail::kFp);
+		inst(X86Op::VArith,
+				 detail::kFp,
+				 {MachineOperand::vr(d, 16)},
+				 {MachineOperand::vr(d, 16), MachineOperand::vr(rhs, 16)},
+				 ((I64)pfx << 8) | opc);
+	}
+
+	void X86LowerPass::emitSplat(SplatNode* n) {
+		Type* et = n->getType()->getVecElement();
+		U32 esz = et->byteSize(ptrBytes);
+		B32 isInt = !et->isFloat();
+		VReg s = isInt ? gpValue(n->getScalar()) : sseValue(n->getScalar());
+		inst(X86Op::VSplat,
+				 detail::kFp,
+				 {MachineOperand::vr(vregFor(n), 16)},
+				 {isInt ? MachineOperand::vr(s) : MachineOperand::vr(s, esz)},
+				 (I64)esz,
+				 isInt ? 1 : 0);
+	}
+
+	void X86LowerPass::emitExtract(ExtractNode* n) {
+		Type* et = n->getType();
+		U32 esz = et->byteSize(ptrBytes);
+		B32 isInt = !et->isFloat();
+		VReg v = sseValue(n->getVector());
+		if(isInt && n->getLane() != 0)
+			needVecScratch(); // staged through memory
+		inst(X86Op::VExtract,
+				 isInt ? detail::kGp : detail::kFp,
+				 {isInt ? MachineOperand::vr(vregFor(n)) : MachineOperand::vr(vregFor(n), esz)},
+				 {MachineOperand::vr(v, 16)},
+				 (I64)n->getLane(),
+				 ((I64)esz << 1) | (isInt ? 1 : 0));
+	}
+
+	void X86LowerPass::emitPack(PackNode* n) {
+		Type* et = n->getType()->getVecElement();
+		U32 esz = et->byteSize(ptrBytes);
+		U32 w = n->getLaneCount();
+		B32 isInt = !et->isFloat();
+
+		// all-constant packs come from the constant pool as one movups
+		B32 allConst = true;
+		for(U32 i = 0; i < w; ++i)
+			allConst &= isa<ConstantNode>(n->getLane(i));
+		if(allConst) {
+			List<U8> bytes(16, 0);
+			for(U32 i = 0; i < w; ++i) {
+				U64 v = (U64)cast<ConstantNode>(n->getLane(i))->getValue();
+				for(U32 b = 0; b < esz; ++b)
+					bytes[i * esz + b] = (U8)(v >> (8 * b));
+			}
+			inst(X86Op::FLoad,
+					 detail::kFp,
+					 {MachineOperand::vr(vregFor(n), 16)},
+					 {MachineOperand::symbol(vecPoolSym(bytes))});
+			return;
+		}
+
+		needVecScratch();
+		List<MachineOperand> uses;
+		for(U32 i = 0; i < w; ++i) {
+			Node* lane = n->getLane(i);
+			if(isInt)
+				uses.push_back(MachineOperand::vr(gpValue(lane)));
+			else
+				uses.push_back(MachineOperand::vr(sseValue(lane), esz));
+		}
+		inst(X86Op::VPack,
+				 detail::kFp,
+				 {MachineOperand::vr(vregFor(n), 16)},
+				 std::move(uses),
+				 (I64)esz,
+				 isInt ? 1 : 0);
 	}
 
 	void X86LowerPass::emitX87Binary(BinaryNode* n, U32 idx) {

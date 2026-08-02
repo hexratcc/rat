@@ -65,6 +65,10 @@ namespace rat {
 		void emitFCmp(const MachineInstr& in);
 		void emitFCmpFlags(const MachineInstr& in);
 		void emitCvt(const MachineInstr& in);
+		void emitVArith(const MachineInstr& in);
+		void emitVSplat(const MachineInstr& in);
+		void emitVExtract(const MachineInstr& in);
+		void emitVPack(const MachineInstr& in);
 		void fldSlot(I32 slot);
 		void fstpSlot(I32 slot);
 		void emitX87LoadMem(const MachineInstr& in);
