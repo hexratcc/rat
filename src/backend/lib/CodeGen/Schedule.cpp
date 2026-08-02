@@ -373,7 +373,7 @@ namespace rat {
 			return true;
 		if(op == Opcode::Constant)
 			return n->getType()->isFloat() && n->getType()->getFloatWidth() != 128;
-		return op == Opcode::Load || isArithmeticOpcode(op);
+		return op == Opcode::Load || isArithmeticOpcode(op) || isVectorUtilOpcode(op);
 	}
 
 	I32 Schedule::fixedDataBlock(Node* n, const List<I32>& early) const {
