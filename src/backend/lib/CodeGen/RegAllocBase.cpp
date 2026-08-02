@@ -116,7 +116,11 @@ namespace rat {
 				ps.freeEnd = end;
 				return ps.slot;
 			}
-		I32 slot = hooks->allocSlot(*fn, cls, ri->spillSlotBytes);
+		U32 bytes = ri->spillSlotBytes;
+		for(const RegClass& rc : ri->classes)
+			if(rc.id == cls && rc.spillBytes)
+				bytes = rc.spillBytes;
+		I32 slot = hooks->allocSlot(*fn, cls, bytes);
 		slotPool[cls].push_back({slot, end});
 		return slot;
 	}

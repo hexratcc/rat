@@ -37,6 +37,7 @@ namespace rat {
 		List<PhysReg> allocatable;
 		List<PhysReg> calleeSaved;
 		List<PhysReg> scratch;
+		U32 spillBytes = 0;
 	};
 
 	struct RegisterInfo {
