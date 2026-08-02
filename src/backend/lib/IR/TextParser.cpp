@@ -56,6 +56,13 @@ namespace rat {
 				remainder = after.substr(i);
 				return;
 			}
+			if(!after.empty() && after.front() == '<') {
+				U64 close = after.find('>');
+				U32 i = close == String::npos ? (U32)after.size() : (U32)close + 1;
+				typeStr = after.substr(0, i);
+				remainder = after.substr(i);
+				return;
+			}
 			U64 sp = after.find(' ');
 			typeStr = after.substr(0, sp);
 			remainder = sp == String::npos ? "" : after.substr(sp);
@@ -106,7 +113,7 @@ namespace rat {
 		Opcode opcodeForMnemonic(const String& m, B32& ok) {
 			static const Map<String, Opcode> table = [] {
 				Map<String, Opcode> t;
-				for(U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Alloc; ++i)
+				for(U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Pack; ++i)
 					t.emplace(getOpcodeMnemonic((Opcode)i), (Opcode)i);
 				return t;
 			}();
@@ -183,6 +190,27 @@ namespace rat {
 				if(!elem)
 					return nullptr;
 				return mod.getArray(elem, (U32)std::stoul(countStr));
+			}
+			if(t.front() == '<') {
+				if(t.back() != '>') {
+					fail("unbalanced vector type: " + t);
+					return nullptr;
+				}
+				String inner = t.substr(1, t.size() - 2);
+				U64 x = inner.find(" x ");
+				if(x == String::npos) {
+					fail("vector type must be '<N x T>': " + t);
+					return nullptr;
+				}
+				String countStr = trim(inner.substr(0, x));
+				if(!allDigits(countStr)) {
+					fail("bad vector lane count in: " + t);
+					return nullptr;
+				}
+				Type* elem = parseType(inner.substr(x + 3));
+				if(!elem)
+					return nullptr;
+				return mod.getVec(elem, (U32)std::stoul(countStr));
 			}
 			if(t == "ctrl")
 				return mod.getControl();
@@ -398,6 +426,22 @@ namespace rat {
 				pn.operands = parseVRefs(body);
 				break;
 			}
+			case Opcode::Extract: {
+				U64 sp = remainder.find(' ');
+				String laneTok = sp == String::npos ? remainder : remainder.substr(0, sp);
+				if(laneTok.size() < 2 || laneTok[0] != '#' || !allDigits(laneTok.substr(1)))
+					return fail("malformed extract (expected #lane): " + line);
+				errno = 0;
+				unsigned long lane = std::strtoul(laneTok.c_str() + 1, nullptr, 10);
+				if(errno == ERANGE || lane > 0xffffffffUL)
+					return fail("extract lane out of range: " + line);
+				pn.projIndex = (U32)lane; // reuse the proj payload slot for the lane
+				List<U32> refs = parseVRefs(remainder);
+				if(refs.size() != 1)
+					return fail("extract must reference exactly one vector: " + line);
+				pn.operands = refs;
+				break;
+			}
 			default:
 				pn.operands = parseVRefs(remainder);
 				break;
@@ -523,6 +567,28 @@ namespace rat {
 				return fn->create<GlobalNode>(pn.ty, pn.symbol);
 			if(op == Opcode::Alloc)
 				return fn->create<AllocNode>(pn.ty, pn.allocType);
+			if(op == Opcode::Splat) {
+				Node* s = operand(pn, 0);
+				if(!s)
+					return nullptr;
+				return fn->create<SplatNode>(pn.ty, s);
+			}
+			if(op == Opcode::Extract) {
+				Node* v = operand(pn, 0);
+				if(!v)
+					return nullptr;
+				return fn->create<ExtractNode>(pn.ty, v, pn.projIndex);
+			}
+			if(op == Opcode::Pack) {
+				List<Node*> lanes;
+				for(U32 i = 0; i < pn.operands.size(); ++i) {
+					Node* a = operand(pn, i);
+					if(!a)
+						return nullptr;
+					lanes.push_back(a);
+				}
+				return fn->create<PackNode>(pn.ty, lanes);
+			}
 			fail(String("cannot construct opcode '") + getOpcodeMnemonic(op) + "'");
 			return nullptr;
 		}

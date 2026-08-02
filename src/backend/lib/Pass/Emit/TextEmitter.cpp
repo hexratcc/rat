@@ -75,6 +75,9 @@ namespace rat {
 			if(cast<RegionNode>(node)->isLoopHeader())
 				comment(*os, "  loop");
 			break;
+		case Opcode::Extract:
+			*os << Green << "  #" << cast<ExtractNode>(node)->getLane() << Reset;
+			break;
 		default:
 			break;
 		}
