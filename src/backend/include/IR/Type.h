@@ -12,7 +12,8 @@ namespace rat {
 			Float,
 			Ptr,
 			Tuple, //  multi-result producers (Start/If/Call), reached via Proj
-			Array
+			Array,
+			Vec
 		};
 
 		Type(Kind kind, U32 bits, List<Type*> elements);
@@ -25,6 +26,7 @@ namespace rat {
 		B32 isPtr() const;
 		B32 isTuple() const;
 		B32 isArray() const;
+		B32 isVec() const;
 		B32 isData() const;
 
 		U32 getIntWidth() const;
@@ -35,6 +37,10 @@ namespace rat {
 
 		Type* getArrayElement() const;
 		U32 getArrayCount() const;
+
+		Type* getVecElement() const;
+		U32 getVecLanes() const;
+
 		U32 byteSize(U32 ptrBytes) const;
 
 		void print(std::ostream& os) const;
@@ -60,6 +66,7 @@ namespace rat {
 		Type* getBool();
 		Type* getTuple(const List<Type*>& elements);
 		Type* getArray(Type* element, U32 count);
+		Type* getVec(Type* element, U32 lanes);
 	protected:
 		Arena arena;
 	private:
@@ -71,6 +78,7 @@ namespace rat {
 		Type* ptr = nullptr;
 		List<Type*> tuples;
 		List<Type*> arrays;
+		List<Type*> vecs;
 		Map<U32, Type*> ints;
 		Map<U32, Type*> floats;
 	};

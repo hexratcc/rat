@@ -13,7 +13,8 @@ namespace rat {
 	B32 Type::isPtr() const { return kind == Ptr; }
 	B32 Type::isTuple() const { return kind == Tuple; }
 	B32 Type::isArray() const { return kind == Array; }
-	B32 Type::isData() const { return isInt() || isFloat() || isPtr(); }
+	B32 Type::isVec() const { return kind == Vec; }
+	B32 Type::isData() const { return isInt() || isFloat() || isPtr() || isVec(); }
 
 	U32 Type::getUid() const { return uid; }
 	U32 Type::getIntWidth() const { return bits; }
@@ -28,6 +29,9 @@ namespace rat {
 	Type* Type::getArrayElement() const { return elements[0]; }
 	U32 Type::getArrayCount() const { return bits; }
 
+	Type* Type::getVecElement() const { return elements[0]; }
+	U32 Type::getVecLanes() const { return bits; }
+
 	U32 Type::byteSize(U32 ptrBytes) const {
 		switch(kind) {
 		case Int:
@@ -37,6 +41,8 @@ namespace rat {
 			return ptrBytes;
 		case Array:
 			return getArrayCount() * getArrayElement()->byteSize(ptrBytes);
+		case Vec:
+			return getVecLanes() * getVecElement()->byteSize(ptrBytes);
 		default:
 			return 0;
 		}
@@ -72,6 +78,11 @@ namespace rat {
 			os << '[' << bits << " x ";
 			elements[0]->print(os);
 			os << ']';
+			return;
+		case Vec:
+			os << '<' << bits << " x ";
+			elements[0]->print(os);
+			os << '>';
 			return;
 		}
 	}
@@ -137,6 +148,17 @@ namespace rat {
 
 		Type* t = make(Type::Array, count, {element});
 		arrays.push_back(t);
+		return t;
+	}
+
+	Type* TypeContext::getVec(Type* element, U32 lanes) {
+		for(Type* existing : vecs) {
+			if(existing->getVecElement() == element && existing->getVecLanes() == lanes)
+				return existing;
+		}
+
+		Type* t = make(Type::Vec, lanes, {element});
+		vecs.push_back(t);
 		return t;
 	}
 } // namespace rat

@@ -280,6 +280,24 @@ namespace rat {
 
 	B32 AllocNode::isVariableSized() const { return getInputCount() > 0; }
 
+	SplatNode::SplatNode(Function& fn, Type* vecType, Node* scalar)
+	: Node(fn, Opcode::Splat, vecType, {scalar}) {}
+
+	Node* SplatNode::getScalar() const { return getInput(0); }
+
+	ExtractNode::ExtractNode(Function& fn, Type* elemType, Node* vector, U32 lane)
+	: Node(fn, Opcode::Extract, elemType, {vector}),
+		lane(lane) {}
+
+	Node* ExtractNode::getVector() const { return getInput(0); }
+	U32 ExtractNode::getLane() const { return lane; }
+
+	PackNode::PackNode(Function& fn, Type* vecType, const List<Node*>& lanes)
+	: Node(fn, Opcode::Pack, vecType, lanes) {}
+
+	U32 PackNode::getLaneCount() const { return getInputCount(); }
+	Node* PackNode::getLane(U32 index) const { return getInput(index); }
+
 	B32 isControlNode(const Node* n) {
 		switch(n->getOpcode()) {
 		case Opcode::Start:
@@ -344,6 +362,12 @@ namespace rat {
 				return into.create<AllocNode>(t, a->getAllocType(), nullptr);
 			return into.create<AllocNode>(t, a->getAllocType());
 		}
+		case Opcode::Splat:
+			return into.create<SplatNode>(t, nullptr);
+		case Opcode::Extract:
+			return into.create<ExtractNode>(t, nullptr, cast<ExtractNode>(n)->getLane());
+		case Opcode::Pack:
+			return into.create<PackNode>(t, nulls);
 		default:
 			break;
 		}
