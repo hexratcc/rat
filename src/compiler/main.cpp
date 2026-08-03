@@ -54,7 +54,7 @@ namespace {
 
 	B32 isOptPass(const String& name) {
 		static const Set<String> kOptPasses = {
-				"fold", "gvn", "sccp", "simplifycfg", "memoryopt", "inline"};
+				"fold", "gvn", "sccp", "simplifycfg", "memoryopt", "inline", "slp"};
 		return kOptPasses.count(name) != 0;
 	}
 
@@ -118,7 +118,7 @@ namespace {
 					"  -O0                   no optimization (default)\n"
 					"  -O1                   all optimization passes\n"
 					"  -f<pass>              enable one opt pass: fold, gvn, sccp,\n"
-					"                        simplifycfg, memoryopt, inline\n"
+					"                        simplifycfg, memoryopt, inline, slp\n"
 					"  -I<dir> -D<m> -U<m>   preprocessor options\n"
 					"  -E                    preprocess only\n"
 					"  -nostdinc             do not provide the builtin C standard headers\n"
