@@ -138,6 +138,8 @@ namespace rat {
 				ptrBytes(ptrBytes),
 				stats(stats) {}
 
+			void normalizeLoadEdges();
+			void normalizeStoreChains();
 			Map<Node*, StoreInfo> collectCandidates();
 			List<Segment> buildSegments(const Map<Node*, StoreInfo>& cand);
 			U32 tryStaticWindow(Segment& seg, U32 i, const WindowShape& w0);
@@ -169,6 +171,7 @@ namespace rat {
 																const RefinedAddr& kb,
 																U32 szb);
 		static B32 usesValue(const Node* u, const Node* x);
+		static void rewriteInput(Node* u, const Node* from, Node* to);
 		static StoreNode* soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers);
 		static U32 laneCountFor(U32 esz);
 		static B32 windowAt(const Segment& seg, U32 at, WindowShape& out);

@@ -262,6 +262,12 @@ namespace rat {
 		return false;
 	}
 
+	void SlpPackPass::rewriteInput(Node* u, const Node* from, Node* to) {
+		for(U32 t = 0, e = u->getInputCount(); t < e; ++t)
+			if(u->getInput(t) == from)
+				u->setInput(t, to);
+	}
+
 	B32 SlpPackPass::Packer::coneTouchesObserver(const Node* n) const {
 		if(observers->empty())
 			return false;
@@ -533,6 +539,101 @@ namespace rat {
 		}
 	}
 
+	void SlpPackPass::Slp::normalizeLoadEdges() {
+		for(Node* n : fn) {
+			LoadNode* l = dyn_cast<LoadNode>(n);
+			if(!l)
+				continue;
+			U32 lsz = aa.getAccessSize(l);
+			if(!lsz)
+				continue;
+
+			// loads feeding the address computation, bounded
+			List<const Node*> cone;
+			if(!dataCone(l->getPointer(), 64, cone))
+				continue; // unbounded cone: skip
+			List<const Node*> coneLoads;
+			for(const Node* c : cone)
+				if(isa<LoadNode>(c))
+					coneLoads.push_back(c);
+
+			RefinedAddr lk = refineAddr(l->getPointer(), lsz);
+			Node* m = l->getMemory();
+			while(StoreNode* s = dyn_cast<StoreNode>(m)) {
+				U32 ssz = aa.getAccessSize(s);
+				if(!ssz)
+					break;
+				RefinedAddr sk = refineAddr(s->getPointer(), ssz);
+				if(!provablyDisjoint(aa, l->getPointer(), lk, lsz, s->getPointer(), sk, ssz))
+					break;
+				B32 addrReadsState = false;
+				for(const Node* cl : coneLoads)
+					addrReadsState |= cast<LoadNode>(cl)->getMemory() == s;
+				if(addrReadsState)
+					break;
+				m = s->getMemory();
+			}
+			if(m != l->getMemory())
+				l->setInput(1, m); // input 1 is the memory operand
+		}
+	}
+
+	void SlpPackPass::Slp::normalizeStoreChains() {
+		auto storeKey = [&](StoreNode* s, RefinedAddr& out) -> B32 {
+			U32 sz = aa.getAccessSize(s);
+			if(!sz)
+				return false;
+			out = refineAddr(s->getPointer(), sz);
+			return out.valid();
+		};
+		B32 progress = true;
+		for(U32 round = 0; progress && round < 8; ++round) {
+			progress = false;
+			for(Node* n : fn) {
+				StoreNode* s = dyn_cast<StoreNode>(n);
+				if(!s)
+					continue;
+				RefinedAddr ks;
+				if(!storeKey(s, ks))
+					continue;
+				String sig = groupSig(ks);
+				U32 hops = 0;
+				while(hops++ < 16) {
+					StoreNode* p = dyn_cast<StoreNode>(s->getMemory());
+					if(!p || p->getControl() != s->getControl())
+						break;
+					RefinedAddr kp;
+					if(!storeKey(p, kp))
+						break;
+					String psig = groupSig(kp);
+					if(psig == sig || sig >= psig)
+						break; // same group, or already canonically ordered
+					if(!provablyDisjoint(aa, s->getPointer(), ks, ks.size, p->getPointer(), kp, kp.size))
+						break;
+					// p's output must have no observer besides s
+					B32 sole = true;
+					for(Node* u : p->getUsers())
+						if(u != s && usesValue(u, p)) {
+							sole = false;
+							break;
+						}
+					if(!sole)
+						break;
+					// swap: ... -> pp -> p -> s  ==>  ... -> pp -> s -> p
+					List<Node*> sUsers;
+					for(Node* u : s->getUsers())
+						sUsers.push_back(u);
+					s->setInput(1, p->getMemory());
+					p->setInput(1, s);
+					for(Node* u : sUsers)
+						if(u != p)
+							rewriteInput(u, s, p);
+					progress = true;
+				}
+			}
+		}
+	}
+
 	Map<Node*, SlpPackPass::StoreInfo> SlpPackPass::Slp::collectCandidates() {
 		Map<Node*, StoreInfo> cand;
 		for(Node* n : fn) {
@@ -642,6 +743,8 @@ namespace rat {
 	}
 
 	U32 SlpPackPass::Slp::run() {
+		normalizeLoadEdges();
+		normalizeStoreChains();
 		Map<Node*, StoreInfo> cand = collectCandidates();
 		if(cand.empty())
 			return 0;
