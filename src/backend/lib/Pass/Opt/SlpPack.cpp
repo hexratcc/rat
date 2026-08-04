@@ -18,6 +18,11 @@ namespace rat {
 		return v;
 	}
 
+	B32 SlpPackPass::guardsDisabled() {
+		static B32 v = envFlag("RAT_SLP_NO_GUARDS");
+		return v;
+	}
+
 	B32 SlpPackPass::packableElem(const Type* t) {
 		if(!t)
 			return false;
@@ -715,6 +720,201 @@ namespace rat {
 		return w0.w;
 	}
 
+	U32 SlpPackPass::Slp::tryGuardedRun(Segment& seg, U32 i, const WindowShape& w0) {
+		List<WindowShape> run = {w0};
+		while(run.size() < kMaxRunWindows) {
+			WindowShape wn;
+			if(!windowAt(seg, i + (U32)run.size() * w0.w, wn))
+				break;
+			if(!wn.byOff[0]->key.sameGroup(w0.byOff[0]->key) ||
+				 wn.lo != w0.lo + (I64)(run.size() * kVecBytes) || wn.ctrl != w0.ctrl || wn.esz != w0.esz)
+				break;
+			run.push_back(std::move(wn));
+		}
+		U32 n = (U32)run.size();
+		U32 total = n * w0.w;
+		stats.windowsSeen += n - 1; // run extensions
+		Node* memIn = seg[i].store->getMemory();
+		Node* wPtr = w0.byOff[0]->store->getPointer();
+		RefinedAddr wkey = w0.byOff[0]->key;
+		Map<const Node*, List<I64>> interWritten;
+		Set<const Node*> obsSet;
+		collectInterState(seg, i, total, interWritten, obsSet);
+
+		Packer packer(fn, aa, ptrBytes, shapes, stats);
+		packer.memIn = memIn;
+		packer.windowKey = &wkey;
+		packer.interWritten = &interWritten;
+		packer.observers = &obsSet;
+		List<Node*> vecs;
+		B32 treeOk = true;
+		for(U32 k = 0; k < n && treeOk; ++k) {
+			packer.profit += (I32)w0.w - 1; // each fused store
+			if(Node* v = packer.packTuple(laneValues(run[k]), w0.elemTy, 0))
+				vecs.push_back(v);
+			else
+				treeOk = false;
+		}
+
+		B32 accept = treeOk && packer.profit >= (I32)(kMinProfit * n) && packer.interior >= n &&
+								 packer.guardGroups.size() <= kMaxGuards && !packer.coneTouchesObserver(wPtr);
+		for(const auto& g : packer.guardGroups)
+			if(accept)
+				accept = !packer.coneTouchesObserver(g.ptr);
+		if(accept)
+			accept = observersConfined(seg, i, total, obsSet);
+		if(!accept) {
+			if(!treeOk)
+				++stats.rejectedTree;
+			else
+				++stats.rejectedGuarded;
+			return 0;
+		}
+
+		commitGuardedRun(seg, i, run, vecs, packer, interWritten);
+		stats.packedGuarded += n;
+		++stats.guardedRuns;
+		stats.guardPairs += (U32)packer.guardGroups.size();
+		return total;
+	}
+
+	B32 SlpPackPass::Slp::observersConfined(const Segment& seg,
+																					U32 i,
+																					U32 total,
+																					const Set<const Node*>& obsSet) const {
+		Set<const Node*> runStores;
+		for(U32 j = 0; j < total; ++j)
+			runStores.insert(seg[i + j].store);
+		for(const Node* obs : obsSet) {
+			List<const Node*> work = {obs};
+			Set<const Node*> seen;
+			while(!work.empty()) {
+				const Node* c = work.back();
+				work.pop_back();
+				if(!seen.insert(c).second)
+					continue;
+				if(seen.size() > 128)
+					return false;
+				for(Node* u : c->getUsers()) {
+					if(runStores.count(u))
+						continue;
+					if(isArithmeticOpcode(u->getOpcode()))
+						work.push_back(u);
+					else
+						return false;
+				}
+			}
+		}
+		return true;
+	}
+
+	void SlpPackPass::Slp::commitGuardedRun(Segment& seg,
+																					U32 i,
+																					const List<WindowShape>& run,
+																					const List<Node*>& vecs,
+																					Packer& packer,
+																					const Map<const Node*, List<I64>>& interWritten) {
+		const WindowShape& w0 = run[0];
+		U32 n = (U32)run.size();
+		U32 total = n * w0.w;
+		Node* memIn = seg[i].store->getMemory();
+		Node* wPtr = w0.byOff[0]->store->getPointer();
+		StoreNode* lastInChain = seg[i + total - 1].store;
+		Set<const Node*> runStores;
+		for(U32 j = 0; j < total; ++j)
+			runStores.insert(seg[i + j].store);
+		Type* i64 = fn.types().getInt(64);
+		Type* boolTy = fn.boolTy();
+		Type* ctrlTy = fn.ctrlTy();
+		I64 runBytes = (I64)(n * kVecBytes);
+		Node* wEnd = fn.create<BinaryNode>(
+				Opcode::Add, wPtr->getType(), wPtr, fn.create<ConstantNode>(i64, runBytes));
+		Node* cond = nullptr;
+		for(const auto& g : packer.guardGroups) {
+			Node* gEnd = fn.create<BinaryNode>(
+					Opcode::Add, g.ptr->getType(), g.ptr, fn.create<ConstantNode>(i64, g.maxC - g.minC));
+			Node* below = fn.create<CompareNode>(Opcode::Ule, boolTy, gEnd, wPtr);
+			Node* above = fn.create<CompareNode>(Opcode::Ule, boolTy, wEnd, g.ptr);
+			Node* dis = fn.create<BinaryNode>(Opcode::Or, boolTy, below, above);
+			cond = cond ? fn.create<BinaryNode>(Opcode::And, boolTy, cond, dis) : dis;
+		}
+		if(!cond) // observers but no may-alias load groups: always safe
+			cond = fn.create<ConstantNode>(boolTy, 1);
+
+		IfNode* iff = fn.create<IfNode>(fn.types().getTuple({ctrlTy, ctrlTy}), w0.ctrl, cond);
+		Node* thenP = fn.create<ProjNode>(ctrlTy, iff, IfNode::thenProjIndex(), "then");
+		Node* elseP = fn.create<ProjNode>(ctrlTy, iff, IfNode::elseProjIndex(), "else");
+		Node* prevMem = memIn;
+		Set<const Node*> wideStores;
+		for(U32 k = 0; k < n; ++k) {
+			Node* wide = fn.create<StoreNode>(
+					fn.memTy(), thenP, prevMem, run[k].byOff[0]->store->getPointer(), vecs[k]);
+			wideStores.insert(wide);
+			prevMem = wide;
+		}
+		Node* region = fn.create<RegionNode>(ctrlTy, List<Node*>{thenP, elseP});
+
+		// post-run consumers of the final state read the merge
+		List<Node*> lastUsers;
+		for(Node* u : lastInChain->getUsers())
+			lastUsers.push_back(u);
+		PhiNode* phi = fn.create<PhiNode>(fn.memTy(), List<Node*>{region, prevMem, lastInChain});
+		for(Node* u : lastUsers)
+			rewriteInput(u, lastInChain, phi);
+
+		// scalar chain moves to the else arm
+		for(U32 j = 0; j < total; ++j)
+			seg[i + j].store->setInput(0, elseP);
+
+		// pre-run states: everything the incoming state derives from
+		Set<const Node*> preSet;
+		{
+			Node* m = memIn;
+			U32 hop = 0;
+			while(m && hop++ < 4096) {
+				preSet.insert(m);
+				if(m->getOpcode() == Opcode::Store)
+					m = cast<StoreNode>(m)->getMemory();
+				else if(ProjNode* p = dyn_cast<ProjNode>(m)) {
+					Node* prod = p->getProducer();
+					if(prod->getOpcode() == Opcode::Call)
+						m = cast<CallNode>(prod)->getMemory();
+					else
+						break; // start (or foreign): done
+				} else {
+					break; // phi or other merge: done
+				}
+			}
+		}
+
+		// re-route the rest of the block
+		List<Node*> ctrlUsers;
+		for(Node* u : w0.ctrl->getUsers())
+			ctrlUsers.push_back(u);
+		for(Node* u : ctrlUsers) {
+			if(u == iff || wideStores.count(u) || runStores.count(u))
+				continue;
+			Node* dest = nullptr; // null: keep the pre-branch anchor
+			if(isControlNode(u)) {
+				dest = region; // terminator or successor-region edge
+			} else {
+				Node* m = nullptr;
+				if(LoadNode* ld = dyn_cast<LoadNode>(u))
+					m = ld->getMemory();
+				else if(StoreNode* st = dyn_cast<StoreNode>(u))
+					m = st->getMemory();
+				else if(CallNode* cl = dyn_cast<CallNode>(u))
+					m = cl->getMemory();
+				if(m && interWritten.count(m))
+					dest = elseP;
+				else if(m && !preSet.count(m))
+					dest = region; // post-run
+			}
+			if(dest)
+				rewriteInput(u, w0.ctrl, dest);
+		}
+	}
+
 	U32 SlpPackPass::Slp::processSegment(Segment& seg) {
 		U32 changed = 0;
 		U32 i = 0;
@@ -726,12 +926,14 @@ namespace rat {
 			}
 			++stats.windowsSeen;
 
-			if(windowHasObs(seg, w0)) {
-				++i; // guarded runs land in a later milestone
+			B32 hasObs = windowHasObs(seg, w0);
+			if(hasObs && guardsDisabled()) {
+				++stats.rejectedGuarded;
+				++i;
 				continue;
 			}
 
-			U32 consumed = tryStaticWindow(seg, i, w0);
+			U32 consumed = hasObs ? tryGuardedRun(seg, i, w0) : tryStaticWindow(seg, i, w0);
 			if(consumed) {
 				++changed;
 				i += consumed;

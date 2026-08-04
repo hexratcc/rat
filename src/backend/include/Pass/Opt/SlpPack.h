@@ -32,9 +32,11 @@ namespace rat {
 	};
 
 	struct SlpPackPass : FunctionPass {
-		static constexpr U32 kVecBytes = 16; // SSE baseline
-		static constexpr U32 kMaxDepth = 8;	 // pack-growth recursion bound
-		static constexpr I32 kMinProfit = 2; // scalar ops saved, net of lane plumbing
+		static constexpr U32 kVecBytes = 16;		 // SSE baseline
+		static constexpr U32 kMaxDepth = 8;			 // pack-growth recursion bound
+		static constexpr I32 kMinProfit = 2;		 // scalar ops saved, net of lane plumbing
+		static constexpr U32 kMaxRunWindows = 4; // windows sharing one guard branch
+		static constexpr U32 kMaxGuards = 4;		 // runtime checks per guarded run
 
 		struct RefinedAddr {
 			Node* base = nullptr;
@@ -143,6 +145,15 @@ namespace rat {
 			Map<Node*, StoreInfo> collectCandidates();
 			List<Segment> buildSegments(const Map<Node*, StoreInfo>& cand);
 			U32 tryStaticWindow(Segment& seg, U32 i, const WindowShape& w0);
+			U32 tryGuardedRun(Segment& seg, U32 i, const WindowShape& w0);
+			B32
+			observersConfined(const Segment& seg, U32 i, U32 total, const Set<const Node*>& obsSet) const;
+			void commitGuardedRun(Segment& seg,
+														U32 i,
+														const List<WindowShape>& run,
+														const List<Node*>& vecs,
+														Packer& packer,
+														const Map<const Node*, List<I64>>& interWritten);
 			U32 processSegment(Segment& seg);
 			U32 run();
 		};
@@ -153,6 +164,7 @@ namespace rat {
 		// diag
 		static B32 envFlag(const C8* name);
 		static B32 shapesDisabled();
+		static B32 guardsDisabled();
 
 		// impl
 		static B32 packableElem(const Type* t);
