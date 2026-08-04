@@ -159,10 +159,12 @@ namespace rat {
 		};
 
 		const C8* name() const override { return "slp"; }
+		B32 run(Module& module, const TargetInfo& target) override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 
 		// diag
 		static B32 envFlag(const C8* name);
+		static B32 statsEnabled();
 		static B32 shapesDisabled();
 		static B32 guardsDisabled();
 
@@ -182,13 +184,13 @@ namespace rat {
 																Node* pb,
 																const RefinedAddr& kb,
 																U32 szb);
-		static B32 usesValue(const Node* u, const Node* x);
-		static void rewriteInput(Node* u, const Node* from, Node* to);
 		static StoreNode* soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers);
 		static U32 laneCountFor(U32 esz);
 		static B32 windowAt(const Segment& seg, U32 at, WindowShape& out);
 		static B32 windowHasObs(const Segment& seg, const WindowShape& ws);
 		static B32 dataCone(const Node* root, U32 cap, List<const Node*>& out);
+		static B32 usesValue(const Node* u, const Node* x);
+		static void rewriteInput(Node* u, const Node* from, Node* to);
 		static List<Node*> laneValues(const WindowShape& w);
 		static void collectInterState(const Segment& seg,
 																	U32 begin,

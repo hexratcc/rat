@@ -1,6 +1,7 @@
 #include "Pass/Opt/SlpPack.h"
 
 #include "IR/Function.h"
+#include "IR/Module.h"
 #include "IR/Node.h"
 #include "IR/Opcode.h"
 #include "IR/Type.h"
@@ -9,9 +10,15 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <iostream>
 
 namespace rat {
 	B32 SlpPackPass::envFlag(const C8* name) { return std::getenv(name) != nullptr; }
+
+	B32 SlpPackPass::statsEnabled() {
+		static B32 v = envFlag("RAT_SLP_STATS");
+		return v;
+	}
 
 	B32 SlpPackPass::shapesDisabled() {
 		static B32 v = envFlag("RAT_SLP_NO_SHAPES");
@@ -956,6 +963,26 @@ namespace rat {
 			changed += processSegment(seg);
 		// sweep replaced scalars and any speculative, unprofitable trees
 		fn.eliminateDeadNodes();
+		return changed;
+	}
+
+	B32 SlpPackPass::run(Module& module, const TargetInfo& target) {
+		stats = SlpStats{};
+		B32 changed = FunctionPass::run(module, target);
+		if(statsEnabled()) {
+			const SlpStats& s = stats;
+			std::cerr << "slp[" << module.getName() << "]: windows " << s.windowsSeen << " packed "
+								<< (s.packedUnguarded + s.packedGuarded) << " (static " << s.packedUnguarded
+								<< ", guarded " << s.packedGuarded << " in " << s.guardedRuns << " runs, "
+								<< s.guardPairs << " checks)"
+								<< " rejected " << (s.rejectedTree + s.rejectedProfit + s.rejectedGuarded)
+								<< " (tree " << s.rejectedTree << ", profit " << s.rejectedProfit << ", guard "
+								<< s.rejectedGuarded << ")\n"
+								<< "slp[" << module.getName() << "]: nodes: wload " << s.packWideLoad << " vbin "
+								<< s.packBinary << " splat " << s.packSplat << " const " << s.packConst
+								<< " frontier " << s.packFrontier << " | orient-swaps " << s.orientSwaps
+								<< " memo-hits " << s.memoHits << "\n";
+		}
 		return changed;
 	}
 
