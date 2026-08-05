@@ -12,16 +12,16 @@ case "$MODE" in
 esac
 
 FLAGS="-std=c++17 -Wall -Wextra -pthread $OPT"
-INC="-Isrc/base -Isrc/backend/include -Isrc/linker -Isrc/compiler/include"
+INC="-Isrc/base -Isrc/backend -Isrc/linker -Isrc/compiler"
 
 OBJ="build/$MODE"
 mkdir -p "$OBJ" bin
 
 # source groups
 base_srcs="src/base/TestHarness.cpp"
-rat_srcs=$(find src/backend/lib -name '*.cpp' | sort)
+rat_srcs=$(find src/backend/CodeGen src/backend/IR src/backend/Pass src/backend/Target -name '*.cpp' | sort)
 link_srcs="src/linker/Linker.cpp src/linker/ElfWrite.cpp src/linker/ElfRead.cpp"
-cc_srcs=$(find src/compiler/lib -name '*.cpp' | sort)
+cc_srcs=$(find src/compiler/Emit src/compiler/Lex src/compiler/Parse -name '*.cpp' | sort; find src/compiler -maxdepth 1 -name '*.cpp' ! -name main.cpp | sort)
 driver_srcs="src/backend/main.cpp src/backend/test/Runner.cpp \
 	src/linker/main.cpp src/compiler/main.cpp src/compiler/test/Runner.cpp"
 

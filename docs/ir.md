@@ -8,10 +8,10 @@ A function body is a single [Sea of Nodes](https://en.wikipedia.org/wiki/Sea_of_
 
 Nodes that produce several results at once (`start`, `if`, `call`) have a tuple type; consumers reach individual elements through `proj` nodes. An `if` yields two control projections (then/else), a `call` yields control, memory, and optionally a value.
 
-Every node keeps an ordered input list (defs) and a users list (reverse edges, one entry per using operand). All edge mutations (`addInput`, `setInput`, `replaceAllUsesWith`, ...) keeps the users index consistent. See [`IR/Node.h`](../include/IR/Node.h) for more details.
+Every node keeps an ordered input list (defs) and a users list (reverse edges, one entry per using operand). All edge mutations (`addInput`, `setInput`, `replaceAllUsesWith`, ...) keeps the users index consistent. See [`IR/Node.h`](../src/backend/IR/Node.h) for more details.
 
 ## opcodes
-Defined in [`IR/Opcode.h`](../include/IR/Opcode.h), with per-opcode metadata (mnemonic, CFG/side-effect/commutativity flags, control-input slot, arity, class) in a single `OpcodeInfo` table.
+Defined in [`IR/Opcode.h`](../src/backend/IR/Opcode.h), with per-opcode metadata (mnemonic, CFG/side-effect/commutativity flags, control-input slot, arity, class) in a single `OpcodeInfo` table.
 - **control / structural:** `start`, `stop`, `return`, `region`, `if`, `proj`, `phi`
 - **constants:** `const`
 - **binary:** `add sub mul sdiv udiv srem urem and or xor shl lshr ashr`, `fadd fsub fmul fdiv`
@@ -23,10 +23,10 @@ Defined in [`IR/Opcode.h`](../include/IR/Opcode.h), with per-opcode metadata (mn
 - **storage:** `global` (pointer to a module symbol), `alloc` (stack allocation)
 
 ## types
-Types are interned in a `TypeContext` (the `Module` is one): `ctrl`, `mem`, `iN`, `fN`, `ptr`, arrays, and tuples for multi-result producers. `bool` is `i1`. See [`IR/Type.h`](../include/IR/Type.h) for more details.
+Types are interned in a `TypeContext` (the `Module` is one): `ctrl`, `mem`, `iN`, `fN`, `ptr`, arrays, and tuples for multi-result producers. `bool` is `i1`. See [`IR/Type.h`](../src/backend/IR/Type.h) for more details.
 
 ## building functions
-A `Function` owns its nodes and exposes two layers of API ([`IR/Function.h`](../include/IR/Function.h)):
+A `Function` owns its nodes and exposes two layers of API ([`IR/Function.h`](../src/backend/IR/Function.h)):
 - **graph layer:** `create<T>()` for raw node construction, iteration over all nodes, maintenance helpers for passes.
 - **builder layer:** blocks, jumps, and named variables (`declareLocal` / `get` / `set`), so a frontend can emit straight-line code statement by statement and get a valid graph with phis already placed.
 
@@ -78,4 +78,4 @@ func foldc() -> i32 {
 One node per line: `vN = <mnemonic> : <type> <operands>`. Constants carry their value, projections their index and label, calls their callee, globals their symbol. Module-level data appears above functions as `const name : type = "bytes"` / `var name : type = "bytes"`.
 
 ## invariants
-`VerifyPass` ([`Pass/Verify.h`](../include/Pass/Verify.h)) checks edge consistency (every input lists the node as a user and vice versa, no cross-function edges, no nulls) plus per-opcode structural invariants: arity, tuple shapes of `start`/`if`/`call`, operand kinds (control/memory/data in the right slots), unique `start`/`stop`, and that `stop` collects exactly the function's returns.
+`VerifyPass` ([`Pass/Verify.h`](../src/backend/Pass/Verify.h)) checks edge consistency (every input lists the node as a user and vice versa, no cross-function edges, no nulls) plus per-opcode structural invariants: arity, tuple shapes of `start`/`if`/`call`, operand kinds (control/memory/data in the right slots), unique `start`/`stop`, and that `stop` collects exactly the function's returns.
