@@ -1,0 +1,81 @@
+@name slp: may-alias pointer window vectorizes behind a runtime disjointness guard
+@passes slp
+
+@input
+func t(ptr, ptr) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "c" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v10 = add : ptr v4, v6
+	v11 = add : ptr v4, v7
+	v12 = add : ptr v4, v8
+	v13 = add : ptr v5, v6
+	v14 = add : ptr v5, v7
+	v15 = add : ptr v5, v8
+	v16 = load : i32 v2, v3, v5
+	v17 = add : i32 v16, v16
+	v18 = store : mem v2, v3, v4, v17
+	v19 = load : i32 v2, v18, v13
+	v20 = add : i32 v19, v19
+	v21 = store : mem v2, v18, v10, v20
+	v22 = load : i32 v2, v21, v14
+	v23 = add : i32 v22, v22
+	v24 = store : mem v2, v21, v11, v23
+	v25 = load : i32 v2, v24, v15
+	v26 = add : i32 v25, v25
+	v27 = store : mem v2, v24, v12, v26
+	v40 = return : ctrl v2, v27
+}
+
+@expect
+func t(ptr, ptr) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v27
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "c" of v0
+  v5 = proj : ptr  #3 "a" of v0
+  v6 = const : i64  4
+  v7 = const : i64  8
+  v8 = const : i64  12
+  v9 = add : ptr v4, v6
+  v10 = add : ptr v4, v7
+  v11 = add : ptr v4, v8
+  v12 = add : ptr v5, v6
+  v13 = add : ptr v5, v7
+  v14 = add : ptr v5, v8
+  v15 = load : i32 v2, v3, v5
+  v16 = add : i32 v15, v15
+  v17 = store : mem v39, v3, v4, v16
+  v18 = load : i32 v39, v17, v12
+  v19 = add : i32 v18, v18
+  v20 = store : mem v39, v17, v9, v19
+  v21 = load : i32 v39, v20, v13
+  v22 = add : i32 v21, v21
+  v23 = store : mem v39, v20, v10, v22
+  v24 = load : i32 v39, v23, v14
+  v25 = add : i32 v24, v24
+  v26 = store : mem v39, v23, v11, v25
+  v27 = return : ctrl v41, v42
+  v28 = load : <4 x i32> v2, v3, v5
+  v29 = add : <4 x i32> v28, v28
+  v30 = const : i64  16
+  v31 = add : ptr v4, v30
+  v32 = const : i64  16
+  v33 = add : ptr v5, v32
+  v34 = ule : i1 v33, v4
+  v35 = ule : i1 v31, v5
+  v36 = or : i1 v34, v35
+  v37 = if : (ctrl, ctrl) v2, v36
+  v38 = proj : ctrl  #0 "then" of v37
+  v39 = proj : ctrl  #1 "else" of v37
+  v40 = store : mem v38, v3, v4, v29
+  v41 = region : ctrl v38, v39
+  v42 = phi : mem v41, v40, v26
+}

@@ -15,6 +15,7 @@
 #include "Pass/Opt/MemoryOpt.h"
 #include "Pass/Opt/SCCP.h"
 #include "Pass/Opt/SimplifyCFG.h"
+#include "Pass/Opt/SlpPack.h"
 #include "Pass/Opt/StrengthReduce.h"
 
 namespace rat {
@@ -37,6 +38,9 @@ namespace rat {
 				{"strengthreduce",
 				 "loop induction-variable strength reduction",
 				 &makeRegistered<StrengthReducePass>},
+				{"slp",
+				 "scheduling-free superword (SLP) vectorization",
+				 &makeRegistered<SlpPackPass>},
 				{"dfe",
 				 "dead (unreferenced internal) function elimination",
 				 &makeRegistered<DeadFuncElimPass>},
