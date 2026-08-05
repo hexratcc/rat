@@ -58,7 +58,18 @@ namespace rat {
 					return;
 				}
 			}
-			emitOne(X86Op::Store, detail::kGp, MachineOperand::vr(gpValue(val), w));
+			MachineOperand src = MachineOperand::vr(gpValue(val), w);
+			// indexed reg store [base+index*scale+disp]=src has 3 gp uses; a vreg base lets all three
+			// spill at once but only 2 gp scratch exist, so fold the address into an lea and keep the
+			// store at <=2 gp uses
+			if(a.hasIndex && !a.frameBase) {
+				VReg t = fresh(detail::kGp);
+				inst(X86Op::Lea, detail::kGp, {MachineOperand::vr(t)},
+						 {addrBase(a), MachineOperand::vr(a.index)}, a.disp, (I64)(a.scaleLog2 & 3));
+				inst(X86Op::Store, detail::kGp, {}, {MachineOperand::vr(t), std::move(src)});
+				return;
+			}
+			emitOne(X86Op::Store, detail::kGp, std::move(src));
 		}
 	}
 

@@ -40,6 +40,8 @@ namespace rat {
 		U32 spillBytes = 0;
 	};
 
+	constexpr U32 kMaxRegClasses = 4;
+
 	struct RegisterInfo {
 		List<RegClass> classes;
 		U32 spillSlotBytes = 8;
