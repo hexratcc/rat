@@ -289,7 +289,7 @@ namespace rat {
 					}
 				}
 
-				U32 useScratch = 0;
+				U32 useScratch[kMaxRegClasses] = {0};
 				for(MachineOperand& u : in.uses) {
 					if(!u.isVReg())
 						continue;
@@ -305,13 +305,13 @@ namespace rat {
 						for(const MachineOperand& d : in.defs)
 							if(d.isVReg() && d.vreg == u.vreg)
 								tied = true;
-						if(memo && !tied && useScratch == 0 && memoCls == a.cls && memoSlot == a.spillSlot &&
-							 memoWidth == u.width) {
+						if(memo && !tied && useScratch[a.cls] == 0 && memoCls == a.cls &&
+							 memoSlot == a.spillSlot && memoWidth == u.width) {
 							u = MachineOperand::fixed(memoReg, u.width);
-							++useScratch; // reserve index 0 in case memoReg is scratch 0
+							++useScratch[a.cls]; // reserve index 0 in case memoReg is scratch 0
 							continue;
 						}
-						PhysReg sc = scratchAt(a.cls, useScratch++);
+						PhysReg sc = scratchAt(a.cls, useScratch[a.cls]++);
 						reloadInto(sc, u, a);
 						u = MachineOperand::fixed(sc, u.width);
 					} else {
@@ -319,14 +319,14 @@ namespace rat {
 					}
 				}
 
-				U32 defScratch = 0;
+				U32 defScratch[kMaxRegClasses] = {0};
 				List<MachineInstr> spills;
 				for(MachineOperand& d : in.defs) {
 					if(!d.isVReg())
 						continue;
 					Assignment a = assignmentOf(d.vreg);
 					if(a.spilled) {
-						PhysReg sc = scratchAt(a.cls, defScratch++);
+						PhysReg sc = scratchAt(a.cls, defScratch[a.cls]++);
 						spills.push_back(hooks->makeSpill(a.spillSlot, sc, a.cls, d.width));
 						d = MachineOperand::fixed(sc, d.width);
 					} else {
