@@ -47,7 +47,7 @@ namespace {
 		if(opt.optLevel >= 1)
 			passes = defaultOptPasses();
 		for(const String& name : opt.extraPasses)
-			passes.push_back(passRegistry().create(name, std::cerr)); // debug taps print here
+			passes.push_back(passRegistry().create(name, std::cerr));
 		return passes;
 	}
 
