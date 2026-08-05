@@ -248,6 +248,22 @@ namespace rat {
 		guardGroups.push_back({std::move(sig), lane0Ptr, k.constant, k.constant + (I64)bytes});
 	}
 
+	// rewrite same-group wide-access pointers as anchor + byte delta so lowering
+	// folds a displacement (window formation already trusts the refined deltas)
+	Node* SlpPackPass::Packer::anchorPtr(Node* ptr, const RefinedAddr& k) {
+		if(!addrAnchors || !k.valid())
+			return ptr;
+		auto [it, inserted] = addrAnchors->try_emplace(groupSig(k), ptr, k.constant);
+		auto [anchor, anchorC] = it->second;
+		if(inserted)
+			return ptr;
+		I64 delta = k.constant - anchorC;
+		if(delta == 0)
+			return anchor;
+		Node* off = fn.create<ConstantNode>(fn.types().getInt(64), delta);
+		return fn.create<BinaryNode>(Opcode::Add, ptr->getType(), anchor, off);
+	}
+
 	B32 SlpPackPass::dataCone(const Node* root, U32 cap, List<const Node*>& out) {
 		List<const Node*> work = {root};
 		Set<const Node*> seen;
@@ -426,7 +442,7 @@ namespace rat {
 			++interior;
 			++st.packWideLoad;
 			return fn.create<LoadNode>(
-					vecTy, first->getControl(), first->getMemory(), first->getPointer());
+					vecTy, first->getControl(), first->getMemory(), anchorPtr(first->getPointer(), k0));
 		}
 
 		for(U32 i = 0; i < w; ++i) {
@@ -457,7 +473,7 @@ namespace rat {
 		profit += (I32)w - 1;
 		++interior;
 		++st.packWideLoad;
-		return fn.create<LoadNode>(vecTy, first->getControl(), memIn, first->getPointer());
+		return fn.create<LoadNode>(vecTy, first->getControl(), memIn, anchorPtr(first->getPointer(), k0));
 	}
 
 	StoreNode* SlpPackPass::soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers) {
@@ -696,6 +712,7 @@ namespace rat {
 		packer.windowKey = &wkey;
 		packer.interWritten = &interWritten;
 		packer.observers = &obsSet;
+		packer.addrAnchors = &addrAnchors;
 		packer.profit += (I32)w0.w - 1; // the fused store itself
 		Node* vec = packer.packTuple(laneValues(w0), w0.elemTy, 0);
 
@@ -719,7 +736,11 @@ namespace rat {
 
 		StoreNode* lastInChain = seg[i + w0.w - 1].store;
 		Node* wide = fn.create<StoreNode>(
-				fn.memTy(), w0.ctrl, packer.memIn, w0.byOff[0]->store->getPointer(), vec);
+				fn.memTy(),
+				w0.ctrl,
+				packer.memIn,
+				packer.anchorPtr(w0.byOff[0]->store->getPointer(), wkey),
+				vec);
 		lastInChain->replaceAllUsesWith(wide);
 		for(U32 j = 0; j < w0.w; ++j)
 			fn.removeNode(seg[i + j].store);
@@ -753,6 +774,7 @@ namespace rat {
 		packer.windowKey = &wkey;
 		packer.interWritten = &interWritten;
 		packer.observers = &obsSet;
+		packer.addrAnchors = &addrAnchors;
 		List<Node*> vecs;
 		B32 treeOk = true;
 		for(U32 k = 0; k < n && treeOk; ++k) {
@@ -855,7 +877,11 @@ namespace rat {
 		Set<const Node*> wideStores;
 		for(U32 k = 0; k < n; ++k) {
 			Node* wide = fn.create<StoreNode>(
-					fn.memTy(), thenP, prevMem, run[k].byOff[0]->store->getPointer(), vecs[k]);
+					fn.memTy(),
+					thenP,
+					prevMem,
+					packer.anchorPtr(run[k].byOff[0]->store->getPointer(), run[k].byOff[0]->key),
+					vecs[k]);
 			wideStores.insert(wide);
 			prevMem = wide;
 		}

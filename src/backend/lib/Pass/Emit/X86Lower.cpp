@@ -355,6 +355,13 @@ namespace rat {
 			} else if(StoreNode* st = dyn_cast<StoreNode>(u)) {
 				if(st->getPointer() != n || st->getValue() == n || isX87Ty(st->getValue()->getType()))
 					return false;
+			} else if(BinaryNode* ua = dyn_cast<BinaryNode>(u)) {
+				// ptr + const chains decompose n through the user's own addr match
+				if(ua->getOpcode() != Opcode::Add || !addressOnlyAdd(u))
+					return false;
+				AddrMatch um = decodeAddr(u);
+				if(um.base == n || um.index == n)
+					return false;
 			} else {
 				return false;
 			}

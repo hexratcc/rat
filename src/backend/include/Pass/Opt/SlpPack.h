@@ -96,6 +96,8 @@ namespace rat {
 			const RefinedAddr* windowKey = nullptr;
 			const Map<const Node*, List<I64>>* interWritten = nullptr;
 			const Set<const Node*>* observers = nullptr;
+			// group sig -> (anchor ptr, its refined constant), shared across windows
+			Map<String, std::pair<Node*, I64>>* addrAnchors = nullptr;
 
 			// runtime disjointness guards
 			struct GuardGroup {
@@ -119,6 +121,7 @@ namespace rat {
 				st(st) {}
 
 			void addGuard(const RefinedAddr& k, Node* lane0Ptr, U32 bytes);
+			Node* anchorPtr(Node* ptr, const RefinedAddr& k);
 			B32 coneTouchesObserver(const Node* n) const;
 			static String tupleKey(const List<Node*>& lanes);
 			Node* packTuple(const List<Node*>& lanes, Type* elemTy, U32 depth);
@@ -133,6 +136,7 @@ namespace rat {
 			U32 ptrBytes;
 			SlpStats& stats;
 			ShapeHash shapes;
+			Map<String, std::pair<Node*, I64>> addrAnchors;
 
 			Slp(Function& fn, const AliasAnalysis& aa, U32 ptrBytes, SlpStats& stats)
 			: fn(fn),
