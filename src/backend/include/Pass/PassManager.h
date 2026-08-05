@@ -33,6 +33,7 @@ namespace rat {
 
 		Pass* add(UniquePtr<Pass> pass);
 		void gateLastOnChangesSinceSelf();
+		void markFixpointEnd() { fixpointEnd = (U32)passes.size(); }
 		B32 run(Module& module, std::ostream* log = nullptr);
 
 		void printTimingReport(std::ostream& os) const;
@@ -41,6 +42,7 @@ namespace rat {
 
 		const TargetInfo* target;
 		List<UniquePtr<Pass>> passes;
+		U32 fixpointEnd = 0; // 0 => no fixpoint (single pass over everything)
 		List<B32> gated;
 		List<UniquePtr<MachinePass>> machinePasses;
 		MachineModule mm;

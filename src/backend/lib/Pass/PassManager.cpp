@@ -44,7 +44,7 @@ namespace rat {
 			changed = changed || c;
 			return c;
 		};
-		for(U32 i = 0; i < (U32)passes.size(); ++i) {
+		auto runAt = [&](U32 i) {
 			Pass* pass = passes[i].get();
 			if(i < gated.size() && gated[i]) {
 				I32 prev = -1;
@@ -59,11 +59,30 @@ namespace rat {
 				if(!due) {
 					if(log)
 						*log << "; " << pass->name() << " : skipped (no changes since last run)\n";
-					continue;
+					changedAt[i] = false;
+					return;
 				}
 			}
 			changedAt[i] = runOne(pass->name(), [&] { return pass->run(module, *target); });
+		};
+
+		U32 n = (U32)passes.size();
+		U32 loopEnd = fixpointEnd; // fixpoint covers [0, loopEnd); rest runs once
+		if(fixpointEnd) {
+			constexpr U32 kMaxSweeps = 32;
+			B32 sweepChanged = true;
+			for(U32 s = 0; s < kMaxSweeps && sweepChanged; ++s) {
+				sweepChanged = false;
+				for(B32& v : changedAt)
+					v = false;
+				for(U32 i = 0; i < loopEnd; ++i) {
+					runAt(i);
+					sweepChanged = sweepChanged || changedAt[i];
+				}
+			}
 		}
+		for(U32 i = loopEnd; i < n; ++i)
+			runAt(i);
 		for(auto& pass : machinePasses)
 			runOne(pass->name(), [&] { return pass->run(module, mm, *target); });
 		return changed;

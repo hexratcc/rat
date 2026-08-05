@@ -69,7 +69,8 @@ namespace rat {
 
 	B32 GVNPass::isPureValue(Node* n) {
 		Opcode op = n->getOpcode();
-		return op == Opcode::Constant || op == Opcode::Global || isArithmeticOpcode(op);
+		return op == Opcode::Constant || op == Opcode::Global || isArithmeticOpcode(op) ||
+					 isVectorUtilOpcode(op);
 	}
 
 	const C8* GVNPass::name() const { return "gvn"; }

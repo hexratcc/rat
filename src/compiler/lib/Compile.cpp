@@ -26,6 +26,8 @@ namespace rat::cc {
 				pm.gateLastOnChangesSinceSelf();
 		}
 
+		pm.markFixpointEnd();
+
 		if(opt.backend == Backend::C) {
 			pm.add<CEmitterPass>(out);
 		} else {
