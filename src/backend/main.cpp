@@ -3,8 +3,8 @@
 #include <fstream>
 #include <iomanip>
 
-#include "IR/TextParser.h"
-#include "String.h"
+#include "ir/text_parser.h"
+#include "string.h"
 
 using namespace rat;
 

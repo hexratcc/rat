@@ -1,29 +1,29 @@
 #ifndef RAT_H
 #define RAT_H
 
-#include "IR/Module.h"
+#include "ir/module.h"
 
-#include "CodeGen/LinearScanRegAlloc.h"
-#include "CodeGen/Schedule.h"
-#include "Target/Target.h"
+#include "codegen/linear_scan_reg_alloc.h"
+#include "codegen/schedule.h"
+#include "target/target.h"
 
-#include "Pass/PassManager.h"
-#include "Pass/PassRegistry.h"
-#include "Pass/Verify.h"
+#include "pass/pass_manager.h"
+#include "pass/pass_registry.h"
+#include "pass/verify.h"
 
-#include "Pass/Emit/CEmitter.h"
-#include "Pass/Emit/GraphEmitter.h"
-#include "Pass/Emit/TextEmitter.h"
-#include "Pass/Emit/X86Encode.h"
-#include "Pass/Emit/X86Layout.h"
-#include "Pass/Emit/X86Lower.h"
+#include "pass/emit/c_emitter.h"
+#include "pass/emit/graph_emitter.h"
+#include "pass/emit/text_emitter.h"
+#include "pass/emit/x86_encode.h"
+#include "pass/emit/x86_layout.h"
+#include "pass/emit/x86_lower.h"
 
-#include "Pass/Opt/Fold.h"
-#include "Pass/Opt/GVN.h"
-#include "Pass/Opt/Inline.h"
-#include "Pass/Opt/MemoryOpt.h"
-#include "Pass/Opt/RenameSymbol.h"
-#include "Pass/Opt/SCCP.h"
-#include "Pass/Opt/SimplifyCFG.h"
+#include "pass/opt/fold.h"
+#include "pass/opt/gvn.h"
+#include "pass/opt/inline.h"
+#include "pass/opt/memory_opt.h"
+#include "pass/opt/rename_symbol.h"
+#include "pass/opt/sccp.h"
+#include "pass/opt/simplify_cfg.h"
 
 #endif

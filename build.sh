@@ -12,18 +12,19 @@ case "$MODE" in
 esac
 
 FLAGS="-std=c++17 -Wall -Wextra -pthread $OPT"
-INC="-Isrc/base -Isrc/backend -Isrc/linker -Isrc/compiler"
+# iquote so base string.h cannot shadow the libc header for <...> includes
+INC="-iquote src/base -iquote src/backend -iquote src/linker -iquote src/compiler"
 
 OBJ="build/$MODE"
 mkdir -p "$OBJ" bin
 
 # source groups
-base_srcs="src/base/TestHarness.cpp"
-rat_srcs=$(find src/backend/CodeGen src/backend/IR src/backend/Pass src/backend/Target -name '*.cpp' | sort)
-link_srcs="src/linker/Linker.cpp src/linker/ElfWrite.cpp src/linker/ElfRead.cpp"
-cc_srcs=$(find src/compiler/Emit src/compiler/Lex src/compiler/Parse -name '*.cpp' | sort; find src/compiler -maxdepth 1 -name '*.cpp' ! -name main.cpp | sort)
-driver_srcs="src/backend/main.cpp src/backend/test/Runner.cpp \
-	src/linker/main.cpp src/compiler/main.cpp src/compiler/test/Runner.cpp"
+base_srcs="src/base/test_harness.cpp"
+rat_srcs=$(find src/backend/codegen src/backend/ir src/backend/pass src/backend/target -name '*.cpp' | sort)
+link_srcs="src/linker/linker.cpp src/linker/elf_write.cpp src/linker/elf_read.cpp"
+cc_srcs=$(find src/compiler/emit src/compiler/lex src/compiler/parse -name '*.cpp' | sort; find src/compiler -maxdepth 1 -name '*.cpp' ! -name main.cpp | sort)
+driver_srcs="src/backend/main.cpp src/backend/test/runner.cpp \
+	src/linker/main.cpp src/compiler/main.cpp src/compiler/test/runner.cpp"
 
 all_srcs="$base_srcs $rat_srcs $link_srcs $cc_srcs $driver_srcs"
 
