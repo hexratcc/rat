@@ -71,7 +71,7 @@ link_bin() {
 }
 
 link_bin rat      $base_o $rat_o $(obj src/backend/main.cpp)
-link_bin rat-test $base_o $rat_o $(obj src/backend/test/Runner.cpp)
+link_bin rat-test $base_o $rat_o $(obj src/backend/test/runner.cpp)
 link_bin link     $base_o $link_o $(obj src/linker/main.cpp)
 link_bin cc       $base_o $rat_o $cc_o $(obj src/compiler/main.cpp)
-link_bin cc-test  $base_o $rat_o $cc_o $link_o $(obj src/compiler/test/Runner.cpp)
+link_bin cc-test  $base_o $rat_o $cc_o $link_o $(obj src/compiler/test/runner.cpp)
