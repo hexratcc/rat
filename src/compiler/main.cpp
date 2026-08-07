@@ -1,16 +1,16 @@
-#include "BuiltinHeaders.h"
-#include "Compile.h"
-#include "Host.h"
-#include "Predef.h"
+#include "builtin_headers.h"
+#include "compile.h"
+#include "host.h"
+#include "predef.h"
 
-#include "Emit/Emit.h"
-#include "Lex/Lexer.h"
-#include "Lex/Preprocess.h"
-#include "Parse/Parser.h"
+#include "emit/emit.h"
+#include "lex/lexer.h"
+#include "lex/preprocess.h"
+#include "parse/parser.h"
 #include <chrono>
 #include <fstream>
 
-#include "String.h"
+#include "string.h"
 #include "rat.h"
 
 using namespace rat;
