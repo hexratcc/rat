@@ -470,6 +470,9 @@ namespace rat {
 		case Opcode::Pack:
 			emitPack(cast<PackNode>(n));
 			return;
+		case Opcode::Shuffle:
+			emitShuffle(cast<ShuffleNode>(n));
+			return;
 		default:
 			break;
 		}

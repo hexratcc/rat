@@ -22,6 +22,7 @@ namespace rat {
 	struct Node;
 	struct PackNode;
 	struct ProjNode;
+	struct ShuffleNode;
 	struct ReturnNode;
 	struct SplatNode;
 	struct StoreNode;
@@ -111,6 +112,7 @@ namespace rat {
 		void emitSplat(SplatNode* n);
 		void emitExtract(ExtractNode* n);
 		void emitPack(PackNode* n);
+		void emitShuffle(ShuffleNode* n);
 		void needVecScratch();
 		String vecPoolSym(const List<U8>& bytes);
 		void emitX87Binary(BinaryNode* n, U32 idx);

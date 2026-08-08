@@ -383,6 +383,9 @@ namespace rat {
 		case X86Op::VPack:
 			emitVPack(in);
 			return;
+		case X86Op::VShuf:
+			a->pshufd(xmmOf(in.defs[0]), xmmOf(in.uses[0]), (U8)in.imm);
+			return;
 		case X86Op::X87LoadMem:
 			emitX87LoadMem(in);
 			return;

@@ -662,6 +662,16 @@ namespace rat {
 			b(op);
 			modrmReg(dst, src);
 		}
+		// packed op behind the 0f 38 escape (sse4.1)
+		void ssePacked38(U8 pfx, U8 op, U32 dst, U32 src) {
+			if(pfx)
+				b(pfx);
+			rex(false, dst, 0, src);
+			b(0x0f);
+			b(0x38);
+			b(op);
+			modrmReg(dst, src);
+		}
 		// pshufd dst, src, sel
 		void pshufd(U32 dst, U32 src, U8 sel) {
 			b(0x66);

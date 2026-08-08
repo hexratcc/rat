@@ -339,6 +339,7 @@ namespace rat {
 		Opcode op = n->getOpcode();
 
 		U8 pfx = 0, opc = 0;
+		B32 esc38 = false;
 		if(et->isInt()) {
 			pfx = 0x66;
 			switch(op) {
@@ -347,6 +348,12 @@ namespace rat {
 			case Opcode::And: opc = 0xdb; break;									 // pand
 			case Opcode::Or: opc = 0xeb; break;										 // por
 			case Opcode::Xor: opc = 0xef; break;									 // pxor
+			case Opcode::Mul: // pmulld, i32 lanes only
+				if(esz != 4)
+					return;
+				opc = 0x40;
+				esc38 = true;
+				break;
 			default: return;
 			}
 		} else {
@@ -368,7 +375,7 @@ namespace rat {
 				 detail::kFp,
 				 {MachineOperand::vr(d, 16)},
 				 {MachineOperand::vr(d, 16), MachineOperand::vr(rhs, 16)},
-				 ((I64)pfx << 8) | opc);
+				 ((I64)(esc38 ? 1 : 0) << 16) | ((I64)pfx << 8) | opc);
 	}
 
 	void X86LowerPass::emitSplat(SplatNode* n) {
@@ -382,6 +389,15 @@ namespace rat {
 				 {isInt ? MachineOperand::vr(s) : MachineOperand::vr(s, esz)},
 				 (I64)esz,
 				 isInt ? 1 : 0);
+	}
+
+	void X86LowerPass::emitShuffle(ShuffleNode* n) {
+		VReg v = sseValue(n->getVector());
+		inst(X86Op::VShuf,
+				 detail::kFp,
+				 {MachineOperand::vr(vregFor(n), 16)},
+				 {MachineOperand::vr(v, 16)},
+				 (I64)n->getSelector());
 	}
 
 	void X86LowerPass::emitExtract(ExtractNode* n) {

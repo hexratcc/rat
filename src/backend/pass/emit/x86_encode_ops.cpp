@@ -271,7 +271,12 @@ namespace rat {
 	}
 
 	void X86EncodePass::emitVArith(const MachineInstr& in) {
-		a->ssePacked((U8)((U64)in.imm >> 8), (U8)in.imm, xmmOf(in.defs[0]), xmmOf(in.uses[1]));
+		U8 pfx = (U8)((U64)in.imm >> 8);
+		U8 op = (U8)in.imm;
+		if((U64)in.imm >> 16)
+			a->ssePacked38(pfx, op, xmmOf(in.defs[0]), xmmOf(in.uses[1]));
+		else
+			a->ssePacked(pfx, op, xmmOf(in.defs[0]), xmmOf(in.uses[1]));
 	}
 
 	void X86EncodePass::emitVSplat(const MachineInstr& in) {

@@ -63,6 +63,7 @@ namespace rat {
 		virtual const TargetTriple& getTriple() const;
 		virtual const RegisterInfo* registers() const { return nullptr; }
 		virtual RegAllocHooks regAllocHooks() const;
+		virtual B32 hasSse41() const { return true; }
 
 		static constexpr U32 kPointerSizeInBits = 64;
 		U32 getPointerSizeInBytes() const { return kPointerSizeInBits / 8; }
