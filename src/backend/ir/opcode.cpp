@@ -64,6 +64,7 @@ namespace rat {
 				{"splat", 0, 0, 0, -1, 1, 1, OpClass::None},
 				{"extract", 0, 0, 0, -1, 1, 1, OpClass::None},
 				{"pack", 0, 0, 0, -1, 1, -1, OpClass::None},
+				{"shuffle", 0, 0, 0, -1, 1, 1, OpClass::None},
 		};
 	} // namespace detail
 

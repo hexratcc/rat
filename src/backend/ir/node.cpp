@@ -298,6 +298,13 @@ namespace rat {
 	U32 PackNode::getLaneCount() const { return getInputCount(); }
 	Node* PackNode::getLane(U32 index) const { return getInput(index); }
 
+	ShuffleNode::ShuffleNode(Function& fn, Type* vecType, Node* vector, U8 sel)
+	: Node(fn, Opcode::Shuffle, vecType, {vector}),
+		sel(sel) {}
+
+	Node* ShuffleNode::getVector() const { return getInput(0); }
+	U8 ShuffleNode::getSelector() const { return sel; }
+
 	B32 isControlNode(const Node* n) {
 		switch(n->getOpcode()) {
 		case Opcode::Start:
@@ -368,6 +375,8 @@ namespace rat {
 			return into.create<ExtractNode>(t, nullptr, cast<ExtractNode>(n)->getLane());
 		case Opcode::Pack:
 			return into.create<PackNode>(t, nulls);
+		case Opcode::Shuffle:
+			return into.create<ShuffleNode>(t, nullptr, cast<ShuffleNode>(n)->getSelector());
 		default:
 			break;
 		}

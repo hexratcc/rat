@@ -288,6 +288,16 @@ namespace rat {
 		Node* getLane(U32 index) const;
 	};
 
+	// permute 32-bit lanes by a pshufd-style selector
+	struct ShuffleNode : Node {
+		ShuffleNode(Function& fn, Type* vecType, Node* vector, U8 sel);
+
+		Node* getVector() const;
+		U8 getSelector() const;
+	private:
+		U8 sel;
+	};
+
 	// address of a module-level symbol (global or function), as a pointer
 	struct GlobalNode : Node {
 		GlobalNode(Function& fn, Type* ptrType, String symbol);
@@ -334,6 +344,7 @@ namespace rat {
 		template <> inline B32 nodeIsa<SplatNode>(const Node* n)    { return n->getOpcode() == Opcode::Splat; }
 		template <> inline B32 nodeIsa<ExtractNode>(const Node* n)  { return n->getOpcode() == Opcode::Extract; }
 		template <> inline B32 nodeIsa<PackNode>(const Node* n)     { return n->getOpcode() == Opcode::Pack; }
+		template <> inline B32 nodeIsa<ShuffleNode>(const Node* n)  { return n->getOpcode() == Opcode::Shuffle; }
 	} // namespace detail
 
 	// isa/dyn_cast are null-safe

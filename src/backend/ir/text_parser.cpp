@@ -113,7 +113,7 @@ namespace rat {
 		Opcode opcodeForMnemonic(const String& m, B32& ok) {
 			static const Map<String, Opcode> table = [] {
 				Map<String, Opcode> t;
-				for(U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Pack; ++i)
+				for(U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Shuffle; ++i)
 					t.emplace(getOpcodeMnemonic((Opcode)i), (Opcode)i);
 				return t;
 			}();
@@ -426,19 +426,20 @@ namespace rat {
 				pn.operands = parseVRefs(body);
 				break;
 			}
-			case Opcode::Extract: {
+			case Opcode::Extract:
+			case Opcode::Shuffle: {
 				U64 sp = remainder.find(' ');
 				String laneTok = sp == String::npos ? remainder : remainder.substr(0, sp);
 				if(laneTok.size() < 2 || laneTok[0] != '#' || !allDigits(laneTok.substr(1)))
-					return fail("malformed extract (expected #lane): " + line);
+					return fail("malformed lane selector (expected #index): " + line);
 				errno = 0;
 				unsigned long lane = std::strtoul(laneTok.c_str() + 1, nullptr, 10);
 				if(errno == ERANGE || lane > 0xffffffffUL)
-					return fail("extract lane out of range: " + line);
-				pn.projIndex = (U32)lane; // reuse the proj payload slot for the lane
+					return fail("lane selector out of range: " + line);
+				pn.projIndex = (U32)lane; // reuse the proj payload slot for the selector
 				List<U32> refs = parseVRefs(remainder);
 				if(refs.size() != 1)
-					return fail("extract must reference exactly one vector: " + line);
+					return fail("lane op must reference exactly one vector: " + line);
 				pn.operands = refs;
 				break;
 			}
@@ -578,6 +579,12 @@ namespace rat {
 				if(!v)
 					return nullptr;
 				return fn->create<ExtractNode>(pn.ty, v, pn.projIndex);
+			}
+			if(op == Opcode::Shuffle) {
+				Node* v = operand(pn, 0);
+				if(!v)
+					return nullptr;
+				return fn->create<ShuffleNode>(pn.ty, v, (U8)pn.projIndex);
 			}
 			if(op == Opcode::Pack) {
 				List<Node*> lanes;

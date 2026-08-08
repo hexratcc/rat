@@ -290,6 +290,15 @@ namespace rat {
 			break;
 		}
 
+		case Opcode::Shuffle: {
+			auto* s = cast<ShuffleNode>(n);
+			if(!t->isVec())
+				err(n, "Shuffle type must be a vector");
+			else if(!s->getVector() || s->getVector()->getType() != t)
+				err(n, "Shuffle operand type does not match the result vector");
+			break;
+		}
+
 		case Opcode::Load: {
 			auto* l = cast<LoadNode>(n);
 			if(!isCtrl(l->getControl()))

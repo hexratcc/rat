@@ -90,6 +90,7 @@ namespace rat {
 		Splat,
 		Extract,
 		Pack,
+		Shuffle,
 	};
 
 	enum class OpClass : U8 {
@@ -123,7 +124,8 @@ namespace rat {
 		return isBinaryOpcode(op) || isUnaryOpcode(op) || isCompareOpcode(op) || isConvertOpcode(op);
 	}
 	constexpr B32 isVectorUtilOpcode(Opcode op) {
-		return op == Opcode::Splat || op == Opcode::Extract || op == Opcode::Pack;
+		return op == Opcode::Splat || op == Opcode::Extract || op == Opcode::Pack ||
+					 op == Opcode::Shuffle;
 	}
 } // namespace rat
 

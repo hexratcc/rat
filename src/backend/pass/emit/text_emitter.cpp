@@ -78,6 +78,9 @@ namespace rat {
 		case Opcode::Extract:
 			*os << Green << "  #" << cast<ExtractNode>(node)->getLane() << Reset;
 			break;
+		case Opcode::Shuffle:
+			*os << Green << "  #" << (U32)cast<ShuffleNode>(node)->getSelector() << Reset;
+			break;
 		default:
 			break;
 		}
