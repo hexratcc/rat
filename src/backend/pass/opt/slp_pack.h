@@ -10,6 +10,7 @@ namespace rat {
 	struct Node;
 	struct StoreNode;
 	struct LoadNode;
+	struct BinaryNode;
 	struct Type;
 	struct AliasAnalysis;
 
@@ -17,6 +18,7 @@ namespace rat {
 		U32 windowsSeen = 0;		 // structurally valid windows examined
 		U32 packedUnguarded = 0; // windows fused statically
 		U32 packedGuarded = 0;	 // windows fused behind a runtime guard
+		U32 packedReduction = 0; // add chains folded into vector hsum
 		U32 guardedRuns = 0;		 // merged guard regions emitted
 		U32 guardPairs = 0;			 // runtime disjointness checks emitted
 		U32 rejectedTree = 0;		 // vector recomputation failed to build
@@ -37,6 +39,8 @@ namespace rat {
 		static constexpr I32 kMinProfit = 2;		 // scalar ops saved, net of lane plumbing
 		static constexpr U32 kMaxRunWindows = 4; // windows sharing one guard branch
 		static constexpr U32 kMaxGuards = 4;		 // runtime checks per guarded run
+		static constexpr I32 kGuardCheckCost = 6;	 // ops per runtime disjointness check
+		static constexpr I32 kGuardBranchCost = 6; // branch + else-arm bloat per guarded run
 
 		struct RefinedAddr {
 			Node* base = nullptr;
@@ -88,6 +92,7 @@ namespace rat {
 			Function& fn;
 			const AliasAnalysis& aa;
 			U32 ptrBytes;
+			B32 sse41;
 			ShapeHash& shapes;
 			SlpStats& st;
 
@@ -113,10 +118,16 @@ namespace rat {
 			I32 profit = 0;
 			U32 interior = 0; // vector arithmetic / wide loads created
 
-			Packer(Function& fn, const AliasAnalysis& aa, U32 ptrBytes, ShapeHash& shapes, SlpStats& st)
+			Packer(Function& fn,
+						 const AliasAnalysis& aa,
+						 U32 ptrBytes,
+						 B32 sse41,
+						 ShapeHash& shapes,
+						 SlpStats& st)
 			: fn(fn),
 				aa(aa),
 				ptrBytes(ptrBytes),
+				sse41(sse41),
 				shapes(shapes),
 				st(st) {}
 
@@ -134,14 +145,16 @@ namespace rat {
 			Function& fn;
 			const AliasAnalysis& aa;
 			U32 ptrBytes;
+			B32 sse41;
 			SlpStats& stats;
 			ShapeHash shapes;
 			Map<String, std::pair<Node*, I64>> addrAnchors;
 
-			Slp(Function& fn, const AliasAnalysis& aa, U32 ptrBytes, SlpStats& stats)
+			Slp(Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats)
 			: fn(fn),
 				aa(aa),
 				ptrBytes(ptrBytes),
+				sse41(sse41),
 				stats(stats) {}
 
 			void normalizeLoadEdges();
@@ -159,6 +172,8 @@ namespace rat {
 														Packer& packer,
 														const Map<const Node*, List<I64>>& interWritten);
 			U32 processSegment(Segment& seg);
+			U32 packReduction(BinaryNode* root);
+			U32 packReductions();
 			U32 run();
 		};
 
@@ -171,6 +186,8 @@ namespace rat {
 		static B32 statsEnabled();
 		static B32 shapesDisabled();
 		static B32 guardsDisabled();
+		static B32 guardCostDisabled();
+		static B32 fpReduceEnabled();
 
 		// impl
 		static B32 packableElem(const Type* t);
