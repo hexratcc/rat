@@ -544,6 +544,12 @@ namespace rat {
 
 	Node* foldBinary(Function& fn, Opcode op, Node* lhs, Node* rhs) {
 		Type* ty = lhs->getType();
+		if(ty->isPtr()) {
+			// ptr arithmetic never reaches the int rules; peel the zero-offset identity
+			if((op == Opcode::Add || op == Opcode::Sub) && FoldPass::isZeroConst(rhs))
+				return lhs;
+			return nullptr;
+		}
 		if(!ty->isInt())
 			return nullptr;
 		U32 w = ty->getIntWidth();
