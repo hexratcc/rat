@@ -47,6 +47,12 @@ namespace rat {
 			case Opcode::Global:
 				k.sym = &cast<GlobalNode>(n)->getSymbol();
 				return true;
+			case Opcode::Extract:
+				k.payload = cast<ExtractNode>(n)->getLane();
+				break;
+			case Opcode::Shuffle:
+				k.payload = cast<ShuffleNode>(n)->getSelector();
+				break;
 			default:
 				break;
 			}
