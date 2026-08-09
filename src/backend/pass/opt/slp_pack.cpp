@@ -937,23 +937,38 @@ namespace rat {
 		Type* boolTy = fn.boolTy();
 		Type* ctrlTy = fn.ctrlTy();
 		I64 runBytes = (I64)(n * kVecBytes);
+		Type* iffTy = fn.types().getTuple({ctrlTy, ctrlTy});
 		Node* wEnd = fn.create<BinaryNode>(
 				Opcode::Add, wPtr->getType(), wPtr, fn.create<ConstantNode>(i64, runBytes));
-		Node* cond = nullptr;
+		auto branch = [&](Node* c, Node* pred) { return fn.create<IfNode>(iffTy, c, pred); };
+		auto proj = [&](Node* of, U32 index, const C8* label) {
+			return fn.create<ProjNode>(ctrlTy, of, index, label);
+		};
+
+		// short-circuit cascade
+		Node* iff = nullptr;
+		Node* ctrl = w0.ctrl;
+		List<Node*> fails;
 		for(const auto& g : packer.guardGroups) {
 			Node* gEnd = fn.create<BinaryNode>(
 					Opcode::Add, g.ptr->getType(), g.ptr, fn.create<ConstantNode>(i64, g.maxC - g.minC));
-			Node* below = fn.create<CompareNode>(Opcode::Ule, boolTy, gEnd, wPtr);
-			Node* above = fn.create<CompareNode>(Opcode::Ule, boolTy, wEnd, g.ptr);
-			Node* dis = fn.create<BinaryNode>(Opcode::Or, boolTy, below, above);
-			cond = cond ? fn.create<BinaryNode>(Opcode::And, boolTy, cond, dis) : dis;
+			Node* bIf = branch(ctrl, fn.create<CompareNode>(Opcode::Ule, boolTy, gEnd, wPtr));
+			Node* bT = proj(bIf, IfNode::thenProjIndex(), "slp.then");
+			Node* bF = proj(bIf, IfNode::elseProjIndex(), "slp.chk");
+			Node* aIf = branch(bF, fn.create<CompareNode>(Opcode::Ule, boolTy, wEnd, g.ptr));
+			Node* aT = proj(aIf, IfNode::thenProjIndex(), "slp.then");
+			fails.push_back(proj(aIf, IfNode::elseProjIndex(), "slp.else"));
+			if(!iff)
+				iff = bIf;
+			ctrl = fn.create<RegionNode>(ctrlTy, List<Node*>{bT, aT});
 		}
-		if(!cond) // observers but no may-alias load groups: always safe
-			cond = fn.create<ConstantNode>(boolTy, 1);
-
-		IfNode* iff = fn.create<IfNode>(fn.types().getTuple({ctrlTy, ctrlTy}), w0.ctrl, cond);
-		Node* thenP = fn.create<ProjNode>(ctrlTy, iff, IfNode::thenProjIndex(), "slp.then");
-		Node* elseP = fn.create<ProjNode>(ctrlTy, iff, IfNode::elseProjIndex(), "slp.else");
+		if(!iff) { // observers but no may-alias load groups
+			iff = branch(w0.ctrl, fn.create<ConstantNode>(boolTy, 1));
+			ctrl = proj(iff, IfNode::thenProjIndex(), "slp.then");
+			fails.push_back(proj(iff, IfNode::elseProjIndex(), "slp.else"));
+		}
+		Node* thenP = ctrl;
+		Node* elseP = fails.size() == 1 ? fails[0] : fn.create<RegionNode>(ctrlTy, fails);
 		Node* prevMem = memIn;
 		Set<const Node*> wideStores;
 		for(U32 k = 0; k < n; ++k) {
@@ -1064,8 +1079,17 @@ namespace rat {
 				continue;
 			}
 			// scalar fallback arm of an earlier guard
-			if(ProjNode* p = dyn_cast<ProjNode>(w0.ctrl); p && p->getLabel() &&
-				 String(p->getLabel()) == "slp.else") {
+			auto isElseProj = [](const Node* c) {
+				const ProjNode* p = dyn_cast<ProjNode>(c);
+				return p && p->getLabel() && String(p->getLabel()) == "slp.else";
+			};
+			B32 coldArm = isElseProj(w0.ctrl);
+			if(RegionNode* r = dyn_cast<RegionNode>(w0.ctrl)) {
+				coldArm = true;
+				for(U32 k = 0; coldArm && k < r->getPredecessorCount(); ++k)
+					coldArm = isElseProj(r->getPredecessor(k));
+			}
+			if(coldArm) {
 				++i;
 				continue;
 			}
