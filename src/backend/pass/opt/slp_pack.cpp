@@ -457,7 +457,9 @@ namespace rat {
 			++st.packSplat;
 			Node* ld =
 					fn.create<LoadNode>(elemTy, first->getControl(), mem, anchorPtr(first->getPointer(), k0));
-			return fn.create<SplatNode>(vecTy, ld);
+			Node* sp = fn.create<SplatNode>(vecTy, ld);
+			splatLoads.push_back({sp, cast<LoadNode>(ld)});
+			return sp;
 		};
 
 		if(sharedState && !interWritten->count(first->getMemory())) {
@@ -502,6 +504,51 @@ namespace rat {
 		++interior;
 		++st.packWideLoad;
 		return fn.create<LoadNode>(vecTy, first->getControl(), memIn, anchorPtr(first->getPointer(), k0));
+	}
+
+	// splat reloads at consecutive addresses fold into one wide load
+	// each broadcast then picks its lane in-register instead of touching memory
+	void SlpPackPass::Packer::coalesceSplats() {
+		struct Cand {
+			String sig; // address group + state + control
+			I64 c;
+			Node* splat;
+			LoadNode* load;
+		};
+		List<Cand> cs;
+		for(auto& [splat, load] : splatLoads) {
+			U32 esz = load->getType()->byteSize(ptrBytes);
+			RefinedAddr k = refineAddr(load->getPointer(), esz);
+			if((esz != 4 && esz != 8) || !k.valid())
+				continue;
+			String sig = groupSig(k) + '@' + std::to_string(load->getMemory()->getId()) + '@' +
+									 std::to_string(load->getControl()->getId());
+			cs.push_back({std::move(sig), k.constant, splat, load});
+		}
+		std::sort(cs.begin(), cs.end(), [](const Cand& a, const Cand& b) {
+			return a.sig != b.sig ? a.sig < b.sig : a.c < b.c;
+		});
+		for(U32 i = 0; i < cs.size();) {
+			U32 esz = cs[i].load->getType()->byteSize(ptrBytes);
+			U32 w = kVecBytes / esz;
+			Type* vecTy = fn.types().getVec(cs[i].load->getType(), w);
+			B32 run = i + w <= (U32)cs.size() && cs[i].splat->getType() == vecTy;
+			for(U32 j = 1; run && j < w; ++j)
+				run = cs[i + j].sig == cs[i].sig && cs[i + j].c == cs[i].c + (I64)(j * esz) &&
+							cs[i + j].splat->getType() == vecTy;
+			if(!run) {
+				++i;
+				continue;
+			}
+			Node* wide = fn.create<LoadNode>(
+					vecTy, cs[i].load->getControl(), cs[i].load->getMemory(), cs[i].load->getPointer());
+			for(U32 j = 0; j < w; ++j) {
+				U8 sel = esz == 4 ? (U8)(j * 0x55) : (j ? (U8)0xee : (U8)0x44);
+				cs[i + j].splat->replaceAllUsesWith(fn.create<ShuffleNode>(vecTy, wide, sel));
+				++st.splatGrouped;
+			}
+			i += w;
+		}
 	}
 
 	StoreNode* SlpPackPass::soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers) {
@@ -772,6 +819,7 @@ namespace rat {
 		lastInChain->replaceAllUsesWith(wide);
 		for(U32 j = 0; j < w0.w; ++j)
 			fn.removeNode(seg[i + j].store);
+		packer.coalesceSplats();
 		++stats.packedUnguarded;
 		return w0.w;
 	}
@@ -833,6 +881,7 @@ namespace rat {
 		}
 
 		commitGuardedRun(seg, i, run, vecs, packer, interWritten);
+		packer.coalesceSplats();
 		stats.packedGuarded += n;
 		++stats.guardedRuns;
 		stats.guardPairs += (U32)packer.guardGroups.size();
@@ -1213,9 +1262,9 @@ namespace rat {
 								<< " (tree " << s.rejectedTree << ", profit " << s.rejectedProfit << ", guard "
 								<< s.rejectedGuarded << ")\n"
 								<< "slp[" << module.getName() << "]: nodes: wload " << s.packWideLoad << " vbin "
-								<< s.packBinary << " splat " << s.packSplat << " const " << s.packConst
-								<< " frontier " << s.packFrontier << " | orient-swaps " << s.orientSwaps
-								<< " memo-hits " << s.memoHits << "\n";
+								<< s.packBinary << " splat " << s.packSplat << " (grouped " << s.splatGrouped
+								<< ") const " << s.packConst << " frontier " << s.packFrontier << " | orient-swaps "
+								<< s.orientSwaps << " memo-hits " << s.memoHits << "\n";
 		}
 		return changed;
 	}

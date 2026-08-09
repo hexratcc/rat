@@ -27,6 +27,7 @@ namespace rat {
 		U32 packSplat = 0;
 		U32 packConst = 0;
 		U32 packWideLoad = 0;
+		U32 splatGrouped = 0; // splat sources folded into a shared wide load
 		U32 packBinary = 0;
 		U32 packFrontier = 0;
 		U32 orientSwaps = 0; // commutative lanes reordered by shape key
@@ -113,6 +114,9 @@ namespace rat {
 
 			List<GuardGroup> guardGroups;
 
+			// splat reloads kept for post-commit coalescing into wide loads
+			List<std::pair<Node*, LoadNode*>> splatLoads;
+
 			// tuple -> already built vector node, so shared subtrees pack once
 			Map<String, Node*> memo;
 			I32 profit = 0;
@@ -133,6 +137,7 @@ namespace rat {
 
 			void addGuard(const RefinedAddr& k, Node* lane0Ptr, U32 bytes);
 			Node* anchorPtr(Node* ptr, const RefinedAddr& k);
+			void coalesceSplats();
 			B32 coneTouchesObserver(const Node* n) const;
 			static String tupleKey(const List<Node*>& lanes);
 			Node* packTuple(const List<Node*>& lanes, Type* elemTy, U32 depth);
