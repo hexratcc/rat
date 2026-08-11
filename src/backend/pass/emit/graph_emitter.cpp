@@ -43,21 +43,38 @@ namespace rat {
 		String portName(const Node* n, U32 i) {
 			switch(n->getOpcode()) {
 			case Opcode::If:
-			case Opcode::Switch:
 				return i == 0 ? "ctrl" : "cond";
+			case Opcode::Switch:
+				return i == 0 ? "ctrl" : "sel";
 			case Opcode::Load:
 				return i == 0 ? "ctrl" : i == 1 ? "mem" : "addr";
 			case Opcode::Store:
 				return i == 0 ? "ctrl" : i == 1 ? "mem" : i == 2 ? "addr" : "val";
 			case Opcode::Return:
-			case Opcode::Call:
 				return i == 0 ? "ctrl" : i == 1 ? "mem" : std::to_string(i - 2);
+			case Opcode::Call: {
+				if(i == 0)
+					return "ctrl";
+				if(i == 1)
+					return "mem";
+				const auto* c = cast<CallNode>(n);
+				if(c->isIndirect())
+					return i == 2 ? "tgt" : std::to_string(i - 3);
+				return std::to_string(i - 2);
+			}
 			case Opcode::Phi:
 				return i == 0 ? "region" : std::to_string(i - 1);
 			case Opcode::Proj:
 				return "src";
 			case Opcode::Stop:
 				return "ret";
+			case Opcode::Alloc:
+				return "size";
+			case Opcode::Splat:
+				return "val";
+			case Opcode::Extract:
+			case Opcode::Shuffle:
+				return "vec";
 			default:
 				return std::to_string(i);
 			}
@@ -103,10 +120,23 @@ namespace rat {
 			return 0;
 		}
 
+		// a labeled proj names the tuple element it extracts
+		String outName(const Node* n, U32 e) {
+			const Type* t = n->getType();
+			if(!t->isTuple())
+				return t->str();
+			for(const Node* u : n->getUsers())
+				if(u->getOpcode() == Opcode::Proj) {
+					const auto* p = cast<ProjNode>(u);
+					if(p->getIndex() == e && *p->getLabel())
+						return p->getLabel();
+				}
+			return t->getTupleElement(e)->str();
+		}
+
 		void writeNode(std::ostream& os, U32 fnIndex, const Node* n,
 									 const List<U32>& useCount) {
 			U32 in = n->getInputCount();
-			const Type* t = n->getType();
 			U32 out = outCount(n);
 			U32 total = 0;
 			for(U32 e = 0; e < out; ++e)
@@ -132,22 +162,26 @@ namespace rat {
 			os << "&#160;</td></tr><tr>";
 			U32 port = 0;
 			for(U32 e = 0; e < out; ++e) {
-				const Type* et = t->isTuple() ? t->getTupleElement(e) : t;
+				String name = outName(n, e);
 				for(U32 k = 0, uk = std::max(useCount[e], 1u); k < uk; ++k) {
 					os << "<td port=\"o" << port++ << "\" colspan=\"" << cols / total
 						 << "\" valign=\"bottom\">&#160;";
-					writeHtml(os, et->str());
+					writeHtml(os, name);
 					os << "&#160;</td>";
 				}
 			}
 			os << "</tr></table>>];\n";
 		}
 
-		const C8* edgeStyle(const Node* from, const Node* to) {
+		// a proj edge carries whatever the proj extracts, not the tuple
+		const Type* carriedType(const Node* from, const Node* to) {
 			const Type* t = from->getType();
-			// a proj edge carries whatever the proj extracts, not the tuple
 			if(t->isTuple() && to->getOpcode() == Opcode::Proj)
 				t = to->getType();
+			return t;
+		}
+
+		const C8* edgeStyle(const Type* t) {
 			if(t->isControl())
 				return "color=\"#cc0000\", weight=4"; // control spine
 			if(t->isMemory())
@@ -187,7 +221,7 @@ namespace rat {
 					writeId(os, index, in);
 					os << ":o" << flat << ":s -> ";
 					writeId(os, index, n);
-					os << ":i" << i << ":n [" << edgeStyle(in, n) << "];\n";
+					os << ":i" << i << ":n [" << edgeStyle(carriedType(in, n)) << "];\n";
 				}
 			}
 			os << "  }\n";
