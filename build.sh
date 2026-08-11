@@ -12,11 +12,23 @@ case "$MODE" in
 esac
 
 FLAGS="-std=c++17 -Wall -Wextra -pthread $OPT"
-# iquote so base string.h cannot shadow the libc header for <...> includes
-INC="-iquote src/base -iquote src/backend -iquote src/linker -iquote src/compiler"
 
 OBJ="build/$MODE"
 mkdir -p "$OBJ" bin
+
+# iquote so base string.h cannot shadow the libc header for <...> includes
+INC="-iquote src/base -iquote src/backend -iquote src/linker -iquote src/compiler -iquote $OBJ"
+
+# regenerate git_hash.h only when the string changes
+git_hash=$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)
+if ! git diff --quiet HEAD -- 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+	git_hash="${git_hash}-dirty"
+fi
+hash_hdr="$OBJ/git_hash.h"
+new_hdr="#define GIT_HASH \"$git_hash\""
+if [ ! -f "$hash_hdr" ] || [ "$(cat "$hash_hdr")" != "$new_hdr" ]; then
+	echo "$new_hdr" > "$hash_hdr"
+fi
 
 # source groups
 base_srcs="src/base/test_harness.cpp"

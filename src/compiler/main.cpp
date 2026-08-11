@@ -10,6 +10,7 @@
 #include <chrono>
 #include <fstream>
 
+#include "git_hash.h"
 #include "string.h"
 #include "rat.h"
 
@@ -141,7 +142,8 @@ namespace {
 				usage(std::cout);
 				return 0;
 			} else if(arg == "-version" || arg == "--version") {
-				std::cout << kVersion << " (built " << __DATE__ << " " << __TIME__ << ")\n";
+				std::cout << kVersion << " (" << GIT_HASH
+									<< ", built " << __DATE__ << " " << __TIME__ << ")\n";
 				return 0;
 			} else if(arg.rfind("-o", 0) == 0) {
 				opt.output = value(2);
