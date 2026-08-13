@@ -27,6 +27,18 @@ namespace rat {
 
 	inline String trim(const String& s) { return rtrim(ltrim(s)); }
 
+	// comma/whitespace separated tokens
+	inline List<String> splitTokens(String s) {
+		for(C8& c : s)
+			if(c == ',')
+				c = ' ';
+		std::istringstream ss(s);
+		List<String> out;
+		for(String t; ss >> t;)
+			out.push_back(t);
+		return out;
+	}
+
 	inline String stripAnsi(const String& s) {
 		String out;
 		out.reserve(s.size());
