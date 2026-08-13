@@ -59,9 +59,7 @@ namespace {
 
 	void parseEmit(const String& spec, List<Emit>& out) {
 		for(const String& k : splitTokens(spec)) {
-			U32 e = 0;
-			while(e < 4 && k != kEmitNames[e])
-				++e;
+			U32 e = (U32)(std::find(kEmitNames, kEmitNames + 4, k) - kEmitNames);
 			e == 4 ? cli::die(kTool, "unknown -emit kind '" + k + "'") : out.push_back((Emit)e);
 		}
 	}
@@ -102,14 +100,13 @@ namespace {
 		Options opt;
 		for(I32 i = 1; i < argc; ++i) {
 			String arg = argv[i];
-			auto next = [&]() -> String {
+			// -X<v> and -X <v>
+			auto rest = [&](U32 prefix) -> String {
+				if(arg.size() > prefix)
+					return arg.substr(prefix);
 				if(++i >= argc)
 					cli::die(kTool, arg + " expects an argument");
 				return argv[i];
-			};
-			// -X<v> and -X <v>
-			auto rest = [&](U32 prefix) -> String {
-				return arg.size() > prefix ? arg.substr(prefix) : next();
 			};
 			auto value = [&](const C8* name, String& out) -> B32 {
 				return cli::value(kTool, argc, argv, i, name, out);
