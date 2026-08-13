@@ -35,14 +35,12 @@ namespace rat {
 		}
 
 		struct Entry {
-			const C8* name;
-			const C8* description;
+			const C8 *name, *description;
 			UniquePtr<Pass> (*make)(std::ostream&);
 		};
 
 		struct MachineEntry {
-			const C8* name;
-			const C8* description;
+			const C8 *name, *description;
 			UniquePtr<MachinePass> (*make)(std::ostream&);
 		};
 
@@ -102,16 +100,13 @@ namespace rat {
 	}
 
 	void listPasses(std::ostream& os, B32 withMachine) {
-		auto row = [&](const C8* name, const C8* description) {
-			os << "  " << std::left << std::setw(16) << name << description << "\n";
-		};
 		os << "passes:\n";
 		for(const Entry& e : kPasses)
-			row(e.name, e.description);
+			os << "  " << std::left << std::setw(16) << e.name << e.description << "\n";
 		if(!withMachine)
 			return;
 		os << "machine passes (default x86 pipeline order):\n";
 		for(const MachineEntry& e : kMachinePasses)
-			row(e.name, e.description);
+			os << "  " << std::left << std::setw(16) << e.name << e.description << "\n";
 	}
 } // namespace rat
