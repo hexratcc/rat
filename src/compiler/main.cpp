@@ -60,7 +60,9 @@ namespace {
 	void parseEmit(const String& spec, List<Emit>& out) {
 		for(const String& k : splitTokens(spec)) {
 			U32 e = (U32)(std::find(kEmitNames, kEmitNames + 4, k) - kEmitNames);
-			e == 4 ? cli::die(kTool, "unknown -emit kind '" + k + "'") : out.push_back((Emit)e);
+			if(e == 4)
+				cli::die(kTool, "unknown -emit kind '" + k + "'");
+			out.push_back((Emit)e);
 		}
 	}
 
@@ -68,8 +70,10 @@ namespace {
 		if(e == Emit::X86)
 			return opt.output;
 		U64 dot = opt.output.rfind('.'), slash = opt.output.rfind('/');
-		B32 strip = dot != String::npos && (slash == String::npos || dot > slash);
-		return (strip ? opt.output.substr(0, dot) : opt.output) + "." + kEmitNames[(U32)e];
+		String base = opt.output;
+		if(dot != String::npos && (slash == String::npos || dot > slash))
+			base = base.substr(0, dot);
+		return base + "." + kEmitNames[(U32)e];
 	}
 
 	void usage(std::ostream& os) {
@@ -129,11 +133,12 @@ namespace {
 				opt.extraPasses.push_back(arg.substr(2));
 			else if(arg.rfind("-o", 0) == 0)
 				opt.output = rest(2);
-			else if(arg.rfind("-I", 0) == 0 || arg.rfind("-D", 0) == 0 || arg.rfind("-U", 0) == 0)
-				(arg[1] == 'I'	 ? opt.pp.includeDirs
-				 : arg[1] == 'D' ? opt.pp.defines
-												 : opt.pp.undefs)
-						.push_back(rest(2));
+			else if(arg.rfind("-I", 0) == 0)
+				opt.pp.includeDirs.push_back(rest(2));
+			else if(arg.rfind("-D", 0) == 0)
+				opt.pp.defines.push_back(rest(2));
+			else if(arg.rfind("-U", 0) == 0)
+				opt.pp.undefs.push_back(rest(2));
 			else if(arg.size() > 1 && arg[0] == '-')
 				cli::die(kTool, "unknown option '" + arg + "'");
 			else if(opt.input.empty())
@@ -180,7 +185,9 @@ namespace {
 	I32 emitViaModule(const Options& opt, TokenStream& ts, Emit kind, std::ostream& os) {
 		Generic64 generic;
 		X86Target x86(hostTargetTriple());
-		const TargetInfo& target = (kind == Emit::X86) ? (const TargetInfo&)x86 : generic;
+		const TargetInfo* target = &generic;
+		if(kind == Emit::X86)
+			target = &x86;
 
 		Arena arena;
 		PhaseClock::time_point t0 = PhaseClock::now();
@@ -211,7 +218,7 @@ namespace {
 			}
 
 		// keep the pass manager local so we can print the timing report from it
-		PassManager pm(target);
+		PassManager pm(*target);
 		composePipeline(pm, copt, os);
 		pm.run(mod);
 		if(opt.timePasses)
@@ -224,9 +231,11 @@ namespace {
 		std::ofstream file;
 		if(!cli::openOutput(kTool, pathFor(opt, kind), file, kind == Emit::X86))
 			return 1;
-		return kind == Emit::Tok	 ? emitTokens(path, pped, file)
-					 : kind == Emit::Ast ? emitAstText(*ts, file)
-															 : emitViaModule(opt, *ts, kind, file);
+		if(kind == Emit::Tok)
+			return emitTokens(path, pped, file);
+		if(kind == Emit::Ast)
+			return emitAstText(*ts, file);
+		return emitViaModule(opt, *ts, kind, file);
 	}
 } // namespace
 
@@ -256,7 +265,10 @@ static I32 run(I32 argc, C8** argv) {
 	// -E and -emit tok need serialized text; else parse the pp token stream directly
 	B32 needText = opt.preprocessOnly, needToks = false;
 	for(Emit kind : opt.emits)
-		(kind == Emit::Tok ? needText : needToks) = true;
+		if(kind == Emit::Tok)
+			needText = true;
+		else
+			needToks = true;
 
 	String pped, ppErr;
 	TokenStream ts;
