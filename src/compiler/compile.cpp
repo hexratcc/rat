@@ -6,14 +6,6 @@
 #include <cstdlib>
 
 namespace rat::cc {
-	List<UniquePtr<Pass>> defaultOptPasses() {
-		std::ostringstream sink;
-		List<UniquePtr<Pass>> passes;
-		for(const String& name : defaultOptPipeline())
-			passes.push_back(passRegistry().create(name, sink));
-		return passes;
-	}
-
 	void composePipeline(PassManager& pm, CompileOptions& opt, std::ostream& out) {
 		if(!opt.renameMain.empty())
 			pm.add<RenameSymbolPass>("main", opt.renameMain);
@@ -30,6 +22,9 @@ namespace rat::cc {
 
 		if(opt.backend == Backend::C) {
 			pm.add<CEmitterPass>(out);
+		} else if(!opt.machinePasses.empty()) {
+			for(UniquePtr<MachinePass>& p : opt.machinePasses)
+				pm.add(std::move(p));
 		} else {
 			pm.add<X86LowerPass>();
 			pm.add<LinearScanRegAllocPass>();

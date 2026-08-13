@@ -1,155 +1,83 @@
 #include "rat.h"
 
-#include <fstream>
-#include <iomanip>
-
+#include "cli.h"
 #include "ir/text_parser.h"
 #include "string.h"
 
 using namespace rat;
 
 namespace {
-	B32 startsWith(const C8* s, const C8* prefix) {
-		while(*prefix)
-			if(*s++ != *prefix++)
-				return false;
-		return true;
+	const C8* kTool = "rat";
+
+	void usage(std::ostream& os) {
+		os << "usage: rat [options] [input.rat]\n"
+					"\n"
+					"  -passes <a,b,...>   pass pipeline to run, in order\n"
+					"  -emit <text|c|dot>  output format (default text)\n"
+					"  -o <file>           output file (default stdout)\n"
+					"  -stats              report per-pass changes to stderr\n"
+					"  -verify             append a verify pass\n"
+					"  -list-passes        list available passes and exit\n"
+					"  -h, -help           show this help\n"
+					"  -version            show version\n";
 	}
 
-	void usage(std::ostream& os, const char* prog) {
-		os << "usage: " << prog << " [options] [input.rat]\n"
-			 << "  -passes=<a,b,...>   pipeline to run, in order\n"
-			 << "  -emit=<text|c|dot>  output format (default: text)\n"
-			 << "  -o <file>           output file (default: stdout)\n"
-			 << "  -stats              report per-pass changes to stderr\n"
-			 << "  -verify             append a verify pass\n"
-			 << "  -list-passes        list available passes and exit\n"
-			 << "  -h, --help          show this help\n";
-	}
-
-	void listPasses(std::ostream& os) {
-		os << "passes:\n";
-		for(const PassRegistry::Entry& e : PassRegistry::entries()) {
-			U64 len = std::strlen(e.name);
-			os << "  " << std::left << std::setw((I32)(len < 14 ? 14 : len + 1)) << e.name
-				 << e.description << "\n";
-		}
-	}
-
-	void addEmitter(PassManager& pm, const String& kind, std::ostream& os) {
-		if(kind == "c")
-			pm.add<CEmitterPass>(os);
-		else if(kind == "dot")
-			pm.add<GraphEmitterPass>(os);
-		else
-			pm.add<TextEmitterPass>(os);
-	}
 } // namespace
 
-static I32 run(I32 argc, char** argv) {
-	String passSpec;
-	String emitKind = "text";
-	String inputPath;
-	String outputPath;
-	B32 stats = false;
-	B32 doVerify = false;
+static I32 run(I32 argc, C8** argv) {
+	String passSpec, emitKind = "text", inputPath, outputPath;
+	B32 stats = false, doVerify = false;
 
 	for(I32 i = 1; i < argc; ++i) {
-		const C8* arg = argv[i];
-		if(std::strcmp(arg, "-h") == 0 || std::strcmp(arg, "--help") == 0) {
-			usage(std::cout, argv[0]);
-			return 0;
-		} else if(std::strcmp(arg, "-list-passes") == 0) {
-			listPasses(std::cout);
-			return 0;
-		} else if(std::strcmp(arg, "-stats") == 0) {
+		String arg = argv[i];
+		auto value = [&](const C8* name, String& out) -> B32 {
+			return cli::value(kTool, argc, argv, i, name, out);
+		};
+		cli::stdFlags(kTool, arg, usage);
+		if(arg == "-list-passes")
+			return listPasses(std::cout, false), 0;
+		if(arg == "-stats")
 			stats = true;
-		} else if(std::strcmp(arg, "-verify") == 0) {
+		else if(arg == "-verify")
 			doVerify = true;
-		} else if(startsWith(arg, "-passes=")) {
-			passSpec = arg + 8;
-		} else if(startsWith(arg, "-emit=")) {
-			emitKind = arg + 6;
-		} else if(std::strcmp(arg, "-o") == 0) {
-			if(++i >= argc) {
-				std::cerr << "rat: -o requires a file argument\n";
-				return 2;
-			}
-			outputPath = argv[i];
-		} else if(arg[0] == '-') {
-			std::cerr << "rat: unknown option '" << arg << "'\n";
-			usage(std::cerr, argv[0]);
-			return 2;
-		} else if(inputPath.empty()) {
+		else if(value("-passes", passSpec) || value("-emit", emitKind) || value("-o", outputPath))
+			;
+		else if(arg.size() > 1 && arg[0] == '-')
+			return cli::error(kTool, "unknown option '" + arg + "'");
+		else if(inputPath.empty())
 			inputPath = arg;
-		} else {
-			std::cerr << "rat: unexpected extra argument '" << arg << "'\n";
-			return 2;
-		}
+		else
+			return cli::error(kTool, "unexpected extra argument '" + arg + "'");
 	}
 
-	if(emitKind != "text" && emitKind != "c" && emitKind != "dot") {
-		std::cerr << "rat: unknown -emit value '" << emitKind << "' (expected text, c, or dot)\n";
-		return 2;
-	}
+	if(emitKind != "text" && emitKind != "c" && emitKind != "dot")
+		return cli::error(kTool, "unknown -emit value '" + emitKind + "' (expected text, c, or dot)");
+	String emitter = emitKind == "dot" ? "graph-emitter" : emitKind + "-emitter";
 
 	String source;
-	if(inputPath.empty()) {
-		if(!readAll(std::cin, source)) {
-			std::cerr << "rat: failed to read stdin\n";
-			return 1;
-		}
-	} else {
-		std::ifstream f(inputPath);
-		if(!f) {
-			std::cerr << "rat: cannot open '" << inputPath << "'\n";
-			return 1;
-		}
-		if(!readAll(f, source)) {
-			std::cerr << "rat: failed to read '" << inputPath << "'\n";
-			return 1;
-		}
-	}
+	if(!cli::readInput(kTool, inputPath, source))
+		return 1;
 
 	Generic64 target;
 	Module module;
-	if(!parseText(source, module, std::cerr)) {
-		std::cerr << "rat: parse error\n";
-		return 1;
-	}
+	if(!parseText(source, module, std::cerr))
+		return std::cerr << kTool << ": parse error\n", 1;
 
 	std::ofstream outFile;
-	if(!outputPath.empty()) {
-		outFile.open(outputPath);
-		if(!outFile) {
-			std::cerr << "rat: cannot open '" << outputPath << "' for writing\n";
-			return 1;
-		}
-	}
+	if(!outputPath.empty() && !cli::openOutput(kTool, outputPath, outFile))
+		return 1;
 	std::ostream& out = outputPath.empty() ? std::cout : outFile;
 
 	PassManager pm(target);
 	String err;
-	if(!buildPipeline(pm, passSpec, out, err)) {
-		std::cerr << "rat: " << err << "\n";
-		return 2;
-	}
+	if(!buildPipeline(pm, passSpec, out, err))
+		return cli::error(kTool, err);
 	if(doVerify)
 		pm.add<VerifyPass>(std::cerr);
-	addEmitter(pm, emitKind, out);
+	pm.add(createPass(emitter, out));
 
 	pm.run(module, stats ? &std::cerr : nullptr);
 	return 0;
 }
 
-I32 main(I32 argc, char** argv) {
-	try {
-		return run(argc, argv);
-	} catch(const std::exception& e) {
-		std::cerr << "rat: internal error: " << e.what() << "\n";
-		return 3;
-	} catch(...) {
-		std::cerr << "rat: internal error\n";
-		return 3;
-	}
-}
+I32 main(I32 argc, C8** argv) { return cli::guardedMain(kTool, run, argc, argv); }

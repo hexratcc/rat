@@ -130,7 +130,7 @@ namespace {
 		B32 ok = true;
 		runPasses(mod, target, [&](PassManager& pm) {
 			for(const String& p : tf.passes) {
-				UniquePtr<Pass> pass = passRegistry().create(p, sink);
+				UniquePtr<Pass> pass = createPass(p, sink);
 				if(!pass) {
 					err = "unknown pass: " + p;
 					ok = false;

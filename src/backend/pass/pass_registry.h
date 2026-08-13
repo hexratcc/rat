@@ -5,36 +5,11 @@
 #include "pass/pass_manager.h"
 
 namespace rat {
-	struct Pass;
+	UniquePtr<Pass> createPass(const String& name, std::ostream& out);
+	UniquePtr<MachinePass> createMachinePass(const String& name, std::ostream& out);
 
-	struct PassRegistry {
-		using Factory = UniquePtr<Pass> (*)(std::ostream& out);
-
-		struct Entry {
-			const C8* name;
-			const C8* description;
-			Factory make;
-		};
-
-		struct EntryTable {
-			const Entry* items;
-			U32 count;
-
-			const Entry* begin() const { return items; }
-			const Entry* end() const { return items + count; }
-		};
-
-		UniquePtr<Pass> create(const String& name, std::ostream& out) const;
-
-		static EntryTable entries();
-	private:
-		static const Entry* find(const String& name);
-	};
-
-	const PassRegistry& passRegistry();
 	B32 buildPipeline(PassManager& pm, const String& spec, std::ostream& out, String& err);
-
-	List<UniquePtr<Pass>> makeDefaultOptPasses();
+	void listPasses(std::ostream& os, B32 withMachine);
 	List<String> defaultOptPipeline();
 } // namespace rat
 

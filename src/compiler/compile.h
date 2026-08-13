@@ -6,6 +6,7 @@
 #include "target/target.h"
 
 namespace rat {
+	struct MachinePass;
 	struct Module;
 	struct Pass;
 	struct PassManager;
@@ -18,10 +19,10 @@ namespace rat::cc {
 	struct CompileOptions {
 		Backend backend = Backend::X86;
 		List<UniquePtr<Pass>> optPasses;
+		List<UniquePtr<MachinePass>> machinePasses; // empty = default x86 pipeline
 		String renameMain;
 	};
 
-	List<UniquePtr<Pass>> defaultOptPasses();
 	void composePipeline(PassManager& pm, CompileOptions& opt, std::ostream& out);
 	void compileModule(Module& mod, const TargetInfo& target, CompileOptions& opt, std::ostream& out);
 } // namespace rat::cc

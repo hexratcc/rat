@@ -32,6 +32,9 @@ namespace rat {
 		}
 
 		Pass* add(UniquePtr<Pass> pass);
+		MachinePass* add(UniquePtr<MachinePass> p) {
+			return machinePasses.emplace_back(std::move(p)).get();
+		}
 		void gateLastOnChangesSinceSelf();
 		void markFixpointEnd() { fixpointEnd = (U32)passes.size(); }
 		B32 run(Module& module, std::ostream* log = nullptr);
