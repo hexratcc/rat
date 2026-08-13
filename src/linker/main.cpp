@@ -32,10 +32,14 @@ namespace {
 		List<String> out;
 		for(I32 i = 1; i < argc; ++i) {
 			String a = argv[i], text;
-			std::ifstream f(a.rfind('@', 0) == 0 ? a.substr(1) : String());
 			if(a.rfind("-Wl,", 0) == 0)
 				text = a.substr(4);
-			if(text.empty() && !(f && readAll(f, text)))
+			B32 expand = !text.empty();
+			if(!expand && a.rfind('@', 0) == 0) {
+				std::ifstream f(a.substr(1));
+				expand = f && readAll(f, text);
+			}
+			if(!expand)
 				out.push_back(std::move(a));
 			else
 				for(String& t : splitTokens(text))
@@ -71,15 +75,22 @@ static I32 run(I32 argc, C8** argv) {
 			opt.target = t == "linux" ? LinkTarget::LinuxX64 : LinkTarget::WindowsX64;
 		} else if(arg == "-e" || arg == "--entry")
 			opt.entry = next("-e");
-		else if(arg == "-dynamic-linker" || arg == "--dynamic-linker" ||
-						arg.rfind("--dynamic-linker=", 0) == 0)
-			opt.interp = arg.size() > 16 ? arg.substr(17) : next("-dynamic-linker");
-		else if(arg == "-rpath" || arg == "--rpath" || arg.rfind("-rpath=", 0) == 0)
-			opt.rpaths.push_back(arg.size() > 6 && arg[6] == '=' ? arg.substr(7) : next("-rpath"));
-		else if(arg == "--library-path" || arg.rfind("-L", 0) == 0)
-			opt.libPaths.push_back(arg.size() > 2 && arg[1] == 'L' ? arg.substr(2) : next("-L"));
-		else if(arg == "--library" || arg.rfind("-l", 0) == 0)
-			opt.libs.push_back(arg.size() > 2 && arg[1] == 'l' ? arg.substr(2) : next("-l"));
+		else if(arg.rfind("--dynamic-linker=", 0) == 0)
+			opt.interp = arg.substr(17);
+		else if(arg == "-dynamic-linker" || arg == "--dynamic-linker")
+			opt.interp = next("-dynamic-linker");
+		else if(arg.rfind("-rpath=", 0) == 0)
+			opt.rpaths.push_back(arg.substr(7));
+		else if(arg == "-rpath" || arg == "--rpath")
+			opt.rpaths.push_back(next("-rpath"));
+		else if(arg == "-L" || arg == "--library-path")
+			opt.libPaths.push_back(next("-L"));
+		else if(arg.rfind("-L", 0) == 0)
+			opt.libPaths.push_back(arg.substr(2));
+		else if(arg == "-l" || arg == "--library")
+			opt.libs.push_back(next("-l"));
+		else if(arg.rfind("-l", 0) == 0)
+			opt.libs.push_back(arg.substr(2));
 		else if(kSkipArg.find(" " + arg + " ") != String::npos)
 			next(arg.c_str()); // ignore flag + arg
 		else if(arg.size() > 1 && arg[0] == '-')

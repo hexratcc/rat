@@ -43,10 +43,15 @@ namespace rat::cli {
 
 	// "" reads stdin
 	inline B32 readInput(const C8* tool, const String& path, String& source) {
+		if(path.empty()) {
+			if(readAll(std::cin, source))
+				return true;
+			return error(tool, "cannot read '<stdin>'"), false;
+		}
 		std::ifstream f(path);
-		if(path.empty() ? readAll(std::cin, source) : (B32)(f && readAll(f, source)))
+		if(f && readAll(f, source))
 			return true;
-		return error(tool, "cannot read '" + (path.empty() ? "<stdin>" : path) + "'"), false;
+		return error(tool, "cannot read '" + path + "'"), false;
 	}
 
 	inline B32 openOutput(const C8* tool, const String& path, std::ofstream& f, B32 binary = false) {
