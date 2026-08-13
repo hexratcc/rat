@@ -20,6 +20,14 @@ namespace rat::cli {
 	// error + exit(2)
 	[[noreturn]] inline void die(const C8* tool, const String& msg) { std::exit(error(tool, msg)); }
 
+	// -h/-help/--help and -version/--version, shared by every tool
+	inline void stdFlags(const C8* tool, const String& arg, void (*usage)(std::ostream&)) {
+		if(arg == "-h" || arg == "-help" || arg == "--help")
+			usage(std::cout), std::exit(0);
+		if(arg == "-version" || arg == "--version")
+			printVersion(std::cout, tool), std::exit(0);
+	}
+
 	// -name <v> and -name=<v>, advances i past a consumed argument
 	inline B32 value(const C8* tool, I32 argc, C8** argv, I32& i, const C8* name, String& out) {
 		String arg = argv[i];

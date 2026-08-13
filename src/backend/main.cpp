@@ -33,10 +33,7 @@ static I32 run(I32 argc, C8** argv) {
 		auto value = [&](const C8* name, String& out) -> B32 {
 			return cli::value(kTool, argc, argv, i, name, out);
 		};
-		if(arg == "-h" || arg == "-help" || arg == "--help")
-			return usage(std::cout), 0;
-		if(arg == "-version" || arg == "--version")
-			return cli::printVersion(std::cout, kTool), 0;
+		cli::stdFlags(kTool, arg, usage);
 		if(arg == "-list-passes")
 			return listPasses(std::cout, false), 0;
 		if(arg == "-stats")

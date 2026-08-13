@@ -115,11 +115,8 @@ namespace {
 				return cli::value(kTool, argc, argv, i, name, out);
 			};
 			auto flag = [&](const C8* name, B32& out) -> B32 { return arg == name && (out = true); };
-			if(arg == "-h" || arg == "-help" || arg == "--help")
-				usage(std::cout), std::exit(0);
-			else if(arg == "-version" || arg == "--version")
-				cli::printVersion(std::cout, kTool), std::exit(0);
-			else if(arg == "-list-passes")
+			cli::stdFlags(kTool, arg, usage);
+			if(arg == "-list-passes")
 				listPasses(std::cout, true), std::exit(0);
 			else if(arg == "-O0" || arg == "-O1" || arg == "-O")
 				opt.optLevel = arg != "-O0";

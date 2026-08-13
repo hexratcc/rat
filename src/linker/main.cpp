@@ -61,10 +61,7 @@ static I32 run(I32 argc, C8** argv) {
 				cli::die(kTool, String(what) + " expects an argument");
 			return args[i];
 		};
-		if(arg == "-h" || arg == "-help" || arg == "--help")
-			return usage(std::cout), 0;
-		if(arg == "-version" || arg == "--version")
-			return cli::printVersion(std::cout, kTool), 0;
+		cli::stdFlags(kTool, arg, usage);
 		if(arg == "-o")
 			opt.output = next("-o");
 		else if(arg == "-target") {
