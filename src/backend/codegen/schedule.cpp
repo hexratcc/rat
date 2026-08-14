@@ -4,7 +4,7 @@
 #include "ir/node.h"
 
 namespace rat {
-	namespace {
+	namespace detail {
 		I32 idGet(const List<I32>& v, U32 id) { return id < v.size() ? v[id] : -1; }
 
 		void idSet(List<I32>& v, U32 id, I32 val) {
@@ -20,7 +20,7 @@ namespace rat {
 				v.resize(id + 1, nullptr);
 			v[id] = val;
 		}
-	} // namespace
+	} // namespace detail
 
 	Schedule::Schedule(const Function& fn)
 	: fn(fn) {
@@ -65,7 +65,7 @@ namespace rat {
 		for(Node* n : fn) {
 			if(isHeadNode(n)) {
 				I32 b = (I32)blocks.size();
-				idSet(headIndex, n->getId(), b);
+				detail::idSet(headIndex, n->getId(), b);
 				blocks.emplace_back();
 				blocks.back().head = n;
 				if(ProjNode* p = dyn_cast<ProjNode>(n))
@@ -77,7 +77,7 @@ namespace rat {
 	}
 
 	I32 Schedule::blockOfHead(const Node* head) const {
-		return head ? idGet(headIndex, head->getId()) : -1;
+		return head ? detail::idGet(headIndex, head->getId()) : -1;
 	}
 
 	I32 Schedule::headBlock(const Node* head) const {
@@ -90,7 +90,7 @@ namespace rat {
 		List<Node*> path;
 		Node* c = ctrl;
 		while(true) {
-			if(Node* memo = nodeGet(headMemo, c->getId())) {
+			if(Node* memo = detail::nodeGet(headMemo, c->getId())) {
 				c = memo;
 				break;
 			}
@@ -102,7 +102,7 @@ namespace rat {
 			c = call->getControlInput();
 		}
 		for(Node* n : path)
-			nodeSet(headMemo, n->getId(), c);
+			detail::nodeSet(headMemo, n->getId(), c);
 		return c;
 	}
 
@@ -120,11 +120,11 @@ namespace rat {
 					switch(u->getOpcode()) {
 					case Opcode::Store:
 						if(u->getControlInput() == cur)
-							idSet(nodeBlock, u->getId(), b);
+							detail::idSet(nodeBlock, u->getId(), b);
 						break;
 					case Opcode::Call:
 						if(u->getControlInput() == cur) {
-							idSet(nodeBlock, u->getId(), b);
+							detail::idSet(nodeBlock, u->getId(), b);
 							nextCall = u;
 						}
 						break;
@@ -378,7 +378,7 @@ namespace rat {
 
 	I32 Schedule::fixedDataBlock(Node* n, const List<I32>& early) const {
 		if(isFloating(n))
-			return idGet(early, n->getId());
+			return detail::idGet(early, n->getId());
 		switch(n->getOpcode()) {
 		case Opcode::Phi:
 			return blockOfHead(cast<PhiNode>(n)->getRegion());
@@ -404,7 +404,7 @@ namespace rat {
 				work.push_back(n);
 
 		for(Node* n : work)
-			idSet(early, n->getId(), entryBlock);
+			detail::idSet(early, n->getId(), entryBlock);
 
 		// deepest input block, to fixpoint (a floating input may not be settled)
 		B32 changed = true;
@@ -422,8 +422,8 @@ namespace rat {
 						e = b;
 				}
 				U32 id = n->getId();
-				if(idGet(early, id) != e) {
-					idSet(early, id, e);
+				if(detail::idGet(early, id) != e) {
+					detail::idSet(early, id, e);
 					changed = true;
 				}
 			}
@@ -439,7 +439,7 @@ namespace rat {
 					acc = lca(acc, predBlockForRegionInput(rb, i));
 			return acc < 0 ? rb : acc;
 		}
-		I32 b = idGet(nodeBlock, u->getId());
+		I32 b = detail::idGet(nodeBlock, u->getId());
 		if(b >= 0)
 			return b;
 		if(isa<ReturnNode>(u) || isa<IfNode>(u))
@@ -479,7 +479,7 @@ namespace rat {
 						continue; // no placed use yet
 				}
 
-				I32 e = idGet(early, n->getId());
+				I32 e = detail::idGet(early, n->getId());
 				if(e < 0)
 					e = entryBlock;
 				Opcode op = n->getOpcode();
@@ -502,15 +502,15 @@ namespace rat {
 				}
 
 				U32 id = n->getId();
-				if(idGet(nodeBlock, id) != pick) {
-					idSet(nodeBlock, id, pick);
+				if(detail::idGet(nodeBlock, id) != pick) {
+					detail::idSet(nodeBlock, id, pick);
 					changed = true;
 				}
 			}
 		}
 	}
 
-	I32 Schedule::blockOf(const Node* n) const { return n ? idGet(nodeBlock, n->getId()) : -1; }
+	I32 Schedule::blockOf(const Node* n) const { return n ? detail::idGet(nodeBlock, n->getId()) : -1; }
 
 	void Schedule::buildBlockLists() {
 		for(Node* n : fn)
@@ -522,7 +522,7 @@ namespace rat {
 		for(Node* n : fn) {
 			B32 pinned = isa<StoreNode>(n) || isa<CallNode>(n);
 			if(pinned || isFloating(n)) {
-				I32 b = idGet(nodeBlock, n->getId());
+				I32 b = detail::idGet(nodeBlock, n->getId());
 				if(b >= 0)
 					raw[b].push_back(n);
 			}
@@ -552,9 +552,9 @@ namespace rat {
 			return out;
 
 		for(U32 i = 0; i < k; ++i)
-			idSet(s.localOf, nodes[i]->getId(), (I32)i);
+			detail::idSet(s.localOf, nodes[i]->getId(), (I32)i);
 
-		auto local = [&](const Node* n) -> I32 { return n ? idGet(s.localOf, n->getId()) : -1; };
+		auto local = [&](const Node* n) -> I32 { return n ? detail::idGet(s.localOf, n->getId()) : -1; };
 
 		s.inDeg.assign(k, 0);
 		s.succHead.assign(k, -1);
@@ -570,11 +570,11 @@ namespace rat {
 			if(!m)
 				continue;
 			U32 mid = m->getId();
-			I32 head = idGet(s.memHead, mid);
+			I32 head = detail::idGet(s.memHead, mid);
 			if(head < 0)
 				s.touchedMem.push_back((I32)mid);
 			s.memNext[i] = head;
-			idSet(s.memHead, mid, (I32)i);
+			detail::idSet(s.memHead, mid, (I32)i);
 		}
 
 		// extra ordering edges
@@ -594,7 +594,7 @@ namespace rat {
 			Node* m = memoryInputOf(writer);
 			if(!m)
 				return;
-			for(I32 li = idGet(s.memHead, m->getId()); li >= 0; li = s.memNext[li]) {
+			for(I32 li = detail::idGet(s.memHead, m->getId()); li >= 0; li = s.memNext[li]) {
 				Node* ld = nodes[li];
 				if(ld != writer)
 					addEdge(ld, writer);

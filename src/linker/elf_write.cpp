@@ -8,7 +8,7 @@
 namespace rat {
 	using namespace elf;
 
-	namespace {
+	namespace detail {
 		constexpr U64 kImageBase = 0x400000;
 		constexpr U64 kPage = 0x1000;
 		constexpr U64 kPltEntSize = 16;
@@ -23,7 +23,7 @@ namespace rat {
 			}
 			return s;
 		}
-	} // namespace
+	} // namespace detail
 
 	// count FDEs in merged .eh_frame (drives hdr size)
 	U32 Linker::countFdes() {
@@ -49,7 +49,7 @@ namespace rat {
 		return n;
 	}
 
-	namespace {
+	namespace detail {
 		U64 readUleb(const U8* p, U64& i) {
 			U64 v = 0;
 			U32 sh = 0;
@@ -94,7 +94,7 @@ namespace rat {
 			}
 			return 8;
 		}
-	} // namespace
+	} // namespace detail
 
 	// .eh_frame_hdr: header + pc-sorted (initial_location, fde) table for bsearch
 	void Linker::buildEhFrameHdr() {
@@ -130,19 +130,19 @@ namespace rat {
 					++augLen;
 				U64 augStart = i;
 				i += augLen + 1;
-				readUleb(m.data(), i); // code align
-				readSleb(m.data(), i); // data align
-				readUleb(m.data(), i); // ra reg
+				detail::readUleb(m.data(), i); // code align
+				detail::readSleb(m.data(), i); // data align
+				detail::readUleb(m.data(), i); // ra reg
 				U8 fdeEnc = 0x00;			 // absptr default
 				if(aug[0] == 'z') {
-					readUleb(m.data(), i); // aug data len
+					detail::readUleb(m.data(), i); // aug data len
 					for(U64 a = 1; a < augLen; ++a) {
 						char c = ((const char*)&m[augStart])[a];
 						if(c == 'L') {
 							++i; // lsda enc byte
 						} else if(c == 'P') {
 							U8 penc = m[i++];
-							i += encSize(penc); // personality ptr
+							i += detail::encSize(penc); // personality ptr
 						} else if(c == 'R') {
 							fdeEnc = m[i++];
 						} else if(c == 'S') {
@@ -161,7 +161,7 @@ namespace rat {
 				U64 pcOff = idOff + 4; // offset in .eh_frame
 				U64 pcFieldVa = ehVa + pcOff;
 				I64 raw = 0;
-				U32 sz = encSize(fdeEnc);
+				U32 sz = detail::encSize(fdeEnc);
 				if((fdeEnc & 0x0f) == 0x0b || (fdeEnc & 0x0f) == 0x0a || (fdeEnc & 0x0f) == 0x0c)
 					raw = (I64)signExtend((I64)rd64(&m[pcOff]) & ((sz == 4) ? 0xffffffffull : ~0ull), sz * 8);
 				else if(sz == 4)
@@ -256,7 +256,7 @@ namespace rat {
 		size[ODynsym] = (U64)nDyn * 24;
 		size[ORelaDyn] = (U64)(nData + nGlob) * 24; // COPY + GLOB_DAT
 		size[ORelaPlt] = (U64)nFunc * 24;
-		size[OPlt] = (U64)nFunc * kPltEntSize;
+		size[OPlt] = (U64)nFunc * detail::kPltEntSize;
 		size[OText] = bucketSize[BText];
 		size[ORodata] = bucketSize[BRodata];
 		size[OEhFrame] = bucketSize[BEhFrame];
@@ -276,7 +276,7 @@ namespace rat {
 			for(const String& lib : neededLibs)
 				n += lib.size() + 1;
 			if(!rpaths.empty())
-				n += joinColon(rpaths).size() + 1;
+				n += detail::joinColon(rpaths).size() + 1;
 			size[ODynstr] = n;
 		}
 
@@ -287,7 +287,7 @@ namespace rat {
 			if(align > 1)
 				cursor = (cursor + (align - 1)) & ~(align - 1);
 			foff[s] = cursor;
-			vaddr[s] = kImageBase + cursor;
+			vaddr[s] = detail::kImageBase + cursor;
 			cursor += size[s];
 		};
 		place(OInterp, 1);
@@ -303,7 +303,7 @@ namespace rat {
 		place(OEhFrameHdr, 4);
 
 		// 4. second R-W segment on fresh page
-		cursor = (cursor + kPage - 1) & ~(kPage - 1);
+		cursor = (cursor + detail::kPage - 1) & ~(detail::kPage - 1);
 		place(OInitArray, 8);
 		place(OFiniArray, 8);
 		place(OData, 16);
@@ -326,13 +326,13 @@ namespace rat {
 
 		// nobits last
 		cursor = (cursor + 15) & ~15ull;
-		vaddr[OBss] = kImageBase + cursor;
+		vaddr[OBss] = detail::kImageBase + cursor;
 		foff[OBss] = cursor;
 		size[OBss] = bucketSize[BBss];
 		// tls bss is loader-managed, park after bss
 		U64 tbssCur = cursor + size[OBss];
 		tbssCur = (tbssCur + 15) & ~15ull;
-		vaddr[OTbss] = kImageBase + tbssCur;
+		vaddr[OTbss] = detail::kImageBase + tbssCur;
 		foff[OTbss] = tbssCur;
 		size[OTbss] = bucketSize[BTbss];
 
@@ -353,7 +353,7 @@ namespace rat {
 				im.dynIndex = dynCursor++;
 				if(isFunc) {
 					im.pltIndex = funcSlot++;
-					im.addr = vaddr[OPlt] + (U64)im.pltIndex * kPltEntSize;
+					im.addr = vaddr[OPlt] + (U64)im.pltIndex * detail::kPltEntSize;
 				} else {
 					U64 a = im.size ? im.size : 8;
 					U64 align = a >= 16 ? 16 : (a >= 8 ? 8 : (a >= 4 ? 4 : 1));
@@ -402,7 +402,7 @@ namespace rat {
 		linkerSyms["_end"] = bssEnd;
 		linkerSyms["end"] = bssEnd;
 		linkerSyms["__end__"] = bssEnd;
-		linkerSyms["__ehdr_start"] = kImageBase;
+		linkerSyms["__ehdr_start"] = detail::kImageBase;
 		linkerSyms["_DYNAMIC"] = vaddr[ODynamic];
 		linkerSyms["__data_start"] = vaddr[OData];
 		linkerSyms["data_start"] = vaddr[OData];
@@ -603,7 +603,7 @@ namespace rat {
 		U32 runpathOff = 0;
 		if(!rpaths.empty()) {
 			runpathOff = (U32)dynstr.size();
-			String rp = joinColon(rpaths);
+			String rp = detail::joinColon(rpaths);
 			dynstr.insert(dynstr.end(), rp.begin(), rp.end());
 			dynstr.push_back(0);
 		}
@@ -707,14 +707,14 @@ namespace rat {
 			for(U32 i = 0; i < imports.size(); ++i) {
 				if(imports[i].kind != Import::Func)
 					continue;
-				U64 entry = vaddr[OPlt] + (U64)slotN * kPltEntSize;
+				U64 entry = vaddr[OPlt] + (U64)slotN * detail::kPltEntSize;
 				U64 slot = vaddr[OGotPlt] + (U64)(3 + slotN) * 8;
 				I32 disp = (I32)((I64)slot - (I64)(entry + 6));
 				plt.push_back(0xff);
 				plt.push_back(0x25);
 				for(U32 k = 0; k < 4; ++k)
 					plt.push_back((U8)((U32)disp >> (k * 8)));
-				while(plt.size() % kPltEntSize)
+				while(plt.size() % detail::kPltEntSize)
 					plt.push_back(0x90);
 				++slotN;
 			}
@@ -805,10 +805,10 @@ namespace rat {
 			wr64(out, memsz);
 			wr64(out, align);
 		};
-		phdr(PT_PHDR, PF_R, 64, kImageBase + 64, (U64)phnum * 56, (U64)phnum * 56, 8);
+		phdr(PT_PHDR, PF_R, 64, detail::kImageBase + 64, (U64)phnum * 56, (U64)phnum * 56, 8);
 		phdr(PT_INTERP, PF_R, foff[OInterp], vaddr[OInterp], size[OInterp], size[OInterp], 1);
-		phdr(PT_LOAD, PF_R | PF_X, 0, kImageBase, rxFilesz, rxFilesz, kPage);
-		phdr(PT_LOAD, PF_R | PF_W, rwStart, vaddr[OInitArray], rwFilesz, rwMemsz, kPage);
+		phdr(PT_LOAD, PF_R | PF_X, 0, detail::kImageBase, rxFilesz, rxFilesz, detail::kPage);
+		phdr(PT_LOAD, PF_R | PF_W, rwStart, vaddr[OInitArray], rwFilesz, rwMemsz, detail::kPage);
 		phdr(PT_DYNAMIC,
 				 PF_R | PF_W,
 				 foff[ODynamic],

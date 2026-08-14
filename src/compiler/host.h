@@ -6,6 +6,10 @@
 #include "target/target.h"
 
 namespace rat::cc {
+	namespace detail {
+		TargetTriple& hostTripleStorage();
+	} // namespace detail
+
 	const TargetTriple& hostTargetTriple();
 	void setHostTargetTriple(const TargetTriple& triple);
 } // namespace rat::cc

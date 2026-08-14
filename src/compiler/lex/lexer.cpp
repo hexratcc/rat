@@ -3,7 +3,7 @@
 #include "lex/char_class.h"
 
 namespace rat::cc {
-	namespace {
+	namespace detail {
 		// clang-format off
 		const char* const kTokNames[] = {
 				// literals and specials
@@ -81,7 +81,7 @@ namespace rat::cc {
 				return TokKind::KwTypeof;
 			return TokKind::Identifier;
 		}
-	} // namespace
+	} // namespace detail
 
 	Lexer::Lexer(const char* src, U32 len, String fileName)
 	: src(src),
@@ -201,7 +201,7 @@ namespace rat::cc {
 			}
 		}
 		U32 n = pos - tok.offset;
-		return finish(tok, keywordKind(src + tok.offset, n));
+		return finish(tok, detail::keywordKind(src + tok.offset, n));
 	}
 
 	Token Lexer::lexNumber(Token tok) {
@@ -270,7 +270,7 @@ namespace rat::cc {
 		U32 sfxStart = pos;
 		while(isIdentCont(cur()))
 			bump();
-		if(!validIntSuffix(src + sfxStart, pos - sfxStart))
+		if(!detail::validIntSuffix(src + sfxStart, pos - sfxStart))
 			return fail(tok, "invalid suffix on integer constant");
 		return finish(tok, TokKind::IntConstant);
 	}
@@ -279,7 +279,7 @@ namespace rat::cc {
 		U32 sfxStart = pos;
 		while(isIdentCont(cur()))
 			bump();
-		if(!validFloatSuffix(src + sfxStart, pos - sfxStart))
+		if(!detail::validFloatSuffix(src + sfxStart, pos - sfxStart))
 			return fail(tok, "invalid suffix on floating constant");
 		return finish(tok, TokKind::FloatConstant);
 	}
@@ -305,12 +305,13 @@ namespace rat::cc {
 		return lexQuoted(tok, '"', "unterminated string literal", TokKind::StringLiteral);
 	}
 
-	Token Lexer::lexEqSuffixOp(Token tok, TokKind base, TokKind eq) {
+	Token Lexer::lexAltOp(Token tok, TokKind base, std::initializer_list<PunctAlt> alts) {
 		bump();
-		if(cur() == '=') {
-			bump();
-			return finish(tok, eq);
-		}
+		for(const PunctAlt& a : alts)
+			if(cur() == a.c) {
+				bump();
+				return finish(tok, a.kind);
+			}
 		return finish(tok, base);
 	}
 
@@ -351,65 +352,27 @@ namespace rat::cc {
 			bump();
 			return finish(tok, TokKind::Dot);
 		case '+':
-			bump();
-			if(cur() == '+') {
-				bump();
-				return finish(tok, TokKind::PlusPlus);
-			}
-			if(cur() == '=') {
-				bump();
-				return finish(tok, TokKind::PlusEq);
-			}
-			return finish(tok, TokKind::Plus);
+			return lexAltOp(tok, TokKind::Plus, {{'+', TokKind::PlusPlus}, {'=', TokKind::PlusEq}});
 		case '-':
-			bump();
-			if(cur() == '-') {
-				bump();
-				return finish(tok, TokKind::MinusMinus);
-			}
-			if(cur() == '=') {
-				bump();
-				return finish(tok, TokKind::MinusEq);
-			}
-			if(cur() == '>') {
-				bump();
-				return finish(tok, TokKind::Arrow);
-			}
-			return finish(tok, TokKind::Minus);
+			return lexAltOp(tok,
+											TokKind::Minus,
+											{{'-', TokKind::MinusMinus}, {'=', TokKind::MinusEq}, {'>', TokKind::Arrow}});
 		case '*':
-			return lexEqSuffixOp(tok, TokKind::Star, TokKind::StarEq);
+			return lexAltOp(tok, TokKind::Star, {{'=', TokKind::StarEq}});
 		case '/':
-			return lexEqSuffixOp(tok, TokKind::Slash, TokKind::SlashEq);
+			return lexAltOp(tok, TokKind::Slash, {{'=', TokKind::SlashEq}});
 		case '%':
-			return lexEqSuffixOp(tok, TokKind::Percent, TokKind::PercentEq);
+			return lexAltOp(tok, TokKind::Percent, {{'=', TokKind::PercentEq}});
 		case '^':
-			return lexEqSuffixOp(tok, TokKind::Caret, TokKind::CaretEq);
+			return lexAltOp(tok, TokKind::Caret, {{'=', TokKind::CaretEq}});
 		case '!':
-			return lexEqSuffixOp(tok, TokKind::Bang, TokKind::BangEq);
+			return lexAltOp(tok, TokKind::Bang, {{'=', TokKind::BangEq}});
 		case '=':
-			return lexEqSuffixOp(tok, TokKind::Assign, TokKind::EqEq);
+			return lexAltOp(tok, TokKind::Assign, {{'=', TokKind::EqEq}});
 		case '&':
-			bump();
-			if(cur() == '&') {
-				bump();
-				return finish(tok, TokKind::AmpAmp);
-			}
-			if(cur() == '=') {
-				bump();
-				return finish(tok, TokKind::AmpEq);
-			}
-			return finish(tok, TokKind::Amp);
+			return lexAltOp(tok, TokKind::Amp, {{'&', TokKind::AmpAmp}, {'=', TokKind::AmpEq}});
 		case '|':
-			bump();
-			if(cur() == '|') {
-				bump();
-				return finish(tok, TokKind::PipePipe);
-			}
-			if(cur() == '=') {
-				bump();
-				return finish(tok, TokKind::PipeEq);
-			}
-			return finish(tok, TokKind::Pipe);
+			return lexAltOp(tok, TokKind::Pipe, {{'|', TokKind::PipePipe}, {'=', TokKind::PipeEq}});
 		case '<':
 			bump();
 			if(cur() == '<') {
@@ -478,5 +441,5 @@ namespace rat::cc {
 
 	String Lexer::text(const Token& tok) const { return String(src + tok.offset, tok.length); }
 
-	const char* tokKindName(TokKind kind) { return kTokNames[(U32)kind]; }
+	const char* tokKindName(TokKind kind) { return detail::kTokNames[(U32)kind]; }
 } // namespace rat::cc

@@ -3,7 +3,7 @@
 #include "target/x86_asm.h"
 
 namespace rat {
-	namespace {
+	namespace detail {
 		RegisterInfo buildX86Registers(const X86CallConv& conv) {
 			auto gp = [](Reg reg) -> PhysReg { return X86Target::kGpBase + (PhysReg)reg; };
 			auto xmm = [](U32 n) -> PhysReg { return X86Target::kXmmBase + n; };
@@ -46,7 +46,7 @@ namespace rat {
 			info.spillSlotBytes = 8;
 			return info;
 		}
-	} // namespace
+	} // namespace detail
 
 	const C8* TargetTriple::archName() const {
 		switch(arch) {
@@ -104,7 +104,7 @@ namespace rat {
 
 	RegAllocHooks TargetInfo::regAllocHooks() const { return {}; }
 
-	RegisterInfo X86Target::build(OS os) { return buildX86Registers(x86CallConv(os)); }
+	RegisterInfo X86Target::build(OS os) { return detail::buildX86Registers(x86CallConv(os)); }
 
 	UniquePtr<TargetInfo> createTarget(const TargetTriple& triple) {
 		return std::make_unique<X86Target>(triple);

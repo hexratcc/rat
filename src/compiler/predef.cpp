@@ -1,12 +1,7 @@
 #include "predef.h"
 
 namespace rat::cc {
-	namespace {
-		struct Def {
-			const char* name;
-			const char* value;
-		};
-
+	namespace detail {
 		void append(String& out, const Def* defs, U32 n) {
 			for(U32 i = 0; i < n; ++i) {
 				out += "#define ";
@@ -305,11 +300,11 @@ namespace rat::cc {
 				appendLinux(out);
 			return out;
 		}
-	} // namespace
+	} // namespace detail
 
 	const String& builtinPredefs(const TargetTriple& triple) {
-		static const String linuxDefs = generate(TargetTriple(Arch::X86_64, OS::Linux));
-		static const String windowsDefs = generate(TargetTriple(Arch::X86_64, OS::Windows));
+		static const String linuxDefs = detail::generate(TargetTriple(Arch::X86_64, OS::Linux));
+		static const String windowsDefs = detail::generate(TargetTriple(Arch::X86_64, OS::Windows));
 		return triple.isWindows() ? windowsDefs : linuxDefs;
 	}
 } // namespace rat::cc

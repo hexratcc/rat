@@ -125,6 +125,15 @@ namespace rat {
 				op, detail::kGp, {MachineOperand::vr(d)}, {MachineOperand::vr(d), MachineOperand::vr(rhs)});
 	}
 
+	void X86LowerPass::twoAddrF(X86Op op, VReg d, VReg lhs, VReg rhs, U32 w, I64 imm) {
+		copy(MachineOperand::vr(d, w), MachineOperand::vr(lhs, w), detail::kFp);
+		inst(op,
+				 detail::kFp,
+				 {MachineOperand::vr(d, w)},
+				 {MachineOperand::vr(d, w), MachineOperand::vr(rhs, w)},
+				 imm);
+	}
+
 	void X86LowerPass::maskBits(VReg d, U32 bits) {
 		if(bits > 0 && bits < 64) {
 			MachineInstr& m = inst(X86Op::MaskBits,
@@ -302,12 +311,7 @@ namespace rat {
 		VReg rhs = sseValue(n->getRHS());
 		VReg d = vregFor(n);
 		static const X86Op kFOps[] = {X86Op::FAdd, X86Op::FSub, X86Op::FMul, X86Op::FDiv};
-		copy(MachineOperand::vr(d, w), MachineOperand::vr(lhs, w), detail::kFp);
-		inst(kFOps[idx],
-				 detail::kFp,
-				 {MachineOperand::vr(d, w)},
-				 {MachineOperand::vr(d, w), MachineOperand::vr(rhs, w)},
-				 (I64)w);
+		twoAddrF(kFOps[idx], d, lhs, rhs, w, (I64)w);
 	}
 
 	void X86LowerPass::needVecScratch() {
@@ -370,12 +374,7 @@ namespace rat {
 		VReg lhs = sseValue(n->getLHS());
 		VReg rhs = sseValue(n->getRHS());
 		VReg d = vregFor(n);
-		copy(MachineOperand::vr(d, 16), MachineOperand::vr(lhs, 16), detail::kFp);
-		inst(X86Op::VArith,
-				 detail::kFp,
-				 {MachineOperand::vr(d, 16)},
-				 {MachineOperand::vr(d, 16), MachineOperand::vr(rhs, 16)},
-				 ((I64)(esc38 ? 1 : 0) << 16) | ((I64)pfx << 8) | opc);
+		twoAddrF(X86Op::VArith, d, lhs, rhs, 16, ((I64)(esc38 ? 1 : 0) << 16) | ((I64)pfx << 8) | opc);
 	}
 
 	void X86LowerPass::emitSplat(SplatNode* n) {

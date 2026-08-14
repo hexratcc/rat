@@ -13,6 +13,17 @@
 #include "pass/pass.h"
 
 namespace rat {
+	struct MachineBlock;
+	struct MachineOperand;
+
+	namespace detail {
+		B32 isPureTestBlock(const MachineBlock& b);
+		U32 runOnFunction(MachineFunc& mf);
+		B32 isBlockRef(const MachineOperand& o);
+		U32 forwardJumpChains(MachineFunc& mf);
+		void chainLayout(MachineFunc& mf);
+	} // namespace detail
+
 	struct X86LayoutPass : MachinePass {
 		const C8* name() const override { return "x86-layout"; }
 		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;

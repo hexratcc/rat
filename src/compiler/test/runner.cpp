@@ -29,10 +29,10 @@
 using namespace rat;
 using namespace rat::cc;
 
-namespace {
+namespace detail {
 	constexpr U32 kReadBufSize = 4096;
 
-	std::atomic<U32> tempCounter{0};
+	static std::atomic<U32> tempCounter{0};
 
 	FILE* shellOpen(const char* cmd) {
 #if defined(_WIN32)
@@ -113,6 +113,11 @@ namespace {
 		B32 hasOutput = false;
 		String output;
 		B32 skip = false;
+	};
+
+	struct Artifact {
+		String path;
+		String compileArgs;
 	};
 
 	B32 commentBody(const String& line, String& body) {
@@ -199,11 +204,6 @@ namespace {
 		}
 		return only ? dyn_cast<ConstantNode>(only->getValue()) : nullptr;
 	}
-
-	struct Artifact {
-		String path;
-		String compileArgs;
-	};
 
 	B32 compileCToObject(const String& source,
 											 const String& name,
@@ -480,117 +480,117 @@ namespace {
 		}
 		return true;
 	}
-} // namespace
 
-const I32 kCaseTimeoutSec = 20;
+	const I32 kCaseTimeoutSec = 20;
 
 #if defined(_WIN32)
-B32 runCaseForked(const String& path, String& err) {
-	try {
-		return runCase(path, err);
-	} catch(const std::exception& e) {
-		err = String("unhandled exception: ") + e.what();
-		return false;
-	} catch(...) {
-		err = "unhandled exception";
-		return false;
+	B32 runCaseForked(const String& path, String& err) {
+		try {
+			return runCase(path, err);
+		} catch(const std::exception& e) {
+			err = String("unhandled exception: ") + e.what();
+			return false;
+		} catch(...) {
+			err = "unhandled exception";
+			return false;
+		}
 	}
-}
 #else
-B32 runCaseForked(const String& path, String& err) {
-	I32 fds[2];
-	if(pipe(fds) != 0)
-		return runCase(path, err); // fall back to in-process on pipe failure
-
-	pid_t pid = fork();
-	if(pid < 0) {
-		close(fds[0]);
+	B32 runCaseForked(const String& path, String& err) {
+		I32 fds[2];
+		if(pipe(fds) != 0)
+			return runCase(path, err); // fall back to in-process on pipe failure
+	
+		pid_t pid = fork();
+		if(pid < 0) {
+			close(fds[0]);
+			close(fds[1]);
+			return runCase(path, err);
+		}
+	
+		if(pid == 0) {
+			setpgid(0, 0); // lead a new group so the parent can kill descendants too
+			close(fds[0]);
+			String cerr;
+			B32 ok = runCase(path, cerr);
+			if(!ok && !cerr.empty()) {
+				I64 ignored = write(fds[1], cerr.data(), cerr.size());
+				(void)ignored;
+			}
+			close(fds[1]);
+			_exit(ok ? 0 : 1);
+		}
+	
+		setpgid(pid, pid); // race-free against the child's own setpgid
 		close(fds[1]);
-		return runCase(path, err);
-	}
-
-	if(pid == 0) {
-		setpgid(0, 0); // lead a new group so the parent can kill descendants too
+	
+		String childErr;
+		B32 timedOut = false;
+		time_t deadline = time(nullptr) + kCaseTimeoutSec;
+		for(;;) {
+			time_t now = time(nullptr);
+			if(now >= deadline) {
+				timedOut = true;
+				break;
+			}
+			struct pollfd pfd = {fds[0], POLLIN, 0};
+			I32 pr = poll(&pfd, 1, (I32)((deadline - now) * 1000));
+			if(pr < 0) {
+				if(errno == EINTR)
+					continue;
+				break;
+			}
+			if(pr == 0) {
+				timedOut = true;
+				break;
+			}
+			char buf[kReadBufSize];
+			I64 n = read(fds[0], buf, sizeof(buf));
+			if(n > 0)
+				childErr.append(buf, (U64)n);
+			else
+				break; // EOF (child closed the pipe) or read error
+		}
 		close(fds[0]);
-		String cerr;
-		B32 ok = runCase(path, cerr);
-		if(!ok && !cerr.empty()) {
-			I64 ignored = write(fds[1], cerr.data(), cerr.size());
-			(void)ignored;
+	
+		if(timedOut) {
+			kill(-pid, SIGKILL);
+			I32 dummy = 0;
+			waitpid(pid, &dummy, 0);
+			std::ostringstream os;
+			os << "timeout (>" << kCaseTimeoutSec << "s)";
+			err = os.str();
+			return false;
 		}
-		close(fds[1]);
-		_exit(ok ? 0 : 1);
-	}
-
-	setpgid(pid, pid); // race-free against the child's own setpgid
-	close(fds[1]);
-
-	String childErr;
-	B32 timedOut = false;
-	time_t deadline = time(nullptr) + kCaseTimeoutSec;
-	for(;;) {
-		time_t now = time(nullptr);
-		if(now >= deadline) {
-			timedOut = true;
-			break;
+	
+		I32 status = 0;
+		waitpid(pid, &status, 0);
+		if(WIFSIGNALED(status)) {
+			std::ostringstream os;
+			os << "crashed (signal " << WTERMSIG(status) << ")";
+			err = os.str();
+			return false;
 		}
-		struct pollfd pfd = {fds[0], POLLIN, 0};
-		I32 pr = poll(&pfd, 1, (I32)((deadline - now) * 1000));
-		if(pr < 0) {
-			if(errno == EINTR)
-				continue;
-			break;
-		}
-		if(pr == 0) {
-			timedOut = true;
-			break;
-		}
-		char buf[kReadBufSize];
-		I64 n = read(fds[0], buf, sizeof(buf));
-		if(n > 0)
-			childErr.append(buf, (U64)n);
-		else
-			break; // EOF (child closed the pipe) or read error
-	}
-	close(fds[0]);
-
-	if(timedOut) {
-		kill(-pid, SIGKILL);
-		I32 dummy = 0;
-		waitpid(pid, &dummy, 0);
-		std::ostringstream os;
-		os << "timeout (>" << kCaseTimeoutSec << "s)";
-		err = os.str();
+		if(WIFEXITED(status) && WEXITSTATUS(status) == 0)
+			return true;
+		err = childErr.empty() ? "failed" : childErr;
 		return false;
 	}
-
-	I32 status = 0;
-	waitpid(pid, &status, 0);
-	if(WIFSIGNALED(status)) {
-		std::ostringstream os;
-		os << "crashed (signal " << WTERMSIG(status) << ")";
-		err = os.str();
-		return false;
-	}
-	if(WIFEXITED(status) && WEXITSTATUS(status) == 0)
-		return true;
-	err = childErr.empty() ? "failed" : childErr;
-	return false;
-}
 #endif
+} // namespace detail
 
 I32 main(I32 argc, char** argv) {
 	TestSuiteSpec spec;
 	spec.tool = "cc-test";
 	spec.extension = ".c";
 	spec.dirCandidates = {"src/compiler/test", "test"};
-	spec.run = [](const String& path, String& err) { return runCaseForked(path, err); };
+	spec.run = [](const String& path, String& err) { return ::detail::runCaseForked(path, err); };
 	// warm the lazily-initialized caches before threads spawn so their first
 	// access does not race.
 	spec.prewarm = [] {
-		(void)hostCC();
+		(void)::detail::hostCC();
 		(void)builtinPredefs(hostTargetTriple());
-		(void)useX86Backend();
+		(void)::detail::useX86Backend();
 	};
 	return runTestSuite(argc, argv, spec);
 }

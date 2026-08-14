@@ -159,7 +159,7 @@ namespace rat::cc {
 		return kNames[(U32)op];
 	}
 
-	namespace {
+	namespace detail {
 		void pad(std::ostream& os, U32 depth) {
 			for(U32 i = 0; i < depth; ++i)
 				os << "  ";
@@ -344,11 +344,11 @@ namespace rat::cc {
 				return;
 			}
 		}
-	} // namespace
+	} // namespace detail
 
 	void dumpAst(const TransUnit& unit, std::ostream& os) {
 		for(const Stmt* g : unit.globals)
-			dumpStmt(g, 0, os);
+			detail::dumpStmt(g, 0, os);
 		for(const FuncDef* fn : unit.functions) {
 			os << "func " << fn->name << "(";
 			for(U32 i = 0; i < fn->params.size(); ++i) {
@@ -358,7 +358,7 @@ namespace rat::cc {
 			}
 			os << ") -> " << typeName(fn->retType) << "\n";
 			if(fn->body)
-				dumpStmt(fn->body, 1, os);
+				detail::dumpStmt(fn->body, 1, os);
 		}
 	}
 } // namespace rat::cc

@@ -50,10 +50,6 @@ namespace rat {
 			a->movRegImm64(d, (U64)v);
 	}
 
-	void X86EncodePass::emitLoadSym(const MachineInstr& in) {
-		a->leaRipSym(gpOf(in.defs[0]), in.uses[0].sym(), 0);
-	}
-
 	void X86EncodePass::emitFrameAddr(const MachineInstr& in) {
 		if(in.imm == -1) {
 			Reg d = gpOf(in.defs[0]);
@@ -67,12 +63,6 @@ namespace rat {
 			return;
 		}
 		a->leaMem(gpOf(in.defs[0]), RBP, (I32)in.imm);
-	}
-
-	void X86EncodePass::emitLea(const MachineInstr& in) {
-		Reg base = gpOf(in.uses[0]);
-		Reg index = gpOf(in.uses[1]);
-		a->leaSib(gpOf(in.defs[0]), base, index, (U32)(in.imm2 & 3), (I32)in.imm);
 	}
 
 	void X86EncodePass::emitLoad(const MachineInstr& in) {
@@ -172,33 +162,12 @@ namespace rat {
 		a->aluRR(aluOp, d, gpOf(in.uses[1]));
 	}
 
-	void X86EncodePass::emitMul(const MachineInstr& in) {
-		if(in.uses[1].kind == MachineOperand::Kind::Imm) {
-			a->imulRRI(gpOf(in.defs[0]), gpOf(in.uses[0]), (I32)in.uses[1].imm);
-			return;
-		}
-		a->imulRR(gpOf(in.defs[0]), gpOf(in.uses[1]));
-	}
-
-	void X86EncodePass::emitNegNot(const MachineInstr& in, B32 neg) {
-		Reg d = gpOf(in.defs[0]);
-		if(neg)
-			a->negReg(d);
-		else
-			a->notReg(d);
-	}
-
 	void X86EncodePass::emitShift(const MachineInstr& in, U8 ext) {
 		if(in.uses.size() > 1 && in.uses[1].kind == MachineOperand::Kind::Imm) {
 			a->shiftImm(ext, gpOf(in.defs[0]), (U8)(in.uses[1].imm & 63));
 			return;
 		}
 		a->shiftCL(ext, gpOf(in.defs[0]));
-	}
-
-	void X86EncodePass::emitRot(const MachineInstr& in, B32 left) {
-		Reg d = gpOf(in.defs[0]);
-		a->rotImm(left ? 0 : 1, d, (U8)in.uses[1].imm, in.imm == 64);
 	}
 
 	void X86EncodePass::emitDiv(const MachineInstr& in, B32 isSigned) {
@@ -259,31 +228,24 @@ namespace rat {
 		a->cmpRR(gpOf(in.uses[0]), gpOf(in.uses[1]));
 	}
 
-	void X86EncodePass::emitSetCC(const MachineInstr& in) {
-		Reg d = gpOf(in.defs[0]);
-		a->setcc((U8)in.imm, d);
+	void X86EncodePass::setccExt(U8 cc, Reg d) {
+		a->setcc(cc, d);
 		a->movzxByte(d, d);
 	}
 
-	void X86EncodePass::emitFArith(const MachineInstr& in, U8 op) {
-		U32 w = (U32)in.imm;
-		a->sseArith(op, w, xmmOf(in.defs[0]), xmmOf(in.uses[1]));
-	}
-
 	void X86EncodePass::emitVArith(const MachineInstr& in) {
-		U8 pfx = (U8)((U64)in.imm >> 8);
-		U8 op = (U8)in.imm;
-		if((U64)in.imm >> 16)
-			a->ssePacked38(pfx, op, xmmOf(in.defs[0]), xmmOf(in.uses[1]));
-		else
-			a->ssePacked(pfx, op, xmmOf(in.defs[0]), xmmOf(in.uses[1]));
+		a->ssePacked((U8)((U64)in.imm >> 8),
+								 (U8)in.imm,
+								 xmmOf(in.defs[0]),
+								 xmmOf(in.uses[1]),
+								 ((U64)in.imm >> 16) != 0);
 	}
 
 	void X86EncodePass::emitVSplat(const MachineInstr& in) {
 		U32 d = xmmOf(in.defs[0]);
 		U32 esz = (U32)in.imm;
 		U8 sel = esz == 4 ? 0x00 : 0x44; // dword 0 everywhere / qword 0 twice
-		if(in.imm2) { // integer lane arrives in a gp register
+		if(in.imm2) {										 // integer lane arrives in a gp register
 			a->movdXmmGp(d, gpOf(in.uses[0]), esz == 8);
 			a->pshufd(d, d, sel);
 			return;
@@ -345,14 +307,9 @@ namespace rat {
 		U32 s = xmmOf(in.uses[0]);
 		U32 z = conv->sseVolatileCount - 1; // top volatile xmm is encoder scratch
 		a->pxor(z, z);
-		a->sseArith(0x5c, w, z, s == d ? d : s);
+		a->sseArith(0x5c, w, z, s);
 		if(d != z)
 			a->movaps(d, z);
-	}
-
-	void X86EncodePass::emitFSqrt(const MachineInstr& in) {
-		U32 w = (U32)in.imm;
-		a->sseArith(0x51, w, xmmOf(in.defs[0]), xmmOf(in.uses[0]));
 	}
 
 	void X86EncodePass::emitFAbs(const MachineInstr& in) {
@@ -366,16 +323,8 @@ namespace rat {
 	}
 
 	void X86EncodePass::emitFCmp(const MachineInstr& in) {
-		U32 w = in.uses[0].width;
-		U32 lhs = xmmOf(in.uses[0]);
-		U32 rhs = xmmOf(in.uses[1]);
-		if(in.imm2)
-			a->ucomis(w, rhs, lhs);
-		else
-			a->ucomis(w, lhs, rhs);
-		Reg d = gpOf(in.defs[0]);
-		a->setcc((U8)in.imm, d);
-		a->movzxByte(d, d);
+		emitFCmpFlags(in);
+		setccExt((U8)in.imm, gpOf(in.defs[0]));
 	}
 
 	void X86EncodePass::emitFCmpFlags(const MachineInstr& in) {
@@ -487,8 +436,8 @@ namespace rat {
 	void X86EncodePass::emitX87Binary(const MachineInstr& in, U32 idx) {
 		fldSlot(in.uses[0].slot);
 		fldSlot(in.uses[1].slot);
-		static void (Asm::* const kArith[])() = {&Asm::faddp, &Asm::fsubp, &Asm::fmulp, &Asm::fdivp};
-		(a->*kArith[idx])();
+		static const U8 kArith[] = {0xc1, 0xe9, 0xc9, 0xf9}; // faddp fsubp fmulp fdivp
+		a->fArithP(kArith[idx]);
 		fstpSlot(in.defs[0].slot);
 	}
 
@@ -499,18 +448,11 @@ namespace rat {
 	}
 
 	void X86EncodePass::emitX87Cmp(const MachineInstr& in) {
-		B32 swap = in.imm2 != 0;
-		if(swap) {
-			fldSlot(in.uses[0].slot); // -> st(1)
-			fldSlot(in.uses[1].slot); // -> st(0)
-		} else {
-			fldSlot(in.uses[1].slot); // -> st(1)
-			fldSlot(in.uses[0].slot); // -> st(0)
-		}
+		U32 s = in.imm2 != 0;
+		fldSlot(in.uses[1 - s].slot); // -> st(1)
+		fldSlot(in.uses[s].slot);			// -> st(0)
 		a->fucomip();
 		a->fstpReg0();
-		Reg d = gpOf(in.defs[0]);
-		a->setcc((U8)in.imm, d);
-		a->movzxByte(d, d);
+		setccExt((U8)in.imm, gpOf(in.defs[0]));
 	}
 } // namespace rat

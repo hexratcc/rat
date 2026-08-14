@@ -271,6 +271,7 @@ namespace rat::cc {
 		B32 registerGlobalArrayOfArray(const Declarator& d, const String& symbol, Function* fn);
 		B32 registerGlobalArrayOfStruct(const Declarator& d, const String& symbol, Function* fn);
 		B32 registerGlobalArrayOfScalar(const Declarator& d, const String& symbol, Function* fn);
+		void defineGlobal(const Declarator& d, const String& symbol, Type* ty, List<U8>&& img);
 		void bindArrayGlobal(const Declarator& d, const String& symbol, Function* fn, U32 count);
 		void bindScalarGlobal(const Declarator& d, const String& symbol, Function* fn);
 		B32 registerGlobalStruct(const Declarator& d, const String& symbol, Function* fn);

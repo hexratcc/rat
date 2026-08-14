@@ -69,6 +69,10 @@ namespace rat {
 		return fn.create<ConstantNode>(type, FoldPass::normalizeConst(value, type->getIntWidth()));
 	}
 
+	Node* mkBin(Function& fn, Opcode op, Type* ty, Node* x, I64 c) {
+		return fn.create<BinaryNode>(op, ty, x, constant(fn, ty, c));
+	}
+
 	B32 evalBinaryConst(Opcode op, U32 w, I64 a, I64 b, I64& out) {
 		auto k = [&](I64 v) {
 			out = FoldPass::normalizeConst(v, w);
@@ -294,9 +298,6 @@ namespace rat {
 	}
 
 	Node* foldBinaryReassoc(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, ConstantNode* cr) {
-		auto mkBin = [&](Opcode o, Node* x, I64 c) {
-			return fn.create<BinaryNode>(o, ty, x, constant(fn, ty, c));
-		};
 		if((op == Opcode::Add || op == Opcode::Sub) && cr) {
 			I64 c2 = cr->getValue();
 			B32 outerNeg = op == Opcode::Sub;
@@ -310,7 +311,7 @@ namespace rat {
 					I64 k = FoldPass::normalizeConst((I64)(t1 + t2), w);
 					if(k == 0)
 						return base;
-					return mkBin(Opcode::Add, base, k); // sub-by-const normalizes to add
+					return mkBin(fn, Opcode::Add, ty, base, k); // sub-by-const normalizes to add
 				}
 			}
 		}
@@ -323,19 +324,13 @@ namespace rat {
 					return constant(fn, ty, 0);
 				if(k == 1)
 					return base;
-				return mkBin(Opcode::Mul, base, k);
+				return mkBin(fn, Opcode::Mul, ty, base, k);
 			}
 		}
 		return nullptr;
 	}
 
-	// hacker's delight 10-9: magic number for unsigned 32-bit division by d
-	struct MagicU32 {
-		U32 m;
-		U32 s;
-		B32 a; // "add" indicator: the 33-bit constant case
-	};
-
+	// hacker's delight 10-9
 	MagicU32 magicU32(U32 d) {
 		MagicU32 mag = {0, 0, false};
 		U32 nc = (U32)-1 - (U32)(-(I64)d) % d;
@@ -370,12 +365,7 @@ namespace rat {
 		return mag;
 	}
 
-	// gacker's delight 10-4: magic number for signed 32-bit division by d
-	struct MagicS32 {
-		I32 m;
-		U32 s;
-	};
-
+	// hacker's delight 10-4
 	MagicS32 magicS32(I32 d) {
 		const U32 two31 = 0x80000000u;
 		U32 ad = (U32)(d < 0 ? -(I64)d : d);
@@ -475,35 +465,23 @@ namespace rat {
 	}
 
 	Node* foldBinaryStrength(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs) {
-		auto mkBin = [&](Opcode o, Node* x, I64 c) {
-			return fn.create<BinaryNode>(o, ty, x, constant(fn, ty, c));
-		};
 		switch(op) {
 		case Opcode::Mul:
 			if(I32 k = FoldPass::pow2Log(rhs, w); k > 0)
-				return mkBin(Opcode::Shl, lhs, k);
+				return mkBin(fn, Opcode::Shl, ty, lhs, k);
 			break;
 		case Opcode::UDiv:
 			if(I32 k = FoldPass::pow2Log(rhs, w); k > 0)
-				return mkBin(Opcode::LShr, lhs, k);
+				return mkBin(fn, Opcode::LShr, ty, lhs, k);
+			[[fallthrough]];
+		case Opcode::SDiv:
 			if(ConstantNode* c = dyn_cast<ConstantNode>(rhs))
 				return buildDivByConst(fn, op, ty, w, lhs, c);
 			break;
 		case Opcode::URem:
 			if(I32 k = FoldPass::pow2Log(rhs, w); k > 0)
-				return mkBin(Opcode::And, lhs, (I64)((1ULL << k) - 1));
-			if(ConstantNode* c = dyn_cast<ConstantNode>(rhs))
-				if(Node* q = buildDivByConst(fn, op, ty, w, lhs, c)) // r = x - (x / d) * d
-					return fn.create<BinaryNode>(
-							Opcode::Sub,
-							ty,
-							lhs,
-							fn.create<BinaryNode>(Opcode::Mul, ty, q, constant(fn, ty, c->getValue())));
-			break;
-		case Opcode::SDiv:
-			if(ConstantNode* c = dyn_cast<ConstantNode>(rhs))
-				return buildDivByConst(fn, op, ty, w, lhs, c);
-			break;
+				return mkBin(fn, Opcode::And, ty, lhs, (I64)((1ULL << k) - 1));
+			[[fallthrough]];
 		case Opcode::SRem:
 			if(ConstantNode* c = dyn_cast<ConstantNode>(rhs))
 				if(Node* q = buildDivByConst(fn, op, ty, w, lhs, c)) // r = x - (x / d) * d
@@ -522,9 +500,6 @@ namespace rat {
 	Node* foldShiftOfShift(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs) {
 		if(op != Opcode::Shl && op != Opcode::LShr && op != Opcode::AShr)
 			return nullptr;
-		auto mkBin = [&](Opcode o, Node* x, I64 c) {
-			return fn.create<BinaryNode>(o, ty, x, constant(fn, ty, c));
-		};
 		BinaryNode* in = dyn_cast<BinaryNode>(lhs);
 		ConstantNode* cb = dyn_cast<ConstantNode>(rhs);
 		if(in && in->getOpcode() == op && cb) {
@@ -535,8 +510,8 @@ namespace rat {
 				Node* x = in->getLHS();
 				I64 sum = a + b;
 				if(sum >= (I64)w)
-					return op == Opcode::AShr ? mkBin(Opcode::AShr, x, w - 1) : constant(fn, ty, 0);
-				return mkBin(op, x, sum);
+					return op == Opcode::AShr ? mkBin(fn, Opcode::AShr, ty, x, w - 1) : constant(fn, ty, 0);
+				return mkBin(fn, op, ty, x, sum);
 			}
 		}
 		return nullptr;
@@ -581,15 +556,13 @@ namespace rat {
 	}
 
 	Node* foldUnary(Function& fn, Opcode op, Node* operand) {
-		if(ConstantNode* c = dyn_cast<ConstantNode>(operand)) {
-			if(!operand->getType()->isInt())
-				return nullptr;
-			U32 w = operand->getType()->getIntWidth();
-			I64 x = c->getValue();
-			I64 r = (op == Opcode::Neg) ? -x : ~x;
-			return constant(fn, operand->getType(), FoldPass::normalizeConst(r, w));
-		}
-		return nullptr;
+		ConstantNode* c = dyn_cast<ConstantNode>(operand);
+		if(!c || !operand->getType()->isInt())
+			return nullptr;
+		I64 r;
+		if(!evalUnaryConst(op, operand->getType()->getIntWidth(), c->getValue(), r))
+			return nullptr;
+		return constant(fn, operand->getType(), r);
 	}
 
 	Node* foldCompare(Function& fn, Opcode op, Node* lhs, Node* rhs) {
@@ -601,31 +574,10 @@ namespace rat {
 		ConstantNode* cl = dyn_cast<ConstantNode>(lhs);
 		ConstantNode* cr = dyn_cast<ConstantNode>(rhs);
 		if(cl && cr) {
-			I64 a = cl->getValue(), b = cr->getValue();
-			B32 res = false;
-			switch(op) {
-			case Opcode::Eq:
-				res = FoldPass::maskW(a, w) == FoldPass::maskW(b, w);
-				break;
-			case Opcode::Ne:
-				res = FoldPass::maskW(a, w) != FoldPass::maskW(b, w);
-				break;
-			case Opcode::Slt:
-				res = signExtend(a, w) < signExtend(b, w);
-				break;
-			case Opcode::Sle:
-				res = signExtend(a, w) <= signExtend(b, w);
-				break;
-			case Opcode::Ult:
-				res = FoldPass::maskW(a, w) < FoldPass::maskW(b, w);
-				break;
-			case Opcode::Ule:
-				res = FoldPass::maskW(a, w) <= FoldPass::maskW(b, w);
-				break;
-			default:
+			I64 res;
+			if(!evalCompareConst(op, w, cl->getValue(), cr->getValue(), res))
 				return nullptr;
-			}
-			return fn.constBool(res);
+			return fn.constBool(res != 0);
 		}
 
 		if(lhs == rhs) {

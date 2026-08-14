@@ -8,6 +8,12 @@
 #include "pass/pass.h"
 
 namespace rat {
+	struct PhiNode;
+
+	namespace detail {
+		B32 matchLinearIV(PhiNode* p, I64& step, U32& recIdx);
+	} // namespace detail
+
 	struct StrengthReducePass : FunctionPass {
 		const C8* name() const override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;

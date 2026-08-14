@@ -5,8 +5,8 @@
 
 using namespace rat;
 
-namespace {
-	const C8* kTool = "ratl";
+namespace detail {
+	static const C8* kTool = "ratl";
 
 	void usage(std::ostream& os) {
 		os << "usage: ratl [options] <input.o>...\n"
@@ -51,27 +51,27 @@ namespace {
 	// gnu-ld flags we ignore together with their separate argument
 	const String kSkipArg = " --version-script -soname --soname --hash-style -m -z -T -R"
 													" --defsym --exclude-libs -plugin --sysroot -a ";
-} // namespace
+} // namespace detail
 
 static I32 run(I32 argc, C8** argv) {
 	LinkOptions opt;
 	opt.output = "a.out";
 
-	List<String> args = expandArgs(argc, argv);
+	List<String> args = ::detail::expandArgs(argc, argv);
 	for(U64 i = 0; i < args.size(); ++i) {
 		String arg = args[i];
 		auto next = [&](const C8* what) -> String {
 			if(++i >= args.size())
-				cli::die(kTool, String(what) + " expects an argument");
+				cli::die(::detail::kTool, String(what) + " expects an argument");
 			return args[i];
 		};
-		cli::stdFlags(kTool, arg, usage);
+		cli::stdFlags(::detail::kTool, arg, ::detail::usage);
 		if(arg == "-o")
 			opt.output = next("-o");
 		else if(arg == "-target") {
 			String t = next("-target");
 			if(t != "linux" && t != "windows")
-				return cli::error(kTool, "unknown -target '" + t + "'");
+				return cli::error(::detail::kTool, "unknown -target '" + t + "'");
 			opt.target = t == "linux" ? LinkTarget::LinuxX64 : LinkTarget::WindowsX64;
 		} else if(arg == "-e" || arg == "--entry")
 			opt.entry = next("-e");
@@ -91,7 +91,7 @@ static I32 run(I32 argc, C8** argv) {
 			opt.libs.push_back(next("-l"));
 		else if(arg.rfind("-l", 0) == 0)
 			opt.libs.push_back(arg.substr(2));
-		else if(kSkipArg.find(" " + arg + " ") != String::npos)
+		else if(::detail::kSkipArg.find(" " + arg + " ") != String::npos)
 			next(arg.c_str()); // ignore flag + arg
 		else if(arg.size() > 1 && arg[0] == '-')
 			continue; // ignore unknown driver flags
@@ -100,12 +100,12 @@ static I32 run(I32 argc, C8** argv) {
 	}
 
 	if(opt.inputs.empty())
-		return cli::error(kTool, "no input files");
+		return cli::error(::detail::kTool, "no input files");
 
 	String err;
 	if(!link(opt, err))
-		return std::cerr << kTool << ": " << err << "\n", 1;
+		return std::cerr << ::detail::kTool << ": " << err << "\n", 1;
 	return 0;
 }
 
-I32 main(I32 argc, C8** argv) { return cli::guardedMain(kTool, run, argc, argv); }
+I32 main(I32 argc, C8** argv) { return cli::guardedMain(::detail::kTool, run, argc, argv); }

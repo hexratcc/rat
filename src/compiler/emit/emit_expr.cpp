@@ -384,8 +384,7 @@ namespace rat::cc {
 		Function::Block* eB = fn.createBlock("tern.end");
 		fn.jumpif(pred, tB);
 		fn.jmp(fB);
-		fn.seal(tB);
-		fn.setInsertBlock(tB);
+		fn.enterBlock(tB);
 		Value tv = emitExpr(fn, e->ternary.whenTrue);
 		if(!tv.node)
 			return {};
@@ -394,8 +393,7 @@ namespace rat::cc {
 				fn.set(var, convert(fn, tv.node, tv.type, rt));
 			fn.jmp(eB);
 		}
-		fn.seal(fB);
-		fn.setInsertBlock(fB);
+		fn.enterBlock(fB);
 		Value fv = emitExpr(fn, e->ternary.whenFalse);
 		if(!fv.node)
 			return {};
@@ -404,8 +402,7 @@ namespace rat::cc {
 				fn.set(var, convert(fn, fv.node, fv.type, rt));
 			fn.jmp(eB);
 		}
-		fn.seal(eB);
-		fn.setInsertBlock(eB);
+		fn.enterBlock(eB);
 		if(isVoidRes)
 			return {fn.constInt(i32, 0), rt};
 		return {fn.get(var), rt};

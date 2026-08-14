@@ -242,6 +242,11 @@ namespace rat {
 
 	void Function::setInsertBlock(Block* block) { cur = block; }
 
+	void Function::enterBlock(Block* block) {
+		seal(block);
+		setInsertBlock(block);
+	}
+
 	void Function::jmp(Block* target) {
 		if(!cur->ctrl) {
 			cur->finished = true;

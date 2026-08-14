@@ -521,16 +521,13 @@ namespace rat {
 			d32(0);
 		}
 
-		void push(Reg r) {
+		void pushPop(U8 base, Reg r) {
 			if(r >= R8)
 				b(0x41);
-			b((U8)(0x50 + (r & 7)));
+			b((U8)(base + (r & 7)));
 		}
-		void pop(Reg r) {
-			if(r >= R8)
-				b(0x41);
-			b((U8)(0x58 + (r & 7)));
-		}
+		void push(Reg r) { pushPop(0x50, r); }
+		void pop(Reg r) { pushPop(0x58, r); }
 		void ret() { b(0xc3); }
 		void leave() { b(0xc9); }
 
@@ -653,22 +650,14 @@ namespace rat {
 			b(op);
 			modrmReg(dst, src);
 		}
-		// packed SSE op with an explicit mandatory prefix (0 = none)
-		void ssePacked(U8 pfx, U8 op, U32 dst, U32 src) {
+		// packed SSE op with an explicit mandatory prefix (0 = none), esc38 adds the sse4.1 escape
+		void ssePacked(U8 pfx, U8 op, U32 dst, U32 src, B32 esc38) {
 			if(pfx)
 				b(pfx);
 			rex(false, dst, 0, src);
 			b(0x0f);
-			b(op);
-			modrmReg(dst, src);
-		}
-		// packed op behind the 0f 38 escape (sse4.1)
-		void ssePacked38(U8 pfx, U8 op, U32 dst, U32 src) {
-			if(pfx)
-				b(pfx);
-			rex(false, dst, 0, src);
-			b(0x0f);
-			b(0x38);
+			if(esc38)
+				b(0x38);
 			b(op);
 			modrmReg(dst, src);
 		}
@@ -740,21 +729,9 @@ namespace rat {
 		void fnstcw(Reg base, I32 disp) { x87Mem(0xd9, 7, base, disp); }
 		void fldcw(Reg base, I32 disp) { x87Mem(0xd9, 5, base, disp); }
 
-		void faddp() {
+		void fArithP(U8 enc) {
 			b(0xde);
-			b(0xc1);
-		}
-		void fsubp() {
-			b(0xde);
-			b(0xe9);
-		}
-		void fmulp() {
-			b(0xde);
-			b(0xc9);
-		}
-		void fdivp() {
-			b(0xde);
-			b(0xf9);
+			b(enc);
 		}
 
 		void fchs() {

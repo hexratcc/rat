@@ -33,21 +33,17 @@ namespace rat {
 		return o;
 	}
 
-	namespace {
-		struct MachineSymTable {
-			List<String> names{String()}; // id 0 is the empty name
-			Map<String, U32> ids;
-		};
+	namespace detail {
 		MachineSymTable& machineSyms() {
 			static thread_local MachineSymTable t;
 			return t;
 		}
-	} // namespace
+	} // namespace detail
 
 	U32 internMachineSym(const String& s) {
 		if(s.empty())
 			return 0;
-		MachineSymTable& t = machineSyms();
+		detail::MachineSymTable& t = detail::machineSyms();
 		auto it = t.ids.find(s);
 		if(it != t.ids.end())
 			return it->second;
@@ -58,7 +54,7 @@ namespace rat {
 	}
 
 	const String& machineSymName(U32 id) {
-		MachineSymTable& t = machineSyms();
+		detail::MachineSymTable& t = detail::machineSyms();
 		return id < t.names.size() ? t.names[id] : t.names[0];
 	}
 

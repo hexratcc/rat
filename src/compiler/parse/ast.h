@@ -437,6 +437,12 @@ namespace rat::cc {
 		return true;
 	}
 
+	namespace detail {
+		void pad(std::ostream& os, U32 depth);
+		void dumpStmt(const Stmt* s, U32 depth, std::ostream& os);
+		void dumpExpr(const Expr* e, U32 depth, std::ostream& os);
+	} // namespace detail
+
 	const char* exprOpName(ExprOp op);
 	void dumpAst(const TransUnit& unit, std::ostream& os);
 } // namespace rat::cc

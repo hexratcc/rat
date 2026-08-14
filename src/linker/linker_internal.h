@@ -5,6 +5,17 @@
 #include "linker.h"
 
 namespace rat {
+	namespace detail {
+		// elf_write.cpp
+		String joinColon(const List<String>& v);
+		U64 readUleb(const U8* p, U64& i);
+		I64 readSleb(const U8* p, U64& i);
+		U32 encSize(U8 enc);
+
+		// linker.cpp
+		B32 isLinkerSym(const String& n);
+	} // namespace detail
+
 	struct Linker {
 		const LinkOptions& opt;
 		String err;

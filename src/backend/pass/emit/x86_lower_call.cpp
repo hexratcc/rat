@@ -115,8 +115,7 @@ namespace rat {
 		if(sret) {
 			// the return value travels through a hidden pointer in the first slot
 			retTemp = reserve(16);
-			VReg addr = fresh(detail::kGp);
-			inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(addr)}, {}, (I64)retTemp);
+			VReg addr = frameAddr((I64)retTemp);
 			args.push_back({MachineOperand::vr(addr), Kind::Int, as.next(Kind::Int).reg});
 		}
 		for(U32 i = 0; i < c->getArgCount(); ++i) {
@@ -205,6 +204,13 @@ namespace rat {
 		}
 	}
 
+	// static frame address in a fresh gp vreg
+	VReg X86LowerPass::frameAddr(I64 disp) {
+		VReg addr = fresh(detail::kGp);
+		inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(addr)}, {}, disp);
+		return addr;
+	}
+
 	// copy an x87 value into a fresh 16-byte temporary and return a vreg holding its address
 	VReg X86LowerPass::x87ByRefArg(Node* arg) {
 		I32 src = x87Value(arg);
@@ -214,9 +220,7 @@ namespace rat {
 				 {MachineOperand::frameSlot(tmp)},
 				 {MachineOperand::frameSlot(src)},
 				 detail::kX87MemBits);
-		VReg addr = fresh(detail::kGp);
-		inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(addr)}, {}, (I64)tmp);
-		return addr;
+		return frameAddr((I64)tmp);
 	}
 
 	void X86LowerPass::emitPrologue() {
@@ -249,12 +253,7 @@ namespace rat {
 								 MachineOperand::fixed(gpReg(conv->gpArgs[l.reg])),
 								 detail::kGp);
 					} else {
-						VReg home = fresh(detail::kGp);
-						inst(X86Op::FrameAddr,
-								 detail::kGp,
-								 {MachineOperand::vr(home)},
-								 {},
-								 (I64)(conv->stackParamOff + (I32)l.stackOff));
+						VReg home = frameAddr((I64)(conv->stackParamOff + (I32)l.stackOff));
 						inst(X86Op::Load, detail::kGp, {MachineOperand::vr(addr)}, {MachineOperand::vr(home)});
 					}
 					inst(X86Op::X87LoadMem,
@@ -267,12 +266,7 @@ namespace rat {
 					X86ArgAssigner::Loc l = as.next(Kind::X87);
 					if(!p)
 						continue;
-					VReg addr = fresh(detail::kGp);
-					inst(X86Op::FrameAddr,
-							 detail::kGp,
-							 {MachineOperand::vr(addr)},
-							 {},
-							 (I64)(conv->stackParamOff + (I32)l.stackOff));
+					VReg addr = frameAddr((I64)(conv->stackParamOff + (I32)l.stackOff));
 					inst(X86Op::X87LoadMem,
 							 detail::kX87,
 							 {MachineOperand::frameSlot(x87SlotOf(p))},
@@ -308,8 +302,7 @@ namespace rat {
 	void X86LowerPass::loadStackParam(ProjNode* p, Type* t, I32 disp) {
 		if(!p)
 			return;
-		VReg addr = fresh(detail::kGp);
-		inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(addr)}, {}, (I64)disp);
+		VReg addr = frameAddr((I64)disp);
 		U32 w = opWidth(t);
 		if(isSseTy(t))
 			inst(X86Op::FLoad,

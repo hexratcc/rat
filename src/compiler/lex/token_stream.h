@@ -7,6 +7,10 @@
 #include "lex/preprocess.h"
 
 namespace rat::cc {
+	namespace detail {
+		TokKind classifySingle(const String& text, String& err);
+	} // namespace detail
+
 	// parser tokens straight from the pp, no serialize-then-relex; drop-in for
 	// Lexer: Token.offset indexes the stream, text() gives the interned spelling
 	struct TokenStream {

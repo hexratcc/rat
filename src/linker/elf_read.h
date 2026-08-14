@@ -5,6 +5,16 @@
 #include "elf_file.h"
 
 namespace rat {
+	namespace detail {
+		struct Shdr {
+			U32 name, type, link, info;
+			U64 flags, offset, size, addralign, entsize;
+		};
+
+		U8 classify(U32 type, U64 flags);
+		B32 parseShdrs(const List<U8>& img, List<Shdr>& out, const U8*& shstr, String& err);
+	} // namespace detail
+
 	enum Bucket {
 		BText,		// ALLOC|EXECINSTR
 		BRodata,	// ALLOC ro

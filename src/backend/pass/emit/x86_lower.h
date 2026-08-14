@@ -101,6 +101,8 @@ namespace rat {
 		void emitLoad(LoadNode* l);
 		void emitAlloc(AllocNode* al);
 		void twoAddr(X86Op op, VReg d, VReg lhs, VReg rhs);
+		void twoAddrF(X86Op op, VReg d, VReg lhs, VReg rhs, U32 w, I64 imm);
+		VReg frameAddr(I64 disp);
 		void maskBits(VReg d, U32 bits);
 		void signExtBits(VReg d, U32 bits);
 		void emitDivLike(BinaryNode* n, X86Op op);

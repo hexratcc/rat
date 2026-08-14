@@ -6,7 +6,7 @@
 #include "pass/emit/x86_op.h"
 
 namespace rat {
-	namespace {
+	namespace detail {
 		B32 isPureTestBlock(const MachineBlock& b) {
 			if(b.insts.empty() || b.insts.size() > 3)
 				return false;
@@ -174,15 +174,15 @@ namespace rat {
 			}
 			mf.blocks = std::move(arranged);
 		}
-	} // namespace
+	} // namespace detail
 
 	B32 X86LayoutPass::run(Module& module, MachineModule& mm, const TargetInfo&) {
 		U32 changed = 0;
 		for(const Function* fn : module) {
 			MachineFunc& mf = mm.get(fn);
-			changed += runOnFunction(mf);
-			changed += forwardJumpChains(mf);
-			chainLayout(mf);
+			changed += detail::runOnFunction(mf);
+			changed += detail::forwardJumpChains(mf);
+			detail::chainLayout(mf);
 		}
 		return changed != 0;
 	}

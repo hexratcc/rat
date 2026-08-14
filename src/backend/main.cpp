@@ -6,8 +6,8 @@
 
 using namespace rat;
 
-namespace {
-	const C8* kTool = "rat";
+namespace detail {
+	static const C8* kTool = "rat";
 
 	void usage(std::ostream& os) {
 		os << "usage: rat [options] [input.rat]\n"
@@ -22,7 +22,7 @@ namespace {
 					"  -version            show version\n";
 	}
 
-} // namespace
+} // namespace detail
 
 static I32 run(I32 argc, C8** argv) {
 	String passSpec, emitKind = "text", inputPath, outputPath;
@@ -31,9 +31,9 @@ static I32 run(I32 argc, C8** argv) {
 	for(I32 i = 1; i < argc; ++i) {
 		String arg = argv[i];
 		auto value = [&](const C8* name, String& out) -> B32 {
-			return cli::value(kTool, argc, argv, i, name, out);
+			return cli::value(::detail::kTool, argc, argv, i, name, out);
 		};
-		cli::stdFlags(kTool, arg, usage);
+		cli::stdFlags(::detail::kTool, arg, ::detail::usage);
 		if(arg == "-list-passes")
 			return listPasses(std::cout, false), 0;
 		if(arg == "-stats")
@@ -43,35 +43,36 @@ static I32 run(I32 argc, C8** argv) {
 		else if(value("-passes", passSpec) || value("-emit", emitKind) || value("-o", outputPath))
 			;
 		else if(arg.size() > 1 && arg[0] == '-')
-			return cli::error(kTool, "unknown option '" + arg + "'");
+			return cli::error(::detail::kTool, "unknown option '" + arg + "'");
 		else if(inputPath.empty())
 			inputPath = arg;
 		else
-			return cli::error(kTool, "unexpected extra argument '" + arg + "'");
+			return cli::error(::detail::kTool, "unexpected extra argument '" + arg + "'");
 	}
 
 	if(emitKind != "text" && emitKind != "c" && emitKind != "dot")
-		return cli::error(kTool, "unknown -emit value '" + emitKind + "' (expected text, c, or dot)");
+		return cli::error(
+				::detail::kTool, "unknown -emit value '" + emitKind + "' (expected text, c, or dot)");
 	String emitter = emitKind == "dot" ? "graph-emitter" : emitKind + "-emitter";
 
 	String source;
-	if(!cli::readInput(kTool, inputPath, source))
+	if(!cli::readInput(::detail::kTool, inputPath, source))
 		return 1;
 
 	Generic64 target;
 	Module module;
 	if(!parseText(source, module, std::cerr))
-		return std::cerr << kTool << ": parse error\n", 1;
+		return std::cerr << ::detail::kTool << ": parse error\n", 1;
 
 	std::ofstream outFile;
-	if(!outputPath.empty() && !cli::openOutput(kTool, outputPath, outFile))
+	if(!outputPath.empty() && !cli::openOutput(::detail::kTool, outputPath, outFile))
 		return 1;
 	std::ostream& out = outputPath.empty() ? std::cout : outFile;
 
 	PassManager pm(target);
 	String err;
 	if(!buildPipeline(pm, passSpec, out, err))
-		return cli::error(kTool, err);
+		return cli::error(::detail::kTool, err);
 	if(doVerify)
 		pm.add<VerifyPass>(std::cerr);
 	pm.add(createPass(emitter, out));
@@ -80,4 +81,4 @@ static I32 run(I32 argc, C8** argv) {
 	return 0;
 }
 
-I32 main(I32 argc, C8** argv) { return cli::guardedMain(kTool, run, argc, argv); }
+I32 main(I32 argc, C8** argv) { return cli::guardedMain(::detail::kTool, run, argc, argv); }
