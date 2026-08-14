@@ -130,6 +130,7 @@ namespace rat {
 		// sealing activates the block: zero preds leaves it inactive (unreachable), one pred forwards
 		// that control edge directly, two or more create a region node
 		void seal(Block* block);
+		void enterBlock(Block* block);
 		void jmp(Block* target);
 		void jumpif(Node* cond, Block* target);
 		void switchJump(Node* selector, const List<Block*>& targets);

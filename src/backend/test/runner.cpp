@@ -8,7 +8,14 @@
 
 using namespace rat;
 
-namespace {
+namespace detail {
+	struct RatTestFile {
+		String name;
+		List<String> passes;
+		String input;
+		String expect;
+	};
+
 	template <class AddPasses>
 	void runPasses(Module& mod, const TargetInfo& target, AddPasses&& add) {
 		PassManager pm(target);
@@ -45,13 +52,6 @@ namespace {
 		out = emitToString(m);
 		return true;
 	}
-
-	struct RatTestFile {
-		String name;
-		List<String> passes;
-		String input;
-		String expect;
-	};
 
 	B32 parseRatTestFile(const String& text, RatTestFile& tf, String& err) {
 		std::istringstream ss(text);
@@ -161,13 +161,13 @@ namespace {
 		return true;
 	}
 
-} // namespace
+} // namespace detail
 
 I32 main(I32 argc, char** argv) {
 	TestSuiteSpec spec;
 	spec.tool = "rat-test";
 	spec.extension = ".rat";
 	spec.dirCandidates = {"src/backend/test", "test"};
-	spec.run = [](const String& path, String& err) { return runRatCase(path, err); };
+	spec.run = [](const String& path, String& err) { return ::detail::runRatCase(path, err); };
 	return runTestSuite(argc, argv, spec);
 }

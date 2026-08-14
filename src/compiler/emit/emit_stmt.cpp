@@ -18,8 +18,7 @@ namespace rat::cc {
 			Function::Block* rhsB = fn.createBlock(isAnd ? "and.rhs" : "or.rhs");
 			if(!emitCondBranch(fn, e->binary.lhs, isAnd ? rhsB : trueB, isAnd ? falseB : rhsB))
 				return false;
-			fn.seal(rhsB);
-			fn.setInsertBlock(rhsB);
+			fn.enterBlock(rhsB);
 			return emitCondBranch(fn, e->binary.rhs, trueB, falseB);
 		}
 		if(e->kind == ExprKind::Unary && e->unary.op == ExprOp::Not)
@@ -43,8 +42,7 @@ namespace rat::cc {
 		if(!elseB)
 			reaches = true;
 
-		fn.seal(thenB);
-		fn.setInsertBlock(thenB);
+		fn.enterBlock(thenB);
 		if(!emitStmt(fn, s->thenBody))
 			return false;
 		if(!fn.blockFinished()) {
@@ -53,8 +51,7 @@ namespace rat::cc {
 		}
 
 		if(elseB) {
-			fn.seal(elseB);
-			fn.setInsertBlock(elseB);
+			fn.enterBlock(elseB);
 			if(!emitStmt(fn, s->elseBody))
 				return false;
 			if(!fn.blockFinished()) {
@@ -79,8 +76,7 @@ namespace rat::cc {
 		if(!emitCondBranch(fn, s->expr, bodyB, exitB))
 			return false;
 
-		fn.seal(bodyB);
-		fn.setInsertBlock(bodyB);
+		fn.enterBlock(bodyB);
 		loops.push_back({exitB, header, true});
 		B32 ok = emitStmt(fn, s->thenBody);
 		loops.pop_back();
@@ -90,8 +86,7 @@ namespace rat::cc {
 			fn.jmp(header);
 
 		fn.seal(header);
-		fn.seal(exitB);
-		fn.setInsertBlock(exitB);
+		fn.enterBlock(exitB);
 		return true;
 	}
 
@@ -110,14 +105,12 @@ namespace rat::cc {
 		if(!fn.blockFinished())
 			fn.jmp(condB);
 
-		fn.seal(condB);
-		fn.setInsertBlock(condB);
+		fn.enterBlock(condB);
 		if(!emitCondBranch(fn, s->expr, bodyB, exitB))
 			return false;
 
 		fn.seal(bodyB);
-		fn.seal(exitB);
-		fn.setInsertBlock(exitB);
+		fn.enterBlock(exitB);
 		return true;
 	}
 
@@ -146,8 +139,7 @@ namespace rat::cc {
 			fn.jmp(bodyB);
 		}
 
-		fn.seal(bodyB);
-		fn.setInsertBlock(bodyB);
+		fn.enterBlock(bodyB);
 		loops.push_back({exitB, postB, exitReachable});
 		B32 ok = emitStmt(fn, s->thenBody);
 		LoopFrame frame = loops.back();
@@ -159,8 +151,7 @@ namespace rat::cc {
 		if(!fn.blockFinished())
 			fn.jmp(postB);
 
-		fn.seal(postB);
-		fn.setInsertBlock(postB);
+		fn.enterBlock(postB);
 		if(s->forPost) {
 			Value post = emitExpr(fn, s->forPost);
 			if(!post.node) {
@@ -334,8 +325,7 @@ namespace rat::cc {
 				Function::Block* tableB = fn.createBlock("switch.table");
 				fn.jumpif(fn.compare(Opcode::Ult, idx64, fn.constInt(i64t, (I64)span)), tableB);
 				fn.jmp(missB);
-				fn.seal(tableB);
-				fn.setInsertBlock(tableB);
+				fn.enterBlock(tableB);
 
 				List<Function::Block*> slotTarget(span, missB);
 				for(U32 i = 0; i < n; ++i)
@@ -346,8 +336,7 @@ namespace rat::cc {
 					edges.push_back(fn.createBlock("switch.slot"));
 				fn.switchJump(idx64, edges);
 				for(U64 sl = 0; sl < span; ++sl) {
-					fn.seal(edges[sl]);
-					fn.setInsertBlock(edges[sl]);
+					fn.enterBlock(edges[sl]);
 					fn.jmp(slotTarget[sl]);
 				}
 				switches.push_back(std::move(blocks));
@@ -386,8 +375,7 @@ namespace rat::cc {
 			Node* pivot = fn.constInt(irType(ct), caseValues[order[mid]]);
 			fn.jumpif(fn.compare(uns ? Opcode::Ult : Opcode::Slt, val, pivot), ltB);
 			self(self, mid, hi); // fallthrough side: val >= pivot
-			fn.seal(ltB);
-			fn.setInsertBlock(ltB);
+			fn.enterBlock(ltB);
 			self(self, lo, mid);
 		};
 		emitRange(emitRange, 0, (U32)order.size());
@@ -428,8 +416,7 @@ namespace rat::cc {
 			if(fn.blockFinished() && child->kind != StmtKind::Label && child->kind != StmtKind::Case &&
 				 child->kind != StmtKind::Default) {
 				Function::Block* dead = fn.createBlock("dead");
-				fn.seal(dead);
-				fn.setInsertBlock(dead);
+				fn.enterBlock(dead);
 			}
 			if(!emitStmt(fn, child)) {
 				popScope();
@@ -453,8 +440,7 @@ namespace rat::cc {
 		Function::Block* lbl = it->second;
 		if(!fn.blockFinished())
 			fn.jmp(lbl);
-		fn.seal(lbl);
-		fn.setInsertBlock(lbl);
+		fn.enterBlock(lbl);
 		return true;
 	}
 

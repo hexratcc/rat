@@ -87,6 +87,12 @@ namespace rat::cc {
 			globalVars[*d.name] = GlobalVar{d.type, false, 0};
 	}
 
+	void Emitter::defineGlobal(const Declarator& d, const String& symbol, Type* ty, List<U8>&& img) {
+		Global* g = mod.createGlobal(symbol, ty, false, std::move(img), std::move(relocs));
+		if(d.isStatic)
+			g->setLinkage(Global::Linkage::Internal);
+	}
+
 	B32 Emitter::validateGlobalArrayLen(const Declarator& d, I64& count, B32& haveLen) {
 		haveLen = d.arrayLen != nullptr;
 		count = 0;
@@ -118,10 +124,7 @@ namespace rat::cc {
 			if(!initArrayInit(sink, 0, d.type, (U32)count, d.init))
 				return false;
 		}
-		Global* g =
-				mod.createGlobal(symbol, byteArrayType(total), false, std::move(img), std::move(relocs));
-		if(d.isStatic)
-			g->setLinkage(Global::Linkage::Internal);
+		defineGlobal(d, symbol, byteArrayType(total), std::move(img));
 		bindArrayGlobal(d, symbol, fn, (U32)count);
 		return true;
 	}
@@ -165,10 +168,7 @@ namespace rat::cc {
 			} else if(!initArrayInit(sink, 0, d.type, (U32)count, d.init))
 				return false;
 		}
-		Global* g =
-				mod.createGlobal(symbol, byteArrayType(total), false, std::move(img), std::move(relocs));
-		if(d.isStatic)
-			g->setLinkage(Global::Linkage::Internal);
+		defineGlobal(d, symbol, byteArrayType(total), std::move(img));
 		bindArrayGlobal(d, symbol, fn, (U32)count);
 		return true;
 	}
@@ -228,13 +228,7 @@ namespace rat::cc {
 			}
 		}
 
-		Global* g = mod.createGlobal(symbol,
-																 mod.getArray(irType(d.type), (U32)count),
-																 false,
-																 std::move(init),
-																 std::move(relocs));
-		if(d.isStatic)
-			g->setLinkage(Global::Linkage::Internal);
+		defineGlobal(d, symbol, mod.getArray(irType(d.type), (U32)count), std::move(init));
 		bindArrayGlobal(d, symbol, fn, (U32)count);
 		return true;
 	}
@@ -273,10 +267,7 @@ namespace rat::cc {
 		}
 		flexCount = 0;
 
-		Global* g =
-				mod.createGlobal(symbol, byteArrayType(total), false, std::move(init), std::move(relocs));
-		if(d.isStatic)
-			g->setLinkage(Global::Linkage::Internal);
+		defineGlobal(d, symbol, byteArrayType(total), std::move(init));
 		bindScalarGlobal(d, symbol, fn);
 		return true;
 	}
@@ -330,9 +321,7 @@ namespace rat::cc {
 			for(U32 i = 0; i < bytes; ++i)
 				init.push_back((U8)(value >> (8 * i)));
 		}
-		Global* g = mod.createGlobal(symbol, irType(d.type), false, std::move(init), std::move(relocs));
-		if(d.isStatic)
-			g->setLinkage(Global::Linkage::Internal);
+		defineGlobal(d, symbol, irType(d.type), std::move(init));
 		bindScalarGlobal(d, symbol, fn);
 		return true;
 	}

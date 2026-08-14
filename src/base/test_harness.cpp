@@ -6,7 +6,7 @@
 #include <thread>
 
 namespace rat {
-	namespace {
+	namespace detail {
 		B32 hasSuffix(const String& s, const char* suffix) {
 			String suf = suffix;
 			return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
@@ -38,7 +38,7 @@ namespace rat {
 					return c;
 			return "";
 		}
-	} // namespace
+	} // namespace detail
 
 	I32 runTestSuite(I32 argc, char** argv, const TestSuiteSpec& spec) {
 		U32 jobs = 1;
@@ -60,9 +60,9 @@ namespace rat {
 		}
 
 		if(cases.empty()) {
-			String dir = findDir(spec.dirCandidates);
+			String dir = detail::findDir(spec.dirCandidates);
 			if(!dir.empty())
-				collectCases(dir, spec.extension, cases);
+				detail::collectCases(dir, spec.extension, cases);
 			if(cases.empty()) {
 				std::cerr << spec.tool << ": no case paths given and no case directory found\n";
 				return 2;

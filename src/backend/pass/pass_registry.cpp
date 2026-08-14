@@ -26,7 +26,7 @@
 #include "pass/opt/strength_reduce.h"
 
 namespace rat {
-	namespace {
+	namespace detail {
 		template <typename B, typename P> UniquePtr<B> mk(std::ostream& os) {
 			if constexpr(std::is_constructible_v<P, std::ostream&>)
 				return std::make_unique<P>(os);
@@ -69,25 +69,25 @@ namespace rat {
 		};
 
 		// the -O1 pipeline; repeats gate on changes since their last run
-		const C8* kDefaultOpt = "sccp fold simplifycfg gvn memoryopt inline fold gvn"
-														" strengthreduce fold gvn dfe";
-	} // namespace
+		static const C8* kDefaultOpt = "sccp fold simplifycfg gvn memoryopt inline fold gvn"
+																	 " strengthreduce fold gvn dfe";
+	} // namespace detail
 
 	UniquePtr<Pass> createPass(const String& name, std::ostream& out) {
-		for(const Entry& e : kPasses)
+		for(const detail::Entry& e : detail::kPasses)
 			if(name == e.name)
 				return e.make(out);
 		return nullptr;
 	}
 
 	UniquePtr<MachinePass> createMachinePass(const String& name, std::ostream& out) {
-		for(const MachineEntry& e : kMachinePasses)
+		for(const detail::MachineEntry& e : detail::kMachinePasses)
 			if(name == e.name)
 				return e.make(out);
 		return nullptr;
 	}
 
-	List<String> defaultOptPipeline() { return splitTokens(kDefaultOpt); }
+	List<String> defaultOptPipeline() { return splitTokens(detail::kDefaultOpt); }
 
 	B32 buildPipeline(PassManager& pm, const String& spec, std::ostream& out, String& err) {
 		for(const String& name : splitTokens(spec)) {
@@ -101,12 +101,12 @@ namespace rat {
 
 	void listPasses(std::ostream& os, B32 withMachine) {
 		os << "passes:\n";
-		for(const Entry& e : kPasses)
+		for(const detail::Entry& e : detail::kPasses)
 			os << "  " << std::left << std::setw(16) << e.name << e.description << "\n";
 		if(!withMachine)
 			return;
 		os << "machine passes (default x86 pipeline order):\n";
-		for(const MachineEntry& e : kMachinePasses)
+		for(const detail::MachineEntry& e : detail::kMachinePasses)
 			os << "  " << std::left << std::setw(16) << e.name << e.description << "\n";
 	}
 } // namespace rat

@@ -225,8 +225,7 @@ namespace rat::cc {
 		Function::Block* endB = fn.createBlock(isAnd ? "and.end" : "or.end");
 		fn.jumpif(lpred, isAnd ? rhsB : shortB);
 		fn.jmp(isAnd ? shortB : rhsB);
-		fn.seal(rhsB);
-		fn.setInsertBlock(rhsB);
+		fn.enterBlock(rhsB);
 		Value rhs = emitExpr(fn, e->binary.rhs);
 		if(!rhs.node)
 			return {};
@@ -236,12 +235,10 @@ namespace rat::cc {
 		}
 		fn.set(var, fromBool(fn, toBool(fn, rhs)));
 		fn.jmp(endB);
-		fn.seal(shortB);
-		fn.setInsertBlock(shortB);
+		fn.enterBlock(shortB);
 		fn.set(var, fn.constInt(i32, isAnd ? 0 : 1));
 		fn.jmp(endB);
-		fn.seal(endB);
-		fn.setInsertBlock(endB);
+		fn.enterBlock(endB);
 		return {fn.get(var), ctInt()};
 	}
 

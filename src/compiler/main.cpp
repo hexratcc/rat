@@ -16,15 +16,8 @@
 using namespace rat;
 using namespace rat::cc;
 
-namespace {
-	const C8* kTool = "ratcc";
-
+namespace detail {
 	using PhaseClock = std::chrono::steady_clock;
-	F64 msSince(PhaseClock::time_point t0) {
-		return std::chrono::duration<F64, std::milli>(PhaseClock::now() - t0).count();
-	}
-	// frontend phase times, printed with -ftime-passes
-	F64 gReadMs = 0, gPpMs = 0;
 
 	enum struct Emit { Tok, Ast, C, X86 };
 
@@ -41,6 +34,14 @@ namespace {
 		String targetSpec;
 		PpOptions pp;
 	};
+
+	static const C8* kTool = "ratcc";
+
+	F64 msSince(PhaseClock::time_point t0) {
+		return std::chrono::duration<F64, std::milli>(PhaseClock::now() - t0).count();
+	}
+	// frontend phase times, printed with -ftime-passes
+	static F64 gReadMs = 0, gPpMs = 0;
 
 	List<UniquePtr<Pass>> buildOptPasses(const Options& opt) {
 		B32 useDefault = opt.passSpec.empty() && opt.optLevel >= 1;
@@ -237,25 +238,25 @@ namespace {
 			return emitAstText(*ts, file);
 		return emitViaModule(opt, *ts, kind, file);
 	}
-} // namespace
+} // namespace detail
 
 static I32 run(I32 argc, C8** argv) {
-	Options opt = parseArgs(argc, argv);
+	::detail::Options opt = ::detail::parseArgs(argc, argv);
 
 	if(!opt.targetSpec.empty()) {
 		TargetTriple triple;
 		String err;
 		if(!TargetTriple::parse(opt.targetSpec, triple, err))
-			return cli::error(kTool, err);
+			return cli::error(::detail::kTool, err);
 		setHostTargetTriple(triple);
 	}
 
 	String source;
-	PhaseClock::time_point tRead = PhaseClock::now();
-	if(!cli::readInput(kTool, opt.input, source))
+	::detail::PhaseClock::time_point tRead = ::detail::PhaseClock::now();
+	if(!cli::readInput(::detail::kTool, opt.input, source))
 		return 1;
 	String path = opt.input.empty() ? "<stdin>" : opt.input;
-	gReadMs = msSince(tRead);
+	::detail::gReadMs = ::detail::msSince(tRead);
 
 	if(!opt.noStdInc)
 		opt.pp.includeDirs.push_back(builtinIncludeDir());
@@ -264,27 +265,27 @@ static I32 run(I32 argc, C8** argv) {
 
 	// -E and -emit tok need serialized text; else parse the pp token stream directly
 	B32 needText = opt.preprocessOnly, needToks = false;
-	for(Emit kind : opt.emits)
-		if(kind == Emit::Tok)
+	for(::detail::Emit kind : opt.emits)
+		if(kind == ::detail::Emit::Tok)
 			needText = true;
 		else
 			needToks = true;
 
 	String pped, ppErr;
 	TokenStream ts;
-	PhaseClock::time_point tPp = PhaseClock::now();
+	::detail::PhaseClock::time_point tPp = ::detail::PhaseClock::now();
 	B32 ppOk = (!needText || preprocess(path, source, opt.pp, pped, ppErr)) &&
 						 (!needToks || preprocessToTokens(path, source, opt.pp, ts, ppErr));
-	gPpMs = msSince(tPp);
+	::detail::gPpMs = ::detail::msSince(tPp);
 	if(!ppOk)
-		return std::cerr << kTool << ": " << ppErr << "\n", 1;
+		return std::cerr << ::detail::kTool << ": " << ppErr << "\n", 1;
 	if(opt.preprocessOnly)
 		return std::cout << pped, 0;
 
-	for(Emit kind : opt.emits)
-		if(I32 rc = emitOne(opt, path, pped, needToks ? &ts : nullptr, kind))
+	for(::detail::Emit kind : opt.emits)
+		if(I32 rc = ::detail::emitOne(opt, path, pped, needToks ? &ts : nullptr, kind))
 			return rc;
 	return 0;
 }
 
-I32 main(I32 argc, C8** argv) { return cli::guardedMain(kTool, run, argc, argv); }
+I32 main(I32 argc, C8** argv) { return cli::guardedMain(::detail::kTool, run, argc, argv); }

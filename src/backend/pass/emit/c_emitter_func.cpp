@@ -50,16 +50,11 @@ namespace rat {
 			F32 f;
 			std::memcpy(&f, &u, sizeof(f));
 			std::snprintf(buf, sizeof(buf), "%af", (F64)f);
-		} else if(n->getType()->getFloatWidth() == 128) {
-			U64 u = (U64)raw;
-			F64 d;
-			std::memcpy(&d, &u, sizeof(d));
-			std::snprintf(buf, sizeof(buf), "%aL", d);
 		} else {
 			U64 u = (U64)raw;
 			F64 d;
 			std::memcpy(&d, &u, sizeof(d));
-			std::snprintf(buf, sizeof(buf), "%a", d);
+			std::snprintf(buf, sizeof(buf), n->getType()->getFloatWidth() == 128 ? "%aL" : "%a", d);
 		}
 		os << buf;
 	}

@@ -9,10 +9,9 @@
 #endif
 
 namespace rat::cc {
-	namespace {
+	namespace detail {
 		namespace fs = std::filesystem;
 
-		// absolute path of the running executable, cross-platform
 		fs::path selfExePath() {
 #if defined(_WIN32)
 			std::wstring buf(MAX_PATH, L'\0');
@@ -40,12 +39,12 @@ namespace rat::cc {
 			return ec ? fs::path() : p;
 #endif
 		}
-	} // namespace
+	} // namespace detail
 
 	const String& builtinIncludeDir() {
 		static const String dir = [] {
-			fs::path exe = selfExePath();
-			fs::path h = exe.parent_path() / ".." / "src" / "compiler" / "headers";
+			detail::fs::path exe = detail::selfExePath();
+			detail::fs::path h = exe.parent_path() / ".." / "src" / "compiler" / "headers";
 			return h.lexically_normal().generic_string();
 		}();
 		return dir;

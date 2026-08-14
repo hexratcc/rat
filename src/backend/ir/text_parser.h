@@ -13,6 +13,8 @@ namespace rat {
 	namespace detail {
 		B32 allDigits(const String& s);
 		List<U32> parseVRefs(const String& s);
+		void splitTypeToken(const String& after, String& typeStr, String& remainder);
+		B32 takeQuoted(const String& s, String& name, String& rest);
 		B32 unquoteBytes(const String& s, List<U8>& out);
 		Opcode opcodeForMnemonic(const String& m, B32& ok);
 

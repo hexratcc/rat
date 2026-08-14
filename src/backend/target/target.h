@@ -6,6 +6,7 @@
 namespace rat {
 	struct MachineInstr;
 	struct MachineFunc;
+	struct X86CallConv;
 
 	using PhysReg = U32;
 	constexpr PhysReg kNoReg = 0;
@@ -46,6 +47,10 @@ namespace rat {
 		List<RegClass> classes;
 		U32 spillSlotBytes = 8;
 	};
+
+	namespace detail {
+		RegisterInfo buildX86Registers(const X86CallConv& conv);
+	} // namespace detail
 
 	struct RegAllocHooks {
 		Delegate<MachineInstr(PhysReg dst, I32 slot, U32 cls, U32 width)> makeReload;

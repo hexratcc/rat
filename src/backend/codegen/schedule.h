@@ -16,6 +16,13 @@ namespace rat {
 	struct Node;
 	struct PhiNode;
 
+	namespace detail {
+		I32 idGet(const List<I32>& v, U32 id);
+		void idSet(List<I32>& v, U32 id, I32 val);
+		Node* nodeGet(const List<Node*>& v, U32 id);
+		void nodeSet(List<Node*>& v, U32 id, Node* val);
+	} // namespace detail
+
 	struct Schedule {
 		enum class TermKind {
 			Return, // block ends in a return

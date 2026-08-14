@@ -5,38 +5,7 @@
 #include "ir/node.h"
 
 namespace rat {
-	namespace {
-		struct GVNKey {
-			U32 op = 0;
-			U32 type = 0;
-			I64 payload = 0;						 // constant value
-			const String* sym = nullptr; // global symbol (interned in the node)
-			U32 in0 = ~0u, in1 = ~0u;
-
-			B32 operator==(const GVNKey& o) const {
-				return op == o.op && type == o.type && payload == o.payload && in0 == o.in0 &&
-							 in1 == o.in1 && (sym == o.sym || (sym && o.sym && *sym == *o.sym));
-			}
-		};
-
-		struct GVNKeyHash {
-			size_t operator()(const GVNKey& k) const {
-				U64 h = 1469598103934665603ull;
-				auto mix = [&](U64 v) {
-					h ^= v;
-					h *= 1099511628211ull;
-				};
-				mix(k.op);
-				mix(k.type);
-				mix((U64)k.payload);
-				mix(k.in0);
-				mix(((U64)k.in1) << 32);
-				if(k.sym)
-					mix(std::hash<String>{}(*k.sym));
-				return (size_t)h;
-			}
-		};
-
+	namespace detail {
 		B32 makeKey(Node* n, GVNKey& k) {
 			k.op = (U32)n->getOpcode();
 			k.type = n->getType()->getUid();
@@ -71,7 +40,7 @@ namespace rat {
 				std::swap(k.in0, k.in1);
 			return true;
 		}
-	} // namespace
+	} // namespace detail
 
 	B32 GVNPass::isPureValue(Node* n) {
 		Opcode op = n->getOpcode();
@@ -85,7 +54,7 @@ namespace rat {
 		U32 removed = 0;
 
 		struct Slot {
-			GVNKey key;
+			detail::GVNKey key;
 			Node* val = nullptr;
 		};
 		U32 cap = 16;
@@ -93,7 +62,7 @@ namespace rat {
 			cap <<= 1;
 		List<Slot> slots(cap);
 		const U32 mask = cap - 1;
-		GVNKeyHash hasher;
+		detail::GVNKeyHash hasher;
 
 		B32 changed = true;
 		while(changed) {
@@ -104,8 +73,8 @@ namespace rat {
 			for(Node* n : fn) {
 				if(!GVNPass::isPureValue(n) || !n->hasUsers())
 					continue;
-				GVNKey key;
-				if(!makeKey(n, key))
+				detail::GVNKey key;
+				if(!detail::makeKey(n, key))
 					continue;
 				U32 i = (U32)hasher(key) & mask;
 				while(slots[i].val && !(slots[i].key == key))

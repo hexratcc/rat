@@ -44,48 +44,48 @@ namespace rat {
 			a->load64(r, RBP, o.slot);
 	}
 
-	void X86EncodePass::emitVaStartWin64(const MachineInstr& in) {
+	void X86EncodePass::vaPtrToR10(const MachineInstr& in) {
 		Reg ptr = gpOf(in.uses[0]);
 		if(ptr != R10)
 			a->movRR(R10, ptr);
+	}
+
+	// kind in imm, width and sign in imm2; the value address is in r11
+	void X86EncodePass::vaLoadResult(const MachineInstr& in) {
+		VaArgKind kind = (VaArgKind)in.imm;
+		U32 width = (U32)(in.imm2 & 0xffffffff);
+		if(kind == VaArgKind::X87) {
+			a->fldT(R11, 0);
+			return fstpSlot(in.defs[0].slot);
+		}
+		if(kind == VaArgKind::Sse)
+			return a->loadXmm(xmmOf(in.defs[0]), R11, 0, width);
+		a->loadExt(gpOf(in.defs[0]), R11, 0, width, (in.imm2 >> 32) != 0);
+	}
+
+	void X86EncodePass::emitVaStartWin64(const MachineInstr& in) {
+		vaPtrToR10(in);
 		a->leaMem(R11, RBP, fl->overflowOff);
 		a->storeMem(R10, 0, R11, 8);
 	}
 
 	void X86EncodePass::emitVaArgWin64(const MachineInstr& in) {
-		Reg ptr = gpOf(in.uses[0]);
-		if(ptr != R10)
-			a->movRR(R10, ptr);
-		VaArgKind kind = (VaArgKind)in.imm;
-		U32 width = (U32)(in.imm2 & 0xffffffff);
-		B32 sign = (in.imm2 >> 32) != 0;
+		vaPtrToR10(in);
 		a->load64(R11, R10, 0);
 		a->storeMem(RBP, fl->ldScratch, R11, 8);
 		a->addRegImm32(R11, 8);
 		a->storeMem(R10, 0, R11, 8);
 		a->load64(R11, RBP, fl->ldScratch);
-		if(kind == VaArgKind::X87) {
+		if((VaArgKind)in.imm == VaArgKind::X87)
 			a->load64(R11, R11, 0); // slot holds a pointer to the value
-			a->fldT(R11, 0);
-			fstpSlot(in.defs[0].slot);
-			return;
-		}
-		if(kind == VaArgKind::Sse) {
-			a->loadXmm(xmmOf(in.defs[0]), R11, 0, width);
-			return;
-		}
-		a->loadExt(gpOf(in.defs[0]), R11, 0, width, sign);
+		vaLoadResult(in);
 	}
 
 	void X86EncodePass::emitVaStart(const MachineInstr& in) {
-		if(conv->vaList == X86VaList::CharPtr) {
-			emitVaStartWin64(in);
-			return;
-		}
-		Reg ptr = gpOf(in.uses[0]);
+		if(conv->vaList == X86VaList::CharPtr)
+			return emitVaStartWin64(in);
+		vaPtrToR10(in);
 		U32 namedGp = (U32)in.imm, namedFp = (U32)in.imm2;
-		if(ptr != R10)
-			a->movRR(R10, ptr);
 		a->movRegImm64(R11, namedGp * 8);
 		a->storeMem(R10, 0, R11, 4);
 		a->movRegImm64(R11, conv->gpSaveBytes + namedFp * conv->sseSlotBytes);
@@ -120,29 +120,17 @@ namespace rat {
 	}
 
 	void X86EncodePass::emitVaArg(const MachineInstr& in) {
-		if(conv->vaList == X86VaList::CharPtr) {
-			emitVaArgWin64(in);
-			return;
-		}
-		Reg ptr = gpOf(in.uses[0]);
-		if(ptr != R10)
-			a->movRR(R10, ptr);
+		if(conv->vaList == X86VaList::CharPtr)
+			return emitVaArgWin64(in);
+		vaPtrToR10(in);
 		VaArgKind kind = (VaArgKind)in.imm;
-		U32 width = (U32)(in.imm2 & 0xffffffff);
-		B32 sign = (in.imm2 >> 32) != 0;
-		if(kind == VaArgKind::X87) {
+		if(kind == VaArgKind::X87)
 			vaFetchOverflow(16);
-			a->fldT(R11, 0);
-			fstpSlot(in.defs[0].slot);
-			return;
-		}
-		if(kind == VaArgKind::Sse) {
+		else if(kind == VaArgKind::Sse)
 			vaFetch(4, conv->regSaveBytes, (I32)conv->sseSlotBytes);
-			a->loadXmm(xmmOf(in.defs[0]), R11, 0, width);
-			return;
-		}
-		vaFetch(0, conv->gpSaveBytes, 8);
-		a->loadExt(gpOf(in.defs[0]), R11, 0, width, sign);
+		else
+			vaFetch(0, conv->gpSaveBytes, 8);
+		vaLoadResult(in);
 	}
 
 	void X86EncodePass::emitCall(const MachineInstr& in) {
@@ -270,26 +258,20 @@ namespace rat {
 	void X86EncodePass::emitInst(const MachineInstr& in, I32 fallthrough) {
 		switch((X86Op)in.op) {
 		case X86Op::Copy:
-			emitCopy(in);
-			return;
+			return emitCopy(in);
 		case X86Op::LoadImm:
-			emitLoadImm(in);
-			return;
+			return emitLoadImm(in);
 		case X86Op::LoadSym:
-			emitLoadSym(in);
-			return;
+			return a->leaRipSym(gpOf(in.defs[0]), in.uses[0].sym(), 0);
 		case X86Op::FrameAddr:
-			emitFrameAddr(in);
-			return;
+			return emitFrameAddr(in);
 		case X86Op::Lea:
-			emitLea(in);
-			return;
+			return a->leaSib(
+					gpOf(in.defs[0]), gpOf(in.uses[0]), gpOf(in.uses[1]), (U32)(in.imm2 & 3), (I32)in.imm);
 		case X86Op::Load:
-			emitLoad(in);
-			return;
+			return emitLoad(in);
 		case X86Op::Store:
-			emitStore(in);
-			return;
+			return emitStore(in);
 		case X86Op::Add:
 		case X86Op::Sub:
 		case X86Op::And:
@@ -298,148 +280,111 @@ namespace rat {
 			static const U8 kAlu[] = {
 					detail::kAluAdd, detail::kAluSub, 0, detail::kAluAnd, detail::kAluOr, detail::kAluXor};
 			static_assert((U32)X86Op::Xor - (U32)X86Op::Add + 1 == 6, "kAlu must cover Add..Xor");
-			emitAlu(in, kAlu[(U32)in.op - (U32)X86Op::Add]);
-			return;
+			return emitAlu(in, kAlu[(U32)in.op - (U32)X86Op::Add]);
 		}
 		case X86Op::Mul:
-			emitMul(in);
-			return;
+			if(in.uses[1].kind == MachineOperand::Kind::Imm)
+				return a->imulRRI(gpOf(in.defs[0]), gpOf(in.uses[0]), (I32)in.uses[1].imm);
+			return a->imulRR(gpOf(in.defs[0]), gpOf(in.uses[1]));
 		case X86Op::Neg:
+			return a->negReg(gpOf(in.defs[0]));
 		case X86Op::Not:
-			emitNegNot(in, (X86Op)in.op == X86Op::Neg);
-			return;
+			return a->notReg(gpOf(in.defs[0]));
 		case X86Op::Shl:
-			emitShift(in, 4);
-			return;
 		case X86Op::AShr:
-			emitShift(in, 7);
-			return;
-		case X86Op::LShr:
-			emitShift(in, 5);
-			return;
+		case X86Op::LShr: {
+			static const U8 kShift[] = {4, 7, 5}; // group-2 /ext for shl, sar, shr
+			return emitShift(in, kShift[(U32)in.op - (U32)X86Op::Shl]);
+		}
 		case X86Op::Rotl:
 		case X86Op::Rotr:
-			emitRot(in, (X86Op)in.op == X86Op::Rotl);
-			return;
+			return a->rotImm(
+					(X86Op)in.op == X86Op::Rotr, gpOf(in.defs[0]), (U8)in.uses[1].imm, in.imm == 64);
 		case X86Op::SDiv:
 		case X86Op::SRem:
-			emitDiv(in, true);
-			return;
+			return emitDiv(in, true);
 		case X86Op::UDiv:
 		case X86Op::URem:
-			emitDiv(in, false);
-			return;
+			return emitDiv(in, false);
 		case X86Op::Cmp:
-			emitCmp(in);
-			return;
+			return emitCmp(in);
 		case X86Op::SetCC:
-			emitSetCC(in);
-			return;
+			return setccExt((U8)in.imm, gpOf(in.defs[0]));
 		case X86Op::MaskBits:
-			emitMaskBits(in);
-			return;
+			return emitMaskBits(in);
 		case X86Op::SignExtBits:
-			emitSignExtBits(in);
-			return;
+			return emitSignExtBits(in);
 		case X86Op::FLoad:
-			emitFLoad(in);
-			return;
+			return emitFLoad(in);
 		case X86Op::FStore:
-			emitFStore(in);
-			return;
+			return emitFStore(in);
 		case X86Op::FAdd:
 		case X86Op::FSub:
 		case X86Op::FMul:
 		case X86Op::FDiv:
-			emitFArith(in, detail::kSseOp[(U32)in.op - (U32)X86Op::FAdd]);
-			return;
+			return a->sseArith(detail::kSseOp[(U32)in.op - (U32)X86Op::FAdd],
+												 (U32)in.imm,
+												 xmmOf(in.defs[0]),
+												 xmmOf(in.uses[1]));
 		case X86Op::FNeg:
-			emitFNeg(in);
-			return;
+			return emitFNeg(in);
 		case X86Op::FSqrt:
-			emitFSqrt(in);
-			return;
+			return a->sseArith(0x51, (U32)in.imm, xmmOf(in.defs[0]), xmmOf(in.uses[0]));
 		case X86Op::FAbs:
-			emitFAbs(in);
-			return;
+			return emitFAbs(in);
 		case X86Op::FCmp:
-			emitFCmp(in);
-			return;
+			return emitFCmp(in);
 		case X86Op::FCmpFlags:
-			emitFCmpFlags(in);
-			return;
+			return emitFCmpFlags(in);
 		case X86Op::Cvt:
-			emitCvt(in);
-			return;
+			return emitCvt(in);
 		case X86Op::VArith:
-			emitVArith(in);
-			return;
+			return emitVArith(in);
 		case X86Op::VSplat:
-			emitVSplat(in);
-			return;
+			return emitVSplat(in);
 		case X86Op::VExtract:
-			emitVExtract(in);
-			return;
+			return emitVExtract(in);
 		case X86Op::VPack:
-			emitVPack(in);
-			return;
+			return emitVPack(in);
 		case X86Op::VShuf:
-			a->pshufd(xmmOf(in.defs[0]), xmmOf(in.uses[0]), (U8)in.imm);
-			return;
+			return a->pshufd(xmmOf(in.defs[0]), xmmOf(in.uses[0]), (U8)in.imm);
 		case X86Op::X87LoadMem:
-			emitX87LoadMem(in);
-			return;
+			return emitX87LoadMem(in);
 		case X86Op::X87StoreMem:
-			emitX87StoreMem(in);
-			return;
+			return emitX87StoreMem(in);
 		case X86Op::X87LoadImmD:
-			emitX87LoadImmD(in);
-			return;
+			return emitX87LoadImmD(in);
 		case X86Op::X87FromInt:
-			emitX87FromInt(in);
-			return;
+			return emitX87FromInt(in);
 		case X86Op::X87ToInt:
-			emitX87ToInt(in);
-			return;
+			return emitX87ToInt(in);
 		case X86Op::X87FromSse:
-			emitX87FromSse(in);
-			return;
+			return emitX87FromSse(in);
 		case X86Op::X87ToSse:
-			emitX87ToSse(in);
-			return;
+			return emitX87ToSse(in);
 		case X86Op::X87Add:
 		case X86Op::X87Sub:
 		case X86Op::X87Mul:
 		case X86Op::X87Div:
-			emitX87Binary(in, (U32)in.op - (U32)X86Op::X87Add);
-			return;
+			return emitX87Binary(in, (U32)in.op - (U32)X86Op::X87Add);
 		case X86Op::X87Neg:
-			emitX87Neg(in);
-			return;
+			return emitX87Neg(in);
 		case X86Op::X87Cmp:
-			emitX87Cmp(in);
-			return;
+			return emitX87Cmp(in);
 		case X86Op::Call:
-			emitCall(in);
-			return;
+			return emitCall(in);
 		case X86Op::Ret:
-			emitRet(in);
-			return;
+			return emitRet(in);
 		case X86Op::Jmp:
-			emitJmp(in, fallthrough);
-			return;
+			return emitJmp(in, fallthrough);
 		case X86Op::SwitchJump:
-			emitSwitchJump(in);
-			return;
+			return emitSwitchJump(in);
 		case X86Op::Br:
-			emitBr(in, fallthrough);
-			return;
+			return emitBr(in, fallthrough);
 		case X86Op::VaStart:
-			emitVaStart(in);
-			return;
+			return emitVaStart(in);
 		case X86Op::VaArg:
-			emitVaArg(in);
-			return;
+			return emitVaArg(in);
 		}
 	}
 
@@ -508,14 +453,11 @@ namespace rat {
 					framey = true; // materializes through the rbp scratch slot
 				if(in.isCall)
 					hasCall = true;
-				for(const MachineOperand& o : in.defs)
-					if(o.kind == MachineOperand::Kind::FrameSlot ||
-						 (o.kind == MachineOperand::Kind::Phys && o.phys == rbpPhys))
-						framey = true;
-				for(const MachineOperand& o : in.uses)
-					if(o.kind == MachineOperand::Kind::FrameSlot ||
-						 (o.kind == MachineOperand::Kind::Phys && o.phys == rbpPhys))
-						framey = true;
+				for(const List<MachineOperand>* ops : {&in.defs, &in.uses})
+					for(const MachineOperand& o : *ops)
+						if(o.kind == MachineOperand::Kind::FrameSlot ||
+							 (o.kind == MachineOperand::Kind::Phys && o.phys == rbpPhys))
+							framey = true;
 			}
 		omitFrame = !framey && !hasCall;
 
@@ -551,8 +493,11 @@ namespace rat {
 
 		B32 allZero = g->getRelocs().empty() &&
 									std::all_of(init.begin(), init.end(), [](U8 v) { return v == 0; });
-		ObjectFile::Section sec =
-				allZero ? ObjectFile::Bss : (g->isConstant() ? ObjectFile::Rodata : ObjectFile::Data);
+		ObjectFile::Section sec = ObjectFile::Data;
+		if(allZero)
+			sec = ObjectFile::Bss;
+		else if(g->isConstant())
+			sec = ObjectFile::Rodata;
 		obj.align(sec, 8);
 
 		U32 off;

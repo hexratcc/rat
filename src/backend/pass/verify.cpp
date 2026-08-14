@@ -120,6 +120,13 @@ namespace rat {
 			if(!n->getInput(i))
 				return;
 
+		auto ctrlMem = [&](Node* ctrl, Node* mem, const C8* what) {
+			if(!isCtrl(ctrl))
+				err(n, String(what) + " input 0 (control) is not control-typed");
+			if(!isMem(mem))
+				err(n, String(what) + " input 1 (memory) is not memory-typed");
+		};
+
 		switch(op) {
 		case Opcode::Start: {
 			if(n != fn.getStart())
@@ -152,10 +159,7 @@ namespace rat {
 
 		case Opcode::Return: {
 			auto* r = cast<ReturnNode>(n);
-			if(!isCtrl(r->getControl()))
-				err(n, "Return input 0 (control) is not control-typed");
-			if(!isMem(r->getMemory()))
-				err(n, "Return input 1 (memory) is not memory-typed");
+			ctrlMem(r->getControl(), r->getMemory(), "Return");
 			if(fn.returnsValue()) {
 				if(!r->hasValue())
 					err(n, "Return in a value function carries no value");
@@ -301,10 +305,7 @@ namespace rat {
 
 		case Opcode::Load: {
 			auto* l = cast<LoadNode>(n);
-			if(!isCtrl(l->getControl()))
-				err(n, "Load input 0 (control) is not control-typed");
-			if(!isMem(l->getMemory()))
-				err(n, "Load input 1 (memory) is not memory-typed");
+			ctrlMem(l->getControl(), l->getMemory(), "Load");
 			if(!l->getPointer()->getType()->isPtr())
 				err(n, "Load address is not a pointer");
 			if(!t->isData())
@@ -313,10 +314,7 @@ namespace rat {
 		}
 		case Opcode::Store: {
 			auto* s = cast<StoreNode>(n);
-			if(!isCtrl(s->getControl()))
-				err(n, "Store input 0 (control) is not control-typed");
-			if(!isMem(s->getMemory()))
-				err(n, "Store input 1 (memory) is not memory-typed");
+			ctrlMem(s->getControl(), s->getMemory(), "Store");
 			if(!s->getPointer()->getType()->isPtr())
 				err(n, "Store address is not a pointer");
 			if(!isData(s->getValue()))
@@ -327,10 +325,7 @@ namespace rat {
 		}
 		case Opcode::Call: {
 			auto* c = cast<CallNode>(n);
-			if(!isCtrl(c->getControl()))
-				err(n, "Call input 0 (control) is not control-typed");
-			if(!isMem(c->getMemory()))
-				err(n, "Call input 1 (memory) is not memory-typed");
+			ctrlMem(c->getControl(), c->getMemory(), "Call");
 			if(!t->isTuple()) {
 				err(n, "Call type must be a tuple");
 				break;

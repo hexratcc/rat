@@ -13,6 +13,14 @@ namespace rat {
 
 	constexpr VReg kNoVReg = 0;
 
+	namespace detail {
+		struct MachineSymTable {
+			List<String> names{String()}; // id 0 is the empty name
+			Map<String, U32> ids;
+		};
+		MachineSymTable& machineSyms();
+	} // namespace detail
+
 	U32 internMachineSym(const String& s);
 	const String& machineSymName(U32 id);
 

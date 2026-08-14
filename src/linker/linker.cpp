@@ -7,7 +7,7 @@
 namespace rat {
 	using namespace elf;
 
-	namespace {
+	namespace detail {
 		constexpr const char* kInterp = "/lib64/ld-linux-x86-64.so.2";
 
 		B32 isLinkerSym(const String& n) {
@@ -35,7 +35,7 @@ namespace rat {
 					return true;
 			return false;
 		}
-	} // namespace
+	} // namespace detail
 
 	Import& Linker::intern(const String& name, Import::Kind kind) {
 		auto it = importIndex.find(name);
@@ -228,7 +228,7 @@ namespace rat {
 				const InSym& s = obj.syms[r.sym];
 				if(!s.undef || globals.count(s.name))
 					continue;
-				if(s.name.empty() || isLinkerSym(s.name))
+				if(s.name.empty() || detail::isLinkerSym(s.name))
 					continue;
 				if(s.bind != STB_WEAK)
 					note(s.name).required = true;
@@ -367,7 +367,7 @@ namespace rat {
 	B32 Linker::run() {
 		interp = !opt.interp.empty() ? opt.interp : hostLoader();
 		if(interp.empty())
-			interp = kInterp;
+			interp = detail::kInterp;
 		rpaths = !opt.rpaths.empty() ? opt.rpaths : hostLibDirs();
 		if(!loadInputs())
 			return false;

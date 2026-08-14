@@ -116,6 +116,13 @@ namespace rat::cc {
 		U32 col = 1;		// 1-based column of the first character
 	};
 
+	namespace detail {
+		B32 validIntSuffix(const char* s, U32 n);
+		B32 validFloatSuffix(const char* s, U32 n);
+		B32 spellingIs(const char* k, const char* s, U32 n);
+		TokKind keywordKind(const char* s, U32 n);
+	} // namespace detail
+
 	struct Lexer {
 		Lexer(const char* src, U32 len, String fileName = "<input>");
 
@@ -139,8 +146,12 @@ namespace rat::cc {
 		Token lexChar(Token tok);
 		Token lexString(Token tok);
 		Token lexQuoted(Token tok, char quote, const char* unterminated, TokKind kind);
+		struct PunctAlt {
+			char c;
+			TokKind kind;
+		};
 		Token lexPunct(Token tok);
-		Token lexEqSuffixOp(Token tok, TokKind base, TokKind eq);
+		Token lexAltOp(Token tok, TokKind base, std::initializer_list<PunctAlt> alts);
 
 		Token finish(Token tok, TokKind kind);
 		Token fail(Token tok, const String& msg);

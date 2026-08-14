@@ -5,7 +5,7 @@
 #include "pass/opt/fold.h"
 
 namespace rat {
-	namespace {
+	namespace detail {
 		B32 matchLinearIV(PhiNode* p, I64& step, U32& recIdx) {
 			if(!p->getType()->isInt() || p->getValueCount() != 2)
 				return false;
@@ -28,7 +28,7 @@ namespace rat {
 			}
 			return false;
 		}
-	} // namespace
+	} // namespace detail
 
 	const C8* StrengthReducePass::name() const { return "strengthreduce"; }
 
@@ -43,7 +43,7 @@ namespace rat {
 		for(PhiNode* p : phis) {
 			I64 step;
 			U32 recIdx;
-			if(!matchLinearIV(p, step, recIdx))
+			if(!detail::matchLinearIV(p, step, recIdx))
 				continue;
 			Type* ty = p->getType();
 			U32 w = ty->getIntWidth();

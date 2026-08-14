@@ -4,7 +4,7 @@
 #include <cstdlib>
 
 namespace rat::cc {
-	namespace {
+	namespace detail {
 		TargetTriple& hostTripleStorage() {
 			static TargetTriple triple = [] {
 				TargetTriple t;
@@ -21,8 +21,8 @@ namespace rat::cc {
 			}();
 			return triple;
 		}
-	} // namespace
+	} // namespace detail
 
-	const TargetTriple& hostTargetTriple() { return hostTripleStorage(); }
-	void setHostTargetTriple(const TargetTriple& triple) { hostTripleStorage() = triple; }
+	const TargetTriple& hostTargetTriple() { return detail::hostTripleStorage(); }
+	void setHostTargetTriple(const TargetTriple& triple) { detail::hostTripleStorage() = triple; }
 } // namespace rat::cc

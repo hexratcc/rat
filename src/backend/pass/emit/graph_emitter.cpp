@@ -5,7 +5,7 @@
 #include "ir/node.h"
 
 namespace rat {
-	namespace {
+	namespace detail {
 		void writeId(std::ostream& os, U32 fnIndex, const Node* n) {
 			os << "f" << fnIndex << "_v" << n->getId();
 		}
@@ -226,7 +226,7 @@ namespace rat {
 			}
 			os << "  }\n";
 		}
-	} // namespace
+	} // namespace detail
 
 	GraphEmitterPass::GraphEmitterPass(std::ostream& os)
 	: os(&os) {}
@@ -241,7 +241,7 @@ namespace rat {
 					 "  edge [fontsize=9, arrowsize=0.8];\n\n";
 		U32 index = 0;
 		for(const Function* fn : module)
-			emitFunction(*os, index++, *fn);
+			detail::emitFunction(*os, index++, *fn);
 		*os << "}\n";
 		return false;
 	}

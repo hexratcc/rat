@@ -3,9 +3,7 @@
 #include "lex/preprocess_detail.h"
 
 namespace rat::cc {
-	namespace {
-		using namespace detail;
-
+	namespace detail {
 		// keyword spellings, aligned with TokKind::KwAuto..KwTypeof
 		const char* const kKeywords[] = {
 				"auto",				"break",		"case",						"char",			"const",		"continue",
@@ -58,7 +56,8 @@ namespace rat::cc {
 			}
 			return t.kind;
 		}
-	} // namespace
+	} // namespace detail
+	using namespace detail;
 
 	B32 preprocessToTokens(const String& path,
 												 const String& source,
@@ -78,11 +77,11 @@ namespace rat::cc {
 		// pointer-keyed keyword/punct maps over the pp interner
 		Map<const String*, TokKind> kindOf;
 		kindOf.reserve(256);
-		for(U32 k = 0; k < sizeof(kKeywords) / sizeof(kKeywords[0]); ++k)
-			kindOf[pp.interner.intern(kKeywords[k])] = (TokKind)((U32)TokKind::KwAuto + k);
+		for(U32 k = 0; k < sizeof(detail::kKeywords) / sizeof(detail::kKeywords[0]); ++k)
+			kindOf[pp.interner.intern(detail::kKeywords[k])] = (TokKind)((U32)TokKind::KwAuto + k);
 		kindOf[pp.interner.intern("__typeof")] = TokKind::KwTypeof;
 		kindOf[pp.interner.intern("__typeof__")] = TokKind::KwTypeof;
-		for(const PunctSpelling& p : kPunctKinds)
+		for(const detail::PunctSpelling& p : detail::kPunctKinds)
 			kindOf[pp.interner.intern(p.s)] = p.kind;
 
 		ts.fileName = path;
@@ -129,7 +128,7 @@ namespace rat::cc {
 			case Pk::Char:
 			case Pk::Str: {
 				String lerr;
-				TokKind k = classifySingle(*t.text, lerr);
+				TokKind k = detail::classifySingle(*t.text, lerr);
 				if(k == TokKind::Error && !sawError) {
 					sawError = true;
 					ts.errMsg = lerr;

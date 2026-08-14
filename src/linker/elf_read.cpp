@@ -7,7 +7,7 @@
 namespace rat {
 	using namespace elf;
 
-	namespace {
+	namespace detail {
 		U8 classify(U32 type, U64 flags) {
 			if(!(flags & SHF_ALLOC))
 				return BNone;
@@ -25,11 +25,6 @@ namespace rat {
 				return BData;
 			return BRodata;
 		}
-
-		struct Shdr {
-			U32 name, type, link, info;
-			U64 flags, offset, size, addralign, entsize;
-		};
 
 		B32 parseShdrs(const List<U8>& img, List<Shdr>& out, const U8*& shstr, String& err) {
 			if(img.size() < 64 || img[0] != 0x7f || img[1] != 'E' || img[2] != 'L' || img[3] != 'F') {
@@ -70,7 +65,7 @@ namespace rat {
 			shstr = &img[out[shstrndx].offset];
 			return true;
 		}
-	} // namespace
+	} // namespace detail
 
 	B32 readWhole(const String& path, List<U8>& out) {
 		std::ifstream f(path, std::ios::binary);
@@ -89,9 +84,9 @@ namespace rat {
 
 	B32 loadObject(
 			List<U8> img, const String& path, InObject& obj, Set<String>& seenGroups, String& err) {
-		List<Shdr> shdrs;
+		List<detail::Shdr> shdrs;
 		const U8* shstr = nullptr;
-		if(!parseShdrs(img, shdrs, shstr, err))
+		if(!detail::parseShdrs(img, shdrs, shstr, err))
 			return false;
 		if(rd16(&img[16]) != ET_REL) {
 			err = "'" + path + "' is not a relocatable object";
@@ -104,7 +99,7 @@ namespace rat {
 		// one InSection per index, syms/relocs reference original indices
 		obj.sections.resize(shdrs.size());
 		for(U32 i = 0; i < shdrs.size(); ++i) {
-			const Shdr& sh = shdrs[i];
+			const detail::Shdr& sh = shdrs[i];
 			InSection& s = obj.sections[i];
 			s.name = (const char*)(shstr + sh.name);
 			s.type = sh.type;
@@ -112,7 +107,7 @@ namespace rat {
 			s.align = sh.addralign ? sh.addralign : 1;
 			s.fileOff = sh.offset;
 			s.size = sh.size;
-			s.bucket = classify(sh.type, sh.flags);
+			s.bucket = detail::classify(sh.type, sh.flags);
 			if(s.bucket == BRodata && s.name == ".eh_frame")
 				s.bucket = BEhFrame;
 			s.keep = s.bucket != BNone;
@@ -125,7 +120,7 @@ namespace rat {
 				if(shdrs[i].type == SHT_SYMTAB)
 					gsymSec = i;
 			for(U32 i = 0; i < shdrs.size(); ++i) {
-				const Shdr& sh = shdrs[i];
+				const detail::Shdr& sh = shdrs[i];
 				if(sh.type != SHT_GROUP)
 					continue;
 				const U8* g = &im[sh.offset];
@@ -133,7 +128,7 @@ namespace rat {
 					continue;
 				String sig;
 				if(gsymSec && sh.link == gsymSec) {
-					const Shdr& st = shdrs[sh.link];
+					const detail::Shdr& st = shdrs[sh.link];
 					const U8* sp = &im[st.offset + (U64)sh.info * 24];
 					const U8* gstr = &im[shdrs[st.link].offset];
 					sig = (const char*)(gstr + rd32(sp));
@@ -161,7 +156,7 @@ namespace rat {
 			err = "'" + path + "' has no symbol table";
 			return false;
 		}
-		const Shdr& sym = shdrs[symSec];
+		const detail::Shdr& sym = shdrs[symSec];
 		const U8* strtab = &im[shdrs[sym.link].offset];
 		U32 nsym = (U32)(sym.size / 24);
 		obj.syms.reserve(nsym);
@@ -195,7 +190,7 @@ namespace rat {
 
 		// relocs, keep those patching a kept section
 		for(U32 i = 0; i < shdrs.size(); ++i) {
-			const Shdr& sh = shdrs[i];
+			const detail::Shdr& sh = shdrs[i];
 			if(sh.type != SHT_RELA)
 				continue;
 			if(sh.info >= obj.sections.size() || !obj.sections[sh.info].keep)

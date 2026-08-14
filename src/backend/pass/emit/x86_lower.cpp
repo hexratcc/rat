@@ -678,8 +678,6 @@ namespace rat {
 			m.regClass = cls;
 			m.defs = {MachineOperand::fixed(dst, width)};
 			m.uses = {MachineOperand::frameSlot(slot, width)};
-			m.imm = 0;
-			m.imm2 = 0;
 			return m;
 		};
 		hooks.makeSpill = [](I32 slot, PhysReg src, U32 cls, U32 width) {
@@ -687,7 +685,6 @@ namespace rat {
 			m.op = (MachineOpcode)(cls == detail::kFp ? X86Op::FStore : X86Op::Store);
 			m.regClass = cls;
 			m.uses = {MachineOperand::frameSlot(slot, width), MachineOperand::fixed(src, width)};
-			m.imm = 0;
 			return m;
 		};
 		hooks.allocSlot = [](MachineFunc& fn, U32 /*cls*/, U32 width) {
