@@ -1,8 +1,9 @@
 name: perf
 
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: ['test (ubuntu-latest)']
+    types: [completed]
   workflow_dispatch:
     inputs:
       commits:
@@ -18,7 +19,11 @@ permissions:
 
 jobs:
   graph:
-    runs-on: [self-hosted, linux, x64]
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: self-hosted
     timeout-minutes: 720
 
     steps:
@@ -26,26 +31,25 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      - name: python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: renderer
-        run: |
-          if python3 -c 'import matplotlib' 2> /dev/null; then
-            echo "PYTHON=python3" >> "$GITHUB_ENV"
-          else
-            python3 -m venv build/venv
-            build/venv/bin/pip install --quiet matplotlib
-            echo "PYTHON=$PWD/build/venv/bin/python3" >> "$GITHUB_ENV"
-          fi
+        run: python -m pip install --quiet matplotlib
 
       - name: restore cache
         run: git fetch -q origin perf || echo "no perf branch yet, starting from scratch"
 
       - name: graph
-        run: $PYTHON src/compiler/bench/perf.py "${{ inputs.commits || 100 }}"
+        run: python src/compiler/bench/perf.py "${{ inputs.commits || 100 }}"
 
       # publish as a single parentless commit, on its own branch
       - name: publish
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_run' || github.ref == 'refs/heads/main'
         run: |
           GIT_INDEX_FILE=$(mktemp) && export GIT_INDEX_FILE
           git read-tree --empty
