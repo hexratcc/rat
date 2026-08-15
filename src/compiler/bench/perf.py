@@ -28,7 +28,7 @@ BUILD_PIN = ["taskset", "-c", os.environ["PERF_CPUS"]] if os.environ.get("PERF_C
 RUN_PIN = ["taskset", "-c", os.environ["PERF_RUN_CPU"]] if os.environ.get("PERF_RUN_CPU") else []
 
 WIDTH, HEIGHT, DPI = 1800, 400, 100
-LEFT, RIGHT, TOP = 0.068, 0.997, 0.885
+LEFT, RIGHT, TOP = 0.075, 0.997, 0.885
 RAT, GCC_COLOR, INK, TEXT = "#d9532c", "#3d7ee0", "#8a9096", "#5f6368"
 PX_PER_PT = DPI / 72
 
@@ -173,7 +173,7 @@ def carry(values):
 
 def sha_layout(shas):
     pitch = WIDTH * (RIGHT - LEFT) / max(len(shas), 1)
-    size = min(14.0, max(3.0, pitch * 0.85 / PX_PER_PT))
+    size = min(16.0, max(3.0, pitch * 0.85 / PX_PER_PT))
     length = max(len(s) for s in shas) * 0.62 * size * PX_PER_PT
     return size, min(0.45, (length + 14) / HEIGHT)
 
@@ -195,9 +195,9 @@ def plot(shas, times, gcc, out):
     ax.set_xticks(list(x))
     ax.set_xticklabels(shas, rotation=90, fontsize=size, color=TEXT, fontfamily="monospace")
     ax.tick_params(axis="x", length=2, pad=1.5, color=INK)
-    ax.tick_params(axis="y", labelsize=14, length=3, pad=2, color=INK, labelcolor=TEXT)
+    ax.tick_params(axis="y", labelsize=17, length=3, pad=2, color=INK, labelcolor=TEXT)
     ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
-    ax.set_ylabel("seconds", fontsize=15, color=TEXT, labelpad=4)
+    ax.set_ylabel("runtime (sec)", fontsize=18, color=TEXT, labelpad=6)
     ax.set_title("rat vs gcc bench.c", fontsize=21, color=TEXT, pad=8)
 
     ax.grid(axis="y", color=INK, linewidth=0.5, linestyle=(0, (2, 3)), alpha=0.6)
