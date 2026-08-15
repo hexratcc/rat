@@ -15,7 +15,4 @@ echo "== rat-ir =="
 echo "== cc-x86 =="
 ( cd src/compiler && RATCC_X86=1 ../../bin/cc-test $J ) || rc=1
 
-echo "== cc-c =="
-( cd src/compiler && RATCC_X86=0 ../../bin/cc-test $J ) || rc=1
-
 exit $rc

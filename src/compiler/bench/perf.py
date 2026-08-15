@@ -28,7 +28,7 @@ BUILD_PIN = ["taskset", "-c", os.environ["PERF_CPUS"]] if os.environ.get("PERF_C
 RUN_PIN = ["taskset", "-c", os.environ["PERF_RUN_CPU"]] if os.environ.get("PERF_RUN_CPU") else []
 
 WIDTH, HEIGHT, DPI = 1800, 400, 100
-LEFT, RIGHT, TOP = 0.055, 0.997, 0.90
+LEFT, RIGHT, TOP = 0.068, 0.997, 0.885
 RAT, GCC_COLOR, INK, TEXT = "#d9532c", "#3d7ee0", "#8a9096", "#5f6368"
 PX_PER_PT = DPI / 72
 
@@ -182,8 +182,8 @@ def plot(shas, times, gcc, out):
     fig, ax = plt.subplots(figsize=(WIDTH / DPI, HEIGHT / DPI), dpi=DPI)
     x = range(len(shas))
 
-    ax.plot(x, times, color=RAT, linewidth=1.5, label="rat -O1")
-    ax.axhline(gcc, color=GCC_COLOR, linewidth=1.5, label="gcc -O1")
+    ax.plot(x, times, color=RAT, linewidth=2.6, label="rat -O1")
+    ax.axhline(gcc, color=GCC_COLOR, linewidth=2.6, label="gcc -O1")
 
     # pad the range
     lo, hi = min(times + [gcc]), max(times + [gcc])
@@ -195,10 +195,10 @@ def plot(shas, times, gcc, out):
     ax.set_xticks(list(x))
     ax.set_xticklabels(shas, rotation=90, fontsize=size, color=TEXT, fontfamily="monospace")
     ax.tick_params(axis="x", length=2, pad=1.5, color=INK)
-    ax.tick_params(axis="y", labelsize=11, length=3, pad=2, color=INK, labelcolor=TEXT)
+    ax.tick_params(axis="y", labelsize=14, length=3, pad=2, color=INK, labelcolor=TEXT)
     ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
-    ax.set_ylabel("seconds", fontsize=12, color=TEXT, labelpad=4)
-    ax.set_title("rat vs gcc bench.c", fontsize=16, color=TEXT, pad=6)
+    ax.set_ylabel("seconds", fontsize=15, color=TEXT, labelpad=4)
+    ax.set_title("rat vs gcc bench.c", fontsize=21, color=TEXT, pad=8)
 
     ax.grid(axis="y", color=INK, linewidth=0.5, linestyle=(0, (2, 3)), alpha=0.6)
     ax.set_axisbelow(True)
@@ -209,7 +209,7 @@ def plot(shas, times, gcc, out):
 
     ax.legend(
         loc="upper right",
-        fontsize=13,
+        fontsize=17,
         frameon=False,
         labelcolor=TEXT,
         handlelength=1.6,
