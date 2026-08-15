@@ -18,6 +18,7 @@ CACHE = ROOT / "assets/perf.tsv"
 PNG = ROOT / "assets/perf.png"
 WORK = ROOT / "build/perf"
 WT = WORK / "wt"
+LOGS = WORK / "logs"
 BENCH = "src/compiler/bench/bench.c"
 
 GCC = os.environ.get("PERF_GCC", "gcc")
@@ -98,11 +99,15 @@ def time_binary(binary, log):
     return best or None
 
 
-def measure_commit(commit, out):
+def log_tail(log):
+    lines = [l for l in log.read_text(errors="replace").splitlines() if l.strip()] if log.exists() else []
+    return lines[-1][:120] if lines else "no output"
+
+
+def measure_commit(commit, out, log):
     """build this commit's compiler, run HEAD's bench through it, None if that is not possible"""
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
-    log = out / "build.log"
 
     git("-C", str(WT), "checkout", "-q", "--detach", commit)
     git("-C", str(WT), "clean", "-xdfq")
@@ -111,6 +116,7 @@ def measure_commit(commit, out):
 
     cc = next((WT / c for c in ("bin/cc", "bin/ratcc") if os.access(WT / c, os.X_OK)), None)
     if cc is None:
+        log.write_text(f"no compiler binary in {WT}/bin\n")
         return None
 
     compile = [str(cc), "-O1", "-o", str(out / "rat.o"), str(WORK / "bench.c")]
@@ -205,7 +211,7 @@ def main(argv):
     if not bench:
         die(f"{BENCH} is not tracked")
 
-    WORK.mkdir(parents=True, exist_ok=True)
+    LOGS.mkdir(parents=True, exist_ok=True)
     (WORK / "bench.c").write_text(git("show", f"HEAD:{BENCH}"))
 
     git("worktree", "prune")
@@ -230,8 +236,9 @@ def main(argv):
             continue
         date = git("log", "-1", "--format=%cs", commit)
         print(f"{commit[:12]} {date}  ", end="", flush=True)
-        ms = measure_commit(commit, out)
-        print(f"rat {ms:6} ms" if ms else f"failed (see {out / 'build.log'})")
+        log = LOGS / f"{commit[:12]}.log"
+        ms = measure_commit(commit, out, log)
+        print(f"rat {ms:6} ms" if ms else f"failed: {log_tail(log)}")
         record(cache, "rat", commit, bench, ms or 0)
 
     samples = [(c[:7], cache[("rat", c, bench)]) for c in commits if cache[("rat", c, bench)]]
