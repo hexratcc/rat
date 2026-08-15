@@ -28,8 +28,8 @@ BUILD_PIN = ["taskset", "-c", os.environ["PERF_CPUS"]] if os.environ.get("PERF_C
 RUN_PIN = ["taskset", "-c", os.environ["PERF_RUN_CPU"]] if os.environ.get("PERF_RUN_CPU") else []
 
 WIDTH, HEIGHT, DPI = 1800, 400, 100
-LEFT, RIGHT, TOP = 0.075, 0.997, 0.885
-RAT, GCC_COLOR, INK, TEXT = "#d9532c", "#3d7ee0", "#8a9096", "#5f6368"
+LEFT, RIGHT, TOP = 0.075, 0.997, 0.87
+RAT, GCC_COLOR, INK, TEXT = "#d9532c", "#3d7ee0", "#8a9096", "#000000"
 PX_PER_PT = DPI / 72
 
 
@@ -194,22 +194,22 @@ def plot(shas, times, gcc, out):
     size, bottom = sha_layout(shas)
     ax.set_xticks(list(x))
     ax.set_xticklabels(shas, rotation=90, fontsize=size, color=TEXT, fontfamily="monospace")
-    ax.tick_params(axis="x", length=2, pad=1.5, color=INK)
-    ax.tick_params(axis="y", labelsize=17, length=3, pad=2, color=INK, labelcolor=TEXT)
+    ax.tick_params(axis="x", length=2, pad=1.5, color=TEXT)
+    ax.tick_params(axis="y", labelsize=17, length=3, pad=2, color=TEXT, labelcolor=TEXT)
     ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
     ax.set_ylabel("runtime (sec)", fontsize=18, color=TEXT, labelpad=6)
-    ax.set_title("rat vs gcc bench.c", fontsize=21, color=TEXT, pad=8)
+    ax.set_title("rat vs gcc bench.c", fontsize=26, color=TEXT, pad=10)
 
     ax.grid(axis="y", color=INK, linewidth=0.5, linestyle=(0, (2, 3)), alpha=0.6)
     ax.set_axisbelow(True)
     for side, spine in ax.spines.items():
         spine.set_visible(side in ("left", "bottom"))
-        spine.set_color(INK)
-        spine.set_linewidth(0.5)
+        spine.set_color(TEXT)
+        spine.set_linewidth(1.2)
 
     ax.legend(
         loc="upper right",
-        fontsize=17,
+        fontsize=21,
         frameon=False,
         labelcolor=TEXT,
         handlelength=1.6,
