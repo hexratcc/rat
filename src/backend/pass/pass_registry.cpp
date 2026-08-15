@@ -70,7 +70,7 @@ namespace rat {
 
 		// the -O1 pipeline; repeats gate on changes since their last run
 		static const C8* kDefaultOpt = "sccp fold simplifycfg gvn memoryopt inline fold gvn"
-																	 " strengthreduce fold gvn dfe";
+																	 " strengthreduce fold gvn slp fold gvn dfe";
 	} // namespace detail
 
 	UniquePtr<Pass> createPass(const String& name, std::ostream& out) {
