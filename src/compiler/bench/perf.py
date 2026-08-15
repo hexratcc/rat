@@ -100,8 +100,13 @@ def time_binary(binary, log):
 
 
 def log_tail(log):
-    lines = [l for l in log.read_text(errors="replace").splitlines() if l.strip()] if log.exists() else []
-    return lines[-1][:120] if lines else "no output"
+    if not log.exists():
+        return "no output"
+    lines = [l.strip() for l in log.read_text(errors="replace").splitlines() if l.strip()]
+    if not lines:
+        return "no output"
+    errors = [l for l in lines if "error:" in l]
+    return (errors[0] if errors else lines[-1])[:140]
 
 
 def measure_commit(commit, out, log):
@@ -151,6 +156,19 @@ def record(cache, kind, commit, bench, ms):
     with open(CACHE, "a") as f:
         f.write(f"{kind}\t{commit}\t{bench}\t{stamp}\t{ms}\n")
     cache[(kind, commit, bench)] = ms
+
+
+def carry(values):
+    out = list(values)
+    nxt = None
+    for i in reversed(range(len(out))):
+        nxt = out[i] or nxt
+        out[i] = nxt
+    prev = None
+    for i in range(len(out)):
+        prev = out[i] or prev
+        out[i] = prev
+    return out
 
 
 def sha_layout(shas):
@@ -241,14 +259,15 @@ def main(argv):
         print(f"rat {ms:6} ms" if ms else f"failed: {log_tail(log)}")
         record(cache, "rat", commit, bench, ms or 0)
 
-    samples = [(c[:7], cache[("rat", c, bench)]) for c in commits if cache[("rat", c, bench)]]
-    if not samples:
+    measured = [cache[("rat", c, bench)] for c in commits]
+    if not any(measured):
         die("no usable measurements")
 
-    shas = [s for s, _ in samples]
-    times = [ms / 1000.0 for _, ms in samples]
+    shas = [c[:7] for c in commits]
+    times = [ms / 1000.0 for ms in carry(measured)]
     plot(shas, times, cache[("gcc", "-", bench)] / 1000.0, PNG)
-    print(f"perf: wrote {PNG.relative_to(ROOT)} ({len(samples)} of {len(commits)} commits plotted)")
+    print(f"perf: wrote {PNG.relative_to(ROOT)} "
+          f"({len(commits)} commits, {sum(1 for m in measured if m)} measured)")
 
 
 if __name__ == "__main__":
