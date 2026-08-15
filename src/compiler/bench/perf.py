@@ -42,12 +42,26 @@ def git(*args):
     ).stdout.strip()
 
 
+def step(cmd, log, cwd=ROOT):
+    """run one build step, a tool the host does not have is a failure and not a crash"""
+    try:
+        with open(log, "ab") as out:
+            return subprocess.run(cmd, cwd=cwd, stdout=out, stderr=out).returncode == 0
+    except OSError as e:
+        with open(log, "ab") as out:
+            out.write(f"{cmd[0]}: {e}\n".encode())
+        return False
+
+
 def build_jobs():
     """cores the builds may use, taskset narrows it when PERF_CPUS is set"""
     if BUILD_PIN:
-        return subprocess.run(
-            [*BUILD_PIN, "nproc"], check=True, capture_output=True, text=True
-        ).stdout.strip()
+        try:
+            return subprocess.run(
+                [*BUILD_PIN, "nproc"], check=True, capture_output=True, text=True
+            ).stdout.strip()
+        except OSError:
+            pass
     return str(len(os.sched_getaffinity(0)))
 
 
@@ -64,18 +78,20 @@ def build_worktree(log):
         steps = [[*BUILD_PIN, "make", f"-j{build_jobs()}"]]
     else:
         return False
-    with open(log, "ab") as out:
-        return all(subprocess.run(s, cwd=WT, stdout=out, stderr=out).returncode == 0 for s in steps)
+    return all(step(s, log, cwd=WT) for s in steps)
 
 
 def time_binary(binary, log):
     """best wall time over a few runs"""
     best = None
     for _ in range(RUNS):
-        with open(log, "wb") as out:
-            start = time.perf_counter_ns()
-            code = subprocess.run([*RUN_PIN, binary, "1"], stdout=out, stderr=out).returncode
-            elapsed = (time.perf_counter_ns() - start) // 1_000_000
+        try:
+            with open(log, "wb") as out:
+                start = time.perf_counter_ns()
+                code = subprocess.run([*RUN_PIN, binary, "1"], stdout=out, stderr=out).returncode
+                elapsed = (time.perf_counter_ns() - start) // 1_000_000
+        except OSError:
+            return None
         if code != 0 or b"MISMATCH" in Path(log).read_bytes():
             return None
         best = elapsed if best is None else min(best, elapsed)
@@ -97,22 +113,18 @@ def measure_commit(commit, out):
     if cc is None:
         return None
 
-    with open(log, "ab") as f:
-        for step in (
-            [str(cc), "-O1", "-o", str(out / "rat.o"), str(WORK / "bench.c")],
-            [HOSTCC, "-no-pie", str(out / "rat.o"), "-o", str(out / "rat"), "-lm"],
-        ):
-            if subprocess.run(step, cwd=ROOT, stdout=f, stderr=f).returncode != 0:
-                return None
+    compile = [str(cc), "-O1", "-o", str(out / "rat.o"), str(WORK / "bench.c")]
+    link = [HOSTCC, "-no-pie", str(out / "rat.o"), "-o", str(out / "rat"), "-lm"]
+    if not all(step(s, log) for s in (compile, link)):
+        return None
     return time_binary(str(out / "rat"), out / "rat.run")
 
 
 def measure_gcc(out):
     out.mkdir(parents=True, exist_ok=True)
-    with open(out / "gcc.log", "wb") as f:
-        step = [GCC, "-std=c99", "-O1", str(WORK / "bench.c"), "-o", str(out / "gcc"), "-lm"]
-        if subprocess.run(step, cwd=ROOT, stdout=f, stderr=f).returncode != 0:
-            return None
+    build = [GCC, "-std=c99", "-O1", str(WORK / "bench.c"), "-o", str(out / "gcc"), "-lm"]
+    if not step(build, out / "gcc.log"):
+        return None
     return time_binary(str(out / "gcc"), out / "gcc.run")
 
 
