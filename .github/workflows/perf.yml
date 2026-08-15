@@ -1,0 +1,56 @@
+name: perf
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      commits:
+        description: 'commits to plot'
+        default: '100'
+
+concurrency:
+  group: perf
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  graph:
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 720
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: renderer
+        run: |
+          if python3 -c 'import matplotlib' 2> /dev/null; then
+            echo "PYTHON=python3" >> "$GITHUB_ENV"
+          else
+            python3 -m venv build/venv
+            build/venv/bin/pip install --quiet matplotlib
+            echo "PYTHON=$PWD/build/venv/bin/python3" >> "$GITHUB_ENV"
+          fi
+
+      - name: restore cache
+        run: git fetch -q origin perf || echo "no perf branch yet, starting from scratch"
+
+      - name: graph
+        run: $PYTHON src/compiler/bench/perf.py "${{ inputs.commits || 100 }}"
+
+      # publish as a single parentless commit, on its own branch
+      - name: publish
+        if: github.ref == 'refs/heads/main'
+        run: |
+          GIT_INDEX_FILE=$(mktemp) && export GIT_INDEX_FILE
+          git read-tree --empty
+          git update-index --add --cacheinfo 100644,"$(git hash-object -w assets/perf.png)",perf.png
+          git update-index --add --cacheinfo 100644,"$(git hash-object -w assets/perf.tsv)",perf.tsv
+          commit=$(git -c user.name='nella' -c user.email='simontupy64@gmail.com' \
+                       commit-tree "$(git write-tree)" -m "perf graph for ${GITHUB_SHA:0:12}")
+          git push -f origin "$commit:refs/heads/perf"

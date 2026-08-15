@@ -9,3 +9,5 @@ fred.txt
 profile.perf
 perf.data
 .cache
+assets/perf.png
+assets/perf.tsv

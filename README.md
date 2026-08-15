@@ -7,3 +7,6 @@ $ ./build.sh
 $ ./test.sh
 $ ./bench.sh
 ```
+
+## performance
+![perf](https://raw.githubusercontent.com/hexratcc/rat/perf/perf.png)

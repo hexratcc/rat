@@ -6,5 +6,6 @@ pkgs.mkShell {
 	packages = [
 		pkgs.gcc
 		pkgs.clang-tools
+		(pkgs.python3.withPackages (ps: [ ps.matplotlib ]))
 	];
 }
