@@ -273,9 +273,9 @@ namespace rat {
 		Reg d = gpOf(in.defs[0]);
 		if(lane == 0) {
 			if(esz == 8) {
-				a->movqGpXmm(d, src);
+				a->movGpXmm(d, src, true);
 			} else {
-				a->movdGpXmm(d, src); // zero-extends
+				a->movGpXmm(d, src, false); // zero-extends
 				a->movsxd32(d, d);
 			}
 			return;

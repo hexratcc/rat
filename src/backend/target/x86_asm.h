@@ -590,15 +590,6 @@ namespace rat {
 			modrmReg(2, r);
 		}
 
-		// movq r64, xmm
-		void movqGpXmm(Reg dst, U32 xmm) {
-			b(0x66);
-			rexForce(true, xmm, 0, dst);
-			b(0x0f);
-			b(0x7e);
-			modrmReg(xmm, dst);
-		}
-
 		// or dword [rsp], 0
 		void probeRsp() {
 			b(0x83);
@@ -665,10 +656,10 @@ namespace rat {
 			b(0x6e);
 			modrmReg(xmm, src);
 		}
-		// movd r32, xmm
-		void movdGpXmm(Reg dst, U32 xmm) {
+		// movd/movq r32/r64, xmm (wide selects movq)
+		void movGpXmm(Reg dst, U32 xmm, B32 wide) {
 			b(0x66);
-			rex(false, xmm, 0, dst);
+			rex(wide, xmm, 0, dst);
 			b(0x0f);
 			b(0x7e);
 			modrmReg(xmm, dst);

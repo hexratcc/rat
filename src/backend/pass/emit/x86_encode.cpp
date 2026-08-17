@@ -176,7 +176,7 @@ namespace rat {
 					continue;
 				U32 x = toXmm(u.phys);
 				if(x < conv->gpArgCount)
-					a->movqGpXmm(conv->gpArgs[x], x);
+					a->movGpXmm(conv->gpArgs[x], x, true);
 			}
 		}
 
