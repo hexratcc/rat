@@ -637,19 +637,6 @@ namespace rat {
 			relocs.push_back({at, sym, RelocKind::Pc32, -4});
 			d32(0);
 		}
-		void movaps(U32 dst, U32 src) {
-			rex(false, dst, 0, src);
-			b(0x0f);
-			b(0x28);
-			modrmReg(dst, src);
-		}
-		void sseArith(U8 op, U32 width, U32 dst, U32 src) {
-			ssePrefix(width);
-			rex(false, dst, 0, src);
-			b(0x0f);
-			b(op);
-			modrmReg(dst, src);
-		}
 		// packed SSE op with an explicit mandatory prefix (0 = none), esc38 adds the sse4.1 escape
 		void ssePacked(U8 pfx, U8 op, U32 dst, U32 src, B32 esc38) {
 			if(pfx)
@@ -661,13 +648,13 @@ namespace rat {
 			b(op);
 			modrmReg(dst, src);
 		}
+		void movaps(U32 dst, U32 src) { ssePacked(0, 0x28, dst, src, false); }
+		void sseArith(U8 op, U32 w, U32 d, U32 s) { ssePacked(ssePrefixByte(w), op, d, s, false); }
+		void ucomis(U32 w, U32 a, U32 bx) { ssePacked(w == 8 ? 0x66 : 0, 0x2e, a, bx, false); }
+		void pxor(U32 a, U32 bx) { ssePacked(0x66, 0xef, a, bx, false); }
 		// pshufd dst, src, sel
 		void pshufd(U32 dst, U32 src, U8 sel) {
-			b(0x66);
-			rex(false, dst, 0, src);
-			b(0x0f);
-			b(0x70);
-			modrmReg(dst, src);
+			ssePacked(0x66, 0x70, dst, src, false);
 			b(sel);
 		}
 		// movd/movq xmm, r32/r64
@@ -686,14 +673,6 @@ namespace rat {
 			b(0x7e);
 			modrmReg(xmm, dst);
 		}
-		void ucomis(U32 width, U32 a, U32 bx) {
-			if(width == 8)
-				b(0x66);
-			rex(false, a, 0, bx);
-			b(0x0f);
-			b(0x2e);
-			modrmReg(a, bx);
-		}
 		void sseShiftImm(U32 laneBits, U8 ext, U32 reg, U8 cnt) {
 			b(0x66);
 			rex(false, 0, 0, reg);
@@ -701,13 +680,6 @@ namespace rat {
 			b(laneBits == 64 ? 0x73 : 0x72);
 			modrmReg(ext, reg);
 			b(cnt);
-		}
-		void pxor(U32 a, U32 bx) {
-			b(0x66);
-			rex(false, a, 0, bx);
-			b(0x0f);
-			b(0xef);
-			modrmReg(a, bx);
 		}
 		void cvtRR(U8 pfx, U8 opc, B32 w, U32 dst, U32 src) {
 			b(pfx);
