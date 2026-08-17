@@ -522,8 +522,7 @@ namespace rat {
 		}
 
 		void pushPop(U8 base, Reg r) {
-			if(r >= R8)
-				b(0x41);
+			rex(false, 0, 0, r);
 			b((U8)(base + (r & 7)));
 		}
 		void push(Reg r) { pushPop(0x50, r); }
@@ -576,19 +575,14 @@ namespace rat {
 
 		void addRR(Reg dst, Reg src) { aluRR(0x01, dst, src); }
 
-		void jmpReg(Reg r) {
-			if(r >= R8)
-				b(0x41);
+		// 0xff /ext indirect through a register (jmp=4, call=2)
+		void indirectFF(U8 ext, Reg r) {
+			rex(false, 0, 0, r);
 			b(0xff);
-			modrmReg(4, r);
+			modrmReg(ext, r);
 		}
-
-		void callReg(Reg r) {
-			if(r >= R8)
-				b(0x41);
-			b(0xff);
-			modrmReg(2, r);
-		}
+		void jmpReg(Reg r) { indirectFF(4, r); }
+		void callReg(Reg r) { indirectFF(2, r); }
 
 		// or dword [rsp], 0
 		void probeRsp() {
