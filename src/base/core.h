@@ -54,6 +54,7 @@ namespace rat {
 	template <typename Key> using Set = std::unordered_set<Key>;
 	template <typename Key, typename Value> using Map = std::unordered_map<Key, Value>;
 	template <typename Type> using UniquePtr = std::unique_ptr<Type>;
+	template <typename First, typename Second> using Pair = std::pair<First, Second>;
 	template <typename Signature> using Delegate = std::function<Signature>;
 
 	inline I64 signExtend(I64 v, U32 w) {

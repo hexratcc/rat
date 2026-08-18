@@ -35,19 +35,19 @@ namespace rat {
 	};
 
 	struct SlpPackPass : FunctionPass {
-		static constexpr U32 kVecBytes = 16;		 // SSE baseline
-		static constexpr U32 kMaxDepth = 8;			 // pack-growth recursion bound
-		static constexpr I32 kMinProfit = 2;		 // scalar ops saved, net of lane plumbing
-		static constexpr U32 kMaxRunWindows = 4; // windows sharing one guard branch
-		static constexpr U32 kMaxGuards = 4;		 // runtime checks per guarded run
+		static constexpr U32 kVecBytes = 16;			 // SSE baseline
+		static constexpr U32 kMaxDepth = 8;				 // pack-growth recursion bound
+		static constexpr I32 kMinProfit = 2;			 // scalar ops saved, net of lane plumbing
+		static constexpr U32 kMaxRunWindows = 4;	 // windows sharing one guard branch
+		static constexpr U32 kMaxGuards = 4;			 // runtime checks per guarded run
 		static constexpr I32 kGuardCheckCost = 6;	 // ops per runtime disjointness check
 		static constexpr I32 kGuardBranchCost = 6; // branch + else-arm bloat per guarded run
 
 		struct RefinedAddr {
 			Node* base = nullptr;
 			I64 constant = 0;
-			List<std::pair<const Node*, I64>> terms; // (var, scale), sorted by id
-			U32 size = 0;														 // access bytes
+			List<Pair<const Node*, I64>> terms; // (var, scale), sorted by id
+			U32 size = 0;												// access bytes
 
 			B32 valid() const { return base != nullptr && size != 0; }
 			B32 sameGroup(const RefinedAddr& o) const {
@@ -103,7 +103,7 @@ namespace rat {
 			const Map<const Node*, List<I64>>* interWritten = nullptr;
 			const Set<const Node*>* observers = nullptr;
 			// group sig -> (anchor ptr, its refined constant), shared across windows
-			Map<String, std::pair<Node*, I64>>* addrAnchors = nullptr;
+			Map<String, Pair<Node*, I64>>* addrAnchors = nullptr;
 
 			// runtime disjointness guards
 			struct GuardGroup {
@@ -115,7 +115,7 @@ namespace rat {
 			List<GuardGroup> guardGroups;
 
 			// splat reloads kept for post-commit coalescing into wide loads
-			List<std::pair<Node*, LoadNode*>> splatLoads;
+			List<Pair<Node*, LoadNode*>> splatLoads;
 
 			// tuple -> already built vector node, so shared subtrees pack once
 			Map<String, Node*> memo;
@@ -153,7 +153,7 @@ namespace rat {
 			B32 sse41;
 			SlpStats& stats;
 			ShapeHash shapes;
-			Map<String, std::pair<Node*, I64>> addrAnchors;
+			Map<String, Pair<Node*, I64>> addrAnchors;
 
 			Slp(Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats)
 			: fn(fn),

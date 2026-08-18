@@ -178,7 +178,7 @@ namespace rat {
 		std::sort(out.terms.begin(), out.terms.end(), [](const auto& a, const auto& b) {
 			return a.first->getId() < b.first->getId();
 		});
-		List<std::pair<const Node*, I64>> merged;
+		List<Pair<const Node*, I64>> merged;
 		for(const auto& t : out.terms) {
 			if(!merged.empty() && merged.back().first == t.first)
 				merged.back().second += t.second;
@@ -503,7 +503,8 @@ namespace rat {
 		profit += (I32)w - 1;
 		++interior;
 		++st.packWideLoad;
-		return fn.create<LoadNode>(vecTy, first->getControl(), memIn, anchorPtr(first->getPointer(), k0));
+		return fn.create<LoadNode>(
+				vecTy, first->getControl(), memIn, anchorPtr(first->getPointer(), k0));
 	}
 
 	// splat reloads at consecutive addresses fold into one wide load
@@ -810,12 +811,11 @@ namespace rat {
 		}
 
 		StoreNode* lastInChain = seg[i + w0.w - 1].store;
-		Node* wide = fn.create<StoreNode>(
-				fn.memTy(),
-				w0.ctrl,
-				packer.memIn,
-				packer.anchorPtr(w0.byOff[0]->store->getPointer(), wkey),
-				vec);
+		Node* wide = fn.create<StoreNode>(fn.memTy(),
+																			w0.ctrl,
+																			packer.memIn,
+																			packer.anchorPtr(w0.byOff[0]->store->getPointer(), wkey),
+																			vec);
 		lastInChain->replaceAllUsesWith(wide);
 		for(U32 j = 0; j < w0.w; ++j)
 			fn.removeNode(seg[i + j].store);
@@ -862,8 +862,8 @@ namespace rat {
 		}
 
 		I32 guardCost = guardCostDisabled()
-				? 0
-				: (I32)packer.guardGroups.size() * kGuardCheckCost + kGuardBranchCost;
+												? 0
+												: (I32)packer.guardGroups.size() * kGuardCheckCost + kGuardBranchCost;
 		B32 accept = treeOk && packer.profit - guardCost >= (I32)(kMinProfit * n) &&
 								 packer.interior >= n && packer.guardGroups.size() <= kMaxGuards &&
 								 !packer.coneTouchesObserver(wPtr);
@@ -1153,7 +1153,7 @@ namespace rat {
 				}
 			return false;
 		};
-		List<std::pair<std::pair<String, I64>, Node*>> keyed;
+		List<Pair<Pair<String, I64>, Node*>> keyed;
 		for(Node* term : terms) {
 			RefinedAddr k;
 			if(!leafKey(term, k))
@@ -1209,8 +1209,8 @@ namespace rat {
 		}
 
 		I32 hsumOps = w == 4 ? 5 : 3;
-		packer.profit += (I32)n - 1;						// scalar add chain removed
-		packer.profit -= (I32)k - 1 + hsumOps;	// vector combine + horizontal finish
+		packer.profit += (I32)n - 1;					 // scalar add chain removed
+		packer.profit -= (I32)k - 1 + hsumOps; // vector combine + horizontal finish
 		if(packer.profit < kMinProfit || packer.interior == 0) {
 			++stats.rejectedProfit;
 			return 0;
@@ -1281,9 +1281,9 @@ namespace rat {
 								<< (s.packedUnguarded + s.packedGuarded) << " (static " << s.packedUnguarded
 								<< ", guarded " << s.packedGuarded << " in " << s.guardedRuns << " runs, "
 								<< s.guardPairs << " checks)"
-								<< " reductions " << s.packedReduction
-								<< " rejected " << (s.rejectedTree + s.rejectedProfit + s.rejectedGuarded)
-								<< " (tree " << s.rejectedTree << ", profit " << s.rejectedProfit << ", guard "
+								<< " reductions " << s.packedReduction << " rejected "
+								<< (s.rejectedTree + s.rejectedProfit + s.rejectedGuarded) << " (tree "
+								<< s.rejectedTree << ", profit " << s.rejectedProfit << ", guard "
 								<< s.rejectedGuarded << ")\n"
 								<< "slp[" << module.getName() << "]: nodes: wload " << s.packWideLoad << " vbin "
 								<< s.packBinary << " splat " << s.packSplat << " (grouped " << s.splatGrouped
