@@ -289,11 +289,7 @@ namespace rat {
 			modrmReg(src, dst);
 		}
 
-		void movRR(Reg dst, Reg src) {
-			rex(true, src, 0, dst);
-			b(0x89);
-			modrmReg(src, dst);
-		}
+		void movRR(Reg dst, Reg src) { aluRR(0x89, dst, src); }
 
 		void movsxd32(Reg dst, Reg src) {
 			rex(true, dst, 0, src);
@@ -440,18 +436,14 @@ namespace rat {
 		// dst += [base + disp]  (64-bit)
 		void addRegMem(Reg dst, Reg base, I32 disp) { memOp(0, kMemW, 0x03, dst, base, disp); }
 
-		void unaryF7(U8 ext, Reg r) {
-			rex(true, 0, 0, r);
-			b(0xf7);
-			modrmReg(ext, r);
-		}
-		void negReg(Reg r) { unaryF7(3, r); }
-		void notReg(Reg r) { unaryF7(2, r); }
 		void unaryF7W(U8 ext, Reg r, B32 wide) {
 			rex(wide, 0, 0, r);
 			b(0xf7);
 			modrmReg(ext, r);
 		}
+		void unaryF7(U8 ext, Reg r) { unaryF7W(ext, r, true); }
+		void negReg(Reg r) { unaryF7(3, r); }
+		void notReg(Reg r) { unaryF7(2, r); }
 		void idivRegW(Reg r, B32 wide) { unaryF7W(7, r, wide); }
 		void divRegW(Reg r, B32 wide) { unaryF7W(6, r, wide); }
 		void cqoW(B32 wide) {
@@ -475,12 +467,7 @@ namespace rat {
 			b(cnt);
 		}
 
-		void shiftImm(U8 ext, Reg r, U8 cnt) {
-			rex(true, 0, 0, r);
-			b(0xc1);
-			modrmReg(ext, r);
-			b(cnt);
-		}
+		void shiftImm(U8 ext, Reg r, U8 cnt) { rotImm(ext, r, cnt, true); }
 
 		void setcc(U8 cc, Reg r) {
 			if(r >= RSP && r <= RDI)
@@ -507,12 +494,8 @@ namespace rat {
 		}
 
 		void leaRipSym(Reg dst, const String& sym, I64 addend) {
-			rex(true, dst, 0, 0);
-			b(0x8d);
-			b((U8)(0x05 | ((dst & 7) << 3))); // rip-relative
-			U32 at = here();
+			U32 at = leaRipDisp(dst);
 			relocs.push_back({at, sym, RelocKind::Pc32, addend - 4});
-			d32(0);
 		}
 
 		void pushPop(U8 base, Reg r) {
