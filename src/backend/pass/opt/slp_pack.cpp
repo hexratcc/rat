@@ -147,7 +147,9 @@ namespace rat {
 					return;
 				}
 				if(op == Opcode::Mul && (cval(b->getRHS(), k) || cval(b->getLHS(), k))) {
-					const Node* x = isa<ConstantNode>(b->getRHS()) ? b->getLHS() : b->getRHS();
+					const Node* x = b->getLHS();
+					if(isa<ConstantNode>(b->getLHS()))
+						x = b->getRHS();
 					refineTerm(x, scale * k, out, depth + 1);
 					return;
 				}
@@ -170,7 +172,10 @@ namespace rat {
 			if(++hops > 32 || (op != Opcode::Add && op != Opcode::Sub) || !b->getType()->isPtr() ||
 				 !b->getLHS()->getType()->isPtr())
 				break;
-			refineTerm(b->getRHS(), op == Opcode::Add ? 1 : -1, out, 0);
+			I64 sign = 1;
+			if(op == Opcode::Sub)
+				sign = -1;
+			refineTerm(b->getRHS(), sign, out, 0);
 			base = b->getLHS();
 		}
 		out.base = base;
@@ -226,7 +231,10 @@ namespace rat {
 		U64 h = mix((U64)n->getOpcode() << 8, n->getType()->getUid());
 		if(const LoadNode* l = dyn_cast<LoadNode>(n)) {
 			RefinedAddr ra = refineAddr(const_cast<LoadNode*>(l)->getPointer(), 1);
-			h = mix(h, ra.base ? ra.base->getId() : 0);
+			U64 baseId = 0;
+			if(ra.base)
+				baseId = ra.base->getId();
+			h = mix(h, baseId);
 			for(const auto& t : ra.terms)
 				h = mix(mix(h, t.first->getId()), (U64)t.second);
 		}
@@ -235,7 +243,10 @@ namespace rat {
 			if(n->isCommutative() && e == 2) {
 				U64 a = shape(n->getInput(0), depth - 1);
 				U64 b = shape(n->getInput(1), depth - 1);
-				h = mix(h, a < b ? mix(a, b) : mix(b, a));
+				if(a < b)
+					h = mix(h, mix(a, b));
+				else
+					h = mix(h, mix(b, a));
 			} else {
 				for(U32 i = 0; i < e; ++i)
 					h = mix(h, shape(n->getInput(i), depth - 1));
@@ -482,7 +493,10 @@ namespace rat {
 			if(it == interWritten->end())
 				return nullptr; // some other state, not this window's business
 			if(k0.sameGroup(*windowKey)) {
-				I64 c = k0.constant + (adjacent ? (I64)(i * esz) : 0);
+				I64 laneOff = 0;
+				if(adjacent)
+					laneOff = (I64)(i * esz);
+				I64 c = k0.constant + laneOff;
 				for(I64 written : it->second)
 					if(written == c) {
 						hardFail = true; // scalar reads a freshly stored lane
@@ -494,8 +508,12 @@ namespace rat {
 		if(!k0.sameGroup(*windowKey)) {
 			B32 distinct =
 					identifiedBase(k0.base) && identifiedBase(windowKey->base) && k0.base != windowKey->base;
-			if(!distinct)
-				addGuard(k0, first->getPointer(), equal ? esz : w * esz);
+			if(!distinct) {
+				U32 guardBytes = w * esz;
+				if(equal)
+					guardBytes = esz;
+				addGuard(k0, first->getPointer(), guardBytes);
+			}
 		}
 
 		if(equal)
@@ -527,7 +545,9 @@ namespace rat {
 			cs.push_back({std::move(sig), k.constant, splat, load});
 		}
 		std::sort(cs.begin(), cs.end(), [](const Cand& a, const Cand& b) {
-			return a.sig != b.sig ? a.sig < b.sig : a.c < b.c;
+			if(a.sig != b.sig)
+				return a.sig < b.sig;
+			return a.c < b.c;
 		});
 		for(U32 i = 0; i < cs.size();) {
 			U32 esz = cs[i].load->getType()->byteSize(ptrBytes);
@@ -544,7 +564,13 @@ namespace rat {
 			Node* wide = fn.create<LoadNode>(
 					vecTy, cs[i].load->getControl(), cs[i].load->getMemory(), cs[i].load->getPointer());
 			for(U32 j = 0; j < w; ++j) {
-				U8 sel = esz == 4 ? (U8)(j * 0x55) : (j ? (U8)0xee : (U8)0x44);
+				U8 sel;
+				if(esz == 4)
+					sel = (U8)(j * 0x55);
+				else if(j)
+					sel = (U8)0xee;
+				else
+					sel = (U8)0x44;
 				cs[i + j].splat->replaceAllUsesWith(fn.create<ShuffleNode>(vecTy, wide, sel));
 				++st.splatGrouped;
 			}
@@ -861,9 +887,9 @@ namespace rat {
 				treeOk = false;
 		}
 
-		I32 guardCost = guardCostDisabled()
-												? 0
-												: (I32)packer.guardGroups.size() * kGuardCheckCost + kGuardBranchCost;
+		I32 guardCost = 0;
+		if(!guardCostDisabled())
+			guardCost = (I32)packer.guardGroups.size() * kGuardCheckCost + kGuardBranchCost;
 		B32 accept = treeOk && packer.profit - guardCost >= (I32)(kMinProfit * n) &&
 								 packer.interior >= n && packer.guardGroups.size() <= kMaxGuards &&
 								 !packer.coneTouchesObserver(wPtr);
@@ -968,7 +994,11 @@ namespace rat {
 			fails.push_back(proj(iff, IfNode::elseProjIndex(), "slp.else"));
 		}
 		Node* thenP = ctrl;
-		Node* elseP = fails.size() == 1 ? fails[0] : fn.create<RegionNode>(ctrlTy, fails);
+		Node* elseP = nullptr;
+		if(fails.size() == 1)
+			elseP = fails[0];
+		else
+			elseP = fn.create<RegionNode>(ctrlTy, fails);
 		Node* prevMem = memIn;
 		Set<const Node*> wideStores;
 		for(U32 k = 0; k < n; ++k) {
@@ -1102,7 +1132,11 @@ namespace rat {
 				continue;
 			}
 
-			U32 consumed = hasObs ? tryGuardedRun(seg, i, w0) : tryStaticWindow(seg, i, w0);
+			U32 consumed = 0;
+			if(hasObs)
+				consumed = tryGuardedRun(seg, i, w0);
+			else
+				consumed = tryStaticWindow(seg, i, w0);
 			if(consumed) {
 				++changed;
 				i += consumed;
@@ -1208,7 +1242,9 @@ namespace rat {
 			return 0;
 		}
 
-		I32 hsumOps = w == 4 ? 5 : 3;
+		I32 hsumOps = 3;
+		if(w == 4)
+			hsumOps = 5;
 		packer.profit += (I32)n - 1;					 // scalar add chain removed
 		packer.profit -= (I32)k - 1 + hsumOps; // vector combine + horizontal finish
 		if(packer.profit < kMinProfit || packer.interior == 0) {
@@ -1237,8 +1273,10 @@ namespace rat {
 		List<BinaryNode*> roots;
 		for(Node* n : fn) {
 			BinaryNode* b = dyn_cast<BinaryNode>(n);
-			Opcode op = b ? b->getOpcode() : Opcode::Start;
-			if(!b || (op != Opcode::Add && !(op == Opcode::FAdd && fpReduceEnabled())))
+			if(!b)
+				continue;
+			Opcode op = b->getOpcode();
+			if(op != Opcode::Add && !(op == Opcode::FAdd && fpReduceEnabled()))
 				continue;
 			Type* t = b->getType();
 			if(!t || !packableElem(t) || t->isInt() != (op == Opcode::Add))
