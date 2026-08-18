@@ -87,8 +87,8 @@ namespace rat {
 			buckets[(U32)r.sec].push_back(&r);
 	}
 
-	void ObjectFile::write(std::ostream& os, ObjectFormat fmt) {
-		if(fmt == ObjectFormat::Coff)
+	void ObjectFile::write(std::ostream& os) {
+		if(format == ObjectFormat::Coff)
 			writeCoff(os);
 		else
 			writeElf(os);

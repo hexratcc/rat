@@ -29,8 +29,7 @@ namespace rat {
 		void defineSymbol(const String& name, Section sec, U32 offset, B32 global, B32 isFunc);
 		void addReloc(Section sec, U32 offset, const String& symbol, RelocKind kind, I64 addend);
 
-		void write(std::ostream& os, ObjectFormat fmt);
-		void write(std::ostream& os) { write(os, format); }
+		void write(std::ostream& os);
 	private:
 		struct Sym {
 			String name;
