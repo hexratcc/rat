@@ -391,24 +391,18 @@ namespace rat {
 			modrmReg(d, s);
 		}
 
-		void groupImm32(U8 ext, Reg r, I32 imm) {
-			rex(true, 0, 0, r);
-			b(0x81);
-			modrmReg(ext, r);
-			d32((U32)imm);
-		}
-		void groupImm8(U8 ext, Reg r, I8 imm) {
-			rex(true, 0, 0, r);
-			b(0x83);
-			modrmReg(ext, r);
-			b((U8)imm);
-		}
 		// group-1 ALU op with an immediate, picking the short imm8 form when it fits
 		void aluImm(U8 ext, Reg r, I32 imm) {
-			if(imm >= -128 && imm <= 127)
-				groupImm8(ext, r, (I8)imm);
-			else
-				groupImm32(ext, r, imm);
+			rex(true, 0, 0, r);
+			if(imm >= -128 && imm <= 127) { // short imm8 form
+				b(0x83);
+				modrmReg(ext, r);
+				b((U8)imm);
+			} else {
+				b(0x81);
+				modrmReg(ext, r);
+				d32((U32)imm);
+			}
 		}
 		void addRegImm32(Reg r, I32 imm) { aluImm(0, r, imm); }
 		void subRegImm32(Reg r, I32 imm) { aluImm(5, r, imm); }
