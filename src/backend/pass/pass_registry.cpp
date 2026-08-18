@@ -8,12 +8,12 @@
 #include "pass/verify.h"
 
 #include "codegen/linear_scan_reg_alloc.h"
-#include "pass/emit/c_emitter.h"
+#include "pass/emit/c/c_emitter.h"
 #include "pass/emit/graph_emitter.h"
 #include "pass/emit/text_emitter.h"
-#include "pass/emit/x86_encode.h"
-#include "pass/emit/x86_layout.h"
-#include "pass/emit/x86_lower.h"
+#include "pass/emit/x86/x86_encode.h"
+#include "pass/emit/x86/x86_layout.h"
+#include "pass/emit/x86/x86_lower.h"
 
 #include "pass/opt/dead_func_elim.h"
 #include "pass/opt/fold.h"

@@ -1,12 +1,12 @@
-#include "pass/emit/x86_layout.h"
+#include "pass/emit/x86/x86_layout.h"
 
 #include "codegen/machine_function.h"
 #include "codegen/machine_module.h"
 #include "ir/module.h"
-#include "pass/emit/x86_op.h"
+#include "pass/emit/x86/x86_op.h"
 
 namespace rat {
-	namespace detail {
+	namespace {
 		B32 isPureTestBlock(const MachineBlock& b) {
 			if(b.insts.empty() || b.insts.size() > 3)
 				return false;
@@ -41,8 +41,7 @@ namespace rat {
 
 				// replace the jmp with a copy of the test block's instructions
 				p.insts.pop_back();
-				for(const MachineInstr& in : b.insts)
-					p.insts.push_back(in);
+				p.insts.insert(p.insts.end(), b.insts.begin(), b.insts.end());
 
 				// p's successor edge moves from b to b's successors
 				p.succs.erase(std::remove(p.succs.begin(), p.succs.end(), t), p.succs.end());
@@ -174,15 +173,15 @@ namespace rat {
 			}
 			mf.blocks = std::move(arranged);
 		}
-	} // namespace detail
+	} // namespace
 
 	B32 X86LayoutPass::run(Module& module, MachineModule& mm, const TargetInfo&) {
 		U32 changed = 0;
 		for(const Function* fn : module) {
 			MachineFunc& mf = mm.get(fn);
-			changed += detail::runOnFunction(mf);
-			changed += detail::forwardJumpChains(mf);
-			detail::chainLayout(mf);
+			changed += runOnFunction(mf);
+			changed += forwardJumpChains(mf);
+			chainLayout(mf);
 		}
 		return changed != 0;
 	}

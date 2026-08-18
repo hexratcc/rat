@@ -3,9 +3,9 @@
 
 #include "core.h"
 
-#include "pass/emit/x86_op.h"
+#include "pass/emit/x86/x86_op.h"
 #include "pass/pass.h"
-#include "target/x86_asm.h"
+#include "target/x86/x86_asm.h"
 
 namespace rat {
 	struct Global;
@@ -103,7 +103,6 @@ namespace rat {
 		B32 omitFrame = false;
 		B32 hasDynAlloca = false;
 		List<PhysReg> calleeSaved; // callee-saved GP regs the allocator used
-		I32 calleeBase = 0;				 // RBP offset of the first callee-save slot
 	};
 } // namespace rat
 

@@ -1,4 +1,4 @@
-#include "pass/emit/x86_lower.h"
+#include "pass/emit/x86/x86_lower.h"
 
 #include "codegen/machine_function.h"
 #include "codegen/machine_module.h"
@@ -10,7 +10,7 @@
 #include "ir/type.h"
 #include "target/object_file.h"
 #include "target/target.h"
-#include "target/x86_asm.h"
+#include "target/x86/x86_asm.h"
 
 namespace rat {
 	// narrow load used only by zext: load zero-extended, later zext is a no-op
@@ -64,8 +64,12 @@ namespace rat {
 			// store at <=2 gp uses
 			if(a.hasIndex && !a.frameBase) {
 				VReg t = fresh(detail::kGp);
-				inst(X86Op::Lea, detail::kGp, {MachineOperand::vr(t)},
-						 {addrBase(a), MachineOperand::vr(a.index)}, a.disp, (I64)(a.scaleLog2 & 3));
+				inst(X86Op::Lea,
+						 detail::kGp,
+						 {MachineOperand::vr(t)},
+						 {addrBase(a), MachineOperand::vr(a.index)},
+						 a.disp,
+						 (I64)(a.scaleLog2 & 3));
 				inst(X86Op::Store, detail::kGp, {}, {MachineOperand::vr(t), std::move(src)});
 				return;
 			}
@@ -206,16 +210,12 @@ namespace rat {
 	// them that way)
 	void X86LowerPass::emitRotate(BinaryNode* n, B32 left) {
 		U32 bits = intBits(n->getType());
-		I64 iv = 0;
-		if(!immOf(n->getRHS(), iv)) {
-			VReg lhs = gpValue(n->getLHS());
-			VReg d = vregFor(n);
-			copy(MachineOperand::vr(d), MachineOperand::vr(lhs), detail::kGp);
-			return; // degenerate; should not happen
-		}
 		VReg lhs = gpValue(n->getLHS());
 		VReg d = vregFor(n);
 		copy(MachineOperand::vr(d), MachineOperand::vr(lhs), detail::kGp);
+		I64 iv = 0;
+		if(!immOf(n->getRHS(), iv))
+			return; // degenerate; should not happen
 		inst(left ? X86Op::Rotl : X86Op::Rotr,
 				 detail::kGp,
 				 {MachineOperand::vr(d)},
@@ -346,6 +346,7 @@ namespace rat {
 		B32 esc38 = false;
 		if(et->isInt()) {
 			pfx = 0x66;
+			// clang-format off
 			switch(op) {
 			case Opcode::Add: opc = esz == 4 ? 0xfe : 0xd4; break; // paddd / paddq
 			case Opcode::Sub: opc = esz == 4 ? 0xfa : 0xfb; break; // psubd / psubq
@@ -360,8 +361,10 @@ namespace rat {
 				break;
 			default: return;
 			}
+			// clang-format on
 		} else {
 			pfx = esz == 8 ? 0x66 : 0; // addpd... vs addps...
+																 // clang-format off
 			switch(op) {
 			case Opcode::FAdd: opc = 0x58; break;
 			case Opcode::FSub: opc = 0x5c; break;
@@ -369,6 +372,7 @@ namespace rat {
 			case Opcode::FDiv: opc = 0x5e; break;
 			default: return;
 			}
+																 // clang-format on
 		}
 
 		VReg lhs = sseValue(n->getLHS());
@@ -496,14 +500,9 @@ namespace rat {
 				 {MachineOperand::vr(d)});
 	}
 
-	void X86LowerPass::emitCompare(CompareNode* n) {
-		Opcode op = n->getOpcode();
-		if(op >= Opcode::FEq && op <= Opcode::FGe) {
-			emitFloatCompare(n);
-			return;
-		}
+	// flag-setting cmp only; the caller emits its own jcc/setcc consumer
+	void X86LowerPass::emitIntCmp(CompareNode* n) {
 		VReg lhs = gpValue(n->getLHS());
-		VReg d = vregFor(n);
 		I64 iv;
 		if(immOf(n->getRHS(), iv)) {
 			inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(lhs), MachineOperand::immVal(iv)});
@@ -511,6 +510,16 @@ namespace rat {
 			VReg rhs = gpValue(n->getRHS());
 			inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(lhs), MachineOperand::vr(rhs)});
 		}
+	}
+
+	void X86LowerPass::emitCompare(CompareNode* n) {
+		Opcode op = n->getOpcode();
+		if(op >= Opcode::FEq && op <= Opcode::FGe) {
+			emitFloatCompare(n);
+			return;
+		}
+		emitIntCmp(n);
+		VReg d = vregFor(n);
 		inst(X86Op::SetCC,
 				 detail::kGp,
 				 {MachineOperand::vr(d)},
@@ -519,12 +528,9 @@ namespace rat {
 	}
 
 	void X86LowerPass::emitFloatCompare(CompareNode* n) {
-		struct FCmp {
-			U8 cc;
-			B32 swap;
-		};
 		U32 fcIdx = (U32)n->getOpcode() - (U32)Opcode::FEq;
-		const FCmp fc = {detail::kFpCc[fcIdx], detail::kFpSwap[fcIdx] != 0};
+		U8 cc = detail::kFpCc[fcIdx];
+		I64 swap = detail::kFpSwap[fcIdx] ? 1 : 0;
 		VReg d = vregFor(n);
 		if(isX87Ty(n->getLHS()->getType())) {
 			I32 lhs = x87Value(n->getLHS());
@@ -533,8 +539,8 @@ namespace rat {
 					 detail::kGp,
 					 {MachineOperand::vr(d)},
 					 {MachineOperand::frameSlot(lhs), MachineOperand::frameSlot(rhs)},
-					 (I64)fc.cc,
-					 fc.swap ? 1 : 0);
+					 (I64)cc,
+					 swap);
 			return;
 		}
 		U32 w = opWidth(n->getLHS()->getType());
@@ -544,8 +550,8 @@ namespace rat {
 				 detail::kGp,
 				 {MachineOperand::vr(d)},
 				 {MachineOperand::vr(lhs, w), MachineOperand::vr(rhs, w)},
-				 (I64)fc.cc,
-				 fc.swap ? 1 : 0);
+				 (I64)cc,
+				 swap);
 	}
 
 	I64 X86LowerPass::cvtDesc(U8 pfx, U8 opc, B32 w) {
@@ -599,7 +605,7 @@ namespace rat {
 					 cvtDesc(Asm::ssePrefixByte(w), 0x2c, true));
 			return;
 		}
-		case Opcode::FPExt: {
+		case Opcode::FPExt: { // f32 -> f64: cvtss2sd
 			VReg s = sseValue(src);
 			inst(X86Op::Cvt,
 					 detail::kFp,
@@ -608,7 +614,7 @@ namespace rat {
 					 cvtDesc(0xf3, 0x5a, false));
 			return;
 		}
-		case Opcode::FPTrunc: {
+		case Opcode::FPTrunc: { // f64 -> f32: cvtsd2ss
 			VReg s = sseValue(src);
 			inst(X86Op::Cvt,
 					 detail::kFp,
@@ -628,11 +634,7 @@ namespace rat {
 			if(isX87Ty(src->getType())) { // long double -> long double: plain move
 				I32 s = x87Value(src);
 				needScratch();
-				inst(X86Op::X87FromSse,
-						 detail::kX87,
-						 {MachineOperand::frameSlot(x87SlotOf(n))},
-						 {MachineOperand::frameSlot(s)},
-						 detail::kX87MemBits);
+				x87Move(x87SlotOf(n), s);
 				return;
 			}
 			U32 sw = opWidth(src->getType());

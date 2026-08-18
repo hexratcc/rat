@@ -1,4 +1,4 @@
-#include "pass/emit/x86_encode.h"
+#include "pass/emit/x86/x86_encode.h"
 
 #include "codegen/machine_function.h"
 #include "codegen/machine_module.h"
@@ -10,7 +10,7 @@
 #include "ir/type.h"
 #include "target/object_file.h"
 #include "target/target.h"
-#include "target/x86_asm.h"
+#include "target/x86/x86_asm.h"
 
 namespace rat {
 	Reg X86EncodePass::toGp(PhysReg p) { return (Reg)(p - X86Target::kGpBase); }
@@ -31,7 +31,6 @@ namespace rat {
 		tables.clear();
 		frameSize = 0;
 		calleeSaved = std::move(callee);
-		calleeBase = 0;
 	}
 
 	void X86EncodePass::readGp(const MachineOperand& o, Reg r) {
@@ -176,7 +175,7 @@ namespace rat {
 					continue;
 				U32 x = toXmm(u.phys);
 				if(x < conv->gpArgCount)
-					a->movqGpXmm(conv->gpArgs[x], x);
+					a->movGpXmm(conv->gpArgs[x], x, true);
 			}
 		}
 
@@ -427,7 +426,6 @@ namespace rat {
 	}
 
 	void X86EncodePass::encodeFunction() {
-		calleeBase = -(I32)fn->frameBytes;
 		// frame slots in [rbp-frameSize, rbp); saves pushed below, total 16-aligned
 		U32 saveBytes = 8u * (U32)calleeSaved.size();
 		frameSize = ((fn->frameBytes + saveBytes + 15u) & ~15u) - saveBytes;

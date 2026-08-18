@@ -1,19 +1,10 @@
 #include "target/object_file.h"
 
-#include "byte_io.h"
-
 namespace rat {
-	void ObjectFile::put8(List<U8>& b, U8 v) { le::put8(b, v); }
-	void ObjectFile::put16(List<U8>& b, U16 v) { le::put16(b, v); }
-	void ObjectFile::put32(List<U8>& b, U32 v) { le::put32(b, v); }
-	void ObjectFile::put64(List<U8>& b, U64 v) { le::put64(b, v); }
-
 	ObjectFile::ObjectFile(ObjectFormat fmt)
 	: format(fmt) {
 		syms.push_back({"", Text, 0, true, false, false});
 	}
-
-	void ObjectFile::padTo(List<U8>& b, U64 target) { le::padTo(b, target); }
 
 	List<U8>& ObjectFile::bytesOf(Section sec) {
 		assert(sec != Bss && "bss carries no bytes");
@@ -95,8 +86,8 @@ namespace rat {
 			buckets[(U32)r.sec].push_back(&r);
 	}
 
-	void ObjectFile::write(std::ostream& os, ObjectFormat fmt) {
-		if(fmt == ObjectFormat::Coff)
+	void ObjectFile::write(std::ostream& os) {
+		if(format == ObjectFormat::Coff)
 			writeCoff(os);
 		else
 			writeElf(os);

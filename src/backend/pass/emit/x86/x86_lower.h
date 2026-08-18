@@ -5,7 +5,7 @@
 
 #include "codegen/schedule.h"
 #include "ir/opcode.h"
-#include "pass/emit/x86_op.h"
+#include "pass/emit/x86/x86_op.h"
 #include "pass/pass.h"
 
 #include <cstdint>
@@ -15,6 +15,7 @@ namespace rat {
 	struct BinaryNode;
 	struct CallNode;
 	struct CompareNode;
+	struct ConstantNode;
 	struct ConvertNode;
 	struct Function;
 	struct ExtractNode;
@@ -96,7 +97,9 @@ namespace rat {
 		I64 sibBits(I64 sign, const AddrParts& a);
 		VReg sseValue(Node* n);
 		String fpPoolSym(U64 bits, U32 width);
+		void fpConstLoad(ConstantNode* c, VReg dst);
 		I32 x87Value(Node* n);
+		void x87Move(I32 dst, I32 src);
 		void emitStore(StoreNode* s);
 		void emitLoad(LoadNode* l);
 		void emitAlloc(AllocNode* al);
@@ -119,6 +122,7 @@ namespace rat {
 		String vecPoolSym(const List<U8>& bytes);
 		void emitX87Binary(BinaryNode* n, U32 idx);
 		void emitUnary(UnaryNode* n);
+		void emitIntCmp(CompareNode* n);
 		void emitCompare(CompareNode* n);
 		void emitFloatCompare(CompareNode* n);
 		static I64 cvtDesc(U8 pfx, U8 opc, B32 w);

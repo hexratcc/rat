@@ -1,4 +1,4 @@
-#include "pass/emit/x86_encode.h"
+#include "pass/emit/x86/x86_encode.h"
 
 #include "codegen/machine_function.h"
 #include "codegen/machine_module.h"
@@ -10,7 +10,7 @@
 #include "ir/type.h"
 #include "target/object_file.h"
 #include "target/target.h"
-#include "target/x86_asm.h"
+#include "target/x86/x86_asm.h"
 
 namespace rat {
 	void X86EncodePass::emitCopy(const MachineInstr& in) {
@@ -272,12 +272,9 @@ namespace rat {
 		}
 		Reg d = gpOf(in.defs[0]);
 		if(lane == 0) {
-			if(esz == 8) {
-				a->movqGpXmm(d, src);
-			} else {
-				a->movdGpXmm(d, src); // zero-extends
-				a->movsxd32(d, d);
-			}
+			a->movGpXmm(d, src, esz == 8);
+			if(esz != 8)
+				a->movsxd32(d, d); // sign-extend the zero-extended dword
 			return;
 		}
 		// staged through the 16-byte scratch slot
@@ -344,13 +341,12 @@ namespace rat {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& s = in.uses[0];
 		U32 dst = (in.regClass == detail::kGp) ? (U32)gpOf(d) : xmmOf(d);
+		// src is xmm for fp->fp and xmm->gp (FPToSI/UI); gp only for gp->xmm (SIToFP/UIToFP)
 		U32 srcReg;
-		if(in.regClass == detail::kGp)
-			srcReg = xmmOf(s); // FPToSI/UI: xmm -> gp
-		else if(X86Target::isXmm(s.phys))
-			srcReg = xmmOf(s); // fp -> fp
+		if(in.regClass == detail::kGp || X86Target::isXmm(s.phys))
+			srcReg = xmmOf(s);
 		else
-			srcReg = (U32)gpOf(s); // SIToFP/UIToFP: gp -> xmm
+			srcReg = (U32)gpOf(s);
 		a->cvtRR(pfx, opc, w, dst, srcReg);
 	}
 

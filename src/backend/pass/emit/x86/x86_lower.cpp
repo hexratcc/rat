@@ -1,4 +1,4 @@
-#include "pass/emit/x86_lower.h"
+#include "pass/emit/x86/x86_lower.h"
 
 #include <cstdio>
 
@@ -12,7 +12,7 @@
 #include "ir/type.h"
 #include "target/object_file.h"
 #include "target/target.h"
-#include "target/x86_asm.h"
+#include "target/x86/x86_asm.h"
 
 namespace rat {
 	PhysReg X86LowerPass::gpReg(Reg r) { return X86Target::kGpBase + (PhysReg)r; }
@@ -392,12 +392,8 @@ namespace rat {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
 			if(vregOf[n->getId()] != kNoVReg)
 				return vregOf[n->getId()]; // materialized once at its scheduled block
-			U32 w = opWidth(n->getType());
 			VReg d = fresh(detail::kFp);
-			inst(X86Op::FLoad,
-					 detail::kFp,
-					 {MachineOperand::vr(d, w)},
-					 {MachineOperand::symbol(fpPoolSym((U64)c->getValue(), w))});
+			fpConstLoad(c, d);
 			return d;
 		}
 		return vregFor(n);
@@ -417,6 +413,15 @@ namespace rat {
 		return name;
 	}
 
+	// rip-relative load from the constant pool
+	void X86LowerPass::fpConstLoad(ConstantNode* c, VReg dst) {
+		U32 w = opWidth(c->getType());
+		inst(X86Op::FLoad,
+				 detail::kFp,
+				 {MachineOperand::vr(dst, w)},
+				 {MachineOperand::symbol(fpPoolSym((U64)c->getValue(), w))});
+	}
+
 	I32 X86LowerPass::x87Value(Node* n) {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
 			I32 s = x87SlotOf(n);
@@ -430,6 +435,14 @@ namespace rat {
 		return x87SlotOf(n);
 	}
 
+	void X86LowerPass::x87Move(I32 dst, I32 src) {
+		inst(X86Op::X87FromSse,
+				 detail::kX87,
+				 {MachineOperand::frameSlot(dst)},
+				 {MachineOperand::frameSlot(src)},
+				 detail::kX87MemBits);
+	}
+
 	void X86LowerPass::emitNode(Node* n) {
 		switch(n->getOpcode()) {
 		case Opcode::Global: {
@@ -439,14 +452,8 @@ namespace rat {
 		}
 		case Opcode::Constant: {
 			ConstantNode* c = cast<ConstantNode>(n);
-			if(isSseTy(n->getType())) {
-				// rip-relative load from the constant pool
-				U32 w = opWidth(n->getType());
-				inst(X86Op::FLoad,
-						 detail::kFp,
-						 {MachineOperand::vr(vregFor(n), w)},
-						 {MachineOperand::symbol(fpPoolSym((U64)c->getValue(), w))});
-			}
+			if(isSseTy(n->getType()))
+				fpConstLoad(c, vregFor(n));
 			return;
 		}
 		case Opcode::Store:
@@ -520,11 +527,7 @@ namespace rat {
 			if(cls == detail::kX87) {
 				I32 s = x87Value(v);
 				needScratch();
-				inst(X86Op::X87FromSse,
-						 detail::kX87,
-						 {MachineOperand::frameSlot(x87SlotOf(phi))},
-						 {MachineOperand::frameSlot(s)},
-						 detail::kX87MemBits);
+				x87Move(x87SlotOf(phi), s);
 				continue;
 			}
 			VReg t = fresh(cls);
@@ -551,14 +554,7 @@ namespace rat {
 			if(isIntCompare(pred)) {
 				// fuse the compare into the branch: cmp lhs, rhs; jcc
 				CompareNode* c = cast<CompareNode>(pred);
-				VReg lhs = gpValue(c->getLHS());
-				I64 iv;
-				if(immOf(c->getRHS(), iv)) {
-					inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(lhs), MachineOperand::immVal(iv)});
-				} else {
-					VReg rhs = gpValue(c->getRHS());
-					inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(lhs), MachineOperand::vr(rhs)});
-				}
+				emitIntCmp(c);
 				inst(X86Op::Br,
 						 detail::kGp,
 						 {},

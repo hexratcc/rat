@@ -1,4 +1,4 @@
-#include "pass/emit/c_emitter.h"
+#include "pass/emit/c/c_emitter.h"
 
 #include "codegen/schedule.h"
 #include "ir/function.h"

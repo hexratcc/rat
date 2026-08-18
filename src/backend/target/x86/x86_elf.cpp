@@ -1,5 +1,7 @@
 #include "target/object_file.h"
 
+#include "byte_io.h"
+
 namespace rat {
 	namespace detail {
 		constexpr U8 kElfMag[4] = {0x7f, 'E', 'L', 'F'};
@@ -62,7 +64,6 @@ namespace rat {
 		constexpr U32 shText = 1, shRodata = 3, shData = 5, shBss = 7, shSymtab = 8, shStrtab = 9,
 									shShstrtab = 10;
 		static constexpr U32 kSecShIndex[] = {shText, shRodata, shData, shBss};
-		auto secShIndex = [](Section s) -> U32 { return kSecShIndex[(U32)s]; };
 
 		List<U8> symtab;
 		for(U32 i = 0; i < order.size(); ++i) {
@@ -71,14 +72,14 @@ namespace rat {
 			B32 placed = i != 0 && s.defined;
 			U8 bind = (i != 0 && s.global) ? detail::STB_GLOBAL : detail::STB_LOCAL;
 			U8 type = !placed ? detail::STT_NOTYPE : (s.isFunc ? detail::STT_FUNC : detail::STT_OBJECT);
-			U16 shndx = !placed ? detail::SHN_UNDEF : (U16)secShIndex(s.sec);
+			U16 shndx = !placed ? detail::SHN_UNDEF : (U16)kSecShIndex[(U32)s.sec];
 
-			put32(symtab, i == 0 ? 0u : nameOff[oi]);				// st_name
-			put8(symtab, (U8)((bind << 4) | (type & 0xf))); // st_info
-			put8(symtab, 0);																// st_other
-			put16(symtab, shndx);														// st_shndx
-			put64(symtab, placed ? s.offset : 0u);					// st_value
-			put64(symtab, 0);																// st_size
+			le::put32(symtab, i == 0 ? 0u : nameOff[oi]);				// st_name
+			le::put8(symtab, (U8)((bind << 4) | (type & 0xf))); // st_info
+			le::put8(symtab, 0);																// st_other
+			le::put16(symtab, shndx);														// st_shndx
+			le::put64(symtab, placed ? s.offset : 0u);					// st_value
+			le::put64(symtab, 0);																// st_size
 		}
 
 		List<const Rel*> relBySec[kSections];
@@ -89,9 +90,9 @@ namespace rat {
 			out.reserve(bucket.size() * detail::kRelaEntSize);
 			for(const Rel* r : bucket) {
 				U64 info = ((U64)remap[r->symIndex] << 32) | (U64)(U32)r->kind;
-				put64(out, r->offset);			// r_offset
-				put64(out, info);						// r_info
-				put64(out, (U64)r->addend); // r_addend
+				le::put64(out, r->offset);			// r_offset
+				le::put64(out, info);						// r_info
+				le::put64(out, (U64)r->addend); // r_addend
 			}
 			return out;
 		};
@@ -142,29 +143,29 @@ namespace rat {
 		List<U8> out;
 		out.reserve(offSh + shCount * detail::kShEntSize);
 		for(U8 c : detail::kElfMag)
-			put8(out, c);
-		put8(out, detail::ELFCLASS64);
-		put8(out, detail::ELFDATA2LSB);
-		put8(out, detail::EV_CURRENT);
-		put8(out, 0); // System V
+			le::put8(out, c);
+		le::put8(out, detail::ELFCLASS64);
+		le::put8(out, detail::ELFDATA2LSB);
+		le::put8(out, detail::EV_CURRENT);
+		le::put8(out, 0); // System V
 		for(U32 i = 0; i < 8; ++i)
-			put8(out, 0); // ABIVERSION + padding
-		put16(out, detail::ET_REL);
-		put16(out, detail::EM_X86_64);
-		put32(out, detail::EV_CURRENT);
-		put64(out, 0);											 // e_entry
-		put64(out, 0);											 // e_phoff
-		put64(out, offSh);									 // e_shoff
-		put32(out, 0);											 // e_flags
-		put16(out, (U16)detail::kEhSize);		 // e_ehsize
-		put16(out, 0);											 // e_phentsize
-		put16(out, 0);											 // e_phnum
-		put16(out, (U16)detail::kShEntSize); // e_shentsize
-		put16(out, (U16)shCount);						 // e_shnum
-		put16(out, (U16)shShstrtab);				 // e_shstrndx
+			le::put8(out, 0); // ABIVERSION + padding
+		le::put16(out, detail::ET_REL);
+		le::put16(out, detail::EM_X86_64);
+		le::put32(out, detail::EV_CURRENT);
+		le::put64(out, 0);											 // e_entry
+		le::put64(out, 0);											 // e_phoff
+		le::put64(out, offSh);									 // e_shoff
+		le::put32(out, 0);											 // e_flags
+		le::put16(out, (U16)detail::kEhSize);		 // e_ehsize
+		le::put16(out, 0);											 // e_phentsize
+		le::put16(out, 0);											 // e_phnum
+		le::put16(out, (U16)detail::kShEntSize); // e_shentsize
+		le::put16(out, (U16)shCount);						 // e_shnum
+		le::put16(out, (U16)shShstrtab);				 // e_shstrndx
 
 		auto emitAt = [&](U64 target, const List<U8>& blob) {
-			padTo(out, target);
+			le::padTo(out, target);
 			out.insert(out.end(), blob.begin(), blob.end());
 		};
 		emitAt(offText, bytesOf(Text));
@@ -176,7 +177,7 @@ namespace rat {
 		emitAt(offRelaRodata, relaRodata);
 		emitAt(offRelaData, relaData);
 		emitAt(offShstr, shstr);
-		padTo(out, offSh);
+		le::padTo(out, offSh);
 
 		struct ShDesc {
 			U32 name;
@@ -210,16 +211,16 @@ namespace rat {
 		};
 		static_assert(sizeof(headers) / sizeof(headers[0]) == shCount, "headers must match shCount");
 		for(const ShDesc& h : headers) {
-			put32(out, h.name);
-			put32(out, h.type);
-			put64(out, h.flags);
-			put64(out, 0); // sh_addr: always 0 in a relocatable object
-			put64(out, h.fileOff);
-			put64(out, h.size);
-			put32(out, h.link);
-			put32(out, h.info);
-			put64(out, h.align);
-			put64(out, h.entSize);
+			le::put32(out, h.name);
+			le::put32(out, h.type);
+			le::put64(out, h.flags);
+			le::put64(out, 0); // sh_addr: always 0 in a relocatable object
+			le::put64(out, h.fileOff);
+			le::put64(out, h.size);
+			le::put32(out, h.link);
+			le::put32(out, h.info);
+			le::put64(out, h.align);
+			le::put64(out, h.entSize);
 		}
 
 		os.write(reinterpret_cast<const C8*>(out.data()), (std::streamsize)out.size());

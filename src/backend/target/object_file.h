@@ -29,8 +29,7 @@ namespace rat {
 		void defineSymbol(const String& name, Section sec, U32 offset, B32 global, B32 isFunc);
 		void addReloc(Section sec, U32 offset, const String& symbol, RelocKind kind, I64 addend);
 
-		void write(std::ostream& os, ObjectFormat fmt);
-		void write(std::ostream& os) { write(os, format); }
+		void write(std::ostream& os);
 	private:
 		struct Sym {
 			String name;
@@ -50,12 +49,6 @@ namespace rat {
 
 		void writeCoff(std::ostream& os);
 		void writeElf(std::ostream& os);
-
-		static void put8(List<U8>& b, U8 v);
-		static void put16(List<U8>& b, U16 v);
-		static void put32(List<U8>& b, U32 v);
-		static void put64(List<U8>& b, U64 v);
-		static void padTo(List<U8>& b, U64 target);
 
 		U32 symbolIndex(const String& name);
 		U32 sectionSize(Section sec) const;
