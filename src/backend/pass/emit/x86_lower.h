@@ -15,6 +15,7 @@ namespace rat {
 	struct BinaryNode;
 	struct CallNode;
 	struct CompareNode;
+	struct ConstantNode;
 	struct ConvertNode;
 	struct Function;
 	struct ExtractNode;
@@ -96,6 +97,7 @@ namespace rat {
 		I64 sibBits(I64 sign, const AddrParts& a);
 		VReg sseValue(Node* n);
 		String fpPoolSym(U64 bits, U32 width);
+		void fpConstLoad(ConstantNode* c, VReg dst);
 		I32 x87Value(Node* n);
 		void x87Move(I32 dst, I32 src);
 		void emitStore(StoreNode* s);
