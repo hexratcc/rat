@@ -31,7 +31,6 @@ namespace rat {
 		tables.clear();
 		frameSize = 0;
 		calleeSaved = std::move(callee);
-		calleeBase = 0;
 	}
 
 	void X86EncodePass::readGp(const MachineOperand& o, Reg r) {
@@ -427,7 +426,6 @@ namespace rat {
 	}
 
 	void X86EncodePass::encodeFunction() {
-		calleeBase = -(I32)fn->frameBytes;
 		// frame slots in [rbp-frameSize, rbp); saves pushed below, total 16-aligned
 		U32 saveBytes = 8u * (U32)calleeSaved.size();
 		frameSize = ((fn->frameBytes + saveBytes + 15u) & ~15u) - saveBytes;

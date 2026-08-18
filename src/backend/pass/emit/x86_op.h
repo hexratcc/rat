@@ -7,27 +7,6 @@
 #include "target/x86_asm.h"
 
 namespace rat {
-	struct AllocNode;
-	struct BinaryNode;
-	struct CallNode;
-	struct CompareNode;
-	struct ConvertNode;
-	struct ObjectFile;
-	struct Function;
-	struct Global;
-	struct IfNode;
-	struct LoadNode;
-	struct MachineModule;
-	struct Module;
-	struct Node;
-	struct ProjNode;
-	struct PhiNode;
-	struct ReturnNode;
-	struct StoreNode;
-	struct TargetInfo;
-	struct Type;
-	struct UnaryNode;
-
 	namespace detail {
 		constexpr U32 kGp = X86Target::kGpClass;
 		constexpr U32 kFp = X86Target::kFpClass;

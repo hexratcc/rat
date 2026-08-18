@@ -103,7 +103,6 @@ namespace rat {
 		B32 omitFrame = false;
 		B32 hasDynAlloca = false;
 		List<PhysReg> calleeSaved; // callee-saved GP regs the allocator used
-		I32 calleeBase = 0;				 // RBP offset of the first callee-save slot
 	};
 } // namespace rat
 

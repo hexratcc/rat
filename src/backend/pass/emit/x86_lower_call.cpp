@@ -16,9 +16,8 @@ namespace rat {
 	List<PhysReg> X86LowerPass::callerSavedClobbers() const {
 		// volatile = allocatable minus callee-saved, plus the encoder scratch regs
 		static thread_local const RegisterInfo* cachedRegs = nullptr;
-		static thread_local const X86CallConv* cachedConv = nullptr;
 		static thread_local List<PhysReg> cached;
-		if(cachedRegs == regs && cachedConv == conv)
+		if(cachedRegs == regs)
 			return cached;
 
 		List<PhysReg> cl;
@@ -35,7 +34,6 @@ namespace rat {
 		}
 		cached = std::move(cl);
 		cachedRegs = regs;
-		cachedConv = conv;
 		return cached;
 	}
 
