@@ -64,7 +64,6 @@ namespace rat {
 		constexpr U32 shText = 1, shRodata = 3, shData = 5, shBss = 7, shSymtab = 8, shStrtab = 9,
 									shShstrtab = 10;
 		static constexpr U32 kSecShIndex[] = {shText, shRodata, shData, shBss};
-		auto secShIndex = [](Section s) -> U32 { return kSecShIndex[(U32)s]; };
 
 		List<U8> symtab;
 		for(U32 i = 0; i < order.size(); ++i) {
@@ -73,7 +72,7 @@ namespace rat {
 			B32 placed = i != 0 && s.defined;
 			U8 bind = (i != 0 && s.global) ? detail::STB_GLOBAL : detail::STB_LOCAL;
 			U8 type = !placed ? detail::STT_NOTYPE : (s.isFunc ? detail::STT_FUNC : detail::STT_OBJECT);
-			U16 shndx = !placed ? detail::SHN_UNDEF : (U16)secShIndex(s.sec);
+			U16 shndx = !placed ? detail::SHN_UNDEF : (U16)kSecShIndex[(U32)s.sec];
 
 			le::put32(symtab, i == 0 ? 0u : nameOff[oi]);				// st_name
 			le::put8(symtab, (U8)((bind << 4) | (type & 0xf))); // st_info
