@@ -1,5 +1,7 @@
 #include "target/object_file.h"
 
+#include "byte_io.h"
+
 #include <cstring>
 
 namespace rat {
@@ -61,18 +63,18 @@ namespace rat {
 
 		// symbol table
 		List<U8> strtab;
-		put32(strtab, 0); // patched to the final size below
+		le::put32(strtab, 0); // patched to the final size below
 		auto nameField = [&](List<U8>& out, const String& n) {
 			if(n.size() <= 8) {
 				for(U32 i = 0; i < 8; ++i)
-					put8(out, i < n.size() ? (U8)n[i] : 0);
+					le::put8(out, i < n.size() ? (U8)n[i] : 0);
 				return;
 			}
 			U32 off = (U32)strtab.size();
 			strtab.insert(strtab.end(), n.begin(), n.end());
 			strtab.push_back(0);
-			put32(out, 0);
-			put32(out, off);
+			le::put32(out, 0);
+			le::put32(out, off);
 		};
 
 		U32 relocCount[kNumSections] = {};
@@ -83,20 +85,20 @@ namespace rat {
 		U32 symEntries = 0;
 		for(U32 s = 0; s < kNumSections; ++s) {
 			nameField(symtab, secNames[s]);
-			put32(symtab, 0);						 // value
-			put16(symtab, (U16)(s + 1)); // section number (1-based)
-			put16(symtab, 0);						 // type
-			put8(symtab, detail::IMAGE_SYM_CLASS_STATIC);
-			put8(symtab, 1); // one aux record
+			le::put32(symtab, 0);						 // value
+			le::put16(symtab, (U16)(s + 1)); // section number (1-based)
+			le::put16(symtab, 0);						 // type
+			le::put8(symtab, detail::IMAGE_SYM_CLASS_STATIC);
+			le::put8(symtab, 1); // one aux record
 			// aux: section definition
-			put32(symtab, sectionSize((Section)s)); // length
-			put16(symtab, (U16)relocCount[s]);			// number of relocations
-			put16(symtab, 0);												// number of line numbers
-			put32(symtab, 0);												// checksum
-			put16(symtab, 0);												// associated section
-			put8(symtab, 0);												// selection
-			put8(symtab, 0);												// padding to 18 bytes
-			put16(symtab, 0);
+			le::put32(symtab, sectionSize((Section)s)); // length
+			le::put16(symtab, (U16)relocCount[s]);			// number of relocations
+			le::put16(symtab, 0);												// number of line numbers
+			le::put32(symtab, 0);												// checksum
+			le::put16(symtab, 0);												// associated section
+			le::put8(symtab, 0);												// selection
+			le::put8(symtab, 0);												// padding to 18 bytes
+			le::put16(symtab, 0);
 			symEntries += 2;
 		}
 
@@ -105,14 +107,14 @@ namespace rat {
 			const Sym& s = syms[i];
 			symCoffIndex[i] = symEntries;
 			nameField(symtab, s.name);
-			put32(symtab, s.defined ? s.offset : 0);												 // value
-			put16(symtab, s.defined ? (U16)((U32)s.sec + 1) : 0);						 // section (0 = undefined)
-			put16(symtab, s.defined && s.isFunc ? detail::kSymTypeFunc : 0); // type
+			le::put32(symtab, s.defined ? s.offset : 0);							// value
+			le::put16(symtab, s.defined ? (U16)((U32)s.sec + 1) : 0); // section (0 = undefined)
+			le::put16(symtab, s.defined && s.isFunc ? detail::kSymTypeFunc : 0); // type
 			// undefined symbols must be EXTERNAL for linker to res
-			put8(symtab,
-					 !s.defined || s.global ? detail::IMAGE_SYM_CLASS_EXTERNAL
-																	: detail::IMAGE_SYM_CLASS_STATIC);
-			put8(symtab, 0); // no aux records
+			le::put8(symtab,
+							 !s.defined || s.global ? detail::IMAGE_SYM_CLASS_EXTERNAL
+																			: detail::IMAGE_SYM_CLASS_STATIC);
+			le::put8(symtab, 0); // no aux records
 			symEntries += 1;
 		}
 
@@ -136,33 +138,33 @@ namespace rat {
 
 		List<U8> out;
 		out.reserve((U64)symOff + symtab.size() + strtab.size());
-		put16(out, detail::IMAGE_FILE_MACHINE_AMD64);
-		put16(out, (U16)kNumSections);
-		put32(out, 0); // timestamp
-		put32(out, symOff);
-		put32(out, symEntries);
-		put16(out, 0); // optional header size
-		put16(out, 0); // characteristics
+		le::put16(out, detail::IMAGE_FILE_MACHINE_AMD64);
+		le::put16(out, (U16)kNumSections);
+		le::put32(out, 0); // timestamp
+		le::put32(out, symOff);
+		le::put32(out, symEntries);
+		le::put16(out, 0); // optional header size
+		le::put16(out, 0); // characteristics
 
 		for(U32 s = 0; s < kNumSections; ++s) {
 			U64 nameLen = std::strlen(secNames[s]);
 			for(U32 i = 0; i < 8; ++i)
-				put8(out, i < nameLen ? (U8)secNames[s][i] : 0);
-			put32(out, 0); // virtual size
-			put32(out, 0); // virtual address
-			put32(out, sectionSize((Section)s));
-			put32(out, s + 1 < kNumSections ? rawOff[s] : 0);
-			put32(out, relOff[s]);
-			put32(out, 0); // line numbers
-			put16(out, (U16)relocCount[s]);
-			put16(out, 0); // line number count
-			put32(out, secFlags[s]);
+				le::put8(out, i < nameLen ? (U8)secNames[s][i] : 0);
+			le::put32(out, 0); // virtual size
+			le::put32(out, 0); // virtual address
+			le::put32(out, sectionSize((Section)s));
+			le::put32(out, s + 1 < kNumSections ? rawOff[s] : 0);
+			le::put32(out, relOff[s]);
+			le::put32(out, 0); // line numbers
+			le::put16(out, (U16)relocCount[s]);
+			le::put16(out, 0); // line number count
+			le::put32(out, secFlags[s]);
 		}
 
 		for(U32 s = 0; s + 1 < kNumSections; ++s) {
 			if(raw[s].empty())
 				continue;
-			padTo(out, rawOff[s]);
+			le::padTo(out, rawOff[s]);
 			out.insert(out.end(), raw[s].begin(), raw[s].end());
 		}
 
@@ -173,14 +175,14 @@ namespace rat {
 				firstTail = relOff[s];
 				break;
 			}
-		padTo(out, firstTail);
+		le::padTo(out, firstTail);
 		for(U32 s = 0; s < kNumSections; ++s) {
 			for(const Rel* r : relBySec[s]) {
-				put32(out, r->offset);
-				put32(out, symCoffIndex[r->symIndex]);
-				put16(out,
-							r->kind == RelocKind::Abs64 ? detail::IMAGE_REL_AMD64_ADDR64
-																					: detail::IMAGE_REL_AMD64_REL32);
+				le::put32(out, r->offset);
+				le::put32(out, symCoffIndex[r->symIndex]);
+				le::put16(out,
+									r->kind == RelocKind::Abs64 ? detail::IMAGE_REL_AMD64_ADDR64
+																							: detail::IMAGE_REL_AMD64_REL32);
 			}
 		}
 
