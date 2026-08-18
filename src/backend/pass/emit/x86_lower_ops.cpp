@@ -520,14 +520,9 @@ namespace rat {
 				 {MachineOperand::vr(d)});
 	}
 
-	void X86LowerPass::emitCompare(CompareNode* n) {
-		Opcode op = n->getOpcode();
-		if(op >= Opcode::FEq && op <= Opcode::FGe) {
-			emitFloatCompare(n);
-			return;
-		}
+	// flag-setting cmp only; the caller emits its own jcc/setcc consumer
+	void X86LowerPass::emitIntCmp(CompareNode* n) {
 		VReg lhs = gpValue(n->getLHS());
-		VReg d = vregFor(n);
 		I64 iv;
 		if(immOf(n->getRHS(), iv)) {
 			inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(lhs), MachineOperand::immVal(iv)});
@@ -535,6 +530,16 @@ namespace rat {
 			VReg rhs = gpValue(n->getRHS());
 			inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(lhs), MachineOperand::vr(rhs)});
 		}
+	}
+
+	void X86LowerPass::emitCompare(CompareNode* n) {
+		Opcode op = n->getOpcode();
+		if(op >= Opcode::FEq && op <= Opcode::FGe) {
+			emitFloatCompare(n);
+			return;
+		}
+		emitIntCmp(n);
+		VReg d = vregFor(n);
 		inst(X86Op::SetCC,
 				 detail::kGp,
 				 {MachineOperand::vr(d)},

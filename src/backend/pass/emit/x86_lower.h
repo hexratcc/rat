@@ -120,6 +120,7 @@ namespace rat {
 		String vecPoolSym(const List<U8>& bytes);
 		void emitX87Binary(BinaryNode* n, U32 idx);
 		void emitUnary(UnaryNode* n);
+		void emitIntCmp(CompareNode* n);
 		void emitCompare(CompareNode* n);
 		void emitFloatCompare(CompareNode* n);
 		static I64 cvtDesc(U8 pfx, U8 opc, B32 w);

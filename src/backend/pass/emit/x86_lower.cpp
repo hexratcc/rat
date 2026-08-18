@@ -555,14 +555,7 @@ namespace rat {
 			if(isIntCompare(pred)) {
 				// fuse the compare into the branch: cmp lhs, rhs; jcc
 				CompareNode* c = cast<CompareNode>(pred);
-				VReg lhs = gpValue(c->getLHS());
-				I64 iv;
-				if(immOf(c->getRHS(), iv)) {
-					inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(lhs), MachineOperand::immVal(iv)});
-				} else {
-					VReg rhs = gpValue(c->getRHS());
-					inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(lhs), MachineOperand::vr(rhs)});
-				}
+				emitIntCmp(c);
 				inst(X86Op::Br,
 						 detail::kGp,
 						 {},
