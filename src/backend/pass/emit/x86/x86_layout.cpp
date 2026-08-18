@@ -1,9 +1,9 @@
-#include "pass/emit/x86_layout.h"
+#include "pass/emit/x86/x86_layout.h"
 
 #include "codegen/machine_function.h"
 #include "codegen/machine_module.h"
 #include "ir/module.h"
-#include "pass/emit/x86_op.h"
+#include "pass/emit/x86/x86_op.h"
 
 namespace rat {
 	namespace {

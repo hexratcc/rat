@@ -1,6 +1,6 @@
 #include "target/target.h"
 
-#include "target/x86_asm.h"
+#include "target/x86/x86_asm.h"
 
 namespace rat {
 	namespace detail {

@@ -4,7 +4,7 @@
 #include "core.h"
 
 #include "target/target.h"
-#include "target/x86_asm.h"
+#include "target/x86/x86_asm.h"
 
 namespace rat::cc {
 	struct TargetLayout {

@@ -3,9 +3,9 @@
 
 #include "core.h"
 
-#include "pass/emit/x86_op.h"
+#include "pass/emit/x86/x86_op.h"
 #include "pass/pass.h"
-#include "target/x86_asm.h"
+#include "target/x86/x86_asm.h"
 
 namespace rat {
 	struct Global;

@@ -5,7 +5,7 @@
 
 #include "codegen/schedule.h"
 #include "ir/opcode.h"
-#include "pass/emit/x86_op.h"
+#include "pass/emit/x86/x86_op.h"
 #include "pass/pass.h"
 
 #include <cstdint>

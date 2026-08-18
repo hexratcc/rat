@@ -11,12 +11,12 @@
 #include "pass/pass_registry.h"
 #include "pass/verify.h"
 
-#include "pass/emit/c_emitter.h"
+#include "pass/emit/c/c_emitter.h"
 #include "pass/emit/graph_emitter.h"
 #include "pass/emit/text_emitter.h"
-#include "pass/emit/x86_encode.h"
-#include "pass/emit/x86_layout.h"
-#include "pass/emit/x86_lower.h"
+#include "pass/emit/x86/x86_encode.h"
+#include "pass/emit/x86/x86_layout.h"
+#include "pass/emit/x86/x86_lower.h"
 
 #include "pass/opt/fold.h"
 #include "pass/opt/gvn.h"

@@ -1,7 +1,6 @@
 #include "target/object_file.h"
 
 namespace rat {
-
 	ObjectFile::ObjectFile(ObjectFormat fmt)
 	: format(fmt) {
 		syms.push_back({"", Text, 0, true, false, false});

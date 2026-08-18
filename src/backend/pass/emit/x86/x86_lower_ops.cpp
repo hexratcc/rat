@@ -1,4 +1,4 @@
-#include "pass/emit/x86_lower.h"
+#include "pass/emit/x86/x86_lower.h"
 
 #include "codegen/machine_function.h"
 #include "codegen/machine_module.h"
@@ -10,7 +10,7 @@
 #include "ir/type.h"
 #include "target/object_file.h"
 #include "target/target.h"
-#include "target/x86_asm.h"
+#include "target/x86/x86_asm.h"
 
 namespace rat {
 	// narrow load used only by zext: load zero-extended, later zext is a no-op

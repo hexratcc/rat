@@ -1,4 +1,4 @@
-#include "pass/emit/x86_lower.h"
+#include "pass/emit/x86/x86_lower.h"
 
 #include <cstdio>
 
@@ -12,7 +12,7 @@
 #include "ir/type.h"
 #include "target/object_file.h"
 #include "target/target.h"
-#include "target/x86_asm.h"
+#include "target/x86/x86_asm.h"
 
 namespace rat {
 	PhysReg X86LowerPass::gpReg(Reg r) { return X86Target::kGpBase + (PhysReg)r; }
