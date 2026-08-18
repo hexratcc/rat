@@ -3,6 +3,7 @@
 
 #include "core.h"
 
+#include "byte_io.h"
 #include "target/object_file.h"
 
 namespace rat {
@@ -185,21 +186,8 @@ namespace rat {
 
 		U32 here() const { return (U32)code.size(); }
 		void b(U8 v) { code.push_back(v); }
-		void d32(U32 v) {
-			const U8 t[4] = {(U8)v, (U8)(v >> 8), (U8)(v >> 16), (U8)(v >> 24)};
-			code.insert(code.end(), t, t + 4);
-		}
-		void d64(U64 v) {
-			const U8 t[8] = {(U8)v,
-											 (U8)(v >> 8),
-											 (U8)(v >> 16),
-											 (U8)(v >> 24),
-											 (U8)(v >> 32),
-											 (U8)(v >> 40),
-											 (U8)(v >> 48),
-											 (U8)(v >> 56)};
-			code.insert(code.end(), t, t + 8);
-		}
+		void d32(U32 v) { le::put32(code, v); }
+		void d64(U64 v) { le::put64(code, v); }
 
 		static U8 rexByte(B32 w, U32 r, U32 x, U32 rm) {
 			return (U8)(0x40 | (w ? 8 : 0) | ((r >> 3) << 2) | ((x >> 3) << 1) | (rm >> 3));
@@ -263,10 +251,9 @@ namespace rat {
 		void memImmTail(I64 imm, U32 width) {
 			if(width == 1)
 				b((U8)imm);
-			else if(width == 2) {
-				b((U8)imm);
-				b((U8)((U16)imm >> 8));
-			} else
+			else if(width == 2)
+				le::put16(code, (U16)imm);
+			else
 				d32((U32)(I32)imm);
 		}
 
