@@ -64,8 +64,12 @@ namespace rat {
 			// store at <=2 gp uses
 			if(a.hasIndex && !a.frameBase) {
 				VReg t = fresh(detail::kGp);
-				inst(X86Op::Lea, detail::kGp, {MachineOperand::vr(t)},
-						 {addrBase(a), MachineOperand::vr(a.index)}, a.disp, (I64)(a.scaleLog2 & 3));
+				inst(X86Op::Lea,
+						 detail::kGp,
+						 {MachineOperand::vr(t)},
+						 {addrBase(a), MachineOperand::vr(a.index)},
+						 a.disp,
+						 (I64)(a.scaleLog2 & 3));
 				inst(X86Op::Store, detail::kGp, {}, {MachineOperand::vr(t), std::move(src)});
 				return;
 			}
@@ -347,27 +351,47 @@ namespace rat {
 		if(et->isInt()) {
 			pfx = 0x66;
 			switch(op) {
-			case Opcode::Add: opc = esz == 4 ? 0xfe : 0xd4; break; // paddd / paddq
-			case Opcode::Sub: opc = esz == 4 ? 0xfa : 0xfb; break; // psubd / psubq
-			case Opcode::And: opc = 0xdb; break;									 // pand
-			case Opcode::Or: opc = 0xeb; break;										 // por
-			case Opcode::Xor: opc = 0xef; break;									 // pxor
+			case Opcode::Add:
+				opc = esz == 4 ? 0xfe : 0xd4;
+				break; // paddd / paddq
+			case Opcode::Sub:
+				opc = esz == 4 ? 0xfa : 0xfb;
+				break; // psubd / psubq
+			case Opcode::And:
+				opc = 0xdb;
+				break; // pand
+			case Opcode::Or:
+				opc = 0xeb;
+				break; // por
+			case Opcode::Xor:
+				opc = 0xef;
+				break;					// pxor
 			case Opcode::Mul: // pmulld, i32 lanes only
 				if(esz != 4)
 					return;
 				opc = 0x40;
 				esc38 = true;
 				break;
-			default: return;
+			default:
+				return;
 			}
 		} else {
 			pfx = esz == 8 ? 0x66 : 0; // addpd... vs addps...
 			switch(op) {
-			case Opcode::FAdd: opc = 0x58; break;
-			case Opcode::FSub: opc = 0x5c; break;
-			case Opcode::FMul: opc = 0x59; break;
-			case Opcode::FDiv: opc = 0x5e; break;
-			default: return;
+			case Opcode::FAdd:
+				opc = 0x58;
+				break;
+			case Opcode::FSub:
+				opc = 0x5c;
+				break;
+			case Opcode::FMul:
+				opc = 0x59;
+				break;
+			case Opcode::FDiv:
+				opc = 0x5e;
+				break;
+			default:
+				return;
 			}
 		}
 
@@ -628,11 +652,7 @@ namespace rat {
 			if(isX87Ty(src->getType())) { // long double -> long double: plain move
 				I32 s = x87Value(src);
 				needScratch();
-				inst(X86Op::X87FromSse,
-						 detail::kX87,
-						 {MachineOperand::frameSlot(x87SlotOf(n))},
-						 {MachineOperand::frameSlot(s)},
-						 detail::kX87MemBits);
+				x87Move(x87SlotOf(n), s);
 				return;
 			}
 			U32 sw = opWidth(src->getType());

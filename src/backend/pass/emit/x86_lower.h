@@ -97,6 +97,7 @@ namespace rat {
 		VReg sseValue(Node* n);
 		String fpPoolSym(U64 bits, U32 width);
 		I32 x87Value(Node* n);
+		void x87Move(I32 dst, I32 src);
 		void emitStore(StoreNode* s);
 		void emitLoad(LoadNode* l);
 		void emitAlloc(AllocNode* al);

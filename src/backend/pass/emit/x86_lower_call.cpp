@@ -176,11 +176,7 @@ namespace rat {
 		// return value
 		if(sret) {
 			if(vp)
-				inst(X86Op::X87FromSse,
-						 detail::kX87,
-						 {MachineOperand::frameSlot(x87SlotOf(vp))},
-						 {MachineOperand::frameSlot(retTemp)},
-						 detail::kX87MemBits);
+				x87Move(x87SlotOf(vp), retTemp);
 			return;
 		}
 		if(rt && isX87Ty(rt)) { // st(0) return
@@ -215,11 +211,7 @@ namespace rat {
 	VReg X86LowerPass::x87ByRefArg(Node* arg) {
 		I32 src = x87Value(arg);
 		I32 tmp = reserve(16);
-		inst(X86Op::X87FromSse,
-				 detail::kX87,
-				 {MachineOperand::frameSlot(tmp)},
-				 {MachineOperand::frameSlot(src)},
-				 detail::kX87MemBits);
+		x87Move(tmp, src);
 		return frameAddr((I64)tmp);
 	}
 
@@ -242,12 +234,14 @@ namespace rat {
 			ProjNode* p = st->projection(StartNode::paramProjIndex(i));
 			Type* t = fn->getParamType(i);
 			if(isX87Ty(t)) {
+				// addr holds the long-double source address; load its value onto the x87 stack
+				VReg addr;
 				if(conv->x87ByRef) {
 					// the parameter is a pointer, load the value through it
 					X86ArgAssigner::Loc l = as.next(Kind::Int);
 					if(!p)
 						continue;
-					VReg addr = fresh(detail::kGp);
+					addr = fresh(detail::kGp);
 					if(l.reg >= 0) {
 						copy(MachineOperand::vr(addr),
 								 MachineOperand::fixed(gpReg(conv->gpArgs[l.reg])),
@@ -256,23 +250,18 @@ namespace rat {
 						VReg home = frameAddr((I64)(conv->stackParamOff + (I32)l.stackOff));
 						inst(X86Op::Load, detail::kGp, {MachineOperand::vr(addr)}, {MachineOperand::vr(home)});
 					}
-					inst(X86Op::X87LoadMem,
-							 detail::kX87,
-							 {MachineOperand::frameSlot(x87SlotOf(p))},
-							 {MachineOperand::vr(addr)},
-							 detail::kX87MemBits);
 				} else {
 					// by value on the stack
 					X86ArgAssigner::Loc l = as.next(Kind::X87);
 					if(!p)
 						continue;
-					VReg addr = frameAddr((I64)(conv->stackParamOff + (I32)l.stackOff));
-					inst(X86Op::X87LoadMem,
-							 detail::kX87,
-							 {MachineOperand::frameSlot(x87SlotOf(p))},
-							 {MachineOperand::vr(addr)},
-							 detail::kX87MemBits);
+					addr = frameAddr((I64)(conv->stackParamOff + (I32)l.stackOff));
 				}
+				inst(X86Op::X87LoadMem,
+						 detail::kX87,
+						 {MachineOperand::frameSlot(x87SlotOf(p))},
+						 {MachineOperand::vr(addr)},
+						 detail::kX87MemBits);
 			} else if(isSseTy(t)) {
 				X86ArgAssigner::Loc l = as.next(Kind::Sse);
 				if(l.reg >= 0) {

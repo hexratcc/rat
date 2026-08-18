@@ -417,6 +417,14 @@ namespace rat {
 		return name;
 	}
 
+	void X86LowerPass::x87Move(I32 dst, I32 src) {
+		inst(X86Op::X87FromSse,
+				 detail::kX87,
+				 {MachineOperand::frameSlot(dst)},
+				 {MachineOperand::frameSlot(src)},
+				 detail::kX87MemBits);
+	}
+
 	I32 X86LowerPass::x87Value(Node* n) {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
 			I32 s = x87SlotOf(n);
@@ -520,11 +528,7 @@ namespace rat {
 			if(cls == detail::kX87) {
 				I32 s = x87Value(v);
 				needScratch();
-				inst(X86Op::X87FromSse,
-						 detail::kX87,
-						 {MachineOperand::frameSlot(x87SlotOf(phi))},
-						 {MachineOperand::frameSlot(s)},
-						 detail::kX87MemBits);
+				x87Move(x87SlotOf(phi), s);
 				continue;
 			}
 			VReg t = fresh(cls);
