@@ -2,8 +2,6 @@
 
 #include "byte_io.h"
 
-#include <cstring>
-
 namespace rat {
 	namespace detail {
 		constexpr U16 IMAGE_FILE_MACHINE_AMD64 = 0x8664;
@@ -27,7 +25,6 @@ namespace rat {
 
 		constexpr U32 kFileHeaderSize = 20;
 		constexpr U32 kSectionHeaderSize = 40;
-		constexpr U32 kSymEntSize = 18;
 		constexpr U32 kRelocEntSize = 10;
 	} // namespace detail
 
@@ -77,10 +74,6 @@ namespace rat {
 			le::put32(out, off);
 		};
 
-		U32 relocCount[kNumSections] = {};
-		for(U32 s = 0; s < kNumSections; ++s)
-			relocCount[s] = (U32)relBySec[s].size();
-
 		List<U8> symtab;
 		U32 symEntries = 0;
 		for(U32 s = 0; s < kNumSections; ++s) {
@@ -92,7 +85,7 @@ namespace rat {
 			le::put8(symtab, 1); // one aux record
 			// aux: section definition
 			le::put32(symtab, sectionSize((Section)s)); // length
-			le::put16(symtab, (U16)relocCount[s]);			// number of relocations
+			le::put16(symtab, (U16)relBySec[s].size()); // number of relocations
 			le::put16(symtab, 0);												// number of line numbers
 			le::put32(symtab, 0);												// checksum
 			le::put16(symtab, 0);												// associated section
@@ -131,8 +124,8 @@ namespace rat {
 		}
 		U32 relOff[kNumSections] = {};
 		for(U32 s = 0; s < kNumSections; ++s) {
-			relOff[s] = relocCount[s] ? off : 0;
-			off += relocCount[s] * detail::kRelocEntSize;
+			relOff[s] = relBySec[s].empty() ? 0 : off;
+			off += (U32)relBySec[s].size() * detail::kRelocEntSize;
 		}
 		U32 symOff = off;
 
@@ -147,16 +140,14 @@ namespace rat {
 		le::put16(out, 0); // characteristics
 
 		for(U32 s = 0; s < kNumSections; ++s) {
-			U64 nameLen = std::strlen(secNames[s]);
-			for(U32 i = 0; i < 8; ++i)
-				le::put8(out, i < nameLen ? (U8)secNames[s][i] : 0);
+			nameField(out, secNames[s]);
 			le::put32(out, 0); // virtual size
 			le::put32(out, 0); // virtual address
 			le::put32(out, sectionSize((Section)s));
 			le::put32(out, s + 1 < kNumSections ? rawOff[s] : 0);
 			le::put32(out, relOff[s]);
 			le::put32(out, 0); // line numbers
-			le::put16(out, (U16)relocCount[s]);
+			le::put16(out, (U16)relBySec[s].size());
 			le::put16(out, 0); // line number count
 			le::put32(out, secFlags[s]);
 		}
