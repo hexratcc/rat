@@ -39,7 +39,7 @@ namespace rat {
 		using RefinedAddr = slp::RefinedAddr;
 		using ShapeHash = slp::ShapeHash;
 
-		static constexpr U32 kMaxDepth = 8;				 // pack-growth recursion bound
+		static constexpr U32 kMaxDepth = 16;			 // pack-growth recursion bound
 		static constexpr I32 kMinProfit = 2;			 // scalar ops saved, net of lane plumbing
 		static constexpr U32 kMaxRunWindows = 4;	 // windows sharing one guard branch
 		static constexpr U32 kMaxGuards = 4;			 // runtime checks per guarded run
