@@ -136,19 +136,19 @@ namespace rat {
 			return fn.create<PackNode>(vecTy, lanes);
 		}
 
+		// adjacent loads: a single wide load
+		B32 loadFail = false;
+		if(Node* wide = packLoads(lanes, elemTy, vecTy, loadFail))
+			return wide;
+		if(loadFail)
+			return nullptr;
+
 		if(depth < kMaxDepth) {
 			// isomorphic binary lanes: one vector op over the two recursed operand tuples
 			B32 binFail = false;
 			if(Node* vbin = packBinaryLanes(lanes, elemTy, vecTy, depth, binFail))
 				return vbin;
 			if(binFail)
-				return nullptr;
-
-			// adjacent loads: a single wide load
-			B32 loadFail = false;
-			if(Node* wide = packLoads(lanes, elemTy, vecTy, loadFail))
-				return wide;
-			if(loadFail)
 				return nullptr;
 		}
 
