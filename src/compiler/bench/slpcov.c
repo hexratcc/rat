@@ -132,6 +132,41 @@ NOINLINE void g20_i32_shared_subexpr(void) {
 	gi_c[2] = t + gi_a[2];
 	gi_c[3] = t + gi_a[3];
 }
+NOINLINE void g21_i32_sub(void) {
+	gi_c[0] = gi_a[0] - gi_b[0];
+	gi_c[1] = gi_a[1] - gi_b[1];
+	gi_c[2] = gi_a[2] - gi_b[2];
+	gi_c[3] = gi_a[3] - gi_b[3];
+}
+NOINLINE void g22_i32_muladd(void) {
+	gi_c[0] = gi_a[0] * gi_b[0] + gi_a[0];
+	gi_c[1] = gi_a[1] * gi_b[1] + gi_a[1];
+	gi_c[2] = gi_a[2] * gi_b[2] + gi_a[2];
+	gi_c[3] = gi_a[3] * gi_b[3] + gi_a[3];
+}
+// reused-scalar Horner chain: the packed input vector is built from reused lanes
+NOINLINE void g23_i32_poly(void) {
+	int x0 = gi_a[0], x1 = gi_a[1], x2 = gi_a[2], x3 = gi_a[3];
+	int b0 = gi_b[0], b1 = gi_b[1], b2 = gi_b[2], b3 = gi_b[3];
+	int t0 = x0 * x0 + b0, t1 = x1 * x1 + b1, t2 = x2 * x2 + b2, t3 = x3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	gi_c[0] = t0, gi_c[1] = t1, gi_c[2] = t2, gi_c[3] = t3;
+}
+// deep Horner chain (unrolled): needs a large pack-growth depth bound to fully vectorize
+NOINLINE void g24_i32_poly_deep(void) {
+	int x0 = gi_a[0], x1 = gi_a[1], x2 = gi_a[2], x3 = gi_a[3];
+	int b0 = gi_b[0], b1 = gi_b[1], b2 = gi_b[2], b3 = gi_b[3];
+	int t0 = x0 * x0 + b0, t1 = x1 * x1 + b1, t2 = x2 * x2 + b2, t3 = x3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	gi_c[0] = t0, gi_c[1] = t1, gi_c[2] = t2, gi_c[3] = t3;
+}
 
 // pointer-parameter kernels
 
@@ -218,6 +253,8 @@ volatile fn sink[] = {
 		(fn)g15_f32_div,			 (fn)g16_f32_splat,
 		(fn)g17_f64_add,			 (fn)g18_f64_chain,
 		(fn)g19_mixed_offsets, (fn)g20_i32_shared_subexpr,
+		(fn)g21_i32_sub,			 (fn)g22_i32_muladd,
+		(fn)g23_i32_poly,			 (fn)g24_i32_poly_deep,
 		(fn)p01_i32_add,			 (fn)p02_i32_chain,
 		(fn)p03_i32_splat,		 (fn)p04_i32_wide16,
 		(fn)p05_i32_offset,		 (fn)p06_f32_fma_shape,
