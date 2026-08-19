@@ -24,10 +24,8 @@ namespace rat {
 			List<Pair<const Node*, I64>> terms; // (var, scale), sorted by id
 			U32 size = 0;												// access bytes
 
-			B32 valid() const { return base != nullptr && size != 0; }
-			B32 sameGroup(const RefinedAddr& o) const {
-				return base == o.base && size == o.size && terms == o.terms;
-			}
+			B32 valid() const;
+			B32 sameGroup(const RefinedAddr& o) const;
 		};
 
 		// bounded-depth structural hashing
@@ -35,12 +33,9 @@ namespace rat {
 			static constexpr U32 kDepth = 4;
 			Map<const Node*, U64> memo; // at kDepth
 
-			static U64 mix(U64 h, U64 v) {
-				h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
-				return h;
-			}
+			static U64 mix(U64 h, U64 v);
 			U64 shape(const Node* n, U32 depth);
-			U64 operator()(const Node* n) { return shape(n, kDepth); }
+			U64 operator()(const Node* n);
 		};
 
 		B32 envFlag(const C8* name);
@@ -163,13 +158,7 @@ namespace rat {
 						 U32 ptrBytes,
 						 B32 sse41,
 						 ShapeHash& shapes,
-						 SlpStats& st)
-			: fn(fn),
-				aa(aa),
-				ptrBytes(ptrBytes),
-				sse41(sse41),
-				shapes(shapes),
-				st(st) {}
+						 SlpStats& st);
 
 			void addGuard(const RefinedAddr& k, Node* lane0Ptr, U32 bytes);
 			void bindWindow(Node* memIn,
@@ -205,12 +194,7 @@ namespace rat {
 			ShapeHash shapes;
 			Map<String, Pair<Node*, I64>> addrAnchors;
 
-			Slp(Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats)
-			: fn(fn),
-				aa(aa),
-				ptrBytes(ptrBytes),
-				sse41(sse41),
-				stats(stats) {}
+			Slp(Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats);
 
 			void normalizeLoadEdges();
 			void normalizeStoreChains();
@@ -256,7 +240,7 @@ namespace rat {
 			U32 run();
 		};
 
-		const C8* name() const override { return "slp"; }
+		const C8* name() const override;
 		B32 run(Module& module, const TargetInfo& target) override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 

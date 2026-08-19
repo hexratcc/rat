@@ -36,6 +36,8 @@ namespace rat {
 		return v;
 	}
 
+	const C8* SlpPackPass::name() const { return "slp"; }
+
 	B32 SlpPackPass::run(Module& module, const TargetInfo& target) {
 		stats = SlpStats{};
 		B32 changed = FunctionPass::run(module, target);
@@ -151,6 +153,12 @@ namespace rat {
 		out.terms.push_back({n, scale});
 	}
 
+	B32 slp::RefinedAddr::valid() const { return base != nullptr && size != 0; }
+
+	B32 slp::RefinedAddr::sameGroup(const RefinedAddr& o) const {
+		return base == o.base && size == o.size && terms == o.terms;
+	}
+
 	static bool termLess(const Pair<const Node*, I64>& a, const Pair<const Node*, I64>& b) {
 		return a.first->getId() < b.first->getId();
 	}
@@ -196,6 +204,13 @@ namespace rat {
 			return true;
 		return aa.alias(pa, sza, pb, szb) == AliasResult::NoAlias;
 	}
+
+	U64 slp::ShapeHash::mix(U64 h, U64 v) {
+		h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+		return h;
+	}
+
+	U64 slp::ShapeHash::operator()(const Node* n) { return shape(n, kDepth); }
 
 	U64 slp::ShapeHash::shape(const Node* n, U32 depth) {
 		if(!n)
@@ -746,6 +761,14 @@ namespace rat {
 		}
 	}
 
+	SlpPackPass::Slp::Slp(
+			Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats)
+	: fn(fn),
+		aa(aa),
+		ptrBytes(ptrBytes),
+		sse41(sse41),
+		stats(stats) {}
+
 	void SlpPackPass::Slp::normalizeLoadEdges() {
 		for(Node* n : fn) {
 			LoadNode* l = dyn_cast<LoadNode>(n);
@@ -947,6 +970,19 @@ namespace rat {
 		}
 		return segments;
 	}
+
+	SlpPackPass::Packer::Packer(Function& fn,
+															const AliasAnalysis& aa,
+															U32 ptrBytes,
+															B32 sse41,
+															ShapeHash& shapes,
+															SlpStats& st)
+	: fn(fn),
+		aa(aa),
+		ptrBytes(ptrBytes),
+		sse41(sse41),
+		shapes(shapes),
+		st(st) {}
 
 	// point the packer at one store window's memory state and observer context
 	void SlpPackPass::Packer::bindWindow(Node* memIn,
