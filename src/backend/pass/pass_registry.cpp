@@ -22,7 +22,7 @@
 #include "pass/opt/memory_opt.h"
 #include "pass/opt/sccp.h"
 #include "pass/opt/simplify_cfg.h"
-#include "pass/opt/slp_pack.h"
+#include "pass/opt/slp/slp_pack.h"
 #include "pass/opt/strength_reduce.h"
 
 namespace rat {

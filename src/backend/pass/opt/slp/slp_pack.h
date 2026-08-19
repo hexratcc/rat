@@ -4,6 +4,7 @@
 #include "core.h"
 
 #include "ir/opcode.h"
+#include "pass/opt/slp/slp_util.h"
 #include "pass/pass.h"
 
 namespace rat {
@@ -35,39 +36,15 @@ namespace rat {
 	};
 
 	struct SlpPackPass : FunctionPass {
-		static constexpr U32 kVecBytes = 16;		 // SSE baseline
-		static constexpr U32 kMaxDepth = 8;			 // pack-growth recursion bound
-		static constexpr I32 kMinProfit = 2;		 // scalar ops saved, net of lane plumbing
-		static constexpr U32 kMaxRunWindows = 4; // windows sharing one guard branch
-		static constexpr U32 kMaxGuards = 4;		 // runtime checks per guarded run
+		using RefinedAddr = slp::RefinedAddr;
+		using ShapeHash = slp::ShapeHash;
+
+		static constexpr U32 kMaxDepth = 8;				 // pack-growth recursion bound
+		static constexpr I32 kMinProfit = 2;			 // scalar ops saved, net of lane plumbing
+		static constexpr U32 kMaxRunWindows = 4;	 // windows sharing one guard branch
+		static constexpr U32 kMaxGuards = 4;			 // runtime checks per guarded run
 		static constexpr I32 kGuardCheckCost = 6;	 // ops per runtime disjointness check
 		static constexpr I32 kGuardBranchCost = 6; // branch + else-arm bloat per guarded run
-
-		struct RefinedAddr {
-			Node* base = nullptr;
-			I64 constant = 0;
-			List<std::pair<const Node*, I64>> terms; // (var, scale), sorted by id
-			U32 size = 0;														 // access bytes
-
-			B32 valid() const { return base != nullptr && size != 0; }
-			B32 sameGroup(const RefinedAddr& o) const {
-				return base == o.base && size == o.size && terms == o.terms;
-			}
-		};
-
-		// bounded-depth structural hashing
-		struct ShapeHash {
-			static constexpr U32 kDepth = 4;
-			Map<const Node*, U64> memo; // at kDepth
-
-			static U64 mix(U64 h, U64 v) {
-				h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
-				return h;
-			}
-
-			U64 shape(const Node* n, U32 depth);
-			U64 operator()(const Node* n) { return shape(n, kDepth); }
-		};
 
 		struct StoreInfo {
 			StoreNode* store = nullptr;
@@ -103,7 +80,7 @@ namespace rat {
 			const Map<const Node*, List<I64>>* interWritten = nullptr;
 			const Set<const Node*>* observers = nullptr;
 			// group sig -> (anchor ptr, its refined constant), shared across windows
-			Map<String, std::pair<Node*, I64>>* addrAnchors = nullptr;
+			Map<String, Pair<Node*, I64>>* addrAnchors = nullptr;
 
 			// runtime disjointness guards
 			struct GuardGroup {
@@ -115,7 +92,7 @@ namespace rat {
 			List<GuardGroup> guardGroups;
 
 			// splat reloads kept for post-commit coalescing into wide loads
-			List<std::pair<Node*, LoadNode*>> splatLoads;
+			List<Pair<Node*, LoadNode*>> splatLoads;
 
 			// tuple -> already built vector node, so shared subtrees pack once
 			Map<String, Node*> memo;
@@ -127,15 +104,14 @@ namespace rat {
 						 U32 ptrBytes,
 						 B32 sse41,
 						 ShapeHash& shapes,
-						 SlpStats& st)
-			: fn(fn),
-				aa(aa),
-				ptrBytes(ptrBytes),
-				sse41(sse41),
-				shapes(shapes),
-				st(st) {}
+						 SlpStats& st);
 
 			void addGuard(const RefinedAddr& k, Node* lane0Ptr, U32 bytes);
+			void bindWindow(Node* memIn,
+											const RefinedAddr* windowKey,
+											const Map<const Node*, List<I64>>* interWritten,
+											const Set<const Node*>* observers,
+											Map<String, Pair<Node*, I64>>* addrAnchors);
 			Node* anchorPtr(Node* ptr, const RefinedAddr& k);
 			void coalesceSplats();
 			B32 coneTouchesObserver(const Node* n) const;
@@ -143,6 +119,15 @@ namespace rat {
 			Node* packTuple(const List<Node*>& lanes, Type* elemTy, U32 depth);
 			Node* packTupleUncached(const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth);
 			Node* packLoads(const List<Node*>& lanes, Type* elemTy, Type* vecTy, B32& hardFail);
+			Node* packBinaryLanes(
+					const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth, B32& hardFail);
+			Node* packWideOrSplat(Node* mem,
+														LoadNode* first,
+														const RefinedAddr& k0,
+														Type* elemTy,
+														Type* vecTy,
+														U32 w,
+														B32 equal);
 		};
 
 		// function driver
@@ -153,17 +138,17 @@ namespace rat {
 			B32 sse41;
 			SlpStats& stats;
 			ShapeHash shapes;
-			Map<String, std::pair<Node*, I64>> addrAnchors;
+			Map<String, Pair<Node*, I64>> addrAnchors;
 
-			Slp(Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats)
-			: fn(fn),
-				aa(aa),
-				ptrBytes(ptrBytes),
-				sse41(sse41),
-				stats(stats) {}
+			Slp(Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats);
 
 			void normalizeLoadEdges();
 			void normalizeStoreChains();
+			B32 storeKey(StoreNode* s, RefinedAddr& out) const;
+			B32 trySwapAdjacentStores(StoreNode* s, StoreNode* p);
+			// thin fn.create wrappers for the guard cascade
+			Node* guardBranch(Node* ctrl, Node* pred);
+			Node* guardProj(Node* of, U32 index, const C8* label);
 			Map<Node*, StoreInfo> collectCandidates();
 			List<Segment> buildSegments(const Map<Node*, StoreInfo>& cand);
 			U32 tryStaticWindow(Segment& seg, U32 i, const WindowShape& w0);
@@ -176,47 +161,47 @@ namespace rat {
 														const List<Node*>& vecs,
 														Packer& packer,
 														const Map<const Node*, List<I64>>& interWritten);
+			// build the disjointness-guard branch cascade; returns the speculating
+			// then-control and fills iff (first branch) and fails (else-arm controls)
+			Node* emitGuardCascade(const List<Packer::GuardGroup>& groups,
+														 Node* startCtrl,
+														 Node* wPtr,
+														 Node* wEnd,
+														 Node*& iff,
+														 List<Node*>& fails);
+			// states the incoming window state transitively derives from
+			static void collectPreStates(Node* memIn, Set<const Node*>& preSet);
+			// steer every other user of the pre-branch control to the right arm
+			void rerouteBlock(Node* startCtrl,
+												Node* iff,
+												Node* region,
+												Node* elseP,
+												const Set<const Node*>& wideStores,
+												const Set<const Node*>& runStores,
+												const Set<const Node*>& preSet,
+												const Map<const Node*, List<I64>>& interWritten);
 			U32 processSegment(Segment& seg);
 			U32 packReduction(BinaryNode* root);
 			U32 packReductions();
 			U32 run();
 		};
 
-		const C8* name() const override { return "slp"; }
+		const C8* name() const override;
 		B32 run(Module& module, const TargetInfo& target) override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 
-		// diag
-		static B32 envFlag(const C8* name);
+		// env-gated diagnostics/tuning
 		static B32 statsEnabled();
 		static B32 shapesDisabled();
 		static B32 guardsDisabled();
 		static B32 guardCostDisabled();
 		static B32 fpReduceEnabled();
 
-		// impl
-		static B32 packableElem(const Type* t);
-		static B32 packableBinary(Opcode op, const Type* t);
-		static B32 identifiedBase(const Node* n);
-		static B32 isI64(const Node* n);
-		static void refineTerm32(const Node* n, I64 scale, RefinedAddr& out, U32 depth);
-		static void refineTerm(const Node* n, I64 scale, RefinedAddr& out, U32 depth);
-		static RefinedAddr refineAddr(Node* addr, U32 accessBytes);
-		static String groupSig(const RefinedAddr& k);
-		static B32 provablyDisjoint(const AliasAnalysis& aa,
-																Node* pa,
-																const RefinedAddr& ka,
-																U32 sza,
-																Node* pb,
-																const RefinedAddr& kb,
-																U32 szb);
+		// window/segment machinery over the pass-specific StoreInfo/Segment/WindowShape
 		static StoreNode* soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers);
-		static U32 laneCountFor(U32 esz);
 		static B32 windowAt(const Segment& seg, U32 at, WindowShape& out);
 		static B32 windowHasObs(const Segment& seg, const WindowShape& ws);
-		static B32 dataCone(const Node* root, U32 cap, List<const Node*>& out);
-		static B32 usesValue(const Node* u, const Node* x);
-		static void rewriteInput(Node* u, const Node* from, Node* to);
+		static List<Node*> flattenAddChain(BinaryNode* root, Opcode addOp, Type* t);
 		static List<Node*> laneValues(const WindowShape& w);
 		static void collectInterState(const Segment& seg,
 																	U32 begin,
