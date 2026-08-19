@@ -145,6 +145,7 @@ namespace rat {
 		const X86CallConv* conv = &abi::kSysV;
 		const RegisterInfo* regs = nullptr;
 		U32 ptrBytes = 8;
+		B32 sse41 = true;
 		Schedule* sched = nullptr;
 		MachineFunc* out = nullptr;
 		X86FrameLayout* fl = nullptr;

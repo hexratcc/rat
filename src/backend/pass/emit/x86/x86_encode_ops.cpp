@@ -285,6 +285,7 @@ namespace rat {
 			a->loadExt(d, RBP, fl->vecScratch + (I32)(lane * 4), 4, true);
 	}
 
+	// gather the lanes through the 16-byte vec scratch slot (float, or int without sse4.1)
 	void X86EncodePass::emitVPack(const MachineInstr& in) {
 		U32 esz = (U32)in.imm;
 		B32 isInt = in.imm2 != 0;
@@ -296,6 +297,15 @@ namespace rat {
 				a->storeXmm(xmmOf(in.uses[i]), RBP, disp, esz);
 		}
 		a->loadXmm(xmmOf(in.defs[0]), RBP, fl->vecScratch, 16);
+	}
+
+	// build the vector in-register: movd/movq lane 0, then pinsrd/pinsrq the rest (sse4.1, int lanes)
+	void X86EncodePass::emitVPackReg(const MachineInstr& in) {
+		U32 d = xmmOf(in.defs[0]);
+		B32 wide = (U32)in.imm == 8;
+		a->movdXmmGp(d, gpOf(in.uses[0]), wide);
+		for(U32 i = 1; i < (U32)in.uses.size(); ++i)
+			a->pinsr(d, gpOf(in.uses[i]), (U8)i, wide);
 	}
 
 	void X86EncodePass::emitFNeg(const MachineInstr& in) {

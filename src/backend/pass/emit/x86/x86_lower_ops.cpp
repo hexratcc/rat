@@ -442,7 +442,14 @@ namespace rat {
 			return;
 		}
 
-		needVecScratch();
+		// int lanes with sse4.1 build the vector in-register (VPackReg); float and pre-sse4.1
+		// fall back to gathering through the vec scratch slot (VPack)
+		B32 useReg = isInt && sse41;
+		X86Op op = X86Op::VPack;
+		if(useReg)
+			op = X86Op::VPackReg;
+		else
+			needVecScratch();
 		List<MachineOperand> uses;
 		for(U32 i = 0; i < w; ++i) {
 			Node* lane = n->getLane(i);
@@ -451,7 +458,7 @@ namespace rat {
 			else
 				uses.push_back(MachineOperand::vr(sseValue(lane), esz));
 		}
-		inst(X86Op::VPack,
+		inst(op,
 				 detail::kFp,
 				 {MachineOperand::vr(vregFor(n), 16)},
 				 std::move(uses),

@@ -657,6 +657,7 @@ namespace rat {
 		conv = &x86CallConv(target.getTriple().os);
 		regs = target.registers();
 		ptrBytes = target.getPointerSizeInBytes();
+		sse41 = target.hasSse41();
 		Schedule sched(fn);
 		X86FrameLayout fl;
 		mf.src = &fn;

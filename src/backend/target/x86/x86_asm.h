@@ -304,6 +304,8 @@ namespace rat {
 		void pshufd(U32 dst, U32 src, U8 sel);
 		// movd/movq xmm, r32/r64
 		void movdXmmGp(U32 xmm, Reg src, B32 wide);
+		// pinsrd/pinsrq: insert a gp value into xmm lane (sse4.1); wide selects pinsrq
+		void pinsr(U32 xmm, Reg gp, U8 lane, B32 wide);
 		// movd/movq r32/r64, xmm (wide selects movq)
 		void movGpXmm(Reg dst, U32 xmm, B32 wide);
 		void sseShiftImm(U32 laneBits, U8 ext, U32 reg, U8 cnt);

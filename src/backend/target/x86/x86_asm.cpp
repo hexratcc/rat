@@ -434,6 +434,15 @@ namespace rat {
 		b(0x6e);
 		modrmReg(xmm, src);
 	}
+	void Asm::pinsr(U32 xmm, Reg gp, U8 lane, B32 wide) {
+		b(0x66);
+		rex(wide, xmm, 0, gp);
+		b(0x0f);
+		b(0x3a);
+		b(0x22);
+		modrmReg(xmm, gp);
+		b(lane);
+	}
 	void Asm::movGpXmm(Reg dst, U32 xmm, B32 wide) {
 		b(0x66);
 		rex(wide, xmm, 0, dst);
