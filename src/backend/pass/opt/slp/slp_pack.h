@@ -143,6 +143,11 @@ namespace rat {
 			Slp(Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats);
 
 			void normalizeLoadEdges();
+			Node* storeBaseObj(StoreNode* s, Map<const Node*, Node*>& cache);
+			Node* skipDisjointRun(StoreNode* s,
+														Node* loadBase,
+														Map<const Node*, Node*>& storeBase,
+														Map<const Node*, Map<const Node*, Node*>>& skipMemo);
 			void normalizeStoreChains();
 			B32 storeKey(StoreNode* s, RefinedAddr& out) const;
 			B32 trySwapAdjacentStores(StoreNode* s, StoreNode* p);

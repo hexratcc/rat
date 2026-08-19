@@ -115,7 +115,67 @@ namespace rat {
 		sse41(sse41),
 		stats(stats) {}
 
+	// two identified objects (Alloc/Global) that are provably different, independent of offset
+	static B32 distinctObjects(const Node* a, const Node* b) {
+		if(!identifiedBase(a) || !identifiedBase(b))
+			return false;
+		if(a->getOpcode() == Opcode::Alloc || b->getOpcode() == Opcode::Alloc)
+			return a != b;
+		return cast<GlobalNode>(a)->getSymbol() != cast<GlobalNode>(b)->getSymbol();
+	}
+
+	// base object of a store, computed once per store (refineAddr is not free)
+	Node* SlpPackPass::Slp::storeBaseObj(StoreNode* s, Map<const Node*, Node*>& cache) {
+		auto it = cache.find(s);
+		if(it != cache.end())
+			return it->second;
+		Node* b = nullptr;
+		U32 ssz = aa.getAccessSize(s);
+		if(ssz) {
+			RefinedAddr sk = refineAddr(s->getPointer(), ssz);
+			if(sk.valid())
+				b = sk.base;
+		}
+		cache.emplace(s, b);
+		return b;
+	}
+
+	// skip the maximal run of stores that are disjoint from loadBase purely by object identity
+	Node* SlpPackPass::Slp::skipDisjointRun(StoreNode* s,
+																					Node* loadBase,
+																					Map<const Node*, Node*>& storeBase,
+																					Map<const Node*, Map<const Node*, Node*>>& skipMemo) {
+		Map<const Node*, Node*>& memo = skipMemo[loadBase];
+		List<const Node*> run;
+		Node* cur = s;
+		Node* endpoint = nullptr;
+		while(true) {
+			StoreNode* cs = dyn_cast<StoreNode>(cur);
+			if(!cs) {
+				endpoint = cur; // reached function entry / a non-store producer
+				break;
+			}
+			auto it = memo.find(cur);
+			if(it != memo.end()) {
+				endpoint = it->second;
+				break;
+			}
+			if(!distinctObjects(loadBase, storeBaseObj(cs, storeBase))) {
+				endpoint = cur; // barrier candidate: needs the exact per-offset check
+				break;
+			}
+			run.push_back(cur);
+			cur = cs->getMemory();
+		}
+		for(const Node* r : run)
+			memo.emplace(r, endpoint);
+		return endpoint;
+	}
+
 	void SlpPackPass::Slp::normalizeLoadEdges() {
+		Map<const Node*, Node*> storeBase;
+		Map<const Node*, Map<const Node*, Node*>> skipMemo;
+
 		for(Node* n : fn) {
 			LoadNode* l = dyn_cast<LoadNode>(n);
 			if(!l)
@@ -134,8 +194,19 @@ namespace rat {
 					coneLoads.push_back(c);
 
 			RefinedAddr lk = refineAddr(l->getPointer(), lsz);
+			// the object-identity fast path is exact only when the address is a plain object
+			// reference (no loads in its cone, so the addrReadsState check cannot fire)
+			B32 fastPath = lk.base != nullptr && coneLoads.empty() && identifiedBase(lk.base);
+
 			Node* m = l->getMemory();
 			while(StoreNode* s = dyn_cast<StoreNode>(m)) {
+				if(fastPath) {
+					Node* jumped = skipDisjointRun(s, lk.base, storeBase, skipMemo);
+					if(jumped != m) {
+						m = jumped; // skipped a run
+						continue;
+					}
+				}
 				U32 ssz = aa.getAccessSize(s);
 				if(!ssz)
 					break;
