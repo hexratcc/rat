@@ -15,6 +15,8 @@
 namespace rat {
 	using namespace slp;
 
+	// pass entry / orchestration
+
 	B32 SlpPackPass::statsEnabled() {
 		static B32 v = envFlag("RAT_SLP_STATS");
 		return v;
@@ -64,6 +66,8 @@ namespace rat {
 		AliasAnalysis aa(fn, ptrBytes);
 		return Slp(fn, aa, ptrBytes, target.hasSse41(), stats).run();
 	}
+
+	// address analysis & structural hashing
 
 	// extract a compile-time constant value; false if n is not a constant
 	B32 slp::constValue(const Node* n, I64& v) {
@@ -271,6 +275,8 @@ namespace rat {
 		return out;
 	}
 
+	// generic IR plumbing
+
 	B32 slp::envFlag(const C8* name) { return std::getenv(name) != nullptr; }
 
 	B32 slp::packableElem(const Type* t) {
@@ -383,6 +389,8 @@ namespace rat {
 
 	// element widths with an SSE packed form (i32/f32 and i64/f64)
 	B32 slp::supportedEsz(U32 esz) { return esz == 4 || esz == 8; }
+
+	// guarded speculation & commit
 
 	// true when every operand of v is a compile-time constant
 	static B32 allInputsConst(Node* v) {
@@ -666,6 +674,8 @@ namespace rat {
 				rewriteInput(u, startCtrl, dest);
 		}
 	}
+
+	// discovery & window formation (the Slp driver)
 
 	StoreNode* SlpPackPass::soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers) {
 		StoreNode* succ = nullptr;
@@ -970,6 +980,8 @@ namespace rat {
 		}
 		return segments;
 	}
+
+	// vector-tree construction (the Packer)
 
 	SlpPackPass::Packer::Packer(Function& fn,
 															const AliasAnalysis& aa,
@@ -1319,6 +1331,8 @@ namespace rat {
 			i += w;
 		}
 	}
+
+	// reduction vectorization
 
 	// refined address of the first leaf load in a reduction term, for canonical ordering
 	static B32 leafKey(Node* term, U32 esz, RefinedAddr& out) {
