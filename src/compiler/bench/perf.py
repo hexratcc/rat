@@ -22,6 +22,7 @@ LOGS = WORK / "logs"
 BENCH = "src/compiler/bench/bench.c"
 
 GCC = os.environ.get("PERF_GCC", "gcc")
+CLANG = os.environ.get("PERF_CLANG", "clang")
 HOSTCC = os.environ.get("HOSTCC", "cc")
 RUNS = 10
 BUILD_PIN = ["taskset", "-c", os.environ["PERF_CPUS"]] if os.environ.get("PERF_CPUS") else []
@@ -29,7 +30,7 @@ RUN_PIN = ["taskset", "-c", os.environ["PERF_RUN_CPU"]] if os.environ.get("PERF_
 
 WIDTH, HEIGHT, DPI = 1800, 400, 100
 LEFT, RIGHT, TOP = 0.075, 0.997, 0.87
-RAT, GCC_COLOR, INK, TEXT = "#d9532c", "#3d7ee0", "#8a9096", "#000000"
+RAT, GCC_COLOR, CLANG_COLOR, INK, TEXT = "#d9532c", "#3d7ee0", "#2ca05a", "#8a9096", "#000000"
 PX_PER_PT = DPI / 72
 
 
@@ -139,6 +140,14 @@ def measure_gcc(out):
     return time_binary(str(out / "gcc"), out / "gcc.run")
 
 
+def measure_clang(out):
+    out.mkdir(parents=True, exist_ok=True)
+    build = [CLANG, "-std=c99", "-O1", str(WORK / "bench.c"), "-o", str(out / "clang"), "-lm"]
+    if not step(build, out / "clang.log"):
+        return None
+    return time_binary(str(out / "clang"), out / "clang.run")
+
+
 def load_cache():
     if not CACHE.exists():
         # the graph and its cache live on the perf branch, never on main
@@ -178,15 +187,18 @@ def sha_layout(shas):
     return size, min(0.45, (length + 14) / HEIGHT)
 
 
-def plot(shas, times, gcc, out):
+def plot(shas, times, gcc, clang, out):
     fig, ax = plt.subplots(figsize=(WIDTH / DPI, HEIGHT / DPI), dpi=DPI)
     x = range(len(shas))
 
     ax.plot(x, times, color=RAT, linewidth=2.6, label="rat -O1")
     ax.axhline(gcc, color=GCC_COLOR, linewidth=2.6, label="gcc -O1")
+    if clang is not None:
+        ax.axhline(clang, color=CLANG_COLOR, linewidth=2.6, label="clang -O1")
 
     # pad the range
-    lo, hi = min(times + [gcc]), max(times + [gcc])
+    refs = times + [gcc] + ([clang] if clang is not None else [])
+    lo, hi = min(refs), max(refs)
     span = (hi - lo) or hi * 0.1
     ax.set_ylim(lo - span * 0.15, hi + span * 0.15)
     ax.set_xlim(-0.5, len(shas) - 0.5)
@@ -198,7 +210,7 @@ def plot(shas, times, gcc, out):
     ax.tick_params(axis="y", labelsize=17, length=3, pad=2, color=TEXT, labelcolor=TEXT)
     ax.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
     ax.set_ylabel("runtime (sec)", fontsize=18, color=TEXT, labelpad=6)
-    ax.set_title("rat vs gcc bench.c", fontsize=26, color=TEXT, pad=10)
+    ax.set_title("rat vs gcc/clang bench.c", fontsize=26, color=TEXT, pad=10)
 
     ax.grid(axis="y", color=INK, linewidth=0.5, linestyle=(0, (2, 3)), alpha=0.6)
     ax.set_axisbelow(True)
@@ -248,6 +260,13 @@ def main(argv):
             die(f"gcc reference run failed, see {out / 'gcc.log'}")
         print(f"gcc -O1 reference: {ms} ms")
         record(cache, "gcc", "-", bench, ms)
+    if ("clang", "-", bench) not in cache:
+        ms = measure_clang(out)
+        if ms is not None:
+            print(f"clang -O1 reference: {ms} ms")
+            record(cache, "clang", "-", bench, ms)
+        else:
+            print(f"clang -O1 reference: unavailable, skipping ({out / 'clang.log'})")
 
     for commit in commits:
         if ("rat", commit, bench) in cache:
@@ -265,7 +284,9 @@ def main(argv):
 
     shas = [c[:7] for c in commits]
     times = [ms / 1000.0 for ms in carry(measured)]
-    plot(shas, times, cache[("gcc", "-", bench)] / 1000.0, PNG)
+    clang_ref = cache.get(("clang", "-", bench))
+    plot(shas, times, cache[("gcc", "-", bench)] / 1000.0,
+         clang_ref / 1000.0 if clang_ref else None, PNG)
     print(f"perf: wrote {PNG.relative_to(ROOT)} "
           f"({len(commits)} commits, {sum(1 for m in measured if m)} measured)")
 
