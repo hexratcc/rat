@@ -8,6 +8,8 @@
 // e08 quatmul f32    porpodas et al cgo 2019 super-node slp (sign-mixed chains)
 // e09 particle f32   larsen & amarasinghe pldi 2000 (particle simulation, xyzw aos)
 // e10 saxpy i32      blas staple, integer lanes (needs packed i32 mul)
+// e11 poly i32       deep reused-scalar Horner chain (in-register pack build + depth bound)
+// e12 poly f32       same chain in f32
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,6 +137,32 @@ static NOINLINE void e10_saxpy_i32(int* c, const int* a, const int* b, int s) {
 	c[7] = a[7] * s + b[7];
 }
 
+// deep Horner chain, reused-scalar lanes (unsigned = defined wraparound). the packed input vector
+// is built from reused values and the tree is deep -- stresses in-register pack build + depth bound
+static NOINLINE void e11_poly_i32(int* c, const int* a, const int* b) {
+	unsigned x0 = a[0], x1 = a[1], x2 = a[2], x3 = a[3];
+	unsigned b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
+	unsigned t0 = x0 * x0 + b0, t1 = x1 * x1 + b1, t2 = x2 * x2 + b2, t3 = x3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	c[0] = (int)t0, c[1] = (int)t1, c[2] = (int)t2, c[3] = (int)t3;
+}
+
+// same shape in f32 (seeded in [1,2): no overflow, deterministic without fast-math)
+static NOINLINE void e12_poly_f32(float* c, const float* a, const float* b) {
+	float x0 = a[0], x1 = a[1], x2 = a[2], x3 = a[3];
+	float b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
+	float t0 = x0 * x0 + b0, t1 = x1 * x1 + b1, t2 = x2 * x2 + b2, t3 = x3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	t0 = t0 * x0 + b0, t1 = t1 * x1 + b1, t2 = t2 * x2 + b2, t3 = t3 * x3 + b3;
+	c[0] = t0, c[1] = t1, c[2] = t2, c[3] = t3;
+}
+
 static float (*volatile fp_e01)(const float*, const float*) = e01_dot_f32;
 static int (*volatile fp_e02)(const int*, const int*) = e02_dot_i32;
 static void (*volatile fp_e03)(float*, const float*, const float*, const float*) = e03_rgb2gray_f32;
@@ -146,6 +174,8 @@ static void (*volatile fp_e07)(float*, const float*, const float*) = e07_mat4mul
 static void (*volatile fp_e08)(float*, const float*, const float*) = e08_quatmul_f32;
 static void (*volatile fp_e09)(float*, const float*, float) = e09_particle_f32;
 static void (*volatile fp_e10)(int*, const int*, const int*, int) = e10_saxpy_i32;
+static void (*volatile fp_e11)(int*, const int*, const int*) = e11_poly_i32;
+static void (*volatile fp_e12)(float*, const float*, const float*) = e12_poly_f32;
 
 static float gsF = 0.0f;
 static int gsI = 0;
@@ -227,6 +257,14 @@ int main(int argc, char** argv) {
 	TIME("e10_saxpy_i32", {
 		for(int base = 0; base + 8 <= N; base += 8)
 			fp_e10(iC + base, iA + base, iB + base, 3);
+	});
+	TIME("e11_poly_i32", {
+		for(int base = 0; base + 4 <= N; base += 4)
+			fp_e11(iC + base, iA + base, iB + base);
+	});
+	TIME("e12_poly_f32", {
+		for(int base = 0; base + 4 <= N; base += 4)
+			fp_e12(fD + base, fA + base, fB + base);
 	});
 
 	printf("check %llx\n", (unsigned long long)checksum());

@@ -1773,6 +1773,108 @@ static u64 bench_vm(void) {
 	return h;
 }
 
+// slp: superword-level parallelism -- elementwise + deep-chain kernels that fuse into SSE lanes.
+// unsigned ints (defined wraparound) and floats seeded into [1,2) keep the checksum
+// compiler-independent, so rat and the reference agree.
+#define SLP_N 4096
+static int slp_ia[SLP_N], slp_ib[SLP_N], slp_ic[SLP_N], slp_id[SLP_N];
+static float slp_fa[SLP_N], slp_fb[SLP_N], slp_fc[SLP_N], slp_fd[SLP_N];
+static double slp_da[SLP_N], slp_db[SLP_N], slp_dc[SLP_N];
+
+static void slp_seed(void) {
+	u64 s = 0x9e3779b97f4a7c15ULL;
+	int i;
+	for(i = 0; i < SLP_N; i++) {
+		s = s * 6364136223846793005ULL + 1442695040888963407ULL;
+		slp_ia[i] = (int)(u32)(s >> 33);
+		slp_ib[i] = (int)((u32)(s >> 20) & 0xff);
+		slp_fa[i] = 1.0f + (float)((u32)(s >> 40) & 0x7fffff) * (1.0f / 8388608.0f);
+		slp_fb[i] = 1.0f + (float)((u32)(s >> 16) & 0x7fffff) * (1.0f / 8388608.0f);
+		slp_da[i] = 1.0 + (double)((u32)(s >> 8) & 0xfffff) * (1.0 / 1048576.0);
+		slp_db[i] = 1.0 + (double)((u32)(s >> 28) & 0xfffff) * (1.0 / 1048576.0);
+	}
+}
+
+// 4-lane int add/xor/and block
+static void slp_int_block(int b) {
+	slp_ic[b + 0] = (slp_ia[b + 0] + slp_ib[b + 0]) ^ (slp_ia[b + 0] & slp_ib[b + 0]);
+	slp_ic[b + 1] = (slp_ia[b + 1] + slp_ib[b + 1]) ^ (slp_ia[b + 1] & slp_ib[b + 1]);
+	slp_ic[b + 2] = (slp_ia[b + 2] + slp_ib[b + 2]) ^ (slp_ia[b + 2] & slp_ib[b + 2]);
+	slp_ic[b + 3] = (slp_ia[b + 3] + slp_ib[b + 3]) ^ (slp_ia[b + 3] & slp_ib[b + 3]);
+}
+
+// 4-lane f32 fma-shaped block
+static void slp_f32_block(int b) {
+	slp_fc[b + 0] = slp_fa[b + 0] * slp_fb[b + 0] + slp_fa[b + 0];
+	slp_fc[b + 1] = slp_fa[b + 1] * slp_fb[b + 1] + slp_fa[b + 1];
+	slp_fc[b + 2] = slp_fa[b + 2] * slp_fb[b + 2] + slp_fa[b + 2];
+	slp_fc[b + 3] = slp_fa[b + 3] * slp_fb[b + 3] + slp_fa[b + 3];
+}
+
+// 2-lane f64 block
+static void slp_f64_block(int b) {
+	slp_dc[b + 0] = (slp_da[b + 0] + slp_db[b + 0]) * slp_db[b + 0];
+	slp_dc[b + 1] = (slp_da[b + 1] + slp_db[b + 1]) * slp_db[b + 1];
+}
+
+// deep Horner chain, reused-scalar lanes (in-register pack build + depth bound)
+static void slp_poly_i32(int b) {
+	unsigned x0 = slp_ia[b + 0], x1 = slp_ia[b + 1], x2 = slp_ia[b + 2], x3 = slp_ia[b + 3];
+	unsigned c0 = slp_ib[b + 0], c1 = slp_ib[b + 1], c2 = slp_ib[b + 2], c3 = slp_ib[b + 3];
+	unsigned t0 = x0 * x0 + c0, t1 = x1 * x1 + c1, t2 = x2 * x2 + c2, t3 = x3 * x3 + c3;
+	t0 = t0 * x0 + c0, t1 = t1 * x1 + c1, t2 = t2 * x2 + c2, t3 = t3 * x3 + c3;
+	t0 = t0 * x0 + c0, t1 = t1 * x1 + c1, t2 = t2 * x2 + c2, t3 = t3 * x3 + c3;
+	t0 = t0 * x0 + c0, t1 = t1 * x1 + c1, t2 = t2 * x2 + c2, t3 = t3 * x3 + c3;
+	t0 = t0 * x0 + c0, t1 = t1 * x1 + c1, t2 = t2 * x2 + c2, t3 = t3 * x3 + c3;
+	t0 = t0 * x0 + c0, t1 = t1 * x1 + c1, t2 = t2 * x2 + c2, t3 = t3 * x3 + c3;
+	t0 = t0 * x0 + c0, t1 = t1 * x1 + c1, t2 = t2 * x2 + c2, t3 = t3 * x3 + c3;
+	slp_id[b + 0] = (int)t0, slp_id[b + 1] = (int)t1, slp_id[b + 2] = (int)t2, slp_id[b + 3] = (int)t3;
+}
+
+// same shape in f32
+static void slp_poly_f32(int b) {
+	float x0 = slp_fa[b + 0], x1 = slp_fa[b + 1], x2 = slp_fa[b + 2], x3 = slp_fa[b + 3];
+	float c0 = slp_fb[b + 0], c1 = slp_fb[b + 1], c2 = slp_fb[b + 2], c3 = slp_fb[b + 3];
+	float t0 = x0 * x0 + c0, t1 = x1 * x1 + c1, t2 = x2 * x2 + c2, t3 = x3 * x3 + c3;
+	t0 = t0 * x0 + c0, t1 = t1 * x1 + c1, t2 = t2 * x2 + c2, t3 = t3 * x3 + c3;
+	t0 = t0 * x0 + c0, t1 = t1 * x1 + c1, t2 = t2 * x2 + c2, t3 = t3 * x3 + c3;
+	t0 = t0 * x0 + c0, t1 = t1 * x1 + c1, t2 = t2 * x2 + c2, t3 = t3 * x3 + c3;
+	slp_fd[b + 0] = t0, slp_fd[b + 1] = t1, slp_fd[b + 2] = t2, slp_fd[b + 3] = t3;
+}
+
+static u64 bench_slp(void) {
+	u64 h = MIX_INIT;
+	int r, base, i;
+	slp_seed();
+	for(r = 0; r < 1200; r++) {
+		for(base = 0; base + 4 <= SLP_N; base += 4)
+			slp_int_block(base);
+		for(base = 0; base + 4 <= SLP_N; base += 4)
+			slp_f32_block(base);
+		for(base = 0; base + 2 <= SLP_N; base += 2)
+			slp_f64_block(base);
+		for(base = 0; base + 4 <= SLP_N; base += 4)
+			slp_poly_i32(base);
+		for(base = 0; base + 4 <= SLP_N; base += 4)
+			slp_poly_f32(base);
+		slp_ia[r & (SLP_N - 1)] += r; // perturb to defeat cross-rep CSE
+		slp_fa[r & (SLP_N - 1)] += 1.0f;
+	}
+	for(i = 0; i < SLP_N; i++) {
+		union { float f; u32 u; } cf;
+		union { double d; u64 u; } cd;
+		h = mix(h, (u64)(u32)slp_ic[i]);
+		h = mix(h, (u64)(u32)slp_id[i]);
+		cf.f = slp_fc[i];
+		h = mix(h, cf.u);
+		cf.f = slp_fd[i];
+		h = mix(h, cf.u);
+		cd.d = slp_dc[i];
+		h = mix(h, cd.u);
+	}
+	return h;
+}
+
 // main
 int main(int argc, char** argv) {
 	double t_start;
@@ -1793,6 +1895,7 @@ int main(int argc, char** argv) {
 	RUN_BENCH("crypto", bench_crypto, 4739965426335321030ULL);
 	RUN_BENCH("structs", bench_structs, 10736977436314801556ULL);
 	RUN_BENCH("vm", bench_vm, 94378618424775681ULL);
+	RUN_BENCH("slp", bench_slp, 7067456218911535739ULL);
 
 	printf("total: %.2f s%s\n", (now_ms() - t_start) / 1000.0,
 			g_failed ? "  [CHECKSUM FAILURES]" : "");
