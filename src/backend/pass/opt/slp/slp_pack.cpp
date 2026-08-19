@@ -1,4 +1,4 @@
-#include "pass/opt/slp_pack.h"
+#include "pass/opt/slp/slp_pack.h"
 
 #include "ir/function.h"
 #include "ir/module.h"

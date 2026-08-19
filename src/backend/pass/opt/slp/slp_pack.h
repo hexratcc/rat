@@ -4,7 +4,7 @@
 #include "core.h"
 
 #include "ir/opcode.h"
-#include "pass/opt/slp_util.h"
+#include "pass/opt/slp/slp_util.h"
 #include "pass/pass.h"
 
 namespace rat {
