@@ -21,8 +21,19 @@ WT = WORK / "wt"
 LOGS = WORK / "logs"
 BENCH = "src/compiler/bench/bench.c"
 
-GCC = os.environ.get("PERF_GCC", "gcc")
-CLANG = os.environ.get("PERF_CLANG", "clang")
+def resolve(name):
+    hit = shutil.which(name)
+    if hit:
+        return hit
+    for d in ("/run/current-system/sw/bin", "/usr/local/bin", "/usr/bin"):
+        cand = Path(d) / name
+        if os.access(cand, os.X_OK):
+            return str(cand)
+    return name
+
+
+GCC = resolve(os.environ.get("PERF_GCC", "gcc"))
+CLANG = resolve(os.environ.get("PERF_CLANG", "clang"))
 HOSTCC = os.environ.get("HOSTCC", "cc")
 RUNS = 10
 BUILD_PIN = ["taskset", "-c", os.environ["PERF_CPUS"]] if os.environ.get("PERF_CPUS") else []
