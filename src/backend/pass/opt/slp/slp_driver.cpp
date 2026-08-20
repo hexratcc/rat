@@ -242,11 +242,29 @@ namespace rat {
 		return true;
 	}
 
-	B32 SlpPackPass::Slp::storeKey(StoreNode* s, RefinedAddr& out) const {
+	const String& SlpPackPass::Slp::storeSig(StoreNode* s) {
+		auto it = sigCache.find(s);
+		if(it != sigCache.end())
+			return it->second;
+		RefinedAddr k;
+		String sig;
+		if(storeKey(s, k))
+			sig = groupSig(k);
+		return sigCache.emplace(s, std::move(sig)).first->second;
+	}
+
+	B32 SlpPackPass::Slp::storeKey(StoreNode* s, RefinedAddr& out) {
+		auto it = keyCache.find(s);
+		if(it != keyCache.end()) {
+			out = it->second;
+			return out.valid();
+		}
+		RefinedAddr k;
 		U32 sz = aa.getAccessSize(s);
-		if(!sz)
-			return false;
-		out = refineAddr(s->getPointer(), sz);
+		if(sz)
+			k = refineAddr(s->getPointer(), sz);
+		keyCache.emplace(s, k);
+		out = k;
 		return out.valid();
 	}
 
@@ -261,7 +279,7 @@ namespace rat {
 				RefinedAddr ks;
 				if(!storeKey(s, ks))
 					continue;
-				String sig = groupSig(ks);
+				const String& sig = storeSig(s);
 				U32 hops = 0;
 				while(hops++ < 16) {
 					StoreNode* p = dyn_cast<StoreNode>(s->getMemory());
@@ -270,7 +288,7 @@ namespace rat {
 					RefinedAddr kp;
 					if(!storeKey(p, kp))
 						break;
-					String psig = groupSig(kp);
+					const String& psig = storeSig(p);
 					if(sig >= psig)
 						break; // same group, or already canonically ordered
 					if(!provablyDisjoint(aa, s->getPointer(), ks, ks.size, p->getPointer(), kp, kp.size))
