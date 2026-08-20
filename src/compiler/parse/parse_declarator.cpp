@@ -70,7 +70,9 @@ namespace rat::cc {
 	}
 
 	B32 Parser::looksLikeFuncPtr() {
-		return peek().kind == TokKind::LParen && peek2().kind == TokKind::Star;
+		if(peek().kind != TokKind::LParen)
+			return false;
+		return peek2().kind == TokKind::Star || peek2().kind == TokKind::KwNoinline;
 	}
 
 	void Parser::adjustParamType(CType& t, const Expr** vlaBound) {
@@ -149,6 +151,8 @@ namespace rat::cc {
 			return false;
 		const Token& n = peek2();
 		if(n.kind == TokKind::Star || n.kind == TokKind::LParen || n.kind == TokKind::LBracket)
+			return true;
+		if(n.kind == TokKind::KwNoinline)
 			return true;
 		if(n.kind == TokKind::Identifier)
 			return !startsType(n);

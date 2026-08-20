@@ -26,10 +26,11 @@ namespace rat::cc {
 		// grammar
 		void parsePointers(CType& t);
 		B32 parseTypeSpec(CType& out);
-		void setStorage(B32 isStatic, B32 isExtern, B32 isInline) {
+		void setStorage(B32 isStatic, B32 isExtern, B32 isInline, B32 isNoInline) {
 			sawStatic = isStatic;
 			sawExtern = isExtern;
 			sawInline = isInline;
+			sawNoinline = isNoInline;
 		}
 		FuncDef* parseFunctionRest(CType ret,
 															 const Token& nameTok,
@@ -140,6 +141,7 @@ namespace rat::cc {
 		B32 sawStatic = false;
 		B32 sawExtern = false;
 		B32 sawInline = false;
+		B32 sawNoinline = false;
 		String errMsg;
 		String curFuncName;
 		Map<String, I64> enumConstants;

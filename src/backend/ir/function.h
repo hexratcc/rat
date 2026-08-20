@@ -33,6 +33,9 @@ namespace rat {
 		B32 isVariadic() const;
 		void setVariadic(B32 v);
 
+		B32 isNoInline() const { return noInline; }
+		void setNoInline(B32 v) { noInline = v; }
+
 		// symbol linkage
 		enum class Linkage { External, Internal };
 		Linkage getLinkage() const { return linkage; }
@@ -196,6 +199,7 @@ namespace rat {
 		List<Type*> paramTypes;
 		Type* retType; // null for a void function
 		B32 variadic = false;
+		B32 noInline = false;
 		Linkage linkage = Linkage::External;
 
 		Arena arena;

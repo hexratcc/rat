@@ -9,6 +9,7 @@ namespace rat::cc {
 			case TokKind::KwConst:
 			case TokKind::KwVolatile:
 			case TokKind::KwRestrict:
+			case TokKind::KwNoinline:
 				return true;
 			default:
 				return false;
@@ -112,10 +113,12 @@ namespace rat::cc {
 		B32 isExtern = false;
 		B32 isInline = false;
 		B32 isConst = false;
+		B32 isNoInline = false;
 		I32 storageCount = 0;
 		sawStatic = false;
 		sawExtern = false;
 		sawInline = false;
+		sawNoinline = false;
 		auto applyQualStorage = [&](TokKind sk) {
 			if(sk == TokKind::KwStatic)
 				isStatic = true;
@@ -125,6 +128,8 @@ namespace rat::cc {
 				isInline = true;
 			if(sk == TokKind::KwConst)
 				isConst = true;
+			if(sk == TokKind::KwNoinline)
+				isNoInline = true;
 			if(sk == TokKind::KwStatic || sk == TokKind::KwExtern || sk == TokKind::KwAuto ||
 				 sk == TokKind::KwRegister)
 				++storageCount;
@@ -134,9 +139,14 @@ namespace rat::cc {
 			advance();
 		}
 		auto finishSpec = [&] {
+			// an attribute marker may trail the spec
+			while(peek().kind == TokKind::KwNoinline) {
+				isNoInline = true;
+				advance();
+			}
 			if(isConst)
 				out.quals |= 1u;
-			setStorage(isStatic, isExtern, isInline);
+			setStorage(isStatic, isExtern, isInline, isNoInline);
 		};
 		if(storageCount > 1) {
 			fail(peek(), "more than one storage-class specifier");
@@ -244,7 +254,7 @@ namespace rat::cc {
 		if(isConst)
 			t.quals |= 1u;
 		out = t;
-		setStorage(isStatic, isExtern, isInline);
+		setStorage(isStatic, isExtern, isInline, isNoInline);
 		return true;
 	}
 } // namespace rat::cc

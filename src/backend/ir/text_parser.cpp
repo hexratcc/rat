@@ -290,6 +290,12 @@ namespace rat {
 			String paramsStr = header.substr(lp + 1, rp - lp - 1);
 			String retStr = trim(header.substr(arrow + 2, brace - (arrow + 2)));
 
+			B32 noInline = false;
+			if(retStr.size() > 9 && retStr.substr(retStr.size() - 9) == " noinline") {
+				noInline = true;
+				retStr = trim(retStr.substr(0, retStr.size() - 9));
+			}
+
 			List<Type*> params;
 			if(!parseTypeList(paramsStr, params))
 				return false;
@@ -302,6 +308,7 @@ namespace rat {
 			}
 
 			Function* fn = mod.createFunction(name, params, ret);
+			fn->setNoInline(noInline);
 
 			List<ParsedNode> parsed;
 			String line;

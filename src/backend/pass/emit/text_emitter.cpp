@@ -100,6 +100,8 @@ namespace rat {
 			fn.getReturnType()->print(*os);
 		else
 			*os << "void";
+		if(fn.isNoInline())
+			*os << " noinline";
 		*os << " {\n";
 
 		for(const Node* node : fn) {

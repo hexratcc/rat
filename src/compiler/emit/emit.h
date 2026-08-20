@@ -204,6 +204,7 @@ namespace rat::cc {
 			List<CType> params;
 			B32 isVarArgs = false;
 			B32 unprototyped = false;
+			B32 noInline = false;
 		};
 
 		struct Callee {

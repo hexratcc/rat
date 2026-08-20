@@ -403,11 +403,17 @@ namespace rat::cc {
 			sig.ret = def->retType;
 			sig.isVarArgs = def->isVarArgs;
 			sig.unprototyped = def->unprototyped;
+			sig.noInline = def->isNoInline;
 			for(const Param& p : def->params)
 				sig.params.push_back(p.type);
 			auto prev = funcs.find(def->name);
-			if(prev != funcs.end() && def->unprototyped && !prev->second.unprototyped)
-				continue;
+			if(prev != funcs.end()) {
+				sig.noInline |= prev->second.noInline;
+				if(def->unprototyped && !prev->second.unprototyped) {
+					prev->second.noInline = sig.noInline;
+					continue;
+				}
+			}
 			funcs[def->name] = sig;
 		}
 
@@ -456,6 +462,7 @@ namespace rat::cc {
 																						 : irType(def->retType);
 		Function* fn = mod.createFunction(def->name, paramTypes, retTy);
 		fn->setVariadic(def->isVarArgs);
+		fn->setNoInline(def->isNoInline || funcs[def->name].noInline);
 		fn->setLinkage(def->isStatic ? Function::Linkage::Internal : Function::Linkage::External);
 
 		curRet = def->retType;
