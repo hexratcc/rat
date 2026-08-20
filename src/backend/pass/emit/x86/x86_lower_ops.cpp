@@ -297,6 +297,16 @@ namespace rat {
 		}
 		VReg lhs = gpValue(ln);
 		VReg rhs = gpValue(rn);
+		if(mop == X86Op::Add) {
+			// 3-address lea
+			inst(X86Op::Lea,
+					 detail::kGp,
+					 {MachineOperand::vr(d)},
+					 {MachineOperand::vr(lhs), MachineOperand::vr(rhs)},
+					 0,
+					 0);
+			return;
+		}
 		twoAddr(mop, d, lhs, rhs);
 	}
 
