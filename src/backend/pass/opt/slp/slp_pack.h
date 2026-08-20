@@ -151,6 +151,7 @@ namespace rat {
 														Map<const Node*, Node*>& storeBase,
 														Map<const Node*, Map<const Node*, Node*>>& skipMemo);
 			void normalizeStoreChains();
+			void sortDisjointRuns();
 			B32 storeKey(StoreNode* s, RefinedAddr& out);
 			const String& storeSig(StoreNode* s); // cached groupSig of a store's address
 			B32 trySwapAdjacentStores(StoreNode* s, StoreNode* p);

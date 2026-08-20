@@ -301,6 +301,78 @@ namespace rat {
 		}
 	}
 
+	static B32 byStoreOffset(const Pair<I64, StoreNode*>& a, const Pair<I64, StoreNode*>& b) {
+		return a.first < b.first;
+	}
+
+	// reorder a maximal same-group, same-control, observer-free store run into byte-offset order
+	void SlpPackPass::Slp::sortDisjointRuns() {
+		for(Node* n : fn) {
+			StoreNode* h = dyn_cast<StoreNode>(n);
+			if(!h)
+				continue;
+			RefinedAddr kh;
+			if(!storeKey(h, kh))
+				continue;
+			const String& sig = storeSig(h);
+			StoreNode* pred = dyn_cast<StoreNode>(h->getMemory());
+			if(pred && pred->getControl() == h->getControl() && storeSig(pred) == sig && !sig.empty())
+				continue; // not a run head
+			List<StoreNode*> run;
+			List<RefinedAddr> keys;
+			StoreNode* cur = h;
+			RefinedAddr kc = kh;
+			while(true) {
+				run.push_back(cur);
+				keys.push_back(kc);
+				List<LoadNode*> obs;
+				StoreNode* nx = soleChainSuccessor(cur, obs);
+				if(!obs.empty() || !nx || nx->getControl() != cur->getControl())
+					break;
+				RefinedAddr kn;
+				if(storeSig(nx) != sig || !storeKey(nx, kn))
+					break;
+				cur = nx;
+				kc = kn;
+			}
+			if(run.size() < 3)
+				continue;
+			StoreNode* tail = run.back();
+			if(tail->getUsers().size() != 1)
+				continue; // tail must have a single memory successor for the rewire to be sound
+			B32 sorted = true;
+			for(U32 i = 1; i < run.size(); ++i)
+				if(keys[i].constant < keys[i - 1].constant)
+					sorted = false;
+			if(sorted)
+				continue;
+			B32 disjoint = true;
+			for(U32 i = 0; i < run.size() && disjoint; ++i)
+				for(U32 j = i + 1; j < run.size(); ++j)
+					if(!provablyDisjoint(aa,
+															 run[i]->getPointer(),
+															 keys[i],
+															 keys[i].size,
+															 run[j]->getPointer(),
+															 keys[j],
+															 keys[j].size)) {
+						disjoint = false;
+						break;
+					}
+			if(!disjoint)
+				continue;
+			List<Pair<I64, StoreNode*>> ord;
+			for(U32 i = 0; i < run.size(); ++i)
+				ord.push_back({keys[i].constant, run[i]});
+			std::sort(ord.begin(), ord.end(), byStoreOffset);
+			Node* after = tail->getUsers()[0];
+			Node* mIn = run[0]->getMemory();
+			for(U32 i = 0; i < ord.size(); ++i)
+				ord[i].second->setInput(1, i == 0 ? mIn : (Node*)ord[i - 1].second);
+			rewriteInput(after, tail, ord.back().second);
+		}
+	}
+
 	// control edge is the cold (scalar fallback) arm of an earlier guard
 	static B32 isElseProj(const Node* c) {
 		const ProjNode* p = dyn_cast<ProjNode>(c);
@@ -353,6 +425,7 @@ namespace rat {
 	U32 SlpPackPass::Slp::run() {
 		normalizeLoadEdges();
 		normalizeStoreChains();
+		sortDisjointRuns();
 		Map<Node*, StoreInfo> cand = collectCandidates();
 		U32 changed = 0;
 		if(!cand.empty()) {
