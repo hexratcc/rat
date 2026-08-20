@@ -510,7 +510,9 @@ namespace rat {
 		}
 	}
 
-	I32 Schedule::blockOf(const Node* n) const { return n ? detail::idGet(nodeBlock, n->getId()) : -1; }
+	I32 Schedule::blockOf(const Node* n) const {
+		return n ? detail::idGet(nodeBlock, n->getId()) : -1;
+	}
 
 	void Schedule::buildBlockLists() {
 		for(Node* n : fn)
@@ -544,6 +546,43 @@ namespace rat {
 		return nullptr;
 	}
 
+	namespace {
+		// peel one Add(base, intconst) -> (base, byteOffset), otherwise (ptr, 0)
+		Node* addrBaseOff(Node* p, I64& off) {
+			off = 0;
+			if(BinaryNode* b = dyn_cast<BinaryNode>(p)) {
+				if(b->getOpcode() == Opcode::Add) {
+					if(ConstantNode* c = dyn_cast<ConstantNode>(b->getRHS())) {
+						off = c->getValue();
+						return b->getLHS();
+					}
+					if(ConstantNode* c = dyn_cast<ConstantNode>(b->getLHS())) {
+						off = c->getValue();
+						return b->getRHS();
+					}
+				}
+			}
+			return p;
+		}
+
+		B32 storeMayAliasLoad(const StoreNode* st, const LoadNode* ld) {
+			I64 so = 0, lo = 0;
+			Node* sb = addrBaseOff(st->getPointer(), so);
+			Node* lb = addrBaseOff(ld->getPointer(), lo);
+			if(sb != lb)
+				return true; // different or unknown base
+			Type* valTy = st->getValue() ? st->getValue()->getType() : nullptr;
+			Type* ldTy = ld->getType();
+			if(!valTy || !ldTy)
+				return true;
+			U32 ssz = valTy->byteSize(8),
+					lsz = ldTy->byteSize(8); // x86-64 ptr size; irrelevant to int/vec sizes
+			if(!ssz || !lsz)
+				return true;
+			return !(so + (I64)ssz <= lo || lo + (I64)lsz <= so);
+		}
+	} // namespace
+
 	List<Node*> Schedule::topoOrder(List<Node*>& nodes, TopoScratch& s) const {
 		U32 k = (U32)nodes.size();
 		List<Node*> out;
@@ -554,7 +593,9 @@ namespace rat {
 		for(U32 i = 0; i < k; ++i)
 			detail::idSet(s.localOf, nodes[i]->getId(), (I32)i);
 
-		auto local = [&](const Node* n) -> I32 { return n ? detail::idGet(s.localOf, n->getId()) : -1; };
+		auto local = [&](const Node* n) -> I32 {
+			return n ? detail::idGet(s.localOf, n->getId()) : -1;
+		};
 
 		s.inDeg.assign(k, 0);
 		s.succHead.assign(k, -1);
@@ -590,19 +631,34 @@ namespace rat {
 			++s.inDeg[ai];
 		};
 
-		auto addAntiDep = [&](Node* writer) {
-			Node* m = memoryInputOf(writer);
+		// WAR anti-deps. a store/call totally orders the block's memory
+		for(U32 i = 0; i < k; ++i) {
+			Node* n = nodes[i];
+			if(!isa<StoreNode>(n) && !isa<CallNode>(n))
+				continue;
+			Node* m = memoryInputOf(n);
 			if(!m)
-				return;
-			for(I32 li = detail::idGet(s.memHead, m->getId()); li >= 0; li = s.memNext[li]) {
-				Node* ld = nodes[li];
-				if(ld != writer)
-					addEdge(ld, writer);
+				continue;
+			if(detail::idGet(s.stHead, m->getId()) < 0)
+				s.touchedSt.push_back((I32)m->getId());
+			detail::idSet(s.stHead, m->getId(), (I32)i);
+		}
+		for(U32 i = 0; i < k; ++i) {
+			LoadNode* ld = dyn_cast<LoadNode>(nodes[i]);
+			if(!ld)
+				continue;
+			Node* state = ld->getMemory();
+			U32 guard = 0; // chain length bound; conservatively pin if exceeded
+			for(I32 wi = state ? detail::idGet(s.stHead, state->getId()) : -1; wi >= 0; ++guard) {
+				Node* w = nodes[wi];
+				StoreNode* st = dyn_cast<StoreNode>(w);
+				if(!st || storeMayAliasLoad(st, ld) || guard >= k) {
+					addEdge(ld, w); // call, aliasing store, or bound hit -> pin here
+					break;
+				}
+				wi = detail::idGet(s.stHead, w->getId()); // skip disjoint store, walk to next writer
 			}
-		};
-		for(Node* n : nodes)
-			if(isa<StoreNode>(n) || isa<CallNode>(n))
-				addAntiDep(n);
+		}
 
 		auto producerOfMem = [&](Node* m) -> Node* {
 			if(!m)
@@ -666,6 +722,9 @@ namespace rat {
 		for(I32 mid : s.touchedMem)
 			s.memHead[mid] = -1;
 		s.touchedMem.clear();
+		for(I32 sid : s.touchedSt)
+			s.stHead[sid] = -1;
+		s.touchedSt.clear();
 
 		assert(out.size() == nodes.size() && "cycle in intra-block schedule");
 		return out;
