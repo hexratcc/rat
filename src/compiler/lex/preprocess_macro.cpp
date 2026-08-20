@@ -387,6 +387,21 @@ namespace rat::cc {
 				List<List<PpToken>> actuals;
 				if(!mapArgs(m, raw, actuals))
 					return os;
+				// the builtin __attribute__ erases its list, but noinline survives as a
+				// marker keyword so the parser can honor it
+				if(t.text == idAttr || t.text == idAttr2) {
+					B32 noinl = false;
+					for(const List<PpToken>& arg : raw)
+						for(const PpToken& w : arg)
+							if(w.kind == Pk::Id && (w.text == idNoinline || w.text == idNoinline2))
+								noinl = true;
+					if(noinl) {
+						PpToken n = t;
+						n.text = idNoinlineMark;
+						os.push_back(n);
+					}
+					continue;
+				}
 				List<const String*> formals = m.params;
 				if(m.variadic)
 					formals.push_back(m.vaName);

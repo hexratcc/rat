@@ -179,6 +179,9 @@ namespace rat::cc {
 		if(!expect(TokKind::RParen, "')'"))
 			return nullptr;
 
+		while(accept(TokKind::KwNoinline))
+			fn->isNoInline = true;
+
 		if(accept(TokKind::Semicolon))
 			return fn;
 
@@ -381,6 +384,7 @@ namespace rat::cc {
 			B32 gExtern = sawExtern;
 			B32 gExternInline = sawExtern && sawInline;
 			B32 gStatic = sawStatic;
+			B32 gNoinline = sawNoinline;
 			CType first = base;
 			parsePointers(first);
 			if(first.ptr == 0 && peek().kind == TokKind::Semicolon) {
@@ -400,6 +404,7 @@ namespace rat::cc {
 					fn->retType = fpt.func->ret;
 					fn->isVarArgs = fpt.func->isVarArgs;
 					fn->isStatic = gStatic;
+					fn->isNoInline = gNoinline;
 					fn->offset = start.offset;
 					for(U32 i = 0; i < fpt.func->params.size(); ++i) {
 						Param p;
@@ -446,6 +451,7 @@ namespace rat::cc {
 					return nullptr;
 				fn->isExternInline = gExternInline;
 				fn->isStatic = gStatic;
+				fn->isNoInline |= gNoinline;
 				if(!registerFuncDef(fn))
 					return nullptr;
 				unit->functions.push_back(fn);

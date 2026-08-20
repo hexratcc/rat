@@ -15,7 +15,7 @@ namespace rat::cc {
 				"register", "restrict", "return", "short", "signed", "sizeof", "static", "struct",
 				"switch", "typedef", "union", "unsigned", "void", "volatile", "while", "_Bool",
 				"_Complex", "_Imaginary", "_Generic", "_Static_assert", "__real__", "__imag__",
-				"typeof",
+				"typeof", "__rat_noinline__",
 				// punctuation
 				"(", ")", "{", "}", "[", "]", ";", ",", ".", "->", "...", "+", "-", "*", "/", "%",
 				"++", "--", "&", "|", "^", "~", "!", "&&", "||", "<", ">", "<=", ">=", "==", "!=",
@@ -74,7 +74,7 @@ namespace rat::cc {
 		}
 
 		TokKind keywordKind(const char* s, U32 n) {
-			for(U32 k = (U32)TokKind::KwAuto; k <= (U32)TokKind::KwTypeof; ++k)
+			for(U32 k = (U32)TokKind::KwAuto; k <= (U32)TokKind::KwNoinline; ++k)
 				if(spellingIs(kTokNames[k], s, n))
 					return (TokKind)k;
 			if(spellingIs("__typeof", s, n) || spellingIs("__typeof__", s, n))

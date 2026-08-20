@@ -410,6 +410,7 @@ namespace rat::cc {
 		B32 unprototyped = false;
 		B32 isExternInline = false;
 		B32 isStatic = false;
+		B32 isNoInline = false;
 		Stmt* body = nullptr; // compound statement
 		U32 offset = 0;
 	};
