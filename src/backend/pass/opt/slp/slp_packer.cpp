@@ -30,12 +30,14 @@ namespace rat {
 																			 const RefinedAddr* windowKey,
 																			 const Map<const Node*, List<I64>>* interWritten,
 																			 const Set<const Node*>* observers,
-																			 Map<String, Pair<Node*, I64>>* addrAnchors) {
+																			 Map<String, Pair<Node*, I64>>* addrAnchors,
+																			 B32 storeWindow) {
 		this->memIn = memIn;
 		this->windowKey = windowKey;
 		this->interWritten = interWritten;
 		this->observers = observers;
 		this->addrAnchors = addrAnchors;
+		this->storeWindow = storeWindow;
 	}
 
 	void SlpPackPass::Packer::addGuard(const RefinedAddr& k, Node* lane0Ptr, U32 bytes) {
@@ -237,6 +239,17 @@ namespace rat {
 		}
 		if(!adjacent && !equal)
 			return nullptr;
+
+		// A same-group load range that straddles the store window without matching it exactly is a store-forward trap
+		if(windowKey && storeWindow && !equal && k0.sameGroup(*windowKey)) {
+			I64 sLo = windowKey->constant, sHi = sLo + (I64)(w * esz);
+			I64 lLo = k0.constant, lHi = lLo + (I64)(w * esz);
+			if(lLo != sLo && lLo < sHi && sLo < lHi) {
+				++st.rejectedOverlap;
+				hardFail = true;
+				return nullptr;
+			}
+		}
 
 		// all lanes read one pre-window state: a single wide load (or splat)
 		if(sharedState && !interWritten->count(first->getMemory()))

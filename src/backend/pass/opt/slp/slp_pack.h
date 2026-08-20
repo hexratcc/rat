@@ -25,6 +25,7 @@ namespace rat {
 		U32 rejectedTree = 0;		 // vector recomputation failed to build
 		U32 rejectedProfit = 0;	 // cost model said no
 		U32 rejectedGuarded = 0; // guarded gates (budget/escape/contamination)
+		U32 rejectedOverlap = 0; // load range straddles the store window (store-forward trap)
 		U32 packSplat = 0;
 		U32 packConst = 0;
 		U32 packWideLoad = 0;
@@ -76,6 +77,7 @@ namespace rat {
 
 			// window context
 			Node* memIn = nullptr;
+			B32 storeWindow = true; // windowKey is a real store window (false for reductions)
 			const RefinedAddr* windowKey = nullptr;
 			const Map<const Node*, List<I64>>* interWritten = nullptr;
 			const Set<const Node*>* observers = nullptr;
@@ -111,7 +113,8 @@ namespace rat {
 											const RefinedAddr* windowKey,
 											const Map<const Node*, List<I64>>* interWritten,
 											const Set<const Node*>* observers,
-											Map<String, Pair<Node*, I64>>* addrAnchors);
+											Map<String, Pair<Node*, I64>>* addrAnchors,
+											B32 storeWindow = true);
 			Node* anchorPtr(Node* ptr, const RefinedAddr& k);
 			void coalesceSplats();
 			B32 coneTouchesObserver(const Node* n) const;
