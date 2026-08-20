@@ -277,7 +277,11 @@ def main(argv):
             print(f"clang -O1 reference: {ms} ms")
             record(cache, "clang", "-", bench, ms)
         else:
-            print(f"clang -O1 reference: unavailable, skipping ({out / 'clang.log'})")
+            # report the stage that failed while its log still exists (the commit loop wipes out/ below)
+            blog, rlog = out / "clang.log", out / "clang.run"
+            stage = (f"build: {log_tail(blog)}" if blog.exists() and blog.stat().st_size
+                     else f"run: {log_tail(rlog)}")
+            print(f"clang -O1 reference: unavailable ({stage})")
 
     for commit in commits:
         if ("rat", commit, bench) in cache:

@@ -45,9 +45,9 @@ namespace rat {
 								<< ", guarded " << s.packedGuarded << " in " << s.guardedRuns << " runs, "
 								<< s.guardPairs << " checks)"
 								<< " reductions " << s.packedReduction << " rejected "
-								<< (s.rejectedTree + s.rejectedProfit + s.rejectedGuarded) << " (tree "
-								<< s.rejectedTree << ", profit " << s.rejectedProfit << ", guard "
-								<< s.rejectedGuarded << ")\n"
+								<< (s.rejectedTree + s.rejectedProfit + s.rejectedGuarded + s.rejectedOverlap)
+								<< " (tree " << s.rejectedTree << ", profit " << s.rejectedProfit << ", guard "
+								<< s.rejectedGuarded << ", overlap " << s.rejectedOverlap << ")\n"
 								<< "slp[" << module.getName() << "]: nodes: wload " << s.packWideLoad << " vbin "
 								<< s.packBinary << " splat " << s.packSplat << " (grouped " << s.splatGrouped
 								<< ") const " << s.packConst << " frontier " << s.packFrontier << " | orient-swaps "
