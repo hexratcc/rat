@@ -163,6 +163,18 @@ namespace rat {
 		else
 			elseP = fn.create<RegionNode>(ctrlTy, fails);
 
+		// sink the speculated wide loads into the then-arm
+		for(U32 k = 0; k < n; ++k) {
+			List<const Node*> cone;
+			if(!dataCone(vecs[k], 128, cone))
+				continue;
+			for(const Node* c : cone) {
+				LoadNode* ld = dyn_cast<LoadNode>(const_cast<Node*>(c));
+				if(ld && ld->getControl() == w0.ctrl)
+					ld->setInput(0, thenP);
+			}
+		}
+
 		// wide stores chain down the then-arm
 		Node* prevMem = memIn;
 		Set<const Node*> wideStores;
