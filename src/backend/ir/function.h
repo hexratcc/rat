@@ -148,14 +148,17 @@ namespace rat {
 
 		struct NodeIterator {
 			List<Node*>::const_iterator it;
-			Node* operator*() const;
-			NodeIterator& operator++();
-			B32 operator!=(const NodeIterator& other) const;
+			Node* operator*() const { return *it; }
+			NodeIterator& operator++() {
+				++it;
+				return *this;
+			}
+			B32 operator!=(const NodeIterator& other) const { return it != other.it; }
 		};
 
-		NodeIterator begin() const;
-		NodeIterator end() const;
-		U32 size() const;
+		NodeIterator begin() const { return {nodes.begin()}; }
+		NodeIterator end() const { return {nodes.end()}; }
+		U32 size() const { return (U32)nodes.size(); }
 		U32 idBound() const { return nextId; }
 		B32 hasReturn() const;
 

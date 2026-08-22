@@ -40,17 +40,17 @@ namespace rat {
 		Node(const Node&) = delete;
 		Node& operator=(const Node&) = delete;
 
-		Opcode getOpcode() const;
+		Opcode getOpcode() const { return op; }
 		const C8* getMnemonic() const;
-		Type* getType() const;
-		U32 getId() const;
-		Function& getFunction() const;
+		Type* getType() const { return ty; }
+		U32 getId() const { return id; }
+		Function& getFunction() const { return *fn; }
 
-		U32 getInputCount() const;
-		Node* getInput(U32 index) const;
+		U32 getInputCount() const { return inputCount; }
+		Node* getInput(U32 index) const { return inputs[index]; }
 
-		NodeSpan getUsers() const;
-		B32 hasUsers() const;
+		NodeSpan getUsers() const { return NodeSpan{users, userCount}; }
+		B32 hasUsers() const { return userCount != 0; }
 
 		// all edge mutation keeps the users index consistent
 		void addInput(Node* value);

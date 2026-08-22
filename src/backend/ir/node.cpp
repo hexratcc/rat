@@ -19,17 +19,7 @@ namespace rat {
 		}
 	}
 
-	Opcode Node::getOpcode() const { return op; }
 	const C8* Node::getMnemonic() const { return getOpcodeMnemonic(op); }
-	Type* Node::getType() const { return ty; }
-	U32 Node::getId() const { return id; }
-	Function& Node::getFunction() const { return *fn; }
-
-	U32 Node::getInputCount() const { return inputCount; }
-	Node* Node::getInput(U32 index) const { return inputs[index]; }
-
-	NodeSpan Node::getUsers() const { return NodeSpan{users, userCount}; }
-	B32 Node::hasUsers() const { return userCount != 0; }
 
 	void Node::addUser(Node* user) {
 		if(userCount == userCap) {

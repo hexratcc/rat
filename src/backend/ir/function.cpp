@@ -400,17 +400,6 @@ namespace rat {
 
 	void Function::retVoid() { ret(nullptr); }
 
-	Node* Function::NodeIterator::operator*() const { return *it; }
-	Function::NodeIterator& Function::NodeIterator::operator++() {
-		++it;
-		return *this;
-	}
-	B32 Function::NodeIterator::operator!=(const NodeIterator& other) const { return it != other.it; }
-
-	Function::NodeIterator Function::begin() const { return {nodes.begin()}; }
-	Function::NodeIterator Function::end() const { return {nodes.end()}; }
-	U32 Function::size() const { return (U32)nodes.size(); }
-
 	B32 Function::hasReturn() const {
 		for(Node* n : *this)
 			if(isa<ReturnNode>(n))
