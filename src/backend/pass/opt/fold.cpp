@@ -669,12 +669,11 @@ namespace rat {
 
 	U32 FoldPass::runOnFunction(Function& fn, const TargetInfo&) {
 		U32 changed = 0;
-		List<Node*> work;
-		List<char> queued;
 		U32 fresh = 0;
 
+		work.clear();
 		work.reserve(fn.size());
-		queued.resize(fn.size(), 0);
+		queued.assign(fn.size(), 0);
 
 		auto push = [&](Node* n) {
 			if(!isArithmeticOpcode(n->getOpcode()))
@@ -694,7 +693,6 @@ namespace rat {
 			push(n);
 		}
 
-		List<Node*> stack;
 		auto pushFresh = [&](Node* root) {
 			stack.clear();
 			if(root->getId() >= fresh)

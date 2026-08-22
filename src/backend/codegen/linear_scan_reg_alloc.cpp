@@ -146,18 +146,23 @@ namespace rat {
 
 	U64 LinearScanRegAllocPass::forbidden(const Interval& iv) const {
 		U64 bad = 0;
+		// one exemption lookup per vreg; most vregs have no copy pins at all
+		auto vt = copyPinAt.find(iv.vreg);
+		const Map<I32, PhysReg>* exempt = vt == copyPinAt.end() ? nullptr : &vt->second;
 		for(const Seg& sg : iv.segs) {
 			auto lo = std::lower_bound(pinsByPoint.begin(),
 																 pinsByPoint.end(),
 																 sg.start,
 																 [](const auto& a, I32 pt) { return a.first < pt; });
-			for(auto it = lo; it != pinsByPoint.end() && it->first <= sg.end; ++it)
-				for(U64 m = it->second; m;) {
-					PhysReg p = (PhysReg)countTrailingZeros64(m);
-					m &= m - 1;
-					if(!pinExempt(iv.vreg, it->first, p))
-						bad |= (U64)1 << p;
+			for(auto it = lo; it != pinsByPoint.end() && it->first <= sg.end; ++it) {
+				U64 m = it->second;
+				if(exempt) {
+					auto pi = exempt->find(it->first);
+					if(pi != exempt->end())
+						m &= ~((U64)1 << pi->second);
 				}
+				bad |= m;
+			}
 		}
 		return bad;
 	}

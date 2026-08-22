@@ -75,6 +75,10 @@ namespace rat {
 		static B32 isAllOnesConst(Node* n, U32 w);
 		static I32 pow2Log(Node* n, U32 w);
 		static B32 matchVarConst(Node* n, Opcode want, Node*& base, I64& c);
+	private:
+		List<Node*> work;
+		List<char> queued;
+		List<Node*> stack;
 	};
 } // namespace rat
 
