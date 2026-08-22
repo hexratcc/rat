@@ -20,6 +20,8 @@ namespace rat {
 		B32 run(Module& module, const TargetInfo& target) override;
 	private:
 		void collectReferenced(Function& fn, Set<String>& referenced);
+	private:
+		Map<const Function*, Pair<U64, List<String>>> refCache;
 	};
 } // namespace rat
 

@@ -438,6 +438,7 @@ namespace rat {
 
 		if(dead.empty())
 			return 0;
+		touch();
 		nodes.erase(
 				std::remove_if(nodes.begin(), nodes.end(), [&](Node* n) { return dead.count(n) != 0; }),
 				nodes.end());
@@ -474,15 +475,21 @@ namespace rat {
 				++it;
 			}
 		}
+		if(removed)
+			touch();
 		return removed;
 	}
 
 	void Function::removeNode(Node* n) {
+		touch();
 		n->clearInputs();
 		auto it = std::find(nodes.begin(), nodes.end(), n);
 		if(it != nodes.end())
 			nodes.erase(it);
 	}
 
-	U32 Function::allocateId() { return nextId++; }
+	U32 Function::allocateId() {
+		touch();
+		return nextId++;
+	}
 } // namespace rat

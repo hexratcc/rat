@@ -8,8 +8,15 @@ namespace rat {
 
 	B32 FunctionPass::run(Module& module, const TargetInfo& target) {
 		U32 changed = 0;
-		for(Function* fn : module)
-			changed += runOnFunction(*fn, target);
+		for(Function* fn : module) {
+			B32 skippable = onlyReadsFunction();
+			if(skippable && fn->isCleanFor(this))
+				continue;
+			if(runOnFunction(*fn, target))
+				++changed;
+			else if(skippable)
+				fn->markCleanFor(this);
+		}
 		return changed != 0;
 	}
 } // namespace rat

@@ -47,6 +47,7 @@ namespace rat {
 	}
 
 	void Node::addInput(Node* value) {
+		fn->touch();
 		growInputs(inputCount + 1);
 		inputs[inputCount++] = value;
 		if(value)
@@ -66,6 +67,7 @@ namespace rat {
 		Node* old = inputs[index];
 		if(old == value)
 			return;
+		fn->touch();
 		if(old)
 			old->removeUser(this);
 		inputs[index] = value;
@@ -74,6 +76,7 @@ namespace rat {
 	}
 
 	void Node::removeInput(U32 index) {
+		fn->touch();
 		if(inputs[index])
 			inputs[index]->removeUser(this);
 		for(U32 i = index + 1; i < inputCount; ++i)
@@ -82,6 +85,8 @@ namespace rat {
 	}
 
 	void Node::clearInputs() {
+		if(inputCount)
+			fn->touch();
 		for(U32 i = 0; i < inputCount; ++i)
 			if(inputs[i])
 				inputs[i]->removeUser(this);
@@ -91,6 +96,8 @@ namespace rat {
 	void Node::replaceAllUsesWith(Node* value) {
 		if(value == this)
 			return;
+		if(userCount)
+			fn->touch();
 		for(U32 u = 0; u < userCount; ++u) {
 			Node* user = users[u];
 			for(U32 i = 0, e = user->inputCount; i < e; ++i)

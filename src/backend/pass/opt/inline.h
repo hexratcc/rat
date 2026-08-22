@@ -27,17 +27,17 @@ namespace rat {
 		const C8* name() const override;
 		B32 run(Module& module, const TargetInfo& target) override;
 		U32 runOnFunction(Function& caller, const TargetInfo& target) override;
+		B32 onlyReadsFunction() const override { return false; } // reads callees
 	private:
 		B32 isStartProj(const Function& callee, Node* n);
-
 		void buildCallGraph(Module& m);
 		void refreshCallees(Function& fn);
 		Function* lookup(const String& name) const;
 		B32 reachesIndex(U32 from, U32 target);
-
 		B32 isCyclic(Function* fn);
-
+	private:
 		Module* graphModule = nullptr;
+		Map<const Function*, U64> quietAt;
 		List<Function*> graphFuncs;
 		List<List<U32>> graphCallees;
 		Map<String, U32> graphByName;
