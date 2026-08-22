@@ -151,15 +151,26 @@ namespace rat {
 
 		struct NodeIterator {
 			List<Node*>::const_iterator it;
-			Node* operator*() const;
-			NodeIterator& operator++();
-			B32 operator!=(const NodeIterator& other) const;
+			Node* operator*() const { return *it; }
+			NodeIterator& operator++() {
+				++it;
+				return *this;
+			}
+			B32 operator!=(const NodeIterator& other) const { return it != other.it; }
 		};
 
-		NodeIterator begin() const;
-		NodeIterator end() const;
-		U32 size() const;
+		NodeIterator begin() const { return {nodes.begin()}; }
+		NodeIterator end() const { return {nodes.end()}; }
+		U32 size() const { return (U32)nodes.size(); }
 		U32 idBound() const { return nextId; }
+
+		U64 getVersion() const { return version; }
+		void touch() { ++version; }
+		B32 isCleanFor(const void* pass) const {
+			auto it = cleanAt.find(pass);
+			return it != cleanAt.end() && it->second == version;
+		}
+		void markCleanFor(const void* pass) { cleanAt[pass] = version; }
 		B32 hasReturn() const;
 
 		U32 eliminateDeadNodes(B32 includeControl = false);
@@ -205,6 +216,8 @@ namespace rat {
 		Arena arena;
 		List<Node*> nodes; // in creation order
 		U32 nextId = 0;
+		U64 version = 0;
+		Map<const void*, U64> cleanAt; // pass -> version it last found nothing to do
 
 		StartNode* start = nullptr;
 		StopNode* stop = nullptr;

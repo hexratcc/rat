@@ -24,19 +24,25 @@ namespace rat {
 			funcs.push_back(fn);
 		const U32 n = (U32)funcs.size();
 
-		List<List<String>> outgoing(n);
+		List<const List<String>*> outgoing(n);
 		Map<String, U32> refCount;
 		Map<String, List<U32>> byName;
 		Set<String> scratch;
 		for(U32 i = 0; i < n; ++i) {
-			scratch.clear();
-			collectReferenced(*funcs[i], scratch);
-			outgoing[i].reserve(scratch.size());
-			for(const String& s : scratch) {
-				outgoing[i].push_back(s);
-				++refCount[s];
+			Function* fn = funcs[i];
+			auto it = refCache.find(fn);
+			if(it == refCache.end() || it->second.first != fn->getVersion()) {
+				scratch.clear();
+				collectReferenced(*fn, scratch);
+				List<String> refs(scratch.begin(), scratch.end());
+				it = refCache
+								 .insert_or_assign(fn, Pair<U64, List<String>>{fn->getVersion(), std::move(refs)})
+								 .first;
 			}
-			byName[funcs[i]->getName()].push_back(i);
+			outgoing[i] = &it->second.second;
+			for(const String& s : *outgoing[i])
+				++refCount[s];
+			byName[fn->getName()].push_back(i);
 		}
 		for(const Global* g : module.globals())
 			for(const Reloc& r : g->getRelocs())
@@ -63,7 +69,7 @@ namespace rat {
 			module.removeFunction(funcs[i]);
 			changed = true;
 
-			for(const String& s : outgoing[i]) {
+			for(const String& s : *outgoing[i]) {
 				auto rc = refCount.find(s);
 				if(rc == refCount.end() || rc->second == 0 || --rc->second != 0)
 					continue;
@@ -74,6 +80,7 @@ namespace rat {
 					if(!removed[j] && funcs[j]->isInternal())
 						work.push_back(j);
 			}
+			refCache.erase(funcs[i]);
 		}
 		return changed;
 	}

@@ -53,22 +53,19 @@ namespace rat {
 	U32 GVNPass::runOnFunction(Function& fn, const TargetInfo&) {
 		U32 removed = 0;
 
-		struct Slot {
-			detail::GVNKey key;
-			Node* val = nullptr;
-		};
 		U32 cap = 16;
 		while(cap < fn.size() * 2)
 			cap <<= 1;
-		List<Slot> slots(cap);
+		if(slots.size() < cap)
+			slots.resize(cap);
 		const U32 mask = cap - 1;
 		detail::GVNKeyHash hasher;
 
 		B32 changed = true;
 		while(changed) {
 			changed = false;
-			for(Slot& s : slots)
-				s.val = nullptr;
+			for(U32 i = 0; i < cap; ++i)
+				slots[i].val = nullptr;
 			U32 filled = 0;
 			for(Node* n : fn) {
 				if(!GVNPass::isPureValue(n) || !n->hasUsers())

@@ -243,6 +243,13 @@ namespace rat {
 		if(graphModule != &m)
 			buildCallGraph(m);
 
+		U64 stamp = caller.getVersion();
+		if(auto gi = graphIndex.find(&caller); gi != graphIndex.end())
+			for(U32 j : graphCallees[gi->second])
+				stamp = stamp * 1099511628211ull + graphFuncs[j]->getVersion();
+		if(auto qa = quietAt.find(&caller); qa != quietAt.end() && qa->second == stamp)
+			return 0;
+
 		U32 count = 0;
 		U32 baseline = caller.size();
 
@@ -276,6 +283,8 @@ namespace rat {
 			caller.eliminateDeadNodes();
 			refreshCallees(caller);
 			cyclicCache.clear();
+		} else {
+			quietAt[&caller] = stamp;
 		}
 		return count;
 	}

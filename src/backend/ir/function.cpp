@@ -400,17 +400,6 @@ namespace rat {
 
 	void Function::retVoid() { ret(nullptr); }
 
-	Node* Function::NodeIterator::operator*() const { return *it; }
-	Function::NodeIterator& Function::NodeIterator::operator++() {
-		++it;
-		return *this;
-	}
-	B32 Function::NodeIterator::operator!=(const NodeIterator& other) const { return it != other.it; }
-
-	Function::NodeIterator Function::begin() const { return {nodes.begin()}; }
-	Function::NodeIterator Function::end() const { return {nodes.end()}; }
-	U32 Function::size() const { return (U32)nodes.size(); }
-
 	B32 Function::hasReturn() const {
 		for(Node* n : *this)
 			if(isa<ReturnNode>(n))
@@ -449,6 +438,7 @@ namespace rat {
 
 		if(dead.empty())
 			return 0;
+		touch();
 		nodes.erase(
 				std::remove_if(nodes.begin(), nodes.end(), [&](Node* n) { return dead.count(n) != 0; }),
 				nodes.end());
@@ -485,15 +475,21 @@ namespace rat {
 				++it;
 			}
 		}
+		if(removed)
+			touch();
 		return removed;
 	}
 
 	void Function::removeNode(Node* n) {
+		touch();
 		n->clearInputs();
 		auto it = std::find(nodes.begin(), nodes.end(), n);
 		if(it != nodes.end())
 			nodes.erase(it);
 	}
 
-	U32 Function::allocateId() { return nextId++; }
+	U32 Function::allocateId() {
+		touch();
+		return nextId++;
+	}
 } // namespace rat

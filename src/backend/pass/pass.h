@@ -21,6 +21,7 @@ namespace rat {
 		B32 run(Module& module, const TargetInfo& target) override;
 
 		virtual U32 runOnFunction(Function& fn, const TargetInfo& target) = 0;
+		virtual B32 onlyReadsFunction() const { return true; }
 	};
 
 	// post-lowering pass over machine state, the pass manager runs all IR passes first, then machine

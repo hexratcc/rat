@@ -8,6 +8,9 @@
 #include "lex/preprocess.h"
 #include "parse/parser.h"
 #include <chrono>
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
 
 #include "cli.h"
 #include "rat.h"
@@ -288,4 +291,12 @@ static I32 run(I32 argc, C8** argv) {
 	return 0;
 }
 
-I32 main(I32 argc, C8** argv) { return cli::guardedMain(::detail::kTool, run, argc, argv); }
+I32 main(I32 argc, C8** argv) {
+#ifdef __GLIBC__
+	// batch process: never return memory mid-run, keep big blocks off mmap
+	mallopt(M_TRIM_THRESHOLD, 1 << 29);
+	mallopt(M_MMAP_THRESHOLD, 1 << 29);
+	mallopt(M_TOP_PAD, 1 << 26);
+#endif
+	return cli::guardedMain(::detail::kTool, run, argc, argv);
+}

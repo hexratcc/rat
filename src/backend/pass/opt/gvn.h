@@ -57,6 +57,12 @@ namespace rat {
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
 		static B32 isPureValue(Node* n);
+	private:
+		struct Slot {
+			detail::GVNKey key;
+			Node* val = nullptr;
+		};
+		List<Slot> slots;
 	};
 } // namespace rat
 

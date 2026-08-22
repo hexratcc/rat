@@ -28,15 +28,13 @@ namespace rat {
 		return effectiveDef(aa, l->getMemory(), l->getPointer(), aa.getAccessSize(l));
 	}
 
-	U32 MemoryOptPass::forwardStores(const AliasAnalysis& aa,
-																	 const Map<LoadNode*, Node*>& defs,
-																	 const List<LoadNode*>& loads) {
+	U32 MemoryOptPass::forwardStores(const AliasAnalysis& aa) {
 		U32 removed = 0;
 		for(LoadNode* l : loads) {
 			if(!l->hasUsers())
 				continue;
 			U32 sz = aa.getAccessSize(l);
-			StoreNode* s = dyn_cast<StoreNode>(defs.at(l));
+			StoreNode* s = dyn_cast<StoreNode>(defs[l->getId()]);
 			if(!s)
 				continue;
 			if(aa.alias(l->getPointer(), sz, s->getPointer(), aa.getAccessSize(s)) ==
@@ -49,10 +47,7 @@ namespace rat {
 		return removed;
 	}
 
-	U32 MemoryOptPass::cseLoads(Function& fn,
-															const AliasAnalysis& aa,
-															const Map<LoadNode*, Node*>& defs,
-															const List<LoadNode*>& loads) {
+	U32 MemoryOptPass::cseLoads(Function& fn, const AliasAnalysis& aa) {
 		Schedule sched(fn);
 
 		auto dominates = [&](LoadNode* a, LoadNode* b) -> B32 {
@@ -64,29 +59,14 @@ namespace rat {
 			return sched.dominates(ba, bb);
 		};
 
-		struct BucketKey {
-			Node* def;
-			AliasAnalysis::MustAliasKey addr;
-			B32 operator==(const BucketKey& o) const { return def == o.def && addr == o.addr; }
-		};
-
-		struct BucketKeyHash {
-			U64 operator()(const BucketKey& k) const {
-				U64 h = AliasAnalysis::MustAliasKeyHash{}(k.addr);
-				h ^= reinterpret_cast<U64>(k.def) + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
-				return h;
-			}
-		};
-
-		std::unordered_map<BucketKey, List<LoadNode*>, BucketKeyHash> buckets;
-
+		buckets.clear();
 		for(LoadNode* l : loads) {
 			if(!l->hasUsers())
 				continue;
 			AliasAnalysis::MustAliasKey key = aa.mustAliasKey(l);
 			if(!key.valid())
 				continue; // opaque address / unknown size: not provably CSE
-			buckets[BucketKey{defs.at(l), key}].push_back(l);
+			buckets[BucketKey{defs[l->getId()], key}].push_back(l);
 		}
 
 		U32 removed = 0;
@@ -128,17 +108,17 @@ namespace rat {
 
 		AliasAnalysis aa(fn, target.getPointerSizeInBytes());
 
-		List<LoadNode*> loads;
+		loads.clear();
 		for(Node* n : fn)
 			if(LoadNode* l = dyn_cast<LoadNode>(n))
 				loads.push_back(l);
-		Map<LoadNode*, Node*> defs;
-		defs.reserve(loads.size());
+		defs.assign(fn.idBound(), nullptr);
 		for(LoadNode* l : loads)
-			defs.emplace(l, l->hasUsers() ? effectiveDef(aa, l) : nullptr);
+			if(l->hasUsers())
+				defs[l->getId()] = effectiveDef(aa, l);
 
-		U32 removed = forwardStores(aa, defs, loads);
-		removed += cseLoads(fn, aa, defs, loads);
+		U32 removed = forwardStores(aa);
+		removed += cseLoads(fn, aa);
 		if(removed)
 			fn.eliminateDeadNodes();
 		return removed;
