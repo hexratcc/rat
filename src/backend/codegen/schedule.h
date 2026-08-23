@@ -12,6 +12,7 @@
 #include "core.h"
 
 namespace rat {
+	struct AliasAnalysis;
 	struct Function;
 	struct Node;
 	struct PhiNode;
@@ -98,7 +99,7 @@ namespace rat {
 			List<I32> succTo;		  // edge -> target local index
 			List<Node*> ready;	  // binary heap of ready nodes
 		};
-		List<Node*> topoOrder(List<Node*>& nodes, TopoScratch& scratch) const;
+		List<Node*> topoOrder(List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& scratch) const;
 
 		I32 fixedDataBlock(Node* n, const List<I32>& early) const;
 		static Node* requireProj(Node* n, U32 index);
