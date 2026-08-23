@@ -281,6 +281,13 @@ namespace rat {
 
 	void Asm::shiftImm(U8 ext, Reg r, U8 cnt) { rotImm(ext, r, cnt, true); }
 
+	void Asm::bitScan(B32 reverse, Reg dst, Reg src, B32 wide) {
+		rex(wide, dst, 0, src);
+		b(0x0f);
+		b((U8)(reverse ? 0xbd : 0xbc));
+		modrmReg(dst, src);
+	}
+
 	void Asm::setcc(U8 cc, Reg r) {
 		if(r >= RSP && r <= RDI)
 			rexForce(false, 0, 0, r);

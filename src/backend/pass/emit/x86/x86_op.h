@@ -77,9 +77,12 @@ namespace rat {
 		VArith,		// dst = dst OP use[1] packed; imm = (0f38 escape << 16) | (prefix << 8) | opcode byte
 		VSplat,		// dst = broadcast use[0] to all lanes; imm = elem bytes, imm2 = int?
 		VExtract, // dst = lane imm of use[0]; imm2 = (elem bytes << 1) | int?
-		VPack,		// dst = int/fp lanes use[0..k-1] gathered through the vec scratch slot; imm = elem bytes
+		BitScanF, // dst = bsf use[0], operand width in imm (undefined when use[0] is 0)
+		BitScanR, // dst = bsr use[0], operand width in imm (undefined when use[0] is 0)
+
+		VPack, // dst = int/fp lanes use[0..k-1] gathered through the vec scratch slot; imm = elem bytes
 		VPackReg, // dst = int lanes use[0..k-1] built in-register via movd/movq + pinsr (sse4.1); imm = elem bytes
-		VShuf,		// dst = pshufd(use[0], imm)
+		VShuf, // dst = pshufd(use[0], imm)
 		// x87 ops
 		X87LoadMem,	 // def(slot) = fld [use0 addr]; imm = mem width (4/8/80)
 		X87StoreMem, // [use0 addr] = fstp use1(slot); imm = mem width (4/8/80)

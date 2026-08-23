@@ -51,7 +51,6 @@ namespace rat {
 		static B32 fusableFpCompare(Node* n);
 		static B32 zextOnlyLoad(const LoadNode* l);
 		static U32 opWidth(const Type* t);
-		static String libcName(const String& callee);
 
 		I32 reserve(U32 bytes);
 		void needScratch();
@@ -109,6 +108,8 @@ namespace rat {
 		void maskBits(VReg d, U32 bits);
 		void gpAcc(X86Op op, VReg d, VReg s);
 		void gpShrImm(VReg d, U32 cnt);
+		void emitBitScan(UnaryNode* n, B32 reverse);
+		void emitPopcnt(UnaryNode* n);
 		VReg gpConst(I64 v);
 		VReg fpConst(U64 bits, U32 width);
 		void emitU64ToFP(ConvertNode* n, VReg s, U32 w);

@@ -93,6 +93,9 @@ namespace rat {
 		Node* ashr(Node* lhs, Node* rhs);
 
 		Node* unary(Opcode op, Node* operand);
+		Node* clz(Node* operand);
+		Node* ctz(Node* operand);
+		Node* popcnt(Node* operand);
 		Node* neg(Node* operand);
 		Node* bitNot(Node* operand);
 

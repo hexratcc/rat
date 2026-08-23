@@ -305,6 +305,10 @@ namespace rat {
 		case X86Op::UDiv:
 		case X86Op::URem:
 			return emitDiv(in, false);
+		case X86Op::BitScanF:
+		case X86Op::BitScanR:
+			return a->bitScan(
+					(X86Op)in.op == X86Op::BitScanR, gpOf(in.defs[0]), gpOf(in.uses[0]), in.imm == 64);
 		case X86Op::Cmp:
 			return emitCmp(in);
 		case X86Op::SetCC:

@@ -78,12 +78,6 @@ namespace rat {
 		return !n->getUsers().empty();
 	}
 
-	String X86LowerPass::libcName(const String& callee) {
-		if(callee.rfind("__builtin_", 0) == 0)
-			return callee.substr(10);
-		return callee;
-	}
-
 	VReg X86LowerPass::fpConst(U64 bits, U32 width) {
 		VReg d = fresh(detail::kFp);
 		inst(X86Op::FLoad,

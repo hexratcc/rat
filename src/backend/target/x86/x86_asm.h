@@ -304,6 +304,7 @@ namespace rat {
 		void pxor(U32 a, U32 bx);
 		// pcmpeqd a, a builds an all-ones register
 		void pcmpeqd(U32 a, U32 bx);
+		void bitScan(B32 reverse, Reg dst, Reg src, B32 wide);
 		// pshufd dst, src, sel
 		void pshufd(U32 dst, U32 src, U8 sel);
 		// movd/movq xmm, r32/r64

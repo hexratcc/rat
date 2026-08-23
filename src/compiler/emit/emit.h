@@ -13,6 +13,9 @@ namespace rat {
 } // namespace rat
 
 namespace rat::cc {
+	// the libc routine a __builtin_ forwards to, empty when it keeps its own name
+	String builtinLibcName(const String& name);
+
 	namespace detail {
 		U32 alignedChunkWidth(U32 offset, U32 size);
 	} // namespace detail
@@ -50,6 +53,7 @@ namespace rat::cc {
 		Value emitSizeof(Function& fn, const Expr* expr);
 		Value emitStmtExpr(Function& fn, const Expr* expr);
 		B32 emitBuiltinCall(Function& fn, const Expr* expr, Value& out);
+		B32 emitBitCountBuiltin(Function& fn, const Expr* expr, Value& out);
 		Node* emitArith(Function& fn, ExprOp op, Node* l, Node* r, CType ct);
 		CType completeComplex(CType t);
 		Node* complexReal(Function& fn, const Value& v);

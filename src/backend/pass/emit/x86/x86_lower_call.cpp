@@ -159,7 +159,7 @@ namespace rat {
 			call.uses.push_back(MachineOperand::fixed(gpReg(R11)));
 			call.imm2 = 1; // indirect
 		} else {
-			call.uses.push_back(MachineOperand::symbol(libcName(c->getCallee())));
+			call.uses.push_back(MachineOperand::symbol(c->getCallee()));
 		}
 
 		// stack arguments follow the target use, in declaration order

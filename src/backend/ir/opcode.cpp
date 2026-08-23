@@ -33,6 +33,9 @@ namespace rat {
 				{"fdiv", 0, 0, 0, -1, 2, 2, OpClass::Binary},
 				{"neg", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"not", 0, 0, 0, -1, 1, 1, OpClass::Unary},
+				{"clz", 0, 0, 0, -1, 1, 1, OpClass::Unary},
+				{"ctz", 0, 0, 0, -1, 1, 1, OpClass::Unary},
+				{"popcnt", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"fneg", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"eq", 0, 0, 1, -1, 2, 2, OpClass::Compare},
 				{"ne", 0, 0, 1, -1, 2, 2, OpClass::Compare},
@@ -66,6 +69,8 @@ namespace rat {
 				{"pack", 0, 0, 0, -1, 1, -1, OpClass::None},
 				{"shuffle", 0, 0, 0, -1, 1, 1, OpClass::None},
 		};
+		static_assert(sizeof(kOpcodeInfo) / sizeof(kOpcodeInfo[0]) == (U32)Opcode::Shuffle + 1,
+									"kOpcodeInfo must cover every Opcode");
 	} // namespace detail
 
 	const OpcodeInfo& getOpcodeInfo(Opcode op) { return detail::kOpcodeInfo[(U32)op]; }

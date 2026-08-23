@@ -42,6 +42,12 @@ namespace rat {
 		// unary
 		Neg,
 		Not,
+
+		// bit counts
+		Clz,
+		Ctz,
+		Popcnt,
+
 		FNeg,
 
 		// comparisons

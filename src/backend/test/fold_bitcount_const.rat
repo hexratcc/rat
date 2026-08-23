@@ -1,0 +1,27 @@
+@name fold: clz/ctz/popcnt of a constant fold
+@passes fold
+
+@input
+func t(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v12
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = const : i32  40
+	v5 = clz : i32 v4
+	v6 = ctz : i32 v4
+	v7 = popcnt : i32 v4
+	v8 = add : i32 v5, v6
+	v9 = add : i32 v8, v7
+	v12 = return : ctrl v2, v3, v9
+}
+
+@expect
+func t(i32) -> i32 {
+	v0 = start : (ctrl, mem, i32)
+	v1 = stop : ctrl v12
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v12 = return : ctrl v2, v3, v13
+	v13 = const : i32  31
+}
