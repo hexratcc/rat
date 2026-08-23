@@ -72,7 +72,9 @@ namespace rat {
 		return key; // valid if base known and size known
 	}
 
-	B32 AliasAnalysis::isIdentified(const Node* n) { return isa<AllocNode>(n) || isa<GlobalNode>(n); }
+	B32 AliasAnalysis::isIdentified(const Node* n) {
+		return n && (isa<AllocNode>(n) || isa<GlobalNode>(n)); // an unknown base is not an object
+	}
 
 	B32 AliasAnalysis::distinctObjects(const Node* a, const Node* b) {
 		// a and b are provably different

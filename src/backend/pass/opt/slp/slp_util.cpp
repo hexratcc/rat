@@ -5,6 +5,7 @@
 #include "ir/node.h"
 #include "ir/opcode.h"
 #include "ir/type.h"
+#include "pass/opt/alias_analysis.h"
 
 #include <cstdlib>
 
@@ -43,9 +44,7 @@ namespace rat {
 		}
 	}
 
-	B32 slp::identifiedBase(const Node* n) {
-		return n && (n->getOpcode() == Opcode::Alloc || n->getOpcode() == Opcode::Global);
-	}
+	B32 slp::identifiedBase(const Node* n) { return n && AliasAnalysis::isIdentified(n); }
 
 	B32 slp::isI64(const Node* n) {
 		return n->getType() && n->getType()->isInt() && n->getType()->getIntWidth() == 64;

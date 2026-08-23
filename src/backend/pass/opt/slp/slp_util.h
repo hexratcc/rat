@@ -50,6 +50,7 @@ namespace rat {
 		RefinedAddr refineAddr(Node* addr, U32 accessBytes);
 		void canonicalizeTerms(List<Pair<const Node*, I64>>& terms);
 		String groupSig(const RefinedAddr& k);
+		B32 provablyDisjoint(const RefinedAddr& ka, U32 sza, const RefinedAddr& kb, U32 szb);
 		B32 provablyDisjoint(const AliasAnalysis& aa,
 												 Node* pa,
 												 const RefinedAddr& ka,

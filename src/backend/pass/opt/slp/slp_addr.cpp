@@ -137,6 +137,17 @@ namespace rat {
 		return s;
 	}
 
+	// decided from the refined addresses alone: either the objects differ, or the byte ranges do
+	B32 slp::provablyDisjoint(const RefinedAddr& ka, U32 sza, const RefinedAddr& kb, U32 szb) {
+		if(!ka.valid() || !kb.valid())
+			return false;
+		if(ka.base != kb.base)
+			return AliasAnalysis::distinctObjects(ka.base, kb.base);
+		if(ka.terms != kb.terms)
+			return false;
+		return ka.constant + (I64)sza <= kb.constant || kb.constant + (I64)szb <= ka.constant;
+	}
+
 	B32 slp::provablyDisjoint(const AliasAnalysis& aa,
 														Node* pa,
 														const RefinedAddr& ka,
@@ -144,10 +155,7 @@ namespace rat {
 														Node* pb,
 														const RefinedAddr& kb,
 														U32 szb) {
-		B32 sameShape = ka.valid() && kb.valid() && ka.base == kb.base && ka.terms == kb.terms;
-		B32 rangesApart =
-				ka.constant + (I64)sza <= kb.constant || kb.constant + (I64)szb <= ka.constant;
-		if(sameShape && rangesApart)
+		if(provablyDisjoint(ka, sza, kb, szb))
 			return true;
 		return aa.alias(pa, sza, pb, szb) == AliasResult::NoAlias;
 	}

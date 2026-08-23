@@ -277,14 +277,10 @@ namespace rat {
 		}
 
 		if(!k0.sameGroup(*windowKey)) {
-			B32 distinct =
-					identifiedBase(k0.base) && identifiedBase(windowKey->base) && k0.base != windowKey->base;
-			if(!distinct) {
-				U32 guardBytes = w * esz;
-				if(equal)
-					guardBytes = esz;
+			U32 guardBytes = equal ? esz : w * esz;
+			U32 winBytes = storeWindow ? w * windowKey->size : windowKey->size;
+			if(!provablyDisjoint(k0, guardBytes, *windowKey, winBytes))
 				addGuard(k0, first->getPointer(), guardBytes);
-			}
 		}
 
 		return packWideOrSplat(memIn, first, k0, elemTy, vecTy, w, equal);

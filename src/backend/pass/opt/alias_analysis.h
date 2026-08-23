@@ -53,6 +53,10 @@ namespace rat {
 		};
 
 		MustAliasKey mustAliasKey(Node* access) const;
+
+		// object identity, independent of any offset
+		static B32 isIdentified(const Node* n); // an Alloc or a Global
+		static B32 distinctObjects(const Node* a, const Node* b);
 	private:
 		struct Address {
 			Node* base;						// pointer
@@ -62,9 +66,6 @@ namespace rat {
 
 		const Address& decompose(Node* addr) const;
 		static Node* accessAddress(Node* n); // pointer operand of a Load/Store (else null)
-
-		static B32 isIdentified(const Node* n);
-		static B32 distinctObjects(const Node* a, const Node* b);
 	private:
 		const Function& fn;
 		U32 ptrBytes;

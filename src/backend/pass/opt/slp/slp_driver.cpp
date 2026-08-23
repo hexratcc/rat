@@ -115,15 +115,6 @@ namespace rat {
 		sse41(sse41),
 		stats(stats) {}
 
-	// two identified objects (Alloc/Global) that are provably different, independent of offset
-	static B32 distinctObjects(const Node* a, const Node* b) {
-		if(!identifiedBase(a) || !identifiedBase(b))
-			return false;
-		if(a->getOpcode() == Opcode::Alloc || b->getOpcode() == Opcode::Alloc)
-			return a != b;
-		return cast<GlobalNode>(a)->getSymbol() != cast<GlobalNode>(b)->getSymbol();
-	}
-
 	// base object of a store, computed once per store (refineAddr is not free)
 	Node* SlpPackPass::Slp::storeBaseObj(StoreNode* s, Map<const Node*, Node*>& cache) {
 		auto it = cache.find(s);
@@ -160,7 +151,7 @@ namespace rat {
 				endpoint = it->second;
 				break;
 			}
-			if(!distinctObjects(loadBase, storeBaseObj(cs, storeBase))) {
+			if(!AliasAnalysis::distinctObjects(loadBase, storeBaseObj(cs, storeBase))) {
 				endpoint = cur; // barrier candidate: needs the exact per-offset check
 				break;
 			}
