@@ -197,6 +197,8 @@ namespace rat::cc {
 		}
 		if(emitBitCountBuiltin(fn, e, out))
 			return true;
+		if(emitOverflowBuiltin(fn, e, out))
+			return true;
 		if(b == "__builtin_unreachable") {
 			CType vd;
 			vd.base = CType::Base::Void;

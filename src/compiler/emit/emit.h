@@ -54,6 +54,17 @@ namespace rat::cc {
 		Value emitStmtExpr(Function& fn, const Expr* expr);
 		B32 emitBuiltinCall(Function& fn, const Expr* expr, Value& out);
 		B32 emitBitCountBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitOverflowBuiltin(Function& fn, const Expr* expr, Value& out);
+		// a 128-bit two's complement value, split into two 64-bit halves
+		struct Wide {
+			Node* lo = nullptr;
+			Node* hi = nullptr;
+		};
+		Wide wideExtend(Function& fn, Node* v, CType from);
+		Wide wideAddSub(Function& fn, Wide a, Wide b, B32 sub);
+		Wide wideMul(Function& fn, Wide a, Wide b);
+		Node* wideFits(Function& fn, Wide v, CType rt);
+		Node* fitsIn64(Function& fn, Node* r, CType rt, B32 sgn);
 		Node* emitArith(Function& fn, ExprOp op, Node* l, Node* r, CType ct);
 		CType completeComplex(CType t);
 		Node* complexReal(Function& fn, const Value& v);
