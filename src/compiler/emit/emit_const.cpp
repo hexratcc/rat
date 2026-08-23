@@ -194,6 +194,14 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::evalFloatConst(const Expr* e, long double& out) {
+		if(e->kind == ExprKind::IntLit || e->kind == ExprKind::Cast) {
+			I64 iv;
+			CType it;
+			if(evalConstTyped(e, iv, it) && isInteger(it)) {
+				out = it.isUnsigned() ? (long double)(U64)iv : (long double)iv;
+				return true;
+			}
+		}
 		switch(e->kind) {
 		case ExprKind::FloatLit:
 			out = e->floatLit.value;

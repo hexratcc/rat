@@ -84,6 +84,15 @@ namespace rat {
 		return callee;
 	}
 
+	VReg X86LowerPass::fpConst(U64 bits, U32 width) {
+		VReg d = fresh(detail::kFp);
+		inst(X86Op::FLoad,
+				 detail::kFp,
+				 {MachineOperand::vr(d, width)},
+				 {MachineOperand::symbol(fpPoolSym(bits, width))});
+		return d;
+	}
+
 	void X86LowerPass::reset(const Function& f, Schedule& s, MachineFunc& o, X86FrameLayout& layout) {
 		fn = &f;
 		sched = &s;

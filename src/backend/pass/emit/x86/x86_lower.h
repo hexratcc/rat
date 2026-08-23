@@ -108,6 +108,11 @@ namespace rat {
 		VReg frameAddr(I64 disp);
 		void maskBits(VReg d, U32 bits);
 		void gpAcc(X86Op op, VReg d, VReg s);
+		void gpShrImm(VReg d, U32 cnt);
+		VReg gpConst(I64 v);
+		VReg fpConst(U64 bits, U32 width);
+		void emitU64ToFP(ConvertNode* n, VReg s, U32 w);
+		void emitFPToU64(ConvertNode* n, Node* src);
 		void unorderedFixup(Opcode op, VReg d);
 		void signExtBits(VReg d, U32 bits);
 		void emitDivLike(BinaryNode* n, X86Op op);
