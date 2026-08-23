@@ -21,6 +21,7 @@ namespace rat {
 	struct LoadNode;
 	struct Module;
 	struct Node;
+	struct Type;
 
 	struct MemoryOptPass : FunctionPass {
 		const C8* name() const override;
@@ -35,14 +36,18 @@ namespace rat {
 	private:
 		struct BucketKey {
 			Node* def;
+			Type* type;
 			AliasAnalysis::MustAliasKey addr;
-			B32 operator==(const BucketKey& o) const { return def == o.def && addr == o.addr; }
+			B32 operator==(const BucketKey& o) const {
+				return def == o.def && type == o.type && addr == o.addr;
+			}
 		};
 
 		struct BucketKeyHash {
 			U64 operator()(const BucketKey& k) const {
 				U64 h = AliasAnalysis::MustAliasKeyHash{}(k.addr);
 				h ^= reinterpret_cast<U64>(k.def) + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+				h ^= reinterpret_cast<U64>(k.type) + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
 				return h;
 			}
 		};

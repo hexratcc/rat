@@ -66,7 +66,7 @@ namespace rat {
 			AliasAnalysis::MustAliasKey key = aa.mustAliasKey(l);
 			if(!key.valid())
 				continue; // opaque address / unknown size: not provably CSE
-			buckets[BucketKey{defs[l->getId()], key}].push_back(l);
+			buckets[BucketKey{defs[l->getId()], l->getType(), key}].push_back(l);
 		}
 
 		U32 removed = 0;
