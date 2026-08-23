@@ -383,6 +383,7 @@ namespace rat {
 		usedCallee.clear();
 		copyHints.clear();
 		physHints.clear();
+		copyPinAt.clear();
 		slotPool.clear();
 		rematDef.clear();
 		ok = true;

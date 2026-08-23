@@ -133,29 +133,27 @@ namespace rat {
 			}
 		}
 
-		B32 needAl = conv->alHoldsSseCount && c->isVarArgs();
-		if(needAl) {
-			VReg al = fresh(detail::kGp);
-			def1(X86Op::LoadImm, al, detail::kGp, {MachineOperand::immVal((I64)as.sseUsed)});
-			copy(MachineOperand::fixed(gpReg(RAX)), MachineOperand::vr(al), detail::kGp);
-		}
-
 		// register arguments: copy into place and pin as uses
-		for(const ArgLoc& al : args) {
-			if(al.reg < 0)
+		for(const ArgLoc& a : args) {
+			if(a.reg < 0)
 				continue;
-			if(al.cls == Kind::Sse) {
-				MachineOperand dst = MachineOperand::fixed(xmmReg((U32)al.reg), al.val.width);
-				copy(dst, al.val, detail::kFp);
+			if(a.cls == Kind::Sse) {
+				MachineOperand dst = MachineOperand::fixed(xmmReg((U32)a.reg), a.val.width);
+				copy(dst, a.val, detail::kFp);
 				call.uses.push_back(dst);
 			} else {
-				MachineOperand dst = MachineOperand::fixed(gpReg(conv->gpArgs[al.reg]));
-				copy(dst, al.val, detail::kGp);
+				MachineOperand dst = MachineOperand::fixed(gpReg(conv->gpArgs[a.reg]));
+				copy(dst, a.val, detail::kGp);
 				call.uses.push_back(dst);
 			}
 		}
-		if(needAl)
+
+		if(conv->alHoldsSseCount && c->isVarArgs()) {
+			VReg al = fresh(detail::kGp);
+			def1(X86Op::LoadImm, al, detail::kGp, {MachineOperand::immVal((I64)as.sseUsed)});
+			copy(MachineOperand::fixed(gpReg(RAX)), MachineOperand::vr(al), detail::kGp);
 			call.uses.push_back(MachineOperand::fixed(gpReg(RAX)));
+		}
 
 		if(c->isIndirect()) {
 			call.uses.push_back(MachineOperand::fixed(gpReg(R11)));
