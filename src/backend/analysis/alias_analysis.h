@@ -6,8 +6,8 @@
 //   Representation of Aliases and Indirect Memory Operations in SSA Form",
 //   Compiler Construction (CC), 1996
 
-#ifndef RAT_PASS_OPT_ALIASANALYSIS_H
-#define RAT_PASS_OPT_ALIASANALYSIS_H
+#ifndef RAT_ANALYSIS_ALIASANALYSIS_H
+#define RAT_ANALYSIS_ALIASANALYSIS_H
 
 #include "core.h"
 

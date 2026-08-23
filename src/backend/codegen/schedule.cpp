@@ -1,8 +1,8 @@
 #include "codegen/schedule.h"
 
+#include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/node.h"
-#include "pass/opt/alias_analysis.h"
 
 namespace rat {
 	namespace detail {

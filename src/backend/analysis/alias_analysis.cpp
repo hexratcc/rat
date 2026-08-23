@@ -1,4 +1,4 @@
-#include "pass/opt/alias_analysis.h"
+#include "analysis/alias_analysis.h"
 
 #include "ir/function.h"
 #include "ir/node.h"

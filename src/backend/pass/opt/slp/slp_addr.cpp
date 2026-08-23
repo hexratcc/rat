@@ -2,10 +2,10 @@
 
 #include "pass/opt/slp/slp_pack.h"
 
+#include "analysis/alias_analysis.h"
 #include "ir/node.h"
 #include "ir/opcode.h"
 #include "ir/type.h"
-#include "pass/opt/alias_analysis.h"
 
 #include <algorithm>
 
