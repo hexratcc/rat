@@ -6,9 +6,13 @@ namespace rat::cc {
 	namespace detail {
 		String unquote(const String& s) { return s.size() >= 2 ? s.substr(1, s.size() - 2) : s; }
 
-		void stripTrailingSlash(String& s) {
-			if(!s.empty() && s.back() == '/')
-				s.pop_back();
+		B32 isAbsPath(const String& s) {
+			if(s.empty())
+				return false;
+			if(s[0] == '/' || s[0] == '\\')
+				return true;
+			B32 drive = (s[0] >= 'a' && s[0] <= 'z') || (s[0] >= 'A' && s[0] <= 'Z');
+			return drive && s.size() >= 3 && s[1] == ':' && (s[2] == '/' || s[2] == '\\');
 		}
 
 		size_t ucnLen(const String& s, size_t i) {

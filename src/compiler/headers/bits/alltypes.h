@@ -1,3 +1,8 @@
+/* struct timespec is spelled in terms of time_t, so pull it in first */
+#if defined(__NEED_struct_timespec) && !defined(__NEED_time_t)
+#define __NEED_time_t
+#endif
+
 #if defined(__NEED_size_t) && !defined(__rat_defined_size_t)
 #define __rat_defined_size_t
 #if defined(_WIN32)
@@ -74,4 +79,12 @@ typedef long time_t;
 #if defined(__NEED_clock_t) && !defined(__rat_defined_clock_t)
 #define __rat_defined_clock_t
 typedef long clock_t;
+#endif
+
+#if defined(__NEED_struct_timespec) && !defined(__rat_defined_struct_timespec)
+#define __rat_defined_struct_timespec
+struct timespec {
+	time_t tv_sec;
+	long tv_nsec;
+};
 #endif
