@@ -377,6 +377,37 @@ namespace rat {
 		return op == Opcode::Load || isArithmeticOpcode(op) || isVectorUtilOpcode(op);
 	}
 
+	B32 Schedule::mayTrap(const Node* n) {
+		Opcode op = n->getOpcode();
+		return op == Opcode::Load || op == Opcode::SDiv || op == Opcode::UDiv || op == Opcode::SRem ||
+					 op == Opcode::URem;
+	}
+
+	I32 Schedule::homeBlock(Node* n) const { return headBlock(headOf(n->getControlInput())); }
+
+	I32 Schedule::hoistTarget(const Node* n, I32 late, I32 early) const {
+		Opcode op = n->getOpcode();
+		B32 remat = op == Opcode::Constant || op == Opcode::Global;
+		B32 trapping = mayTrap(n);
+		I32 cur = late, pick = late;
+		while(true) {
+			if(blocks[cur].loopDepth < blocks[pick].loopDepth) {
+				pick = cur;
+				if(remat)
+					break; // first depth drop only
+			}
+			if(cur == early || cur == entryBlock)
+				break;
+			I32 next = blocks[cur].idom;
+			if(next == cur)
+				break;
+			if(trapping && succCount(next) != 1)
+				break;
+			cur = next;
+		}
+		return pick;
+	}
+
 	I32 Schedule::fixedDataBlock(Node* n, const List<I32>& early) const {
 		if(isFloating(n))
 			return detail::idGet(early, n->getId());
@@ -471,7 +502,7 @@ namespace rat {
 				if(isa<LoadNode>(n)) {
 					// floating loads move up from where they were built but never
 					// below it: the home block is a sound late bound
-					late = headBlock(headOf(n->getControlInput()));
+					late = homeBlock(n);
 				} else {
 					late = -1;
 					for(Node* u : n->getUsers())
@@ -483,24 +514,7 @@ namespace rat {
 				I32 e = detail::idGet(early, n->getId());
 				if(e < 0)
 					e = entryBlock;
-				Opcode op = n->getOpcode();
-				B32 remat = op == Opcode::Constant || op == Opcode::Global;
-				// walk from late up toward early, remembering the block with the
-				// smallest loop depth (ties keep the deepest = latest, found first)
-				I32 cur = late, pick = late;
-				while(true) {
-					if(blocks[cur].loopDepth < blocks[pick].loopDepth) {
-						pick = cur;
-						if(remat)
-							break; // first depth drop only
-					}
-					if(cur == e || cur == entryBlock)
-						break;
-					I32 next = blocks[cur].idom;
-					if(next == cur)
-						break;
-					cur = next;
-				}
+				I32 pick = hoistTarget(n, late, e);
 
 				U32 id = n->getId();
 				if(detail::idGet(nodeBlock, id) != pick) {
