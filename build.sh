@@ -32,7 +32,7 @@ fi
 
 # source groups
 base_srcs="src/base/test_harness.cpp"
-rat_srcs=$(find src/backend/codegen src/backend/ir src/backend/pass src/backend/target -name '*.cpp' | sort)
+rat_srcs=$(find src/backend/analysis src/backend/codegen src/backend/ir src/backend/pass src/backend/target -name '*.cpp' | sort)
 link_srcs="src/linker/linker.cpp src/linker/elf_write.cpp src/linker/elf_read.cpp"
 cc_srcs=$(find src/compiler/emit src/compiler/lex src/compiler/parse -name '*.cpp' | sort; find src/compiler -maxdepth 1 -name '*.cpp' ! -name main.cpp | sort)
 driver_srcs="src/backend/main.cpp src/backend/test/runner.cpp \

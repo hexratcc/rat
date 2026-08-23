@@ -1,5 +1,6 @@
 #include "codegen/schedule.h"
 
+#include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/node.h"
 
@@ -532,8 +533,9 @@ namespace rat {
 		TopoScratch scratch;
 		scratch.localOf.assign(fn.size(), -1);
 		scratch.memHead.assign(fn.size(), -1);
+		AliasAnalysis aa(fn, 8);
 		for(I32 b = 0; b < (I32)blocks.size(); ++b)
-			blocks[b].nodes = topoOrder(raw[b], scratch);
+			blocks[b].nodes = topoOrder(raw[b], aa, scratch);
 	}
 
 	Node* Schedule::memoryInputOf(const Node* n) {
@@ -547,43 +549,15 @@ namespace rat {
 	}
 
 	namespace {
-		// peel one Add(base, intconst) -> (base, byteOffset), otherwise (ptr, 0)
-		Node* addrBaseOff(Node* p, I64& off) {
-			off = 0;
-			if(BinaryNode* b = dyn_cast<BinaryNode>(p)) {
-				if(b->getOpcode() == Opcode::Add) {
-					if(ConstantNode* c = dyn_cast<ConstantNode>(b->getRHS())) {
-						off = c->getValue();
-						return b->getLHS();
-					}
-					if(ConstantNode* c = dyn_cast<ConstantNode>(b->getLHS())) {
-						off = c->getValue();
-						return b->getRHS();
-					}
-				}
-			}
-			return p;
-		}
-
-		B32 storeMayAliasLoad(const StoreNode* st, const LoadNode* ld) {
-			I64 so = 0, lo = 0;
-			Node* sb = addrBaseOff(st->getPointer(), so);
-			Node* lb = addrBaseOff(ld->getPointer(), lo);
-			if(sb != lb)
-				return true; // different or unknown base
-			Type* valTy = st->getValue() ? st->getValue()->getType() : nullptr;
-			Type* ldTy = ld->getType();
-			if(!valTy || !ldTy)
-				return true;
-			U32 ssz = valTy->byteSize(8),
-					lsz = ldTy->byteSize(8); // x86-64 ptr size; irrelevant to int/vec sizes
-			if(!ssz || !lsz)
-				return true;
-			return !(so + (I64)ssz <= lo || lo + (I64)lsz <= so);
+		B32 storeMayAliasLoad(const AliasAnalysis& aa, const StoreNode* st, const LoadNode* ld) {
+			return aa.alias(
+								 st->getPointer(), aa.getAccessSize(st), ld->getPointer(), aa.getAccessSize(ld)) !=
+						 AliasResult::NoAlias;
 		}
 	} // namespace
 
-	List<Node*> Schedule::topoOrder(List<Node*>& nodes, TopoScratch& s) const {
+	List<Node*>
+	Schedule::topoOrder(List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& s) const {
 		U32 k = (U32)nodes.size();
 		List<Node*> out;
 		out.reserve(k);
@@ -652,7 +626,7 @@ namespace rat {
 			for(I32 wi = state ? detail::idGet(s.stHead, state->getId()) : -1; wi >= 0; ++guard) {
 				Node* w = nodes[wi];
 				StoreNode* st = dyn_cast<StoreNode>(w);
-				if(!st || storeMayAliasLoad(st, ld) || guard >= k) {
+				if(!st || storeMayAliasLoad(aa, st, ld) || guard >= k) {
 					addEdge(ld, w); // call, aliasing store, or bound hit -> pin here
 					break;
 				}

@@ -37,7 +37,6 @@ namespace rat {
 	};
 
 	struct SlpPackPass : FunctionPass {
-		using RefinedAddr = slp::RefinedAddr;
 		using ShapeHash = slp::ShapeHash;
 
 		static constexpr U32 kMaxDepth = 16;			 // pack-growth recursion bound

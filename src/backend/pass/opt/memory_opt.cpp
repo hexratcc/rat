@@ -1,10 +1,10 @@
 #include "pass/opt/memory_opt.h"
 
 #include "codegen/schedule.h"
+#include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/module.h"
 #include "ir/node.h"
-#include "pass/opt/alias_analysis.h"
 #include "target/target.h"
 
 namespace rat {

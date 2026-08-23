@@ -2,9 +2,9 @@
 
 #include "pass/opt/slp/slp_pack.h"
 
+#include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/module.h"
-#include "pass/opt/alias_analysis.h"
 #include "target/target.h"
 
 #include <iostream>

@@ -13,7 +13,7 @@
 #define RAT_PASS_OPT_MEMORYOPT_H
 
 #include "core.h"
-#include "pass/opt/alias_analysis.h"
+#include "analysis/alias_analysis.h"
 #include "pass/pass.h"
 
 namespace rat {
