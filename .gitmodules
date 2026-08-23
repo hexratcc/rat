@@ -1,0 +1,15 @@
+[submodule "src/compiler/bench/third_party/sqlite"]
+	path = src/compiler/bench/third_party/sqlite
+	url = https://github.com/azadkuh/sqlite-amalgamation
+[submodule "src/compiler/bench/third_party/lz4"]
+	path = src/compiler/bench/third_party/lz4
+	url = https://github.com/lz4/lz4
+[submodule "src/compiler/bench/third_party/wren"]
+	path = src/compiler/bench/third_party/wren
+	url = https://github.com/wren-lang/wren
+[submodule "src/compiler/bench/third_party/libyaml"]
+	path = src/compiler/bench/third_party/libyaml
+	url = https://github.com/yaml/libyaml
+[submodule "src/compiler/bench/third_party/zlib"]
+	path = src/compiler/bench/third_party/zlib
+	url = https://github.com/madler/zlib
