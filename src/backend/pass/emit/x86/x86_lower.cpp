@@ -61,16 +61,16 @@ namespace rat {
 		return isCompareOpcode(op) && op < Opcode::FEq;
 	}
 
-	B32 X86LowerPass::isSseCompare(Node* n) {
+	B32 X86LowerPass::fusableFpCompare(Node* n) {
 		Opcode op = n->getOpcode();
-		if(!isCompareOpcode(op) || op < Opcode::FEq)
+		if(!isCompareOpcode(op) || op < Opcode::FLt)
 			return false;
 		CompareNode* c = cast<CompareNode>(n);
 		return !isX87Ty(c->getLHS()->getType());
 	}
 
 	B32 X86LowerPass::branchOnlyCompare(Node* n) {
-		if(!isIntCompare(n) && !isSseCompare(n))
+		if(!isIntCompare(n) && !fusableFpCompare(n))
 			return false;
 		for(Node* u : n->getUsers())
 			if(!isa<IfNode>(u))
@@ -563,7 +563,7 @@ namespace rat {
 						 1); // imm2 = 1: condition code in imm, no predicate register
 				return;
 			}
-			if(isSseCompare(pred)) {
+			if(fusableFpCompare(pred)) {
 				// fuse: ucomis lhs, rhs; jcc (swap keeps lt/le NaN-correct)
 				CompareNode* c = cast<CompareNode>(pred);
 				U32 w = opWidth(c->getLHS()->getType());

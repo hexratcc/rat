@@ -123,6 +123,10 @@ namespace rat {
 				.clobbers = {gpReg(R10), gpReg(R11)};
 	}
 
+	void X86LowerPass::gpAcc(X86Op op, VReg d, VReg s) {
+		inst(op, detail::kGp, {MachineOperand::vr(d)}, {MachineOperand::vr(d), MachineOperand::vr(s)});
+	}
+
 	void X86LowerPass::twoAddr(X86Op op, VReg d, VReg lhs, VReg rhs) {
 		copy(MachineOperand::vr(d), MachineOperand::vr(lhs), detail::kGp);
 		inst(
@@ -560,6 +564,7 @@ namespace rat {
 					 {MachineOperand::frameSlot(lhs), MachineOperand::frameSlot(rhs)},
 					 (I64)cc,
 					 swap);
+			unorderedFixup(n->getOpcode(), d);
 			return;
 		}
 		U32 w = opWidth(n->getLHS()->getType());
@@ -571,6 +576,21 @@ namespace rat {
 				 {MachineOperand::vr(lhs, w), MachineOperand::vr(rhs, w)},
 				 (I64)cc,
 				 swap);
+		unorderedFixup(n->getOpcode(), d);
+	}
+
+	// an unordered compare sets ZF, PF and CF, so a bare sete would call a NaN
+	// equal to itself; fold the parity flag in
+	void X86LowerPass::unorderedFixup(Opcode op, VReg d) {
+		if(op != Opcode::FEq && op != Opcode::FNe)
+			return;
+		VReg t = fresh(detail::kGp);
+		inst(X86Op::SetCC,
+				 detail::kGp,
+				 {MachineOperand::vr(t)},
+				 {},
+				 (I64)(op == Opcode::FEq ? CC_NP : CC_P));
+		gpAcc(op == Opcode::FEq ? X86Op::And : X86Op::Or, d, t);
 	}
 
 	I64 X86LowerPass::cvtDesc(U8 pfx, U8 opc, B32 w) {

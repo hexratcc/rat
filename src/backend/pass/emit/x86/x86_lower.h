@@ -48,7 +48,7 @@ namespace rat {
 		static B32 isIntCompare(Node* n);
 		static B32 immOf(Node* n, I64& out);
 		static B32 branchOnlyCompare(Node* n);
-		static B32 isSseCompare(Node* n);
+		static B32 fusableFpCompare(Node* n);
 		static B32 zextOnlyLoad(const LoadNode* l);
 		static U32 opWidth(const Type* t);
 		static String libcName(const String& callee);
@@ -107,6 +107,8 @@ namespace rat {
 		void twoAddrF(X86Op op, VReg d, VReg lhs, VReg rhs, U32 w, I64 imm);
 		VReg frameAddr(I64 disp);
 		void maskBits(VReg d, U32 bits);
+		void gpAcc(X86Op op, VReg d, VReg s);
+		void unorderedFixup(Opcode op, VReg d);
 		void signExtBits(VReg d, U32 bits);
 		void emitDivLike(BinaryNode* n, X86Op op);
 		void emitShift(BinaryNode* n, X86Op op);

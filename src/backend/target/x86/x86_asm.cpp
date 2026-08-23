@@ -423,6 +423,7 @@ namespace rat {
 	void Asm::sseArith(U8 op, U32 w, U32 d, U32 s) { ssePacked(ssePrefixByte(w), op, d, s, false); }
 	void Asm::ucomis(U32 w, U32 a, U32 bx) { ssePacked(w == 8 ? 0x66 : 0, 0x2e, a, bx, false); }
 	void Asm::pxor(U32 a, U32 bx) { ssePacked(0x66, 0xef, a, bx, false); }
+	void Asm::pcmpeqd(U32 a, U32 bx) { ssePacked(0x66, 0x76, a, bx, false); }
 	void Asm::pshufd(U32 dst, U32 src, U8 sel) {
 		ssePacked(0x66, 0x70, dst, src, false);
 		b(sel);

@@ -313,10 +313,12 @@ namespace rat {
 		U32 d = xmmOf(in.defs[0]);
 		U32 s = xmmOf(in.uses[0]);
 		U32 z = conv->sseVolatileCount - 1; // top volatile xmm is encoder scratch
-		a->pxor(z, z);
-		a->sseArith(0x5c, w, z, s);
-		if(d != z)
-			a->movaps(d, z);
+		// flip the sign bit, 0-x would turn -0.0 into +0.0 and quiet a NaN
+		a->pcmpeqd(z, z);
+		a->sseShiftImm(w * 8, 6, z, (U8)(w * 8 - 1));
+		if(d != s)
+			a->movaps(d, s);
+		a->pxor(d, z);
 	}
 
 	void X86EncodePass::emitFAbs(const MachineInstr& in) {
