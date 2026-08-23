@@ -46,10 +46,6 @@ namespace rat {
 
 	B32 slp::identifiedBase(const Node* n) { return n && AliasAnalysis::isIdentified(n); }
 
-	B32 slp::isI64(const Node* n) {
-		return n->getType() && n->getType()->isInt() && n->getType()->getIntWidth() == 64;
-	}
-
 	B32 slp::dataCone(const Node* root, U32 cap, List<const Node*>& out) {
 		List<const Node*> work = {root};
 		Set<const Node*> seen;
