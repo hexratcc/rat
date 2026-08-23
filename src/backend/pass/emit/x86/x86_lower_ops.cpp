@@ -151,6 +151,10 @@ namespace rat {
 	}
 
 	void X86LowerPass::signExtBits(VReg d, U32 bits) {
+		if(bits == 1) {
+			maskBits(d, 1);
+			return;
+		}
 		if(bits > 0 && bits < 64)
 			inst(X86Op::SignExtBits,
 					 detail::kGp,
@@ -279,6 +283,8 @@ namespace rat {
 		if(op != Opcode::Sub && !immOf(rn, iv) && immOf(ln, iv))
 			std::swap(ln, rn); // commutative ops: put a lone constant on the RHS
 		VReg d = vregFor(n);
+		U32 bits =
+				(op == Opcode::Add || op == Opcode::Sub || op == Opcode::Mul) ? intBits(n->getType()) : 64u;
 		if(immOf(rn, iv)) {
 			VReg lhs = gpValue(ln);
 			if(mop == X86Op::Mul) { // three-operand imul: no tied copy needed
@@ -286,6 +292,7 @@ namespace rat {
 						 detail::kGp,
 						 {MachineOperand::vr(d)},
 						 {MachineOperand::vr(lhs), MachineOperand::immVal(iv)});
+				signExtBits(d, bits);
 				return;
 			}
 			copy(MachineOperand::vr(d), MachineOperand::vr(lhs), detail::kGp);
@@ -293,11 +300,13 @@ namespace rat {
 					 detail::kGp,
 					 {MachineOperand::vr(d)},
 					 {MachineOperand::vr(d), MachineOperand::immVal(iv)});
+			signExtBits(d, bits);
 			return;
 		}
 		VReg lhs = gpValue(ln);
 		VReg rhs = gpValue(rn);
 		twoAddr(mop, d, lhs, rhs);
+		signExtBits(d, bits);
 	}
 
 	void X86LowerPass::emitFloatBinary(BinaryNode* n) {
@@ -500,11 +509,14 @@ namespace rat {
 		}
 		VReg s = gpValue(n->getOperand());
 		VReg d = vregFor(n);
+		B32 neg = n->getOpcode() == Opcode::Neg;
 		copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
-		inst(n->getOpcode() == Opcode::Neg ? X86Op::Neg : X86Op::Not,
+		inst(neg ? X86Op::Neg : X86Op::Not,
 				 detail::kGp,
 				 {MachineOperand::vr(d)},
 				 {MachineOperand::vr(d)});
+		if(neg)
+			signExtBits(d, intBits(n->getType())); // -INT_MIN carries out of the width
 	}
 
 	// flag-setting cmp only; the caller emits its own jcc/setcc consumer
