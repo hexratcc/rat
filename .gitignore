@@ -11,3 +11,5 @@ perf.data
 .cache
 assets/perf.png
 assets/perf.tsv
+assets/compile.png
+assets/compile.tsv

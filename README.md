@@ -10,3 +10,4 @@ $ ./bench.sh
 
 ## performance
 ![perf](https://raw.githubusercontent.com/hexratcc/rat/perf/perf.png)
+![compile](https://raw.githubusercontent.com/hexratcc/rat/perf/compile.png)
