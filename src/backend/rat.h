@@ -11,7 +11,6 @@
 #include "pass/pass_registry.h"
 #include "pass/verify.h"
 
-#include "pass/emit/c/c_emitter.h"
 #include "pass/emit/graph_emitter.h"
 #include "pass/emit/text_emitter.h"
 #include "pass/emit/x86/x86_encode.h"

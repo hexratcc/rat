@@ -22,7 +22,7 @@ using namespace rat::cc;
 namespace detail {
 	using PhaseClock = std::chrono::steady_clock;
 
-	enum struct Emit { Tok, Ast, C, X86 };
+	enum struct Emit { Tok, Ast, X86 };
 
 	struct Options {
 		String input;						 // root input file ("" => stdin)
@@ -59,12 +59,12 @@ namespace detail {
 		return passes;
 	}
 
-	const String kEmitNames[] = {"tok", "ast", "c", "x86"}; // Emit order
+	const String kEmitNames[] = {"tok", "ast", "x86"}; // Emit order
 
 	void parseEmit(const String& spec, List<Emit>& out) {
 		for(const String& k : splitTokens(spec)) {
-			U32 e = (U32)(std::find(kEmitNames, kEmitNames + 4, k) - kEmitNames);
-			if(e == 4)
+			U32 e = (U32)(std::find(kEmitNames, kEmitNames + 3, k) - kEmitNames);
+			if(e == 3)
 				cli::die(kTool, "unknown -emit kind '" + k + "'");
 			out.push_back((Emit)e);
 		}
@@ -94,7 +94,7 @@ namespace detail {
 					"  -version              show version\n"
 					"\n"
 					"rat extensions:\n"
-					"  -emit <k,...>         any of: tok, ast, c, x86 (default x86);\n"
+					"  -emit <k,...>         any of: tok, ast, x86 (default x86);\n"
 					"                        side outputs derive from the -o base name\n"
 					"  -f<pass>              append one opt pass (see -list-passes)\n"
 					"  -fpasses=<a,b,...>    exact opt pipeline, overrides the -O selection\n"
@@ -186,12 +186,8 @@ namespace detail {
 		return 0;
 	}
 
-	I32 emitViaModule(const Options& opt, TokenStream& ts, Emit kind, std::ostream& os) {
-		Generic64 generic;
-		X86Target x86(hostTargetTriple());
-		const TargetInfo* target = &generic;
-		if(kind == Emit::X86)
-			target = &x86;
+	I32 emitViaModule(const Options& opt, TokenStream& ts, std::ostream& os) {
+		X86Target target(hostTargetTriple());
 
 		Arena arena;
 		PhaseClock::time_point t0 = PhaseClock::now();
@@ -205,6 +201,8 @@ namespace detail {
 		t0 = PhaseClock::now();
 		B32 emitOk = emitter.emit(*unit);
 		F64 emitMs = msSince(t0);
+		for(const String& w : emitter.warnings())
+			std::cerr << ts.file() << ": " << w << "\n";
 		if(!emitOk)
 			return std::cerr << ts.file() << ": " << emitter.error() << "\n", 1;
 		if(opt.timePasses)
@@ -212,17 +210,15 @@ namespace detail {
 								<< parseMs << "ms, ast-to-ir " << emitMs << "ms\n";
 
 		CompileOptions copt;
-		copt.backend = (kind == Emit::X86) ? Backend::X86 : Backend::C;
 		copt.optPasses = buildOptPasses(opt);
-		if(kind == Emit::X86)
-			for(const String& name : splitTokens(opt.machineSpec)) {
-				copt.machinePasses.push_back(createMachinePass(name, os));
-				if(!copt.machinePasses.back())
-					cli::die(kTool, "unknown machine pass '" + name + "' (see -list-passes)");
-			}
+		for(const String& name : splitTokens(opt.machineSpec)) {
+			copt.machinePasses.push_back(createMachinePass(name, os));
+			if(!copt.machinePasses.back())
+				cli::die(kTool, "unknown machine pass '" + name + "' (see -list-passes)");
+		}
 
 		// keep the pass manager local so we can print the timing report from it
-		PassManager pm(*target);
+		PassManager pm(target);
 		composePipeline(pm, copt, os);
 		pm.run(mod);
 		if(opt.timePasses)
@@ -239,7 +235,7 @@ namespace detail {
 			return emitTokens(path, pped, file);
 		if(kind == Emit::Ast)
 			return emitAstText(*ts, file);
-		return emitViaModule(opt, *ts, kind, file);
+		return emitViaModule(opt, *ts, file);
 	}
 } // namespace detail
 

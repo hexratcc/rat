@@ -20,9 +20,7 @@ namespace rat::cc {
 
 		pm.markFixpointEnd();
 
-		if(opt.backend == Backend::C) {
-			pm.add<CEmitterPass>(out);
-		} else if(!opt.machinePasses.empty()) {
+		if(!opt.machinePasses.empty()) {
 			for(UniquePtr<MachinePass>& p : opt.machinePasses)
 				pm.add(std::move(p));
 		} else {
