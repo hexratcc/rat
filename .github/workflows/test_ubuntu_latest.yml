@@ -16,6 +16,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: force submodule update
+        run: git submodule update --init --recursive --force
+
       - name: toolchain versions
         run: |
           g++ --version
