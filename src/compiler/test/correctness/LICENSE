@@ -1,0 +1,20 @@
+The test corpora in this directory come from several sources and retain
+their upstream licenses. Every imported case was modified to carry the
+runner's directive comments (// expect: and friends).
+
+custom/
+  Written for this project. MIT, under the repository's LICENSE.
+
+c99/
+  From the chibicc test suite (https://github.com/rui314/chibicc).
+  MIT License, Copyright (c) 2019 Rui Ueyama.
+
+c-testsuite/
+  From c-testsuite (https://github.com/c-testsuite/c-testsuite).
+  MIT License, Copyright (c) 2018 Andrew Chambers.
+
+gcc-torture/
+  From the GCC testsuite (gcc/testsuite/gcc.c-torture/execute),
+  Copyright (C) Free Software Foundation, Inc. GPLv3 or later; see
+  gcc-torture/COPYING. These files are test inputs only: nothing in them
+  is linked into or derived from the compiler itself.

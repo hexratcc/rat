@@ -3,11 +3,11 @@
 
 ## running
 ```shell
-$ ./build.sh
-$ ./test.sh
-$ ./bench.sh
+$ make
+$ make test
+$ make bench
 ```
 
-## performance
+<!-- ## performance
 ![perf](https://raw.githubusercontent.com/hexratcc/rat/perf/perf.png)
-![compile](https://raw.githubusercontent.com/hexratcc/rat/perf/compile.png)
+![compile](https://raw.githubusercontent.com/hexratcc/rat/perf/compile.png) -->
