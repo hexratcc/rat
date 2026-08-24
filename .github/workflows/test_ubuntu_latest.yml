@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: toolchain versions
         run: |
@@ -20,7 +22,7 @@ jobs:
           cc --version
 
       - name: build
-        run: ./build.sh
+        run: make -j"$(nproc)"
 
       - name: test
-        run: ./test.sh
+        run: make test
