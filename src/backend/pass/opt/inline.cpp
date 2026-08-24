@@ -225,6 +225,9 @@ namespace rat {
 			return false;
 		if(call->returnsValue() != callee->returnsValue())
 			return false;
+		if(call->returnsValue() &&
+			 call->getType()->getTupleElement(CallNode::valueProjIndex()) != callee->getReturnType())
+			return false;
 		if(call->getArgCount() != callee->getParamCount())
 			return false;
 		for(U32 i = 0, e = call->getArgCount(); i < e; ++i)

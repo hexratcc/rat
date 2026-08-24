@@ -281,6 +281,16 @@ namespace rat {
 
 	void Asm::shiftImm(U8 ext, Reg r, U8 cnt) { rotImm(ext, r, cnt, true); }
 
+	void Asm::setcc(U8 cc, Reg r) {
+		if(r >= RSP && r <= RDI)
+			rexForce(false, 0, 0, r);
+		else
+			rex(false, 0, 0, r);
+		b(0x0f);
+		b((U8)(0x90 + cc));
+		b((U8)(0xc0 | (r & 7)));
+	}
+
 	void Asm::bitScan(B32 reverse, Reg dst, Reg src, B32 wide) {
 		rex(wide, dst, 0, src);
 		b(0x0f);
@@ -299,16 +309,6 @@ namespace rat {
 	void Asm::ud2() {
 		b(0x0f);
 		b(0x0b);
-	}
-
-	void Asm::setcc(U8 cc, Reg r) {
-		if(r >= RSP && r <= RDI)
-			rexForce(false, 0, 0, r);
-		else
-			rex(false, 0, 0, r);
-		b(0x0f);
-		b((U8)(0x90 + cc));
-		b((U8)(0xc0 | (r & 7)));
 	}
 
 	void Asm::movzxByte(Reg dst, Reg src) {

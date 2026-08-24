@@ -32,6 +32,7 @@ namespace rat {
 		// progbits bucket bytes + sizes for nobits
 		List<U8> merged[BucketCount];
 		U64 bucketSize[BucketCount] = {0};
+		U64 bucketAlign[BucketCount] = {0};
 
 		struct Def {
 			U32 obj = 0xffffffffu;

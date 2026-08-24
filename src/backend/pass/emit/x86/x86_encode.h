@@ -42,6 +42,11 @@ namespace rat {
 		void emitCopy(const MachineInstr& in);
 		void emitLoadImm(const MachineInstr& in);
 		void emitFrameAddr(const MachineInstr& in);
+		void emitStackAlloc(const MachineInstr& in);
+		void emitStackSave(const MachineInstr& in);
+		void emitStackRestore(const MachineInstr& in);
+		void emitSetJmp(const MachineInstr& in);
+		void emitLongJmp(const MachineInstr& in);
 		void emitLoad(const MachineInstr& in);
 		void emitStore(const MachineInstr& in);
 		void emitFLoad(const MachineInstr& in);

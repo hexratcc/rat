@@ -81,6 +81,15 @@ namespace rat {
 		return g;
 	}
 
+	Global* Module::createAlias(const String& name, const String& target, Type* type) {
+		Global* g = arena.make<Global>(name, type, false, List<U8>(), List<Reloc>());
+		g->setAliasTarget(target);
+		globs.push_back(g);
+		if(globIndexValid)
+			globIndex.emplace(name, g);
+		return g;
+	}
+
 	Global* Module::getGlobal(const String& name) const {
 		if(!globIndexValid)
 			rebuildGlobIndex();

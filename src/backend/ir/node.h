@@ -263,6 +263,30 @@ namespace rat {
 		B32 indirect;
 	};
 
+	// inline assembly
+	struct AsmNode : Node {
+		// control, memory, input operand values..
+		AsmNode(Function& fn,
+						Type* tupleType,
+						String text,
+						U32 outputCount,
+						const List<Node*>& controlMemoryInputs);
+
+		const String& getText() const;
+		Node* getControl() const;
+		Node* getMemory() const;
+		U32 getInputOperandCount() const;
+		Node* getInputOperand(U32 index) const;
+		U32 getOutputCount() const { return outputCount; }
+
+		static constexpr U32 controlProjIndex() { return 0; }
+		static constexpr U32 memoryProjIndex() { return 1; }
+		static constexpr U32 outputProjIndex(U32 index) { return 2 + index; }
+	private:
+		String text;
+		U32 outputCount;
+	};
+
 	// broadcast one scalar into every lane of a vector
 	struct SplatNode : Node {
 		SplatNode(Function& fn, Type* vecType, Node* scalar);
@@ -307,17 +331,41 @@ namespace rat {
 		String symbol;
 	};
 
-	// stack slot yielding a pointer
+	// fixed-size frame slot yielding a pointer
 	struct AllocNode : Node {
-		AllocNode(Function& fn, Type* ptrType, Type* allocType);
-		// VLA's need a byte size to derive
-		AllocNode(Function& fn, Type* ptrType, Type* allocType, Node* size);
+		AllocNode(Function& fn, Type* ptrType, Type* allocType, U32 align = 0);
 
 		Type* getAllocType() const;
-		Node* getSizeOperand() const;
-		B32 isVariableSized() const;
+		U32 getAlign() const;
 	private:
 		Type* allocType;
+		U32 align;
+	};
+
+	// run-time stack bump
+	struct StackAllocNode : Node {
+		StackAllocNode(Function& fn, Type* ptrType, Node* control, Node* memory, Node* size);
+
+		Node* getControl() const;
+		Node* getMemory() const;
+		Node* getSize() const;
+	};
+
+	// reads the current stack top
+	struct StackSaveNode : Node {
+		StackSaveNode(Function& fn, Type* ptrType, Node* control, Node* memory);
+
+		Node* getControl() const;
+		Node* getMemory() const;
+	};
+
+	// puts a saved stack top back and produces the next memory state
+	struct StackRestoreNode : Node {
+		StackRestoreNode(Function& fn, Type* memoryType, Node* control, Node* memory, Node* saved);
+
+		Node* getControl() const;
+		Node* getMemory() const;
+		Node* getSaved() const;
 	};
 
 	namespace detail {
@@ -339,8 +387,12 @@ namespace rat {
 		template <> inline B32 nodeIsa<LoadNode>(const Node* n)     { return n->getOpcode() == Opcode::Load; }
 		template <> inline B32 nodeIsa<StoreNode>(const Node* n)    { return n->getOpcode() == Opcode::Store; }
 		template <> inline B32 nodeIsa<CallNode>(const Node* n)     { return n->getOpcode() == Opcode::Call; }
+		template <> inline B32 nodeIsa<AsmNode>(const Node* n)      { return n->getOpcode() == Opcode::Asm; }
 		template <> inline B32 nodeIsa<GlobalNode>(const Node* n)   { return n->getOpcode() == Opcode::Global; }
 		template <> inline B32 nodeIsa<AllocNode>(const Node* n)    { return n->getOpcode() == Opcode::Alloc; }
+		template <> inline B32 nodeIsa<StackAllocNode>(const Node* n)   { return n->getOpcode() == Opcode::StackAlloc; }
+		template <> inline B32 nodeIsa<StackSaveNode>(const Node* n)    { return n->getOpcode() == Opcode::StackSave; }
+		template <> inline B32 nodeIsa<StackRestoreNode>(const Node* n) { return n->getOpcode() == Opcode::StackRestore; }
 		template <> inline B32 nodeIsa<SplatNode>(const Node* n)    { return n->getOpcode() == Opcode::Splat; }
 		template <> inline B32 nodeIsa<ExtractNode>(const Node* n)  { return n->getOpcode() == Opcode::Extract; }
 		template <> inline B32 nodeIsa<PackNode>(const Node* n)     { return n->getOpcode() == Opcode::Pack; }

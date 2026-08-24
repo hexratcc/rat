@@ -95,12 +95,12 @@ namespace rat {
 			List<I32> memHead;		// memory node id -> local index of a load on it (-1)
 			List<I32> memNext;		// per local index: next load sharing that memory
 			List<I32> touchedMem; // memory node ids to reset after the block
-			List<I32> stHead; // memory-state node id -> local index of the store/call consuming it (-1)
-			List<I32> touchedSt; // state node ids to reset after the block
-			List<I32> succHead;	 // per local index: head of the extra-edge chain (-1)
-			List<I32> succNext;	 // edge -> next edge in the chain
-			List<I32> succTo;		 // edge -> target local index
-			List<Node*> ready;	 // binary heap of ready nodes
+			List<I32> stHead;     // memory-state node id -> local index of the store/call consuming it (-1)
+			List<I32> touchedSt;  // state node ids to reset after the block
+			List<I32> succHead;	  // per local index: head of the extra-edge chain (-1)
+			List<I32> succNext;	  // edge -> next edge in the chain
+			List<I32> succTo;		  // edge -> target local index
+			List<Node*> ready;	  // binary heap of ready nodes
 		};
 		List<Node*> topoOrder(List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& scratch) const;
 

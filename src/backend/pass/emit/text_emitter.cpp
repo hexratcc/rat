@@ -63,6 +63,12 @@ namespace rat {
 		case Opcode::Call:
 			*os << Green << "  \"" << cast<CallNode>(node)->getCallee() << "\"" << Reset;
 			break;
+		case Opcode::Asm: {
+			const String& text = cast<AsmNode>(node)->getText();
+			List<U8> bytes(text.begin(), text.end());
+			*os << Green << "  " << quoteBytes(bytes) << Reset;
+			break;
+		}
 		case Opcode::Global:
 			*os << Green << "  \"" << cast<GlobalNode>(node)->getSymbol() << "\"" << Reset;
 			break;

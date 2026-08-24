@@ -1,0 +1,34 @@
+@name memoryopt: a load is not forwarded across an asm memory clobber
+@passes memoryopt
+
+@input
+func t(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v11
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "arg0" of v0
+	v5 = const : i32  7
+	v6 = store : mem v2, v3, v4, v5
+	v7 = asm : (ctrl, mem)  "" v2, v6
+	v8 = proj : ctrl  #0 "ctrl" of v7
+	v9 = proj : mem  #1 "mem" of v7
+	v10 = load : i32 v8, v9, v4
+	v11 = return : ctrl v8, v9, v10
+}
+
+@expect
+func t(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v11
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "arg0" of v0
+	v5 = const : i32  7
+	v6 = store : mem v2, v3, v4, v5
+	v7 = asm : (ctrl, mem)  "" v2, v6
+	v8 = proj : ctrl  #0 "ctrl" of v7
+	v9 = proj : mem  #1 "mem" of v7
+	v10 = load : i32 v8, v9, v4
+	v11 = return : ctrl v8, v9, v10
+}

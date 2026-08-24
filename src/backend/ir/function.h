@@ -36,6 +36,9 @@ namespace rat {
 		B32 isNoInline() const { return noInline; }
 		void setNoInline(B32 v) { noInline = v; }
 
+		U32 getAlign() const { return align; }
+		void setAlign(U32 v) { align = v; }
+
 		// symbol linkage
 		enum class Linkage { External, Internal };
 		Linkage getLinkage() const { return linkage; }
@@ -93,12 +96,12 @@ namespace rat {
 		Node* ashr(Node* lhs, Node* rhs);
 
 		Node* unary(Opcode op, Node* operand);
+		Node* neg(Node* operand);
+		Node* bitNot(Node* operand);
 		Node* clz(Node* operand);
 		Node* ctz(Node* operand);
 		Node* popcnt(Node* operand);
 		Node* bswap(Node* operand);
-		Node* neg(Node* operand);
-		Node* bitNot(Node* operand);
 
 		Node* compare(Opcode op, Node* lhs, Node* rhs);
 		Node* eq(Node* lhs, Node* rhs);
@@ -113,11 +116,16 @@ namespace rat {
 		void store(Node* pointer, Node* value);
 
 		Node* global(const String& name);
-		Node* alloc(Type* type);
-		Node* allocVLA(Type* type, Node* byteCount);
+		Node* alloc(Type* type, U32 align = 0);
+
+		Node* stackAlloc(Node* byteCount);
+		Node* stackSave();
+		void stackRestore(Node* saved);
 
 		Node* call(const String& callee, Type* retType, const List<Node*>& args, B32 varArgs = true);
 		Node* callIndirect(Node* target, Type* retType, const List<Node*>& args, B32 varArgs = true);
+
+		List<Node*> inlineAsm(const String& text, const List<Type*>& outputs, const List<Node*>& args);
 
 		// control
 		IfNode* iff(Node* predicate);
@@ -215,6 +223,7 @@ namespace rat {
 		Type* retType; // null for a void function
 		B32 variadic = false;
 		B32 noInline = false;
+		U32 align = 0;
 		Linkage linkage = Linkage::External;
 
 		Arena arena;

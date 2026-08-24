@@ -208,6 +208,8 @@ namespace rat {
 				if(!s.keep)
 					continue;
 				U8 b = s.bucket;
+				if(s.align > bucketAlign[b])
+					bucketAlign[b] = s.align;
 				if(b == BBss || b == BTbss) {
 					bucketSize[b] = (bucketSize[b] + (s.align - 1)) & ~(s.align - 1);
 					s.outOff = bucketSize[b];
@@ -237,6 +239,8 @@ namespace rat {
 			if(!d.common)
 				continue;
 			U64 a = d.comAlign ? d.comAlign : 1;
+			if(a > bucketAlign[BBss])
+				bucketAlign[BBss] = a;
 			bucketSize[BBss] = (bucketSize[BBss] + (a - 1)) & ~(a - 1);
 			d.addr = bucketSize[BBss]; // bucket-relative, absolutized below
 			bucketSize[BBss] += d.comSize ? d.comSize : 1;
@@ -297,8 +301,8 @@ namespace rat {
 		place(ORelaDyn, 8);
 		place(ORelaPlt, 8);
 		place(OPlt, 16);
-		place(OText, 16);
-		place(ORodata, 16);
+		place(OText, bucketAlign[BText] > 16 ? bucketAlign[BText] : 16);
+		place(ORodata, bucketAlign[BRodata] > 16 ? bucketAlign[BRodata] : 16);
 		place(OEhFrame, 8);
 		place(OEhFrameHdr, 4);
 
@@ -306,7 +310,7 @@ namespace rat {
 		cursor = (cursor + detail::kPage - 1) & ~(detail::kPage - 1);
 		place(OInitArray, 8);
 		place(OFiniArray, 8);
-		place(OData, 16);
+		place(OData, bucketAlign[BData] > 16 ? bucketAlign[BData] : 16);
 		place(OTdata, 16);
 		place(OGot, 8);
 		place(OGotPlt, 8);
@@ -325,7 +329,10 @@ namespace rat {
 		place(ODynamic, 8);
 
 		// nobits last
-		cursor = (cursor + 15) & ~15ull;
+		{
+			U64 a = bucketAlign[BBss] > 16 ? bucketAlign[BBss] : 16;
+			cursor = (cursor + a - 1) & ~(a - 1);
+		}
 		vaddr[OBss] = detail::kImageBase + cursor;
 		foff[OBss] = cursor;
 		size[OBss] = bucketSize[BBss];

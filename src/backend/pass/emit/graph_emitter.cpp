@@ -22,10 +22,18 @@ namespace rat {
 		void writeHtml(std::ostream& os, const String& s) {
 			for(C8 ch : s) {
 				switch(ch) {
-				case '&': os << "&amp;"; break;
-				case '<': os << "&lt;"; break;
-				case '>': os << "&gt;"; break;
-				default: os << ch; break;
+				case '&':
+					os << "&amp;";
+					break;
+				case '<':
+					os << "&lt;";
+					break;
+				case '>':
+					os << "&gt;";
+					break;
+				default:
+					os << ch;
+					break;
 				}
 			}
 		}
@@ -62,14 +70,20 @@ namespace rat {
 					return i == 2 ? "tgt" : std::to_string(i - 3);
 				return std::to_string(i - 2);
 			}
+			case Opcode::Asm:
+				return i == 0 ? "ctrl" : i == 1 ? "mem" : std::to_string(i - 2);
 			case Opcode::Phi:
 				return i == 0 ? "region" : std::to_string(i - 1);
 			case Opcode::Proj:
 				return "src";
 			case Opcode::Stop:
 				return "ret";
-			case Opcode::Alloc:
-				return "size";
+			case Opcode::StackAlloc:
+				return i == 0 ? "ctrl" : i == 1 ? "mem" : "size";
+			case Opcode::StackSave:
+				return i == 0 ? "ctrl" : "mem";
+			case Opcode::StackRestore:
+				return i == 0 ? "ctrl" : i == 1 ? "mem" : "saved";
 			case Opcode::Splat:
 				return "val";
 			case Opcode::Extract:
@@ -98,6 +112,10 @@ namespace rat {
 			case Opcode::Call:
 				os << " ";
 				writeHtml(os, cast<CallNode>(n)->getCallee());
+				break;
+			case Opcode::Asm:
+				os << " ";
+				writeHtml(os, cast<AsmNode>(n)->getText());
 				break;
 			case Opcode::Region:
 				if(cast<RegionNode>(n)->isLoopHeader())
@@ -134,8 +152,7 @@ namespace rat {
 			return t->getTupleElement(e)->str();
 		}
 
-		void writeNode(std::ostream& os, U32 fnIndex, const Node* n,
-									 const List<U32>& useCount) {
+		void writeNode(std::ostream& os, U32 fnIndex, const Node* n, const List<U32>& useCount) {
 			U32 in = n->getInputCount();
 			U32 out = outCount(n);
 			U32 total = 0;
@@ -186,7 +203,7 @@ namespace rat {
 				return "color=\"#cc0000\", weight=4"; // control spine
 			if(t->isMemory())
 				return "color=\"#0000ff\""; // memory thread
-			return "color=\"#000000\""; // data
+			return "color=\"#000000\"";		// data
 		}
 
 		void emitFunction(std::ostream& os, U32 index, const Function& fn) {

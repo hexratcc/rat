@@ -51,18 +51,46 @@ namespace rat {
 	}
 
 	void X86EncodePass::emitFrameAddr(const MachineInstr& in) {
-		if(in.imm == -1) {
-			Reg d = gpOf(in.defs[0]);
-			readGp(in.uses[0], R10);
-			a->movRegImm64(R11, ~(U64)15);
-			a->addRegImm32(R10, 15);
-			a->andRR(R10, R11);
-			a->subRR(RSP, R10);
-			a->andRR(RSP, R11);
-			a->movRR(d, RSP);
-			return;
-		}
 		a->leaMem(gpOf(in.defs[0]), RBP, (I32)in.imm);
+	}
+
+	void X86EncodePass::emitStackAlloc(const MachineInstr& in) {
+		readGp(in.uses[0], R10);
+		a->movRegImm64(R11, ~(U64)15);
+		a->addRegImm32(R10, 15);
+		a->andRR(R10, R11);
+		a->subRR(RSP, R10);
+		a->andRR(RSP, R11);
+		a->movRR(gpOf(in.defs[0]), RSP);
+	}
+
+	void X86EncodePass::emitStackSave(const MachineInstr& in) { a->movRR(gpOf(in.defs[0]), RSP); }
+
+	void X86EncodePass::emitStackRestore(const MachineInstr& in) {
+		readGp(in.uses[0], R10);
+		a->movRR(RSP, R10);
+	}
+
+	// buf[0] = rbp, buf[1] = resume address, buf[2] = rsp
+	void X86EncodePass::emitSetJmp(const MachineInstr& in) {
+		Reg buf = gpOf(in.uses[0]);
+		U32 leaAt = a->leaRipDisp(R10);
+		a->storeMem(buf, 0, RBP, 8);
+		a->storeMem(buf, 8, R10, 8);
+		a->storeMem(buf, 16, RSP, 8);
+		a->movRegImm32(RAX, 0);
+		U32 done = a->jmpRel32();
+		a->patchRel32(leaAt, a->here()); // resume label
+		a->movRegImm32(RAX, 1);
+		a->patchRel32(done, a->here());
+	}
+
+	void X86EncodePass::emitLongJmp(const MachineInstr& in) {
+		Reg buf = gpOf(in.uses[0]);
+		a->load64(R10, buf, 8); // read the resume address before rsp moves
+		a->load64(RBP, buf, 0);
+		a->load64(RSP, buf, 16);
+		a->jmpReg(R10);
 	}
 
 	void X86EncodePass::emitLoad(const MachineInstr& in) {

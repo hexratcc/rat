@@ -266,6 +266,16 @@ namespace rat {
 			return emitFrameAddr(in);
 		case X86Op::RetAddr:
 			return a->load64(gpOf(in.defs[0]), RBP, 8);
+		case X86Op::StackAlloc:
+			return emitStackAlloc(in);
+		case X86Op::StackSave:
+			return emitStackSave(in);
+		case X86Op::StackRestore:
+			return emitStackRestore(in);
+		case X86Op::SetJmp:
+			return emitSetJmp(in);
+		case X86Op::LongJmp:
+			return emitLongJmp(in);
 		case X86Op::Lea:
 			return a->leaSib(
 					gpOf(in.defs[0]), gpOf(in.uses[0]), gpOf(in.uses[1]), (U32)(in.imm2 & 3), (I32)in.imm);
@@ -453,14 +463,16 @@ namespace rat {
 		for(const MachineBlock& blk : fn->blocks)
 			for(const MachineInstr& in : blk.insts) {
 				X86Op op = (X86Op)in.op;
-				if(op == X86Op::FrameAddr) {
+				if(op == X86Op::FrameAddr)
 					framey = true;
-					if(in.imm == -1)
-						hasDynAlloca = true;
+				if(op == X86Op::StackAlloc || op == X86Op::StackSave || op == X86Op::StackRestore) {
+					framey = true;
+					hasDynAlloca = true;
 				}
 				if(op == X86Op::VaStart || op == X86Op::VaArg || op == X86Op::RetAddr ||
+					 op == X86Op::SetJmp || op == X86Op::LongJmp ||
 					 (op >= X86Op::X87LoadMem && op <= X86Op::X87Cmp))
-					framey = true; // reading [rbp+8] needs rbp to survive
+					framey = true; // reading [rbp+8] or jumping across frames needs rbp to survive
 				if(op == X86Op::FLoad && !in.uses.empty() && in.uses[0].kind == MachineOperand::Kind::Imm)
 					framey = true; // materializes through the rbp scratch slot
 				if(in.isCall)
@@ -510,7 +522,7 @@ namespace rat {
 			sec = ObjectFile::Bss;
 		else if(g->isConstant())
 			sec = ObjectFile::Rodata;
-		obj.align(sec, 8);
+		obj.align(sec, g->getAlign() > 8 ? g->getAlign() : 8u);
 
 		U32 off;
 		if(allZero) {
@@ -531,7 +543,8 @@ namespace rat {
 		UniquePtr<ObjectFile> obj = createObjectFile(target.getTriple().os);
 
 		for(const Global* g : mod.globals())
-			emitGlobal(*obj, g, target.getPointerSizeInBytes());
+			if(!g->isAlias())
+				emitGlobal(*obj, g, target.getPointerSizeInBytes());
 
 		List<U8> code;
 		List<AsmReloc> relocs;
@@ -552,12 +565,21 @@ namespace rat {
 			reset(mf, fl, a, mf.usedCalleeSaved);
 			encodeFunction();
 
-			obj->align(ObjectFile::Text, 16);
+			obj->align(ObjectFile::Text, fn->getAlign() > 16 ? fn->getAlign() : 16u);
 			U32 off = obj->append(ObjectFile::Text, code.data(), (U32)code.size());
 			B32 global = fn->getLinkage() == Function::Linkage::External;
 			obj->defineSymbol(fn->getName(), ObjectFile::Text, off, global, true);
 			for(const AsmReloc& r : relocs)
 				obj->addReloc(ObjectFile::Text, off + r.offset, r.symbol, r.kind, r.addend);
+		}
+
+		// aliases label storage that some other symbol owns
+		for(const Global* g : mod.globals()) {
+			if(!g->isAlias())
+				continue;
+			B32 ok = obj->defineAlias(g->getName(), g->getAliasTarget(), !g->isInternal());
+			assert(ok && "alias target is not defined in this module");
+			(void)ok;
 		}
 
 		obj->write(*os);

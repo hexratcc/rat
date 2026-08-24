@@ -73,14 +73,14 @@ namespace rat {
 	}
 
 	B32 AliasAnalysis::isIdentified(const Node* n) {
-		return n && (isa<AllocNode>(n) || isa<GlobalNode>(n)); // an unknown base is not an object
+		return n && (isa<AllocNode>(n) || isa<StackAllocNode>(n) || isa<GlobalNode>(n));
 	}
 
 	B32 AliasAnalysis::distinctObjects(const Node* a, const Node* b) {
 		// a and b are provably different
 		if(!isIdentified(a) || !isIdentified(b))
 			return false;
-		if(isa<AllocNode>(a) || isa<AllocNode>(b))
+		if(!isa<GlobalNode>(a) || !isa<GlobalNode>(b))
 			return a != b;
 		return cast<GlobalNode>(a)->getSymbol() != cast<GlobalNode>(b)->getSymbol();
 	}

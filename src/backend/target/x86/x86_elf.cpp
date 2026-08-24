@@ -196,13 +196,13 @@ namespace rat {
 				// clang-format off
 				// name        type                  flags                          offset         size               link      info         align entsize
 				{0,           detail::SHT_NULL,     0,                             0,             0,                 0,        0,           0,    0},                    // 0 null
-				{nText,       detail::SHT_PROGBITS, alloc | detail::SHF_EXECINSTR, offText,       bytesOf(Text).size(),        0,           0,    16,   0},              // 1 .text
+				{nText,       detail::SHT_PROGBITS, alloc | detail::SHF_EXECINSTR, offText,       bytesOf(Text).size(),        0,           0,    secAlign[Text],   0},              // 1 .text
 				{nRelaText,   detail::SHT_RELA,     rela,                          offRelaText,   relaText.size(),   shSymtab, shText,      8,    detail::kRelaEntSize}, // 2 .rela.text
-				{nRodata,     detail::SHT_PROGBITS, alloc,                         offRodata,     bytesOf(Rodata).size(),      0,           0,    16,   0},              // 3 .rodata
+				{nRodata,     detail::SHT_PROGBITS, alloc,                         offRodata,     bytesOf(Rodata).size(),      0,           0,    secAlign[Rodata], 0},              // 3 .rodata
 				{nRelaRodata, detail::SHT_RELA,     rela,                          offRelaRodata, relaRodata.size(), shSymtab, shRodata,    8,    detail::kRelaEntSize}, // 4 .rela.rodata
-				{nData,       detail::SHT_PROGBITS, alloc | detail::SHF_WRITE,     offData,       bytesOf(Data).size(),        0,           0,    16,   0},              // 5 .data
+				{nData,       detail::SHT_PROGBITS, alloc | detail::SHF_WRITE,     offData,       bytesOf(Data).size(),        0,           0,    secAlign[Data],   0},              // 5 .data
 				{nRelaData,   detail::SHT_RELA,     rela,                          offRelaData,   relaData.size(),   shSymtab, shData,      8,    detail::kRelaEntSize}, // 6 .rela.data
-				{nBss,        detail::SHT_NOBITS,   alloc | detail::SHF_WRITE,     0,             bssSize,           0,        0,           16,   0},                    // 7 .bss
+				{nBss,        detail::SHT_NOBITS,   alloc | detail::SHF_WRITE,     0,             bssSize,           0,        0,           secAlign[Bss],    0},                    // 7 .bss
 				{nSymtab,     detail::SHT_SYMTAB,   0,                             offSymtab,     symtab.size(),     shStrtab, firstGlobal, 8,    detail::kSymEntSize},  // 8 .symtab
 				{nStrtab,     detail::SHT_STRTAB,   0,                             offStrtab,     strtab.size(),     0,        0,           1,    0},                    // 9 .strtab
 				{nShstrtab,   detail::SHT_STRTAB,   0,                             offShstr,      shstr.size(),      0,        0,           1,    0},                    // 10 .shstrtab

@@ -1,0 +1,28 @@
+@name asm: a volatile asm survives the whole scalar pipeline
+@passes sccp simplifycfg gvn fold memoryopt
+
+@input
+func t() -> i32 {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v8
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = asm : (ctrl, mem)  "" v2, v3
+	v5 = proj : ctrl  #0 "ctrl" of v4
+	v6 = proj : mem  #1 "mem" of v4
+	v7 = const : i32  7
+	v8 = return : ctrl v5, v6, v7
+}
+
+@expect
+func t() -> i32 {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v8
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = asm : (ctrl, mem)  "" v2, v3
+	v5 = proj : ctrl  #0 "ctrl" of v4
+	v6 = proj : mem  #1 "mem" of v4
+	v7 = const : i32  7
+	v8 = return : ctrl v5, v6, v7
+}

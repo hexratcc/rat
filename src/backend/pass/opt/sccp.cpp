@@ -81,9 +81,10 @@ namespace rat {
 
 	void SCCPPass::visitFlow(Node* c) {
 		for(Node* u : c->getUsers()) {
-			if(CallNode* call = dyn_cast<CallNode>(u)) {
-				if(call->getControlInput() == c)
-					if(ProjNode* cp = call->projection(CallNode::controlProjIndex()))
+			// a call or an asm passes control on through its control projection
+			if(isa<CallNode>(u) || isa<AsmNode>(u)) {
+				if(u->getControlInput() == c)
+					if(ProjNode* cp = u->projection(CallNode::controlProjIndex()))
 						markExec(cp);
 				continue;
 			}

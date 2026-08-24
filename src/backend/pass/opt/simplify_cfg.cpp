@@ -20,9 +20,9 @@ namespace rat {
 			for(Node* u : n->getUsers()) {
 				if(isControlNode(u)) {
 					work.push_back(u);
-				} else if(CallNode* call = dyn_cast<CallNode>(u)) {
-					if(call->getControlInput() == n)
-						if(Node* cp = call->projection(CallNode::controlProjIndex()))
+				} else if(isa<CallNode>(u) || isa<AsmNode>(u)) {
+					if(u->getControlInput() == n)
+						if(Node* cp = u->projection(CallNode::controlProjIndex()))
 							work.push_back(cp);
 				}
 			}

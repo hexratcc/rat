@@ -35,7 +35,7 @@ namespace rat::cc {
 			Node* len = convert(fn, v.node, v.type, ctSize());
 			bytes = fn.mul(len, elemBytes);
 		}
-		Node* slot = fn.allocVLA(irType(d.type), bytes);
+		Node* slot = fn.stackAlloc(bytes);
 		Local loc = Local::memArray(slot, d.type);
 		loc.lengthNode = bytes;
 		declare(*d.name, loc);

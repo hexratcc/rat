@@ -274,11 +274,7 @@ namespace rat {
 		B32 anyAlloc = false;
 		for(const Node* nc : fn) {
 			if(AllocNode* a = dyn_cast<AllocNode>(const_cast<Node*>(nc))) {
-				if(a->isVariableSized()) {
-					os << "  unsigned char *";
-					writeTemp(os, a);
-					os << ";\n";
-				} else {
+				{
 					U32 size = a->getAllocType()->byteSize(ptrBytes);
 					if(size == 0)
 						size = 1;
@@ -346,13 +342,7 @@ namespace rat {
 			return;
 		case Opcode::Alloc: {
 			auto* a = cast<AllocNode>(n);
-			if(a->isVariableSized()) {
-				os << "  ";
-				writeTemp(os, a);
-				os << " = __builtin_alloca(";
-				writeValue(os, a->getSizeOperand());
-				os << ");\n";
-			}
+			(void)a;
 			return;
 		}
 		default:

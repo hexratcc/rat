@@ -99,8 +99,7 @@ namespace rat {
 				break;
 			path.push_back(c);
 			ProjNode* p = cast<ProjNode>(c);
-			CallNode* call = cast<CallNode>(p->getProducer());
-			c = call->getControlInput();
+			c = p->getProducer()->getControlInput();
 		}
 		for(Node* n : path)
 			detail::nodeSet(headMemo, n->getId(), c);
@@ -120,10 +119,14 @@ namespace rat {
 				for(Node* u : cur->getUsers()) {
 					switch(u->getOpcode()) {
 					case Opcode::Store:
+					case Opcode::StackAlloc:
+					case Opcode::StackSave:
+					case Opcode::StackRestore:
 						if(u->getControlInput() == cur)
 							detail::idSet(nodeBlock, u->getId(), b);
 						break;
 					case Opcode::Call:
+					case Opcode::Asm:
 						if(u->getControlInput() == cur) {
 							detail::idSet(nodeBlock, u->getId(), b);
 							nextCall = u;
@@ -369,7 +372,7 @@ namespace rat {
 	B32 Schedule::isFloating(const Node* n) {
 		Opcode op = n->getOpcode();
 		if(op == Opcode::Alloc)
-			return cast<AllocNode>(n)->isVariableSized();
+			return false;
 		if(op == Opcode::Global)
 			return true;
 		if(op == Opcode::Constant)
@@ -416,11 +419,15 @@ namespace rat {
 			return blockOfHead(cast<PhiNode>(n)->getRegion());
 		case Opcode::Store:
 		case Opcode::Call:
+		case Opcode::Asm:
+		case Opcode::StackAlloc:
+		case Opcode::StackSave:
+		case Opcode::StackRestore:
 			return blockOf(n);
 		case Opcode::Proj: {
 			Node* prod = cast<ProjNode>(n)->getProducer();
-			if(isa<CallNode>(prod))
-				return blockOf(prod); // call value/control projection
+			if(isa<CallNode>(prod) || isa<AsmNode>(prod))
+				return blockOf(prod); // call/asm value/control projection
 			return -1;
 		}
 		case Opcode::Constant:
@@ -453,6 +460,9 @@ namespace rat {
 					if(b >= 0 && blocks[b].domDepth > blocks[e].domDepth)
 						e = b;
 				}
+				// a load's placement follows from its home block alone
+				if(isa<LoadNode>(n))
+					e = hoistTarget(n, homeBlock(n), e);
 				U32 id = n->getId();
 				if(detail::idGet(early, id) != e) {
 					detail::idSet(early, id, e);
@@ -537,7 +547,8 @@ namespace rat {
 
 		List<List<Node*>> raw(blocks.size());
 		for(Node* n : fn) {
-			B32 pinned = isa<StoreNode>(n) || isa<CallNode>(n);
+			B32 pinned =
+					isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n) || isStackOpcode(n->getOpcode());
 			if(pinned || isFloating(n)) {
 				I32 b = detail::idGet(nodeBlock, n->getId());
 				if(b >= 0)
@@ -559,6 +570,10 @@ namespace rat {
 			return s->getMemory();
 		if(const CallNode* c = dyn_cast<CallNode>(n))
 			return c->getMemory();
+		if(const AsmNode* a = dyn_cast<AsmNode>(n))
+			return a->getMemory();
+		if(isStackOpcode(n->getOpcode()))
+			return n->getInput(1);
 		return nullptr;
 	}
 
@@ -619,10 +634,10 @@ namespace rat {
 			++s.inDeg[ai];
 		};
 
-		// WAR anti-deps. a store/call totally orders the block's memory
+		// WAR anti-deps. a store/call/asm/stackrestore totally orders the block's memory
 		for(U32 i = 0; i < k; ++i) {
 			Node* n = nodes[i];
-			if(!isa<StoreNode>(n) && !isa<CallNode>(n))
+			if(!isa<StoreNode>(n) && !isa<CallNode>(n) && !isa<AsmNode>(n) && !isa<StackRestoreNode>(n))
 				continue;
 			Node* m = memoryInputOf(n);
 			if(!m)
@@ -656,11 +671,23 @@ namespace rat {
 			return m; // a store produces memory directly
 		};
 		for(Node* n : nodes) {
-			if(!isa<StoreNode>(n) && !isa<CallNode>(n) && !isa<LoadNode>(n))
+			if(!isa<StoreNode>(n) && !isa<CallNode>(n) && !isa<LoadNode>(n) && !isa<AsmNode>(n) &&
+				 !isStackOpcode(n->getOpcode()))
 				continue;
 			Node* prod = producerOfMem(memoryInputOf(n));
-			if(prod && (isa<StoreNode>(prod) || isa<CallNode>(prod)))
+			if(prod && (isa<StoreNode>(prod) || isa<CallNode>(prod) || isa<AsmNode>(prod) ||
+									isa<StackRestoreNode>(prod)))
 				addEdge(prod, n);
+		}
+
+		// every stack op moves rsp, so they run in the order they were built
+		Node* prevStack = nullptr;
+		for(Node* n : nodes) {
+			if(!isStackOpcode(n->getOpcode()))
+				continue;
+			if(prevStack)
+				addEdge(prevStack, n);
+			prevStack = n;
 		}
 
 		// restore edge

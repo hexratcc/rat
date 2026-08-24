@@ -110,33 +110,19 @@ namespace rat {
 		}
 	}
 
-	void X86LowerPass::emitAlloc(AllocNode* al) {
-		if(!al->isVariableSized())
-			return;
-		VReg sz = gpValue(al->getSizeOperand());
-		needScratch(); // the dynamic FrameAddr sequence stashes through the scratch slot
-		inst(X86Op::FrameAddr,
-				 detail::kGp,
-				 {MachineOperand::vr(vregFor(al))},
-				 {MachineOperand::vr(sz)},
-				 -1) // imm -1 marks a dynamic frame address
-				.clobbers = {gpReg(R10), gpReg(R11)};
+	void X86LowerPass::emitStackAlloc(Node* n) {
+		VReg sz = gpValue(cast<StackAllocNode>(n)->getSize());
+		inst(X86Op::StackAlloc, detail::kGp, {MachineOperand::vr(vregFor(n))}, {MachineOperand::vr(sz)})
+				.clobbers = {gpReg(R10), gpReg(R11)}; // rounding runs through the scratch regs
 	}
 
-	void X86LowerPass::gpAcc(X86Op op, VReg d, VReg s) {
-		inst(op, detail::kGp, {MachineOperand::vr(d)}, {MachineOperand::vr(d), MachineOperand::vr(s)});
+	void X86LowerPass::emitStackSave(Node* n) {
+		inst(X86Op::StackSave, detail::kGp, {MachineOperand::vr(vregFor(n))}, {});
 	}
 
-	void X86LowerPass::gpShrImm(VReg d, U32 cnt) {
-		inst(X86Op::LShr,
-				 detail::kGp,
-				 {MachineOperand::vr(d)},
-				 {MachineOperand::vr(d), MachineOperand::immVal((I64)cnt)});
-	}
-	VReg X86LowerPass::gpConst(I64 v) {
-		VReg t = fresh(detail::kGp);
-		def1(X86Op::LoadImm, t, detail::kGp, {MachineOperand::immVal(v)});
-		return t;
+	void X86LowerPass::emitStackRestore(Node* n) {
+		VReg sp = gpValue(cast<StackRestoreNode>(n)->getSaved());
+		inst(X86Op::StackRestore, detail::kGp, {}, {MachineOperand::vr(sp)});
 	}
 
 	void X86LowerPass::twoAddr(X86Op op, VReg d, VReg lhs, VReg rhs) {
@@ -501,6 +487,94 @@ namespace rat {
 				 {MachineOperand::frameSlot(lhs), MachineOperand::frameSlot(rhs)});
 	}
 
+	// d OP= s
+	void X86LowerPass::gpAcc(X86Op op, VReg d, VReg s) {
+		inst(op, detail::kGp, {MachineOperand::vr(d)}, {MachineOperand::vr(d), MachineOperand::vr(s)});
+	}
+
+	// d >>= cnt, logical
+	void X86LowerPass::gpShrImm(VReg d, U32 cnt) {
+		inst(X86Op::LShr,
+				 detail::kGp,
+				 {MachineOperand::vr(d)},
+				 {MachineOperand::vr(d), MachineOperand::immVal((I64)cnt)});
+	}
+
+	// a fresh register holding a constant too wide for an ALU immediate
+	VReg X86LowerPass::gpConst(I64 v) {
+		VReg t = fresh(detail::kGp);
+		def1(X86Op::LoadImm, t, detail::kGp, {MachineOperand::immVal(v)});
+		return t;
+	}
+
+	void X86LowerPass::emitBitScan(UnaryNode* n, B32 reverse) {
+		U32 bits = intBits(n->getType());
+		U32 w = bits > 32 ? 64u : 32u;
+		VReg s = gpValue(n->getOperand());
+		VReg d = vregFor(n);
+		if(bits < w) {
+			copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
+			maskBits(d, bits);
+			s = d;
+		}
+		inst(reverse ? X86Op::BitScanR : X86Op::BitScanF,
+				 detail::kGp,
+				 {MachineOperand::vr(d)},
+				 {MachineOperand::vr(s)},
+				 (I64)w);
+		if(reverse)
+			inst(X86Op::Xor,
+					 detail::kGp,
+					 {MachineOperand::vr(d)},
+					 {MachineOperand::vr(d), MachineOperand::immVal((I64)bits - 1)});
+	}
+
+	void X86LowerPass::emitPopcnt(UnaryNode* n) {
+		static const I64 k55 = (I64)0x5555555555555555ull;
+		static const I64 k33 = (I64)0x3333333333333333ull;
+		static const I64 k0f = (I64)0x0f0f0f0f0f0f0f0full;
+		static const I64 k01 = (I64)0x0101010101010101ull;
+		U32 bits = intBits(n->getType());
+		VReg s = gpValue(n->getOperand());
+		VReg d = vregFor(n);
+		VReg t = fresh(detail::kGp);
+		copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
+		maskBits(d, bits); // keep only its bits
+		// d -= (d >> 1) & k55
+		copy(MachineOperand::vr(t), MachineOperand::vr(d), detail::kGp);
+		gpShrImm(t, 1);
+		gpAcc(X86Op::And, t, gpConst(k55));
+		gpAcc(X86Op::Sub, d, t);
+		// d = (d & k33) + ((d >> 2) & k33)
+		VReg m33 = gpConst(k33);
+		copy(MachineOperand::vr(t), MachineOperand::vr(d), detail::kGp);
+		gpShrImm(t, 2);
+		gpAcc(X86Op::And, t, m33);
+		gpAcc(X86Op::And, d, m33);
+		gpAcc(X86Op::Add, d, t);
+		// d = (d + (d >> 4)) & k0f
+		copy(MachineOperand::vr(t), MachineOperand::vr(d), detail::kGp);
+		gpShrImm(t, 4);
+		gpAcc(X86Op::Add, d, t);
+		gpAcc(X86Op::And, d, gpConst(k0f));
+		// every byte now holds its own count
+		gpAcc(X86Op::Mul, d, gpConst(k01));
+		gpShrImm(d, 56);
+	}
+
+	void X86LowerPass::emitBswap(UnaryNode* n) {
+		U32 bits = intBits(n->getType());
+		VReg s = gpValue(n->getOperand());
+		VReg d = vregFor(n);
+		copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
+		inst(X86Op::Bswap,
+				 detail::kGp,
+				 {MachineOperand::vr(d)},
+				 {MachineOperand::vr(d)},
+				 (I64)(bits > 32 ? 64 : 32));
+		signExtBits(d, bits); // bswap r32 zero-extends
+	}
+
 	void X86LowerPass::emitUnary(UnaryNode* n) {
 		Opcode uop = n->getOpcode();
 		if(uop == Opcode::Bswap) {
@@ -604,8 +678,6 @@ namespace rat {
 		unorderedFixup(n->getOpcode(), d);
 	}
 
-	// an unordered compare sets ZF, PF and CF, so a bare sete would call a NaN
-	// equal to itself; fold the parity flag in
 	void X86LowerPass::unorderedFixup(Opcode op, VReg d) {
 		if(op != Opcode::FEq && op != Opcode::FNe)
 			return;
@@ -767,73 +839,6 @@ namespace rat {
 		gpAcc(X86Op::Xor, d, lo);
 		gpAcc(X86Op::And, d, m);
 		gpAcc(X86Op::Xor, d, lo);
-	}
-
-	void X86LowerPass::emitBitScan(UnaryNode* n, B32 reverse) {
-		U32 bits = intBits(n->getType());
-		U32 w = bits > 32 ? 64u : 32u;
-		VReg s = gpValue(n->getOperand());
-		VReg d = vregFor(n);
-		if(bits < w) {
-			copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
-			maskBits(d, bits);
-			s = d;
-		}
-		inst(reverse ? X86Op::BitScanR : X86Op::BitScanF,
-				 detail::kGp,
-				 {MachineOperand::vr(d)},
-				 {MachineOperand::vr(s)},
-				 (I64)w);
-		if(reverse)
-			inst(X86Op::Xor,
-					 detail::kGp,
-					 {MachineOperand::vr(d)},
-					 {MachineOperand::vr(d), MachineOperand::immVal((I64)bits - 1)});
-	}
-	void X86LowerPass::emitPopcnt(UnaryNode* n) {
-		static const I64 k55 = (I64)0x5555555555555555ull;
-		static const I64 k33 = (I64)0x3333333333333333ull;
-		static const I64 k0f = (I64)0x0f0f0f0f0f0f0f0full;
-		static const I64 k01 = (I64)0x0101010101010101ull;
-		U32 bits = intBits(n->getType());
-		VReg s = gpValue(n->getOperand());
-		VReg d = vregFor(n);
-		VReg t = fresh(detail::kGp);
-		copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
-		maskBits(d, bits); // keep only its bits
-		// d -= (d >> 1) & k55
-		copy(MachineOperand::vr(t), MachineOperand::vr(d), detail::kGp);
-		gpShrImm(t, 1);
-		gpAcc(X86Op::And, t, gpConst(k55));
-		gpAcc(X86Op::Sub, d, t);
-		// d = (d & k33) + ((d >> 2) & k33)
-		VReg m33 = gpConst(k33);
-		copy(MachineOperand::vr(t), MachineOperand::vr(d), detail::kGp);
-		gpShrImm(t, 2);
-		gpAcc(X86Op::And, t, m33);
-		gpAcc(X86Op::And, d, m33);
-		gpAcc(X86Op::Add, d, t);
-		// d = (d + (d >> 4)) & k0f
-		copy(MachineOperand::vr(t), MachineOperand::vr(d), detail::kGp);
-		gpShrImm(t, 4);
-		gpAcc(X86Op::Add, d, t);
-		gpAcc(X86Op::And, d, gpConst(k0f));
-		// every byte now holds its own count
-		gpAcc(X86Op::Mul, d, gpConst(k01));
-		gpShrImm(d, 56);
-	}
-
-	void X86LowerPass::emitBswap(UnaryNode* n) {
-		U32 bits = intBits(n->getType());
-		VReg s = gpValue(n->getOperand());
-		VReg d = vregFor(n);
-		copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
-		inst(X86Op::Bswap,
-				 detail::kGp,
-				 {MachineOperand::vr(d)},
-				 {MachineOperand::vr(d)},
-				 (I64)(bits > 32 ? 64 : 32));
-		signExtBits(d, bits); // bswap r32 zero-extends
 	}
 
 	void X86LowerPass::emitConvertX87(ConvertNode* n, Node* src, Opcode op) {
