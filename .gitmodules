@@ -13,3 +13,12 @@
 [submodule "src/compiler/test/zlib/zlib"]
 	path = src/compiler/test/zlib/zlib
 	url = https://github.com/madler/zlib
+[submodule "src/compiler/test/coremark/coremark"]
+	path = src/compiler/test/coremark/coremark
+	url = https://github.com/eembc/coremark
+[submodule "src/compiler/test/polybench/polybench"]
+	path = src/compiler/test/polybench/polybench
+	url = https://github.com/MatthiasJReisinger/PolyBenchC-4.2.1
+[submodule "src/compiler/test/c-ray/c-ray"]
+	path = src/compiler/test/c-ray/c-ray
+	url = https://github.com/jtsiomb/c-ray
