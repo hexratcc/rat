@@ -216,7 +216,7 @@ namespace rat {
 
 		Type* callTupleType(Type* retType);
 		Node* attachCallProjections(CallNode* c, Type* retType);
-
+	private:
 		Module* mod;
 		String name;
 		List<Type*> paramTypes;
