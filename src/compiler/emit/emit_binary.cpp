@@ -112,6 +112,7 @@ namespace rat::cc {
 			Node* delta =
 					isPointer(type) ? constSize(fn, byteSize(pointee(type))) : fn.constInt(irType(type), 1);
 			updated = isInc ? fn.add(old, delta) : fn.sub(old, delta);
+			updated = reduceBitfield(fn, updated, type);
 		}
 		storeLValue(fn, lv, updated);
 		return {isPre ? updated : old, type};
@@ -331,7 +332,10 @@ namespace rat::cc {
 			CType rt = promote(rhs.type);
 			Node* l = convert(fn, lhs.node, lhs.type, lt);
 			Node* r = convert(fn, rhs.node, rhs.type, rt);
-			return {emitArith(fn, e->binary.op, l, r, lt), lt};
+			Node* res = emitArith(fn, e->binary.op, l, r, lt);
+			if(!res)
+				return {};
+			return {reduceBitfield(fn, res, lt), lt};
 		}
 		case ExprOp::Lt:
 		case ExprOp::Gt:
@@ -353,6 +357,6 @@ namespace rat::cc {
 		Node* res = emitArith(fn, e->binary.op, l, r, ct);
 		if(!res)
 			return {};
-		return {res, ct};
+		return {reduceBitfield(fn, res, ct), ct};
 	}
 } // namespace rat::cc

@@ -17,14 +17,14 @@ namespace rat::cc::detail {
 	B32 assignOp(TokKind kind, ExprOp& op);
 	B32 unaryOp(TokKind kind, ExprOp& op);
 	void utf8Encode(String& out, U32 cp);
-	String decodeUtf8ToUtf32LE(const String& bytes);
-	String decodeUtf8ToUtf16LE(const String& bytes);
+	U32 utf8Decode(const String& bytes, U32& i, U32 n);
+	void appendCodeUnits(String& out, U32 cp, U32 unitBytes);
 
 	B32 isTypeQualifier(TokKind kind);
 	B32 isQualOrStorage(TokKind kind);
 	B32 isTypeStart(TokKind kind);
 
-	U32 alignUp(U32 value, U32 align);
+	U64 alignUp(U64 value, U32 align);
 } // namespace rat::cc::detail
 
 #endif

@@ -134,13 +134,21 @@ namespace rat::cc {
 			return true;
 		case ExprKind::Sizeof: {
 			if(e->sizeOf.operand) {
-				U32 sz;
+				U64 sz;
 				if(!sizeofOperand(e->sizeOf.operand, sz))
 					return false;
 				out = sz;
 			} else {
 				out = byteSize(e->sizeOf.type);
 			}
+			ty = ctSize();
+			return true;
+		}
+		case ExprKind::AlignOf: {
+			U32 n;
+			if(!alignofValue(e, n))
+				return false;
+			out = n;
 			ty = ctSize();
 			return true;
 		}
@@ -279,8 +287,16 @@ namespace rat::cc {
 		switch(lv->kind) {
 		case ExprKind::Ident: {
 			const String& n = *lv->ident.name;
+			Local loc;
+			if(lookup(n, loc)) {
+				if(!loc.staticSym)
+					return false;
+				sym = *loc.staticSym;
+				addend = 0;
+				return true;
+			}
 			if(globalVars.count(n) || funcs.count(n)) {
-				sym = n;
+				sym = globalSymbol(n);
 				addend = 0;
 				return true;
 			}
@@ -336,6 +352,14 @@ namespace rat::cc {
 		case ExprKind::Cast:
 			return evalAddrConst(e->cast.operand, sym, addend);
 		case ExprKind::Ident: {
+			Local loc;
+			if(lookup(*e->ident.name, loc)) {
+				if(!loc.staticSym || !loc.isArray)
+					return false;
+				sym = *loc.staticSym;
+				addend = 0;
+				return true;
+			}
 			auto gv = globalVars.find(*e->ident.name);
 			B32 globalArr = gv != globalVars.end() && gv->second.isArray;
 			if(funcs.count(*e->ident.name) || globalArr) {

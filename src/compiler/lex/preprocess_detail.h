@@ -172,6 +172,12 @@ namespace rat::cc {
 			const String* idNoinline;			// "noinline"
 			const String* idNoinline2;		// "__noinline__"
 			const String* idNoinlineMark; // "__rat_noinline__"
+			const String* idAligned;			// "aligned"
+			const String* idAligned2;			// "__aligned__"
+			const String* idAlignas;			// "_Alignas"
+			const String* idAlias;				// "alias"
+			const String* idAlias2;				// "__alias__"
+			const String* idAliasMark;		// "__rat_alias__"
 			String err;
 			B32 ok = true;
 			I64 lineDelta = 0;
@@ -195,6 +201,12 @@ namespace rat::cc {
 				idNoinline = interner.intern("noinline");
 				idNoinline2 = interner.intern("__noinline__");
 				idNoinlineMark = interner.intern("__rat_noinline__");
+				idAligned = interner.intern("aligned");
+				idAligned2 = interner.intern("__aligned__");
+				idAlignas = interner.intern("_Alignas");
+				idAlias = interner.intern("alias");
+				idAlias2 = interner.intern("__alias__");
+				idAliasMark = interner.intern("__rat_alias__");
 			}
 
 			B32 isBuiltinDynamic(const String* name) { return name == idLine || name == idFile; }

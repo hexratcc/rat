@@ -21,7 +21,7 @@ namespace rat::cc {
 			} else {
 				auto g = globalVars.find(*e->call.callee);
 				if(g != globalVars.end() && !g->second.isArray) {
-					val = fn.load(irType(g->second.type), fn.global(*e->call.callee));
+					val = fn.load(irType(g->second.type), fn.global(globalSymbol(*e->call.callee)));
 					ct = g->second.type;
 					isObject = true;
 				}
@@ -34,8 +34,11 @@ namespace rat::cc {
 				fail("called object is not a function or function pointer");
 				return false;
 			} else {
+				const String& callee = *e->call.callee;
+				if(callee.rfind("__builtin_", 0) != 0 && implicitFuncs.insert(callee).second)
+					warn("implicit declaration of function '" + callee + "'");
 				c.direct = true;
-				if(!builtinReturnType(*e->call.callee, lay.longBits, c.sig.ret))
+				if(!builtinReturnType(callee, lay.longBits, c.sig.ret))
 					c.sig.ret = ctInt();
 			}
 			return true;

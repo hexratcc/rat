@@ -47,13 +47,14 @@ namespace rat::cc {
 			case TokKind::KwStruct:
 			case TokKind::KwUnion:
 			case TokKind::KwTypeof:
+			case TokKind::KwAlignas:
 				return true;
 			default:
 				return isQualOrStorage(kind);
 			}
 		}
 
-		U32 alignUp(U32 value, U32 align) {
+		U64 alignUp(U64 value, U32 align) {
 			return align <= 1 ? value : (value + align - 1) / align * align;
 		}
 	} // namespace detail
@@ -85,6 +86,9 @@ namespace rat::cc {
 				fail(peek(), "expected typedef name");
 				return false;
 			}
+			U32 ignored = 0;
+			if(!acceptTrailingAlignas(ignored))
+				return false;
 			typedefs[lex.text(nameTok)] = t;
 			if(!accept(TokKind::Comma))
 				break;
@@ -108,6 +112,41 @@ namespace rat::cc {
 		}
 	}
 
+	B32 Parser::parseAlignasSpec(U32& align) {
+		Token kw = advance(); // _Alignas
+		if(!expect(TokKind::LParen, "'('"))
+			return false;
+		U32 n = 0;
+		if(startsType(peek())) {
+			CType ty;
+			if(!parseTypeName(ty))
+				return false;
+			n = typeAlignBytes(ty);
+		} else {
+			Expr* e = parseConditional();
+			I64 v = 0;
+			if(!e || !evalIntConst(e, v))
+				return false;
+			if(v <= 0 || (v & (v - 1)) != 0) {
+				fail(kw, "_Alignas requires a positive power-of-two alignment");
+				return false;
+			}
+			n = (U32)v;
+		}
+		if(!expect(TokKind::RParen, "')'"))
+			return false;
+		if(n > align)
+			align = n;
+		return true;
+	}
+
+	B32 Parser::acceptTrailingAlignas(U32& align) {
+		while(peek().kind == TokKind::KwAlignas)
+			if(!parseAlignasSpec(align))
+				return false;
+		return true;
+	}
+
 	B32 Parser::parseTypeSpec(CType& out) {
 		B32 isStatic = false;
 		B32 isExtern = false;
@@ -119,6 +158,7 @@ namespace rat::cc {
 		sawExtern = false;
 		sawInline = false;
 		sawNoinline = false;
+		sawAlignas = 0;
 		auto applyQualStorage = [&](TokKind sk) {
 			if(sk == TokKind::KwStatic)
 				isStatic = true;
@@ -134,13 +174,22 @@ namespace rat::cc {
 				 sk == TokKind::KwRegister)
 				++storageCount;
 		};
-		while(detail::isQualOrStorage(peek().kind)) {
+		while(detail::isQualOrStorage(peek().kind) || peek().kind == TokKind::KwAlignas) {
+			if(peek().kind == TokKind::KwAlignas) {
+				if(!parseAlignasSpec(sawAlignas))
+					return false;
+				continue;
+			}
 			applyQualStorage(peek().kind);
 			advance();
 		}
 		auto finishSpec = [&] {
 			// an attribute marker may trail the spec
-			while(peek().kind == TokKind::KwNoinline) {
+			while(peek().kind == TokKind::KwNoinline || peek().kind == TokKind::KwAlignas) {
+				if(peek().kind == TokKind::KwAlignas) {
+					parseAlignasSpec(sawAlignas);
+					continue;
+				}
 				isNoInline = true;
 				advance();
 			}
@@ -207,7 +256,11 @@ namespace rat::cc {
 				isSigned = true;
 			else if(k == TokKind::KwInt)
 				; // base int
-			else if(detail::isQualOrStorage(k)) {
+			else if(k == TokKind::KwAlignas) {
+				if(!parseAlignasSpec(sawAlignas))
+					return false;
+				continue;
+			} else if(detail::isQualOrStorage(k)) {
 				applyQualStorage(k);
 				advance();
 				continue;
@@ -251,6 +304,8 @@ namespace rat::cc {
 			} else
 				t.bits = 32;
 		}
+		if(!acceptTrailingAlignas(sawAlignas))
+			return false;
 		if(isConst)
 			t.quals |= 1u;
 		out = t;

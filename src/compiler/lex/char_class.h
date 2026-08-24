@@ -54,6 +54,9 @@ namespace rat::cc {
 		case 'v':
 			out = '\v';
 			return true;
+		case 'e':
+			out = 27;
+			return true;
 		default:
 			return false;
 		}

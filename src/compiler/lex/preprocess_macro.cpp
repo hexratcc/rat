@@ -252,6 +252,17 @@ namespace rat::cc {
 			return res;
 		}
 
+		U32 Preprocessor::matchParen(const List<PpToken>& arg, U32 open) {
+			int depth = 0;
+			for(U32 i = open; i < arg.size(); ++i) {
+				if(isPunct(arg[i], "("))
+					++depth;
+				else if(isPunct(arg[i], ")") && --depth == 0)
+					return i;
+			}
+			return (U32)arg.size();
+		}
+
 		B32 Preprocessor::gatherArgs(List<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen) {
 			int depth = 1;
 			List<PpToken> cur;
@@ -315,6 +326,38 @@ namespace rat::cc {
 			}
 			actuals.push_back(va);
 			return true;
+		}
+
+		void Preprocessor::emitAttrMarkers(const PpToken& at,
+																			 const List<List<PpToken>>& raw,
+																			 List<PpToken>& os) {
+			B32 noinl = false;
+			const PpToken* aliasTarget = nullptr;
+			for(const List<PpToken>& arg : raw) {
+				for(U32 i = 0; i < arg.size(); ++i) {
+					const PpToken& w = arg[i];
+					if(w.kind != Pk::Id)
+						continue;
+					if(w.text == idNoinline || w.text == idNoinline2)
+						noinl = true;
+					if((w.text == idAlias || w.text == idAlias2) && i + 2 < arg.size() &&
+						 isPunct(arg[i + 1], "(") && arg[i + 2].kind == Pk::Str)
+						aliasTarget = &arg[i + 2];
+				}
+			}
+			if(noinl) {
+				PpToken n = at;
+				n.text = idNoinlineMark;
+				os.push_back(n);
+			}
+			if(aliasTarget) {
+				PpToken n = at;
+				n.text = idAliasMark;
+				os.push_back(n);
+				os.push_back(makePunct("("));
+				os.push_back(*aliasTarget);
+				os.push_back(makePunct(")"));
+			}
 		}
 
 		void
@@ -387,18 +430,36 @@ namespace rat::cc {
 				List<List<PpToken>> actuals;
 				if(!mapArgs(m, raw, actuals))
 					return os;
-				// the builtin __attribute__ erases its list, but noinline survives as a
-				// marker keyword so the parser can honor it
+				// the builtin __attribute__ erases its list, but noinline and alias survive
+				// as marker keywords and aligned(n) as the equivalent _Alignas(n), so the
+				// parser can honor all three
 				if(t.text == idAttr || t.text == idAttr2) {
-					B32 noinl = false;
-					for(const List<PpToken>& arg : raw)
-						for(const PpToken& w : arg)
-							if(w.kind == Pk::Id && (w.text == idNoinline || w.text == idNoinline2))
-								noinl = true;
-					if(noinl) {
+					emitAttrMarkers(t, raw, os);
+					const List<PpToken>* alignArg = nullptr;
+					U32 alignAt = 0, alignEnd = 0;
+					for(const List<PpToken>& arg : raw) {
+						for(U32 i = 0; i < arg.size(); ++i) {
+							const PpToken& w = arg[i];
+							if(w.kind != Pk::Id || (w.text != idAligned && w.text != idAligned2))
+								continue;
+							if(i + 1 >= arg.size() || !isPunct(arg[i + 1], "("))
+								continue;
+							U32 e = matchParen(arg, i + 1);
+							if(e < arg.size()) {
+								alignArg = &arg;
+								alignAt = i + 1;
+								alignEnd = e;
+							}
+						}
+					}
+					if(alignArg) {
+						List<PpToken> r;
 						PpToken n = t;
-						n.text = idNoinlineMark;
-						os.push_back(n);
+						n.text = idAlignas;
+						r.push_back(n);
+						for(U32 i = alignAt; i <= alignEnd; ++i)
+							r.push_back((*alignArg)[i]);
+						requeueExpansion(r, t, work);
 					}
 					continue;
 				}

@@ -11,22 +11,21 @@ namespace rat::cc {
 	}
 
 	B32 Parser::parseStructBody(StructType* st, B32 isUnion) {
-		U32 offset = 0;
+		U64 offset = 0;
 		U32 align = 1;
-		U32 bitUnitOffset = 0;
-		U32 bitUnitBytes = 0;
-		U32 bitUnitUsed = 0;
+		U32 bitPos = 0;
 		while(peek().kind != TokKind::RBrace && peek().kind != TokKind::Eof) {
 			CType base;
 			if(!parseTypeSpec(base)) {
 				fail(peek(), "expected member type");
 				return false;
 			}
+			U32 baseAlign = sawAlignas;
 			if(peek().kind == TokKind::Semicolon && isStruct(base)) {
 				advance();
 				const StructType* inner = base.strukt;
 				U32 mAlign = inner->align;
-				U32 mbase = isUnion ? 0 : detail::alignUp(offset, mAlign);
+				U64 mbase = isUnion ? 0 : detail::alignUp(offset, mAlign);
 				B32 first = true;
 				for(const Field& sub : inner->fields) {
 					Field f = sub;
@@ -37,7 +36,7 @@ namespace rat::cc {
 					first = false;
 					st->fields.push_back(f);
 				}
-				U32 mEnd = mbase + inner->size;
+				U64 mEnd = mbase + inner->size;
 				if(isUnion) {
 					if(inner->size > offset)
 						offset = inner->size;
@@ -46,7 +45,7 @@ namespace rat::cc {
 				}
 				if(mAlign > align)
 					align = mAlign;
-				bitUnitBytes = 0;
+				bitPos = offset * 8;
 				continue;
 			}
 			for(;;) {
@@ -56,13 +55,19 @@ namespace rat::cc {
 				B32 haveName = false;
 				B32 isArr = false;
 				B32 flexible = false;
-				U32 count = 0;
-				if(looksLikeFuncPtr()) {
+				U64 count = 0;
+				U32 memberAlign = baseAlign;
+				if(looksLikeGroupingParen()) {
 					CType fpt;
-					if(!parseFuncPtrDeclarator(ft, nameTok, fpt))
+					if(!parseDeclaratorType(ft, nameTok, haveName, fpt))
 						return false;
 					ft = fpt;
-					haveName = true;
+					if(isArrayType(ft)) {
+						isArr = true;
+						count = ft.array->count;
+						flexible = count == 0;
+						ft = ft.array->elem;
+					}
 				} else {
 					if(peek().kind == TokKind::Identifier) {
 						nameTok = advance();
@@ -71,7 +76,7 @@ namespace rat::cc {
 					if(peek().kind == TokKind::LBracket) {
 						Declarator d;
 						d.type = ft;
-						if(!parseArraySuffix(d))
+						if(!parseArraySuffix(d, &memberAlign))
 							return false;
 						ft = d.type;
 						isArr = true;
@@ -84,7 +89,7 @@ namespace rat::cc {
 						} else {
 							flexible = true; // type name[] with no bound
 						}
-						count = (U32)n; // 0 == flexible array member
+						count = (U64)n; // 0 == flexible array member
 					}
 				}
 				// optional bitfield : width
@@ -106,33 +111,41 @@ namespace rat::cc {
 					if(unitBytes == 0)
 						unitBytes = 4;
 					U32 falign = fieldAlign(ft);
-					if(w == 0 || bitUnitBytes != unitBytes || bitUnitUsed + (U32)w > unitBytes * 8) {
-						bitUnitOffset = isUnion ? 0 : detail::alignUp(offset, falign);
-						bitUnitBytes = unitBytes;
-						bitUnitUsed = 0;
-						if(!isUnion)
-							offset = bitUnitOffset + unitBytes;
-						else if(unitBytes > offset)
+					if(memberAlign > falign)
+						falign = memberAlign;
+					U32 unitBits = unitBytes * 8;
+					U32 unitStart = 0;
+					if(isUnion) {
+						if(unitBytes > offset)
 							offset = unitBytes;
+					} else {
+						if(w == 0 || bitPos % unitBits + (U32)w > unitBits)
+							bitPos = detail::alignUp(bitPos, unitBits);
+						unitStart = bitPos / unitBits * unitBytes;
 					}
 					if(w > 0 && haveName) {
 						Field f;
 						f.name = arena.make<String>(lex.text(nameTok));
 						f.type = ft;
+						f.type.bitPrec = (U32)w; // the field's values wrap at this width
 						f.set(Field::Bitfield);
 						f.bitWidth = (U32)w;
-						f.bitOffset = bitUnitUsed;
-						f.offset = bitUnitOffset;
+						f.bitOffset = isUnion ? 0 : bitPos % unitBits;
+						f.offset = unitStart;
 						st->fields.push_back(f);
 					}
-					bitUnitUsed += (U32)w;
+					if(isUnion)
+						bitPos = offset * 8;
+					else {
+						bitPos += (U32)w;
+						offset = (bitPos + 7) / 8;
+					}
 					if(falign > align)
 						align = falign;
 					if(!accept(TokKind::Comma))
 						break;
 					continue;
 				}
-				bitUnitBytes = 0;
 				if(!haveName) {
 					fail(peek(), "expected member name");
 					return false;
@@ -156,9 +169,13 @@ namespace rat::cc {
 						return false;
 					}
 				}
-				U32 esize = fieldByteSize(ft);
+				if(!acceptTrailingAlignas(memberAlign)) // trailing form: int a __attribute__(...)
+					return false;
+				U64 esize = fieldByteSize(ft);
 				U32 falign = fieldAlign(ft);
-				U32 fsize = isArr ? esize * count : esize;
+				if(memberAlign > falign)
+					falign = memberAlign;
+				U64 fsize = isArr ? esize * count : esize;
 				Field f;
 				f.name = arena.make<String>(lex.text(nameTok));
 				f.type = ft;
@@ -172,6 +189,7 @@ namespace rat::cc {
 				} else {
 					offset = f.offset + fsize;
 				}
+				bitPos = offset * 8;
 				if(falign > align)
 					align = falign;
 				if(!accept(TokKind::Comma))
@@ -192,24 +210,29 @@ namespace rat::cc {
 		B32 isUnion = peek().kind == TokKind::KwUnion;
 		advance(); // 'struct' or 'union'
 
+		U32 declAlign = 0;
+		if(!acceptTrailingAlignas(declAlign))
+			return false;
+
 		const String* tag = nullptr;
 		if(peek().kind == TokKind::Identifier)
 			tag = arena.make<String>(lex.text(advance()));
 
+		B32 hasBody = peek().kind == TokKind::LBrace;
 		StructType* st = nullptr;
 		if(tag) {
 			auto it = structTypes.find(*tag);
-			if(it != structTypes.end())
-				st = it->second;
+			if(it != structTypes.end() && !(hasBody && it->second.depth < scopeDepth))
+				st = it->second.type;
 			else {
 				st = arena.make<StructType>();
 				st->tag = *tag;
 				st->isUnion = isUnion;
-				structTypes[*tag] = st;
+				structTypes[*tag] = TagBinding{st, scopeDepth};
 			}
 		}
 
-		if(peek().kind == TokKind::LBrace) {
+		if(hasBody) {
 			advance();
 			if(!st)
 				st = arena.make<StructType>(); // anon aggregate
@@ -221,6 +244,12 @@ namespace rat::cc {
 		if(!st) {
 			fail(peek(), "use of undeclared struct/union tag");
 			return false;
+		}
+		if(!acceptTrailingAlignas(declAlign))
+			return false;
+		if(declAlign > st->align) {
+			st->align = declAlign;
+			st->size = detail::alignUp(st->size, declAlign);
 		}
 		CType t;
 		t.strukt = st;
@@ -247,10 +276,15 @@ namespace rat::cc {
 
 	B32 Parser::parseEnumSpec(CType& out) {
 		advance(); // enum
+		String tag;
+		U32 ignored = 0; // an enum's alignment is its underlying type's
+		if(!acceptTrailingAlignas(ignored))
+			return false;
 		if(peek().kind == TokKind::Identifier)
-			advance();
+			tag = lex.text(advance());
 
 		B32 anyNegative = false;
+		B32 haveList = peek().kind == TokKind::LBrace;
 		if(peek().kind == TokKind::LBrace) {
 			advance();
 			I64 next = 0;
@@ -281,6 +315,15 @@ namespace rat::cc {
 			}
 			if(!expect(TokKind::RBrace, "'}'"))
 				return false;
+		}
+		if(!tag.empty()) {
+			if(haveList)
+				enumSignedTags[tag] = anyNegative;
+			else {
+				auto seen = enumSignedTags.find(tag);
+				if(seen != enumSignedTags.end())
+					anyNegative = seen->second;
+			}
 		}
 		out = ctInt();
 		if(!anyNegative)

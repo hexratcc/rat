@@ -26,6 +26,8 @@ namespace rat::cc {
 		// grammar
 		void parsePointers(CType& t);
 		B32 parseTypeSpec(CType& out);
+		B32 parseAlignasSpec(U32& align);
+		B32 acceptTrailingAlignas(U32& align);
 		void setStorage(B32 isStatic, B32 isExtern, B32 isInline, B32 isNoInline) {
 			sawStatic = isStatic;
 			sawExtern = isExtern;
@@ -40,20 +42,18 @@ namespace rat::cc {
 		Stmt* parseGlobalRest(CType base, Declarator first, const Token& start);
 		B32 parseSharedDeclarators(CType base, TransUnit* unit, const Token& start);
 		struct Dim {
-			U32 count;
+			U64 count;
 			Expr* expr;
 		};
 		CType wrapArrayDims(CType base, const List<Dim>& dims);
-		B32 parseArraySuffix(Declarator& d);
+		B32 parseArraySuffix(Declarator& d, U32* align = nullptr);
 		void skipArrayQualifiers();
 		B32 parseParamArray(CType& t);
-		B32 looksLikeFuncPtr();
-		B32 parseFuncPtrDeclarator(CType ret, Token& nameOut, CType& outType);
 		void bindDeclaratorType(Declarator& d, CType t, U32 offset);
 		struct DeclOp {
 			enum class Kind : U8 { Pointer, Array, Func };
 			Kind kind = Kind::Pointer;
-			U32 count = 0;						 // Pointer: star count; Array: element count
+			U64 count = 0;						 // Pointer: star count; Array: element count
 			Expr* countExpr = nullptr; // Array: VLA bound
 			FuncType* func = nullptr;	 // Func: parameter list
 		};
@@ -67,6 +67,12 @@ namespace rat::cc {
 		B32 parseParamTypeList(FuncType* ft);
 		Stmt* parseCompound();
 		Stmt* parseStatement();
+		Stmt* parseAsmStatement();
+		B32 parseAsmOperands(List<AsmOperand>& out);
+		B32 parseAsmStrings(List<const String*>& out);
+		B32 parseAsmTemplate(const String*& out);
+		B32 parseDeclAttributes(const String*& aliasOut, B32& noInlineOut, U32& alignOut);
+		Stmt* parseLabeledSub();
 		B32 checkParamNames(const FuncDef* fn);
 		B32 registerFuncDef(FuncDef* fn);
 		Stmt* parseDeclaration();
@@ -111,7 +117,8 @@ namespace rat::cc {
 		B32 parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods);
 		B32 parseCharLiteral(const Token& tok, I64& value);
 		B32 parseStringLiteral(const Token& tok, String& out);
-		B32 decodeEscape(const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U8& out);
+		B32 parseWideStringLiteral(const Token& tok, U32 unitBytes, String& out);
+		B32 decodeEscape(const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out);
 		B32 decodeUcn(const String& s, U32& i, U32 end, const Token& tok, U32& cp);
 		B32 parseTypeofSpec(CType& out);
 
@@ -129,9 +136,12 @@ namespace rat::cc {
 		// typedef support
 		B32 parseTypedef();
 		B32 startsType(const Token& tok);
-		U32 typeSizeBytes(CType t) const { return typeSize(t, lay.ptrBytes); }
-		U32 fieldByteSize(CType t) const { return isAggregate(t) ? t.strukt->size : typeSizeBytes(t); }
-		U32 fieldAlign(CType t) const { return isAggregate(t) ? t.strukt->align : typeSizeBytes(t); }
+		U64 typeSizeBytes(CType t) const { return typeSize(t, lay.ptrBytes); }
+		U32 typeAlignBytes(CType t) const { return typeAlign(t, lay.ptrBytes); }
+		U64 fieldByteSize(CType t) const { return isAggregate(t) ? t.strukt->size : typeSizeBytes(t); }
+		U32 fieldAlign(CType t) const {
+			return isAggregate(t) ? t.strukt->align : (U32)typeSizeBytes(t);
+		}
 
 		TokenStream& lex;
 		Arena& arena;
@@ -142,10 +152,17 @@ namespace rat::cc {
 		B32 sawExtern = false;
 		B32 sawInline = false;
 		B32 sawNoinline = false;
+		U32 sawAlignas = 0;
 		String errMsg;
 		String curFuncName;
 		Map<String, I64> enumConstants;
-		Map<String, StructType*> structTypes;
+		Map<String, B32> enumSignedTags;
+		struct TagBinding {
+			StructType* type = nullptr;
+			U32 depth = 0;
+		};
+		Map<String, TagBinding> structTypes;
+		U32 scopeDepth = 0;
 		Map<U32, StructType*> complexLayouts;
 		Map<String, CType> typedefs;
 		List<FuncDef*> blockProtos;

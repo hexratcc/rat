@@ -71,11 +71,11 @@ namespace rat::cc {
 	}
 
 	static const C8* const kLibcBuiltins[] = {
-			"abort",		"abs",		 "alloca",	"calloc",	 "copysign", "copysignf", "exit",		 "fabs",
-			"fabsf",		"fprintf", "free",		"labs",		 "llabs",		 "longjmp",		"malloc",	 "memcmp",
-			"memcpy",		"memmove", "memset",	"printf",	 "putchar",	 "puts",			"realloc", "setjmp",
-			"snprintf", "sprintf", "sqrt",		"sqrtf",	 "strcat",	 "strchr",		"strcmp",	 "strcpy",
-			"strlen",		"strncat", "strncmp", "strncpy", "strrchr",	 "strstr",
+			"abort",		"abs",		 "calloc",	"copysign", "copysignf", "exit",		"fabs",
+			"fabsf",		"fprintf", "free",		"labs",			"llabs",		 "malloc",	"memcmp",
+			"memcpy",		"memmove", "memset",	"printf",		"putchar",	 "puts",		"realloc",
+			"snprintf", "sprintf", "sqrt",		"sqrtf",		"strcat",		 "strchr",	"strcmp",
+			"strcpy",		"strlen",	 "strncat", "strncmp",	"strncpy",	 "strrchr", "strstr",
 	};
 	static const C8* const kUnimplementedBuiltins[] = {
 			"apply",
@@ -415,6 +415,42 @@ namespace rat::cc {
 					return true;
 				emitMemCopy(fn, dst, src.node, lay.ptrBytes * 3);
 			}
+			CType v;
+			v.base = CType::Base::Void;
+			out = {fn.constInt(i32, 0), v};
+			return true;
+		}
+
+		if(b == "__builtin_alloca" || b == "alloca") {
+			if(e->args.size() != 1) {
+				fail("'" + b + "' expects one argument");
+				return true;
+			}
+			Value n = emitExpr(fn, e->args[0]);
+			if(!n.node)
+				return true;
+			sawAlloca = true;
+			CType vp;
+			vp.base = CType::Base::Void;
+			vp.ptr = 1;
+			out = {fn.stackAlloc(convert(fn, n.node, n.type, ctSize())), vp};
+			return true;
+		}
+
+		if(b == "__builtin_setjmp" || b == "__builtin_longjmp") {
+			B32 isSet = b == "__builtin_setjmp";
+			if(e->args.size() != (isSet ? 1u : 2u)) {
+				fail("'" + b + "' expects " + (isSet ? "one argument" : "two arguments"));
+				return true;
+			}
+			Value buf = emitExpr(fn, e->args[0]);
+			if(!buf.node)
+				return true;
+			if(isSet) {
+				out = {fn.call(b, i32, {buf.node}, false), ctInt()};
+				return true;
+			}
+			fn.call(b, nullptr, {buf.node}, false); // the value is always 1
 			CType v;
 			v.base = CType::Base::Void;
 			out = {fn.constInt(i32, 0), v};

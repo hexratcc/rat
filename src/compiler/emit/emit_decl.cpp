@@ -36,14 +36,41 @@ namespace rat::cc {
 			bytes = fn.mul(len, elemBytes);
 		}
 		Node* slot = fn.stackAlloc(bytes);
+		curSp = slot; // the block's exit restore hands this storage back
 		Local loc = Local::memArray(slot, d.type);
 		loc.lengthNode = bytes;
 		declare(*d.name, loc);
 		return true;
 	}
 
+	B32 Emitter::declareExtern(Function& fn, const Declarator& d) {
+		Node* addr = fn.global(*d.name);
+		auto g = globalVars.find(*d.name);
+		if(g != globalVars.end()) {
+			if(g->second.isArray)
+				declare(*d.name, Local::memArray(addr, g->second.type, g->second.count));
+			else if(isArrayType(g->second.type))
+				declare(*d.name, Local::memArray(addr, arrayElem(g->second.type)));
+			else
+				declare(*d.name, Local::mem(addr, g->second.type));
+			return true;
+		}
+		if(d.isArray)
+			declare(*d.name, Local::memArray(addr, d.type));
+		else if(isArrayType(d.type))
+			declare(*d.name, Local::memArray(addr, arrayElem(d.type)));
+		else
+			declare(*d.name, Local::mem(addr, d.type));
+		return true;
+	}
+
 	B32 Emitter::declareDead(Function& fn, const Stmt* s) {
 		for(const Declarator& d : s->decls) {
+			if(d.isExtern) {
+				if(!declareExtern(fn, d))
+					return false;
+				continue;
+			}
 			if(d.isStatic) {
 				if(!declareStatic(fn, d))
 					return false;
@@ -68,21 +95,21 @@ namespace rat::cc {
 					return false;
 				}
 				U32 total = (U32)count * byteSize(d.type);
-				Node* slot = allocBytes(fn, total);
+				Node* slot = declSlot(fn, d, byteArrayType(total), total);
 				declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 				continue;
 			}
 			if(isAggregate(d.type)) {
-				Node* slot = allocBytes(fn, d.type.strukt->size);
+				Node* slot = declSlot(fn, d, byteArrayType(d.type.strukt->size), d.type.strukt->size);
 				declare(*d.name, Local::mem(slot, d.type));
 				continue;
 			}
 			if(isArrayType(d.type)) {
-				Node* slot = allocBytes(fn, byteSize(d.type));
+				Node* slot = declSlot(fn, d, byteArrayType(byteSize(d.type)), byteSize(d.type));
 				declare(*d.name, Local::memArray(slot, arrayElem(d.type)));
 				continue;
 			}
-			Node* slot = fn.alloc(irType(d.type));
+			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
 			declare(*d.name, Local::mem(slot, d.type));
 		}
 		return true;
@@ -97,7 +124,7 @@ namespace rat::cc {
 
 	B32 Emitter::emitComplexDecl(Function& fn, const Declarator& d) {
 		CType ct = completeComplex(d.type);
-		Node* slot = allocBytes(fn, ct.strukt->size);
+		Node* slot = declSlot(fn, d, byteArrayType(ct.strukt->size), ct.strukt->size);
 		if(d.init) {
 			if(d.init->kind == ExprKind::InitList) {
 				CType re = complexElem(ct);
@@ -127,7 +154,7 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitStructDecl(Function& fn, const Declarator& d) {
-		Node* slot = allocBytes(fn, d.type.strukt->size);
+		Node* slot = declSlot(fn, d, byteArrayType(d.type.strukt->size), d.type.strukt->size);
 		if(d.init && d.init->kind == ExprKind::InitList) {
 			zeroSlot(fn, slot, d.type.strukt->size);
 			StoreSink sink(*this, fn, slot);
@@ -155,7 +182,7 @@ namespace rat::cc {
 			fail("invalid initializer for array variable '" + *d.name + "'");
 			return false;
 		}
-		Node* slot = allocBytes(fn, byteSize(d.type));
+		Node* slot = declSlot(fn, d, byteArrayType(byteSize(d.type)), byteSize(d.type));
 		declare(*d.name, Local::memArray(slot, arrayElem(d.type)));
 		return true;
 	}
@@ -183,7 +210,7 @@ namespace rat::cc {
 		}
 		U32 elemSize = byteSize(d.type);
 		U32 total = (U32)count * elemSize;
-		Node* slot = allocBytes(fn, total);
+		Node* slot = declSlot(fn, d, byteArrayType(total), total);
 		zeroSlot(fn, slot, total);
 		StoreSink sink(*this, fn, slot);
 		if(d.init && !initArrayInit(sink, 0, d.type, (U32)count, d.init))
@@ -226,7 +253,7 @@ namespace rat::cc {
 				return false;
 			}
 			U32 total = (U32)count * elemSize;
-			Node* slot = allocBytes(fn, total);
+			Node* slot = declSlot(fn, d, byteArrayType(total), total);
 			zeroSlot(fn, slot, total);
 			StoreSink sink(*this, fn, slot);
 			if(d.init && !initArrayInit(sink, 0, d.type, (U32)count, d.init))
@@ -245,7 +272,7 @@ namespace rat::cc {
 			I64 nchars = (I64)bytes.size() / (I64)cw;
 			if(!haveLen)
 				count = nchars + 1;
-			Node* slot = fn.alloc(mod.getArray(elemTy, (U32)count));
+			Node* slot = declSlot(fn, d, mod.getArray(elemTy, (U32)count), (U32)count * elemSize);
 			for(I64 i = 0; i < count; ++i) {
 				I64 val = 0;
 				if(i < nchars)
@@ -274,7 +301,7 @@ namespace rat::cc {
 				failArrayCount();
 				return false;
 			}
-			Node* slot = fn.alloc(mod.getArray(elemTy, (U32)count));
+			Node* slot = declSlot(fn, d, mod.getArray(elemTy, (U32)count), (U32)count * elemSize);
 			zeroSlot(fn, slot, (U32)count * elemSize);
 			for(U32 i = 0; i < els.size(); ++i) {
 				Value v = emitExpr(fn, els[i]);
@@ -295,12 +322,14 @@ namespace rat::cc {
 			failArrayUnknownSize(*d.name);
 			return false;
 		}
-		Node* slot = fn.alloc(mod.getArray(irType(d.type), (U32)count));
+		Node* slot = declSlot(fn, d, mod.getArray(irType(d.type), (U32)count), (U32)count * elemSize);
 		declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 		return true;
 	}
 
 	B32 Emitter::emitOneDecl(Function& fn, const Declarator& d) {
+		if(d.isExtern)
+			return declareExtern(fn, d);
 		if(d.isStatic)
 			return declareStatic(fn, d);
 		if(!d.isArray && isComplexType(d.type))
@@ -310,7 +339,7 @@ namespace rat::cc {
 		if(isArrayType(d.type) || d.isArray)
 			return emitArrayDecl(fn, d);
 		if(d.init && exprRefersTo(d.init, *d.name)) {
-			Node* slot = fn.alloc(irType(d.type));
+			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
 			declare(*d.name, Local::mem(slot, d.type));
 			Value v = emitExpr(fn, d.init);
 			if(!v.node)
@@ -329,7 +358,7 @@ namespace rat::cc {
 			init = fn.constInt(irType(d.type), 0);
 		}
 		if(memVars.count(*d.name)) {
-			Node* slot = fn.alloc(irType(d.type));
+			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
 			fn.store(slot, init);
 			declare(*d.name, Local::mem(slot, d.type));
 		} else {

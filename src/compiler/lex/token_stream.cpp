@@ -4,7 +4,8 @@
 
 namespace rat::cc {
 	namespace detail {
-		// keyword spellings, aligned with TokKind::KwAuto..KwNoinline
+		// keyword spellings, aligned with TokKind::KwAuto..KwAlignas
+		// clang-format off
 		const char* const kKeywords[] = {
 				"auto",				"break",		"case",						"char",			"const",		"continue",
 				"default",		"do",				"double",					"else",			"enum",			"extern",
@@ -13,10 +14,11 @@ namespace rat::cc {
 				"sizeof",			"static",		"struct",					"switch",		"typedef",	"union",
 				"unsigned",		"void",			"volatile",				"while",		"_Bool",		"_Complex",
 				"_Imaginary", "_Generic", "_Static_assert", "__real__", "__imag__", "typeof",
-				"__rat_noinline__",
+				"__rat_noinline__", "__rat_alias__", "asm", "_Alignof", "_Alignas",
 		};
+		// clang-format on
 		static_assert(sizeof(kKeywords) / sizeof(kKeywords[0]) ==
-											(U32)TokKind::KwNoinline - (U32)TokKind::KwAuto + 1,
+											(U32)TokKind::KwAlignas - (U32)TokKind::KwAuto + 1,
 									"kKeywords must cover every keyword TokKind");
 
 		// punctuator spellings for TokKind::LParen..ShrEq

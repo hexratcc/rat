@@ -24,10 +24,22 @@ namespace rat::cc {
 	CType promote(CType t) {
 		if(t.isVoid())
 			return t;
+		if(t.bitPrec) {
+			if(t.bitPrec < 32 || (t.bitPrec == 32 && !t.isUnsigned()))
+				return CType{};
+			if(t.bitPrec == 32) {
+				CType r;
+				r.set(CType::Unsigned);
+				return r;
+			}
+			return t;
+		}
 		if(t.bits < 32)
 			return CType{};
 		return t;
 	}
+
+	static U32 intPrec(CType t) { return t.bitPrec ? t.bitPrec : t.bits; }
 
 	CType defaultArgPromote(CType t) {
 		if(t.isFloat() && t.ptr == 0 && t.bits < 64) {
@@ -62,17 +74,18 @@ namespace rat::cc {
 		}
 		a = promote(a);
 		b = promote(b);
-		if(a.bits == b.bits && a.isUnsigned() == b.isUnsigned()) {
+		U32 pa = intPrec(a), pb = intPrec(b);
+		if(pa == pb && a.isUnsigned() == b.isUnsigned()) {
 			// keep the higher integer rank (long long > long > int)
 			U32 ra = a.isLongLong() ? 2u : (a.isLong() ? 1u : 0u);
 			U32 rb = b.isLongLong() ? 2u : (b.isLong() ? 1u : 0u);
 			return ra >= rb ? a : b;
 		}
 		if(a.isUnsigned() == b.isUnsigned())
-			return a.bits > b.bits ? a : b;
+			return pa > pb ? a : b;
 		CType u = a.isUnsigned() ? a : b;
 		CType s = a.isUnsigned() ? b : a;
-		if(u.bits >= s.bits)
+		if((a.isUnsigned() ? pa : pb) >= (a.isUnsigned() ? pb : pa))
 			return u;
 		return s;
 	}
@@ -199,12 +212,15 @@ namespace rat::cc {
 				dumpExpr(e->cast.operand, depth + 1, os);
 				return;
 			case ExprKind::Sizeof:
+			case ExprKind::AlignOf: {
+				const C8* what = e->kind == ExprKind::Sizeof ? "sizeof" : "_Alignof";
 				if(e->sizeOf.operand) {
-					os << "sizeof\n";
+					os << what << "\n";
 					dumpExpr(e->sizeOf.operand, depth + 1, os);
 				} else {
-					os << "sizeof " << typeName(e->sizeOf.type) << "\n";
+					os << what << " " << typeName(e->sizeOf.type) << "\n";
 				}
+			}
 				return;
 			case ExprKind::Unary:
 				os << "unary " << exprOpName(e->unary.op) << "\n";
@@ -313,9 +329,11 @@ namespace rat::cc {
 			case StmtKind::Case:
 				os << "case\n";
 				dumpExpr(s->expr, depth + 1, os);
+				dumpStmt(s->thenBody, depth + 1, os);
 				return;
 			case StmtKind::Default:
 				os << "default\n";
+				dumpStmt(s->thenBody, depth + 1, os);
 				return;
 			case StmtKind::Break:
 				os << "break\n";
@@ -341,6 +359,9 @@ namespace rat::cc {
 				return;
 			case StmtKind::Goto:
 				os << "goto " << *s->label << "\n";
+				return;
+			case StmtKind::Asm:
+				os << "asm \"" << *s->asmBlock->text << "\"\n";
 				return;
 			}
 		}

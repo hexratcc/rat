@@ -58,7 +58,11 @@ namespace rat::cc {
 		KwReal,					// __real__ (extract the real part of a complex value)
 		KwImag,					// __imag__ (extract the imaginary part of a complex value)
 		KwTypeof,				// typeof / __typeof / __typeof__ (GCC: type of an expr)
-		KwNoinline,			// __rat_noinline__ (marker the preprocessor leaves for __attribute__((noinline)))
+		KwNoinline,     // __rat_noinline__ (marker the preprocessor leaves for __attribute__((noinline)))
+		KwAlias,	      // __rat_alias__ (marker the preprocessor leaves for __attribute__((alias(...))))
+		KwAsm,		      // asm / __asm / __asm__ (GNU inline assembly)
+		KwAlignof,      // _Alignof (__alignof__ / __alignof are macros for it)
+		KwAlignas,      // _Alignas (__attribute__((aligned(n))) expands to it too)
 
 		// punctuators
 		LParen,

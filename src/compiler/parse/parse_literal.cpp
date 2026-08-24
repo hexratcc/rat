@@ -22,6 +22,35 @@ namespace rat::cc {
 				out.push_back((char)(0x80 | (cp & 0x3F)));
 			}
 		}
+
+		U32 utf8Decode(const String& bytes, U32& i, U32 n) {
+			U8 b0 = (U8)bytes[i++];
+			U32 cp = b0, extra = 0;
+			if((b0 & 0xE0) == 0xC0) {
+				cp = b0 & 0x1F;
+				extra = 1;
+			} else if((b0 & 0xF0) == 0xE0) {
+				cp = b0 & 0x0F;
+				extra = 2;
+			} else if((b0 & 0xF8) == 0xF0) {
+				cp = b0 & 0x07;
+				extra = 3;
+			}
+			for(U32 k = 0; k < extra && i < n; ++k, ++i)
+				cp = (cp << 6) | ((U8)bytes[i] & 0x3F);
+			return cp;
+		}
+
+		void appendCodeUnits(String& out, U32 cp, U32 unitBytes) {
+			if(unitBytes == 2 && cp >= 0x10000) { // UTF-16 surrogate pair
+				U32 v = cp - 0x10000;
+				appendCodeUnits(out, 0xD800 + (v >> 10), 2);
+				appendCodeUnits(out, 0xDC00 + (v & 0x3FF), 2);
+				return;
+			}
+			for(U32 k = 0; k < unitBytes; ++k)
+				out.push_back((char)(U8)(cp >> (8 * k)));
+		}
 	} // namespace detail
 
 	B32 Parser::parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods) {
@@ -133,14 +162,17 @@ namespace rat::cc {
 	}
 
 	B32 Parser::decodeEscape(
-			const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U8& out) {
+			const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out) {
 		if(i >= end) {
 			fail(tok, "unterminated escape");
 			return false;
 		}
 		char e = s[i++];
-		if(simpleEscape(e, out))
+		U8 simple = 0;
+		if(simpleEscape(e, simple)) {
+			out = simple;
 			return true;
+		}
 		switch(e) {
 		case '?':
 			out = '?';
@@ -157,7 +189,7 @@ namespace rat::cc {
 				fail(tok, "hex escape out of range");
 				return false;
 			}
-			out = (U8)hv;
+			out = hv; // maxVal already bounds this per encoding prefix
 			return true;
 		}
 		default:
@@ -170,7 +202,7 @@ namespace rat::cc {
 					fail(tok, "octal escape out of range");
 					return false;
 				}
-				out = (U8)ov;
+				out = ov;
 			} else {
 				out = (U8)e; // unknown escape: take the character literally
 			}
@@ -205,6 +237,7 @@ namespace rat::cc {
 	B32 Parser::parseCharLiteral(const Token& tok, I64& value) {
 		String s = lex.text(tok);
 		U32 maxVal = escapeMaxVal(s.size() ? s[0] : '\'');
+		B32 prefixed = s.size() != 0 && s[0] != '\'';
 		// skip any encoding prefix
 		U32 i = 0;
 		while(i < s.size() && s[i] != '\'')
@@ -231,11 +264,13 @@ namespace rat::cc {
 						return false;
 					c = (I64)cp;
 				} else {
-					U8 byte;
-					if(!decodeEscape(s, i, end, tok, maxVal, byte))
+					U32 val;
+					if(!decodeEscape(s, i, end, tok, maxVal, val))
 						return false;
-					c = (I64)(I8)byte;
+					c = maxVal <= 0xFFu ? (I64)(I8)(U8)val : (I64)(I32)val;
 				}
+			} else if(prefixed) {
+				c = (I64)detail::utf8Decode(s, i, end); // L/u/U hold one code point
 			} else {
 				c = (U8)s[i++];
 			}
@@ -274,10 +309,45 @@ namespace rat::cc {
 				detail::utf8Encode(out, cp);
 				continue;
 			}
-			U8 byte;
-			if(!decodeEscape(s, i, end, tok, maxVal, byte))
+			U32 val;
+			if(!decodeEscape(s, i, end, tok, maxVal, val))
 				return false;
-			out.push_back((char)byte);
+			if(maxVal > 0xFFu)
+				detail::utf8Encode(out, val);
+			else
+				out.push_back((char)(U8)val);
+		}
+		return true;
+	}
+
+	B32 Parser::parseWideStringLiteral(const Token& tok, U32 unitBytes, String& out) {
+		String s = lex.text(tok);
+		U32 maxVal = escapeMaxVal(s.size() ? s[0] : '"');
+		U32 i = 0;
+		while(i < s.size() && s[i] != '"')
+			++i;
+		++i;
+		U32 end = (U32)s.size();
+		if(end > 0 && s[end - 1] == '"')
+			--end;
+		while(i < end) {
+			U32 cp;
+			if(s[i] == '\\') {
+				++i;
+				if(i < end && (s[i] == 'u' || s[i] == 'U')) {
+					if(!decodeUcn(s, i, end, tok, cp))
+						return false;
+				} else {
+					// a wide escape carries its full value, it is not cut to a byte
+					U32 value;
+					if(!decodeEscape(s, i, end, tok, maxVal, value))
+						return false;
+					cp = value;
+				}
+			} else {
+				cp = detail::utf8Decode(s, i, end);
+			}
+			detail::appendCodeUnits(out, cp, unitBytes);
 		}
 		return true;
 	}

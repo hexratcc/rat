@@ -168,6 +168,13 @@ namespace rat::cc {
 			}
 			out = (I64)typeSizeBytes(e->sizeOf.type);
 			return true;
+		case ExprKind::AlignOf:
+			if(e->sizeOf.operand) {
+				fail(peek(), "_Alignof of an expression is not a constant expression here");
+				return false;
+			}
+			out = (I64)typeAlignBytes(e->sizeOf.type);
+			return true;
 		default:
 			fail(peek(), "expected a constant expression");
 			return false;
