@@ -97,14 +97,6 @@ namespace detail {
 		return spec;
 	}
 
-	B32 useX86Backend() {
-		static B32 on = [] {
-			const char* e = std::getenv("RATCC_X86");
-			return (B32)(!e || !*e || String(e) != "0");
-		}();
-		return on;
-	}
-
 	struct Expectation {
 		B32 hasValue = false;
 		B32 hasOsValue = false;
@@ -113,6 +105,7 @@ namespace detail {
 		B32 hasOutput = false;
 		String output;
 		B32 skip = false;
+		List<String> includeDirs; // '// include-dir:', relative to the case file
 	};
 
 	struct Artifact {
@@ -177,12 +170,11 @@ namespace detail {
 			} else if(key == "output") {
 				exp.hasOutput = true;
 				inOutput = true;
-			} else if(key == "skip-target") {
+			} else if(key == "skip-target" || key == "skip-x86-target") {
 				if(osMatches(val))
 					exp.skip = true;
-			} else if(key == "skip-x86-target") {
-				if(useX86Backend() && osMatches(val))
-					exp.skip = true;
+			} else if(key == "include-dir") {
+				exp.includeDirs.push_back(val);
 			}
 		}
 		if(!exp.hasValue) {
@@ -190,19 +182,6 @@ namespace detail {
 			return false;
 		}
 		return true;
-	}
-
-	const ConstantNode* returnConstant(const Function& fn) {
-		const ReturnNode* only = nullptr;
-		for(const Node* n : fn) {
-			const ReturnNode* r = dyn_cast<ReturnNode>(n);
-			if(!r || !r->hasValue())
-				continue;
-			if(only)
-				return nullptr;
-			only = r;
-		}
-		return only ? dyn_cast<ConstantNode>(only->getValue()) : nullptr;
 	}
 
 	B32 compileCToObject(const String& source,
@@ -235,7 +214,6 @@ namespace detail {
 			return false;
 		}
 		CompileOptions copt;
-		copt.backend = Backend::X86;
 		X86Target target(hostTargetTriple());
 		compileModule(mod, target, copt, of);
 		return true;
@@ -356,42 +334,31 @@ namespace detail {
 		return true;
 	}
 
-	B32 runProgram(Module& mod, B32 x86, I32& out, String& capturedOut, String& err) {
+	B32 runProgram(Module& mod, const String& passes, I32& out, String& capturedOut, String& err) {
 		CompileOptions copt;
 		copt.renameMain = "__ratcc_user_main";
-		if(x86) {
-			copt.backend = Backend::X86;
-			auto make = [&](const String& base, Artifact& art, String& e) -> B32 {
-				art.path = base + ".o";
-				std::ofstream of(art.path, std::ios::binary);
-				if(!of) {
-					e = "x86: cannot write temp object";
-					return false;
-				}
-				X86Target target(hostTargetTriple());
-				compileModule(mod, target, copt, of);
-				art.compileArgs =
-						targetIsWindows() ? "\"" + art.path + "\"" : "-no-pie \"" + art.path + "\"";
-				return true;
-			};
-			// TODO
-			B32 useRat = !targetIsWindows();
-			return runBackend("x86", make, useRat, out, capturedOut, err);
-		}
-		copt.backend = Backend::C;
-		auto make = [&](const String& base, Artifact& art, String& e) -> B32 {
-			art.path = base + ".c";
-			std::ofstream cf(art.path);
-			if(!cf) {
-				e = "c: cannot write temp source";
+		for(const String& name : splitTokens(passes)) {
+			copt.optPasses.push_back(createPass(name, std::cerr));
+			if(!copt.optPasses.back()) {
+				err = "unknown pass '" + name + "'";
 				return false;
 			}
-			Generic64 target;
-			compileModule(mod, target, copt, cf);
-			art.compileArgs = "-std=c11 \"" + art.path + "\"";
+		}
+		auto make = [&](const String& base, Artifact& art, String& e) -> B32 {
+			art.path = base + ".o";
+			std::ofstream of(art.path, std::ios::binary);
+			if(!of) {
+				e = "x86: cannot write temp object";
+				return false;
+			}
+			X86Target target(hostTargetTriple());
+			compileModule(mod, target, copt, of);
+			art.compileArgs = targetIsWindows() ? "\"" + art.path + "\"" : "-no-pie \"" + art.path + "\"";
 			return true;
 		};
-		return runBackend("c", make, false, out, capturedOut, err);
+		// TODO
+		B32 useRat = !targetIsWindows();
+		return runBackend("x86", make, useRat, out, capturedOut, err);
 	}
 
 	B32 runCase(const String& path, String& err) {
@@ -413,6 +380,10 @@ namespace detail {
 			return true;
 
 		PpOptions pp;
+		auto slash = path.find_last_of('/');
+		String caseDir = slash == String::npos ? String() : path.substr(0, slash + 1);
+		for(const String& d : exp.includeDirs)
+			pp.includeDirs.push_back(caseDir + d);
 		pp.includeDirs.push_back(builtinIncludeDir());
 		String full = builtinPredefs(hostTargetTriple()) + "#line 1 \"" + path + "\"\n" + source;
 		TokenStream ts;
@@ -420,7 +391,6 @@ namespace detail {
 			return false;
 
 		Arena arena;
-		Generic64 target;
 		const TargetLayout lay = TargetLayout::forTriple(hostTargetTriple());
 		Parser parser(ts, arena, lay);
 		TransUnit* unit = parser.parseUnit();
@@ -429,28 +399,12 @@ namespace detail {
 			return false;
 		}
 
-		auto buildModule = [&](Module& m) -> B32 {
-			Emitter emitter(m, lay);
-			if(!emitter.emit(*unit)) {
-				err = emitter.error();
-				return false;
-			}
-			if(!exp.passes.empty()) {
-				std::ostringstream sink;
-				String perr;
-				PassManager pm(target);
-				if(!buildPipeline(pm, exp.passes, sink, perr)) {
-					err = "bad pass spec: " + perr;
-					return false;
-				}
-				pm.run(m);
-			}
-			return true;
-		};
-
 		Module mod;
-		if(!buildModule(mod))
+		Emitter emitter(mod, lay);
+		if(!emitter.emit(*unit)) {
+			err = emitter.error();
 			return false;
+		}
 
 		Function* main = mod.getFunction("main");
 		if(!main) {
@@ -460,10 +414,7 @@ namespace detail {
 
 		I32 got;
 		String capturedOut;
-		const ConstantNode* result = exp.hasOutput ? nullptr : returnConstant(*main);
-		if(result)
-			got = (I32)result->getValue();
-		else if(!runProgram(mod, useX86Backend(), got, capturedOut, err))
+		if(!runProgram(mod, exp.passes, got, capturedOut, err))
 			return false;
 
 		if(got != exp.value) {
@@ -500,14 +451,14 @@ namespace detail {
 		I32 fds[2];
 		if(pipe(fds) != 0)
 			return runCase(path, err); // fall back to in-process on pipe failure
-	
+
 		pid_t pid = fork();
 		if(pid < 0) {
 			close(fds[0]);
 			close(fds[1]);
 			return runCase(path, err);
 		}
-	
+
 		if(pid == 0) {
 			setpgid(0, 0); // lead a new group so the parent can kill descendants too
 			close(fds[0]);
@@ -520,10 +471,10 @@ namespace detail {
 			close(fds[1]);
 			_exit(ok ? 0 : 1);
 		}
-	
+
 		setpgid(pid, pid); // race-free against the child's own setpgid
 		close(fds[1]);
-	
+
 		String childErr;
 		B32 timedOut = false;
 		time_t deadline = time(nullptr) + kCaseTimeoutSec;
@@ -552,7 +503,7 @@ namespace detail {
 				break; // EOF (child closed the pipe) or read error
 		}
 		close(fds[0]);
-	
+
 		if(timedOut) {
 			kill(-pid, SIGKILL);
 			I32 dummy = 0;
@@ -562,7 +513,7 @@ namespace detail {
 			err = os.str();
 			return false;
 		}
-	
+
 		I32 status = 0;
 		waitpid(pid, &status, 0);
 		if(WIFSIGNALED(status)) {
@@ -583,14 +534,13 @@ I32 main(I32 argc, char** argv) {
 	TestSuiteSpec spec;
 	spec.tool = "cc-test";
 	spec.extension = ".c";
-	spec.dirCandidates = {"src/compiler/test", "test"};
+	spec.dirCandidates = {"src/compiler/test/correctness", "."};
 	spec.run = [](const String& path, String& err) { return ::detail::runCaseForked(path, err); };
 	// warm the lazily-initialized caches before threads spawn so their first
 	// access does not race.
 	spec.prewarm = [] {
 		(void)::detail::hostCC();
 		(void)builtinPredefs(hostTargetTriple());
-		(void)::detail::useX86Backend();
 	};
 	return runTestSuite(argc, argv, spec);
 }

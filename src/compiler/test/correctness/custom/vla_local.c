@@ -1,6 +1,6 @@
 // expect: 100
 // A 1-D variable-length array (C99 6.7.5.2): the bound `n` is a runtime value,
-// so the array is stack-allocated with allocVLA. Fill it, sum it, and check
+// so the array is stack-allocated with stackalloc. Fill it, sum it, and check
 // that sizeof yields the runtime byte count (n * sizeof(int)).
 int main(void) {
 	int n = 5;

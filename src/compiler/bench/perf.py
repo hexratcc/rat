@@ -22,7 +22,7 @@ WORK = ROOT / "build/perf"
 WT = WORK / "wt"
 LOGS = WORK / "logs"
 BENCH = "src/compiler/bench/bench.c"
-THIRD_PARTY = ROOT / "src/compiler/bench/third_party"
+THIRD_PARTY = ROOT / "src/compiler/test"
 
 def resolve(name):
     hit = shutil.which(name)
@@ -51,7 +51,7 @@ CORPUS = (
     ("lz4", ("lib/*.c",), ("-Ilib",)),
     ("wren", ("src/vm/*.c", "src/optional/*.c"),
      ("-Isrc/include", "-Isrc/vm", "-Isrc/optional", "-DWREN_COMPUTED_GOTO=0")),
-    ("libyaml", ("src/*.c",), ("-Iinclude", "-DHAVE_CONFIG_H", "-I../stubs/libyaml")),
+    ("libyaml", ("src/*.c",), ("-Iinclude", "-DHAVE_CONFIG_H", "-I..")),
     ("zlib", ("[!g]*.c",), ("-I.",)),  # gz*.c wants posix fcntl
 )
 # -std=c99 hides ftello/strdup in glibc, the corpus needs them declared
@@ -185,7 +185,7 @@ def measure_clang(out):
 def corpus_jobs():
     jobs = []
     for name, globs, flags in CORPUS:
-        d = THIRD_PARTY / name
+        d = THIRD_PARTY / name / name  # test/<name>/ holds the harness, the submodule sits inside
         srcs = sorted(str(p.relative_to(d)) for g in globs for p in d.glob(g))
         if not srcs:
             die(f"no sources under {d}, run: git submodule update --init")
@@ -391,9 +391,10 @@ def main(argv):
     bench = git("log", "-1", "--format=%H", "HEAD", "--", BENCH)
     if not bench:
         die(f"{BENCH} is not tracked")
-    corpus = git("log", "-1", "--format=%H", "HEAD", "--", str(THIRD_PARTY))
+    projects = [str(THIRD_PARTY / name / name) for name, _, _ in CORPUS]
+    corpus = git("log", "-1", "--format=%H", "HEAD", "--", *projects)
     if not corpus:
-        die(f"{THIRD_PARTY} is not tracked, run: git submodule update --init")
+        die(f"{THIRD_PARTY} has no projects, run: git submodule update --init")
 
     LOGS.mkdir(parents=True, exist_ok=True)
     (WORK / "bench.c").write_text(git("show", f"HEAD:{BENCH}"))

@@ -36,7 +36,7 @@ rat_srcs=$(find src/backend/analysis src/backend/codegen src/backend/ir src/back
 link_srcs="src/linker/linker.cpp src/linker/elf_write.cpp src/linker/elf_read.cpp"
 cc_srcs=$(find src/compiler/emit src/compiler/lex src/compiler/parse -name '*.cpp' | sort; find src/compiler -maxdepth 1 -name '*.cpp' ! -name main.cpp | sort)
 driver_srcs="src/backend/main.cpp src/backend/test/runner.cpp \
-	src/linker/main.cpp src/compiler/main.cpp src/compiler/test/runner.cpp"
+	src/linker/main.cpp src/compiler/main.cpp src/compiler/test/correctness/runner.cpp"
 
 all_srcs="$base_srcs $rat_srcs $link_srcs $cc_srcs $driver_srcs"
 
@@ -86,4 +86,4 @@ link_bin rat      $base_o $rat_o $(obj src/backend/main.cpp)
 link_bin rat-test $base_o $rat_o $(obj src/backend/test/runner.cpp)
 link_bin link     $base_o $link_o $(obj src/linker/main.cpp)
 link_bin cc       $base_o $rat_o $cc_o $(obj src/compiler/main.cpp)
-link_bin cc-test  $base_o $rat_o $cc_o $link_o $(obj src/compiler/test/runner.cpp)
+link_bin cc-test  $base_o $rat_o $cc_o $link_o $(obj src/compiler/test/correctness/runner.cpp)
