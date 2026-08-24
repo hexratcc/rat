@@ -106,6 +106,7 @@ namespace rat {
 	Node* Function::clz(Node* operand) { return unary(Opcode::Clz, operand); }
 	Node* Function::ctz(Node* operand) { return unary(Opcode::Ctz, operand); }
 	Node* Function::popcnt(Node* operand) { return unary(Opcode::Popcnt, operand); }
+	Node* Function::bswap(Node* operand) { return unary(Opcode::Bswap, operand); }
 	Node* Function::neg(Node* operand) { return unary(Opcode::Neg, operand); }
 	Node* Function::bitNot(Node* operand) { return unary(Opcode::Not, operand); }
 

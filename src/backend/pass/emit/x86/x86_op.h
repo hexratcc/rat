@@ -34,6 +34,7 @@ namespace rat {
 		LoadImm,	 // dst = imm
 		LoadSym,	 // dst = lea rip[sym]  (address of a global)
 		FrameAddr, // dst = lea rbp[imm]  (address of an arbitrary rbp offset; imm = disp)
+		RetAddr,	 // dst = [rbp+8]      (this frame's return address, forces a frame)
 		Lea,			 // dst = lea [use[0] + use[1]*(1<<imm2) + imm]
 		// integer memory: use[0] = address reg, imm = displacement
 		Load,	 // dst = [addr + index*scale + disp], sign/zero-extended per width/imm2
@@ -79,10 +80,15 @@ namespace rat {
 		VExtract, // dst = lane imm of use[0]; imm2 = (elem bytes << 1) | int?
 		BitScanF, // dst = bsf use[0], operand width in imm (undefined when use[0] is 0)
 		BitScanR, // dst = bsr use[0], operand width in imm (undefined when use[0] is 0)
+		Bswap,		// dst = byte-reverse dst, operand width in imm (32 or 64)
 
 		VPack, // dst = int/fp lanes use[0..k-1] gathered through the vec scratch slot; imm = elem bytes
 		VPackReg, // dst = int lanes use[0..k-1] built in-register via movd/movq + pinsr (sse4.1); imm = elem bytes
 		VShuf, // dst = pshufd(use[0], imm)
+
+		// misc
+		Ud2,			// undefined instruction
+		Prefetch, // prefetch [use0 + imm], imm2 = hint (0 = nta, 1 = t0, 2 = t1, 3 = t2)
 		// x87 ops
 		X87LoadMem,	 // def(slot) = fld [use0 addr]; imm = mem width (4/8/80)
 		X87StoreMem, // [use0 addr] = fstp use1(slot); imm = mem width (4/8/80)

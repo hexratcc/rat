@@ -67,6 +67,41 @@ namespace rat {
 		return true;
 	}
 
+	B32 X86LowerPass::emitInlineIntrinsic(CallNode* c) {
+		const String& callee = c->getCallee();
+		if(callee == "__builtin_trap") {
+			inst(X86Op::Ud2, detail::kGp, {}, {});
+			return true;
+		}
+		if(callee == "__builtin_prefetch") {
+			// prefetchw needs 3dnowprefetch, so a write prefetch uses the read form
+			static const U8 kHint[] = {0, 3, 2, 1};
+			I64 l = 3;
+			if(c->getArgCount() >= 3)
+				if(ConstantNode* loc = dyn_cast<ConstantNode>(c->getArg(2)))
+					l = loc->getValue();
+			inst(X86Op::Prefetch,
+					 detail::kGp,
+					 {},
+					 {MachineOperand::vr(gpValue(c->getArg(0)))},
+					 0,
+					 (I64)kHint[l < 0 || l > 3 ? 3 : l]);
+			return true;
+		}
+		B32 isFrame = callee == "__builtin_frame_address";
+		if(!isFrame && callee != "__builtin_return_address")
+			return false;
+		Node* vp = c->projection(CallNode::valueProjIndex());
+		if(!vp)
+			return true;
+		VReg d = vregFor(vp);
+		if(isFrame)
+			inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(d)}, {}, 0);
+		else
+			inst(X86Op::RetAddr, detail::kGp, {MachineOperand::vr(d)}, {});
+		return true;
+	}
+
 	void X86LowerPass::emitCall(CallNode* c) {
 		if(!c->isIndirect()) {
 			const String& callee = c->getCallee();
@@ -81,6 +116,8 @@ namespace rat {
 				return;
 			}
 			if(emitMathIntrinsic(c))
+				return;
+			if(emitInlineIntrinsic(c))
 				return;
 		}
 

@@ -36,6 +36,7 @@ namespace rat {
 				{"clz", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"ctz", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"popcnt", 0, 0, 0, -1, 1, 1, OpClass::Unary},
+				{"bswap", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"fneg", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"eq", 0, 0, 1, -1, 2, 2, OpClass::Compare},
 				{"ne", 0, 0, 1, -1, 2, 2, OpClass::Compare},

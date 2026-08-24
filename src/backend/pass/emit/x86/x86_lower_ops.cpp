@@ -503,6 +503,10 @@ namespace rat {
 
 	void X86LowerPass::emitUnary(UnaryNode* n) {
 		Opcode uop = n->getOpcode();
+		if(uop == Opcode::Bswap) {
+			emitBswap(n);
+			return;
+		}
 		if(uop == Opcode::Clz || uop == Opcode::Ctz) {
 			emitBitScan(n, uop == Opcode::Clz);
 			return;
@@ -817,6 +821,19 @@ namespace rat {
 		// every byte now holds its own count
 		gpAcc(X86Op::Mul, d, gpConst(k01));
 		gpShrImm(d, 56);
+	}
+
+	void X86LowerPass::emitBswap(UnaryNode* n) {
+		U32 bits = intBits(n->getType());
+		VReg s = gpValue(n->getOperand());
+		VReg d = vregFor(n);
+		copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
+		inst(X86Op::Bswap,
+				 detail::kGp,
+				 {MachineOperand::vr(d)},
+				 {MachineOperand::vr(d)},
+				 (I64)(bits > 32 ? 64 : 32));
+		signExtBits(d, bits); // bswap r32 zero-extends
 	}
 
 	void X86LowerPass::emitConvertX87(ConvertNode* n, Node* src, Opcode op) {

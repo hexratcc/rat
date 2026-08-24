@@ -264,6 +264,8 @@ namespace rat {
 			return a->leaRipSym(gpOf(in.defs[0]), in.uses[0].sym(), 0);
 		case X86Op::FrameAddr:
 			return emitFrameAddr(in);
+		case X86Op::RetAddr:
+			return a->load64(gpOf(in.defs[0]), RBP, 8);
 		case X86Op::Lea:
 			return a->leaSib(
 					gpOf(in.defs[0]), gpOf(in.uses[0]), gpOf(in.uses[1]), (U32)(in.imm2 & 3), (I32)in.imm);
@@ -317,6 +319,12 @@ namespace rat {
 			return emitMaskBits(in);
 		case X86Op::SignExtBits:
 			return emitSignExtBits(in);
+		case X86Op::Bswap:
+			return a->bswap(gpOf(in.defs[0]), in.imm == 64);
+		case X86Op::Ud2:
+			return a->ud2();
+		case X86Op::Prefetch:
+			return a->prefetch((U8)in.imm2, gpOf(in.uses[0]), (I32)in.imm);
 		case X86Op::FLoad:
 			return emitFLoad(in);
 		case X86Op::FStore:
@@ -450,9 +458,9 @@ namespace rat {
 					if(in.imm == -1)
 						hasDynAlloca = true;
 				}
-				if(op == X86Op::VaStart || op == X86Op::VaArg ||
+				if(op == X86Op::VaStart || op == X86Op::VaArg || op == X86Op::RetAddr ||
 					 (op >= X86Op::X87LoadMem && op <= X86Op::X87Cmp))
-					framey = true;
+					framey = true; // reading [rbp+8] needs rbp to survive
 				if(op == X86Op::FLoad && !in.uses.empty() && in.uses[0].kind == MachineOperand::Kind::Imm)
 					framey = true; // materializes through the rbp scratch slot
 				if(in.isCall)

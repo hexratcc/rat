@@ -47,6 +47,7 @@ namespace rat {
 		Clz,
 		Ctz,
 		Popcnt,
+		Bswap,
 
 		FNeg,
 

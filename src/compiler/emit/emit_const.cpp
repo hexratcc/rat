@@ -183,6 +183,16 @@ namespace rat::cc {
 		}
 		case ExprKind::Comma:
 			return evalConstTyped(e->comma.rhs, out, ty);
+		case ExprKind::Call: {
+			if(!e->call.callee || *e->call.callee != "__builtin_classify_type" || e->args.size() != 1)
+				return false;
+			CType opTy;
+			if(!typeOf(e->args[0], opTy))
+				return false;
+			out = typeClassOf(opTy);
+			ty = ctInt();
+			return true;
+		}
 		default:
 			return false;
 		}

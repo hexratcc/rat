@@ -167,6 +167,13 @@ namespace rat {
 				++n;
 			out = (I64)n;
 			return true;
+		case Opcode::Bswap: {
+			U64 r = 0;
+			for(n = 0; n < w; n += 8)
+				r = (r << 8) | ((v >> n) & 0xff);
+			out = FoldPass::normalizeConst((I64)r, w);
+			return true;
+		}
 		default:
 			return false;
 		}

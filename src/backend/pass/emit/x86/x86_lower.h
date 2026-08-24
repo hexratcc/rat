@@ -110,6 +110,8 @@ namespace rat {
 		void gpShrImm(VReg d, U32 cnt);
 		void emitBitScan(UnaryNode* n, B32 reverse);
 		void emitPopcnt(UnaryNode* n);
+		void emitBswap(UnaryNode* n);
+		B32 emitInlineIntrinsic(CallNode* n);
 		VReg gpConst(I64 v);
 		VReg fpConst(U64 bits, U32 width);
 		void emitU64ToFP(ConvertNode* n, VReg s, U32 w);

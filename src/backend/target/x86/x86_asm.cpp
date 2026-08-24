@@ -288,6 +288,19 @@ namespace rat {
 		modrmReg(dst, src);
 	}
 
+	void Asm::bswap(Reg r, B32 wide) {
+		rex(wide, 0, 0, r);
+		b(0x0f);
+		b((U8)(0xc8 + (r & 7)));
+	}
+
+	void Asm::prefetch(U8 hint, Reg base, I32 disp) { memOp(0, kMemEsc, 0x18, hint, base, disp); }
+
+	void Asm::ud2() {
+		b(0x0f);
+		b(0x0b);
+	}
+
 	void Asm::setcc(U8 cc, Reg r) {
 		if(r >= RSP && r <= RDI)
 			rexForce(false, 0, 0, r);

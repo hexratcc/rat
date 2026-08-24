@@ -96,6 +96,7 @@ namespace rat {
 		Node* clz(Node* operand);
 		Node* ctz(Node* operand);
 		Node* popcnt(Node* operand);
+		Node* bswap(Node* operand);
 		Node* neg(Node* operand);
 		Node* bitNot(Node* operand);
 

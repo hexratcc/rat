@@ -16,6 +16,10 @@ namespace rat::cc {
 	// the libc routine a __builtin_ forwards to, empty when it keeps its own name
 	String builtinLibcName(const String& name);
 
+	// the result type of a __builtin_ that forwards to libc, false when the name
+	// is not one of those
+	B32 builtinReturnType(const String& name, U32 longBits, CType& out);
+
 	namespace detail {
 		U32 alignedChunkWidth(U32 offset, U32 size);
 	} // namespace detail
@@ -65,6 +69,13 @@ namespace rat::cc {
 		Wide wideMul(Function& fn, Wide a, Wide b);
 		Node* wideFits(Function& fn, Wide v, CType rt);
 		Node* fitsIn64(Function& fn, Node* r, CType rt, B32 sgn);
+		B32 emitAbsBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitBswapBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitClassifyBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitFpClassBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitFrameBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitPrefetchBuiltin(Function& fn, const Expr* expr, Value& out);
+		static I64 typeClassOf(CType t);
 		Node* emitArith(Function& fn, ExprOp op, Node* l, Node* r, CType ct);
 		CType completeComplex(CType t);
 		Node* complexReal(Function& fn, const Value& v);
