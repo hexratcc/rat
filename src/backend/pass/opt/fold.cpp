@@ -467,31 +467,36 @@ namespace rat {
 		return fn.create<ConvertNode>(Opcode::Trunc, ty, q);
 	}
 
-	// x sdiv 2^k via bias-and-shift (w == 32, k in [1, 30])
-	Node* buildSDivByPow2(Function& fn, Type* ty, Node* x, I32 k) {
+	// x sdiv 2^k via bias-and-shift, any width, k in [1, w-2]
+	Node* buildSDivByPow2(Function& fn, Type* ty, Node* x, U32 w, I32 k) {
 		auto ki = [&](I64 v) { return constant(fn, ty, v); };
 		auto bin = [&](Opcode o, Node* a, Node* b) { return fn.create<BinaryNode>(o, ty, a, b); };
-		Node* sign = bin(Opcode::AShr, x, ki(31));
-		Node* bias = bin(Opcode::LShr, sign, ki(32 - k));
+		Node* sign = bin(Opcode::AShr, x, ki((I64)w - 1));
+		Node* bias = bin(Opcode::LShr, sign, ki((I64)w - k));
 		return bin(Opcode::AShr, bin(Opcode::Add, x, bias), ki(k));
 	}
 
 	// quotient expansion for any supported constant divisor, or nullptr
 	Node* buildDivByConst(Function& fn, Opcode op, Type* ty, U32 w, Node* x, ConstantNode* c) {
-		if(w != 32)
-			return nullptr;
 		if(op == Opcode::UDiv || op == Opcode::URem) {
+			if(w != 32)
+				return nullptr; // magic-number path is 32-bit only
 			U32 d = (U32)FoldPass::maskW(c->getValue(), w);
 			if(d < 3 || (d & (d - 1)) == 0)
 				return nullptr; // 0/1/2 and powers of two are handled elsewhere
 			return buildUDivByConst(fn, ty, x, d);
 		}
-		I32 d = (I32)signExtend(c->getValue(), w);
-		if(d == 0 || d == 1 || d == -1 || d == INT32_MIN)
+		if(w < 2 || w > 64)
+			return nullptr;
+		I64 d = signExtend(c->getValue(), w);
+		I64 mostNegative = -((I64)1 << (w - 1));
+		if(d == 0 || d == 1 || d == -1 || d == mostNegative)
 			return nullptr;
 		if(d > 0 && (d & (d - 1)) == 0)
-			return buildSDivByPow2(fn, ty, x, countTrailingZeros64((U32)d));
-		return buildSDivByConst(fn, ty, x, d);
+			return buildSDivByPow2(fn, ty, x, w, countTrailingZeros64((U64)d));
+		if(w != 32)
+			return nullptr;
+		return buildSDivByConst(fn, ty, x, (I32)d);
 	}
 
 	Node* foldBinaryStrength(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs) {
