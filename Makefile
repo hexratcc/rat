@@ -29,10 +29,9 @@ cc_o := $(call objs,$(cc_srcs))
 driver_o = $(OBJ)/src/$(1).o
 all_o := $(base_o) $(rat_o) $(link_o) $(cc_o) \
 	$(call driver_o,backend/main) $(call driver_o,backend/test/runner) \
-	$(call driver_o,linker/main) $(call driver_o,compiler/main) \
-	$(call driver_o,compiler/test/correctness/runner)
+	$(call driver_o,linker/main) $(call driver_o,compiler/main)
 
-all: bin/rat bin/rat-test bin/link bin/cc bin/cc-test
+all: bin/rat bin/rat-test bin/link bin/cc
 
 $(OBJ)/git_hash.h: FORCE
 	@mkdir -p $(OBJ)
@@ -59,7 +58,6 @@ bin/rat: $(base_o) $(rat_o) $(call driver_o,backend/main)
 bin/rat-test: $(base_o) $(rat_o) $(call driver_o,backend/test/runner)
 bin/link: $(base_o) $(link_o) $(call driver_o,linker/main)
 bin/cc: $(base_o) $(rat_o) $(cc_o) $(call driver_o,compiler/main)
-bin/cc-test: $(base_o) $(rat_o) $(cc_o) $(link_o) $(call driver_o,compiler/test/correctness/runner)
 
 test: all
 	./src/compiler/test/run.py $(SUITES)
