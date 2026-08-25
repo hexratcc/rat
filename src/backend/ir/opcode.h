@@ -42,6 +42,11 @@ namespace rat {
 		// unary
 		Neg,
 		Not,
+		// bit counts
+		Clz,
+		Ctz,
+		Popcnt,
+		Bswap,
 		FNeg,
 
 		// comparisons
@@ -78,9 +83,17 @@ namespace rat {
 		// calls
 		Call,
 
-		// storage: a pointer to a module global or a stack allocation
+		// assembly
+		Asm,
+
+		// storage: a pointer to a module global or a fixed-size frame slot
 		Global,
 		Alloc,
+
+		// dynamic stack
+		StackAlloc,
+		StackSave,
+		StackRestore,
 
 		// multi-way branch: control + selector in, one control proj per slot;
 		// selector must be in [0, slots) (emitter guards it)
@@ -122,6 +135,9 @@ namespace rat {
 	constexpr B32 isConvertOpcode(Opcode op) { return op >= Opcode::Trunc && op <= Opcode::FPTrunc; }
 	constexpr B32 isArithmeticOpcode(Opcode op) {
 		return isBinaryOpcode(op) || isUnaryOpcode(op) || isCompareOpcode(op) || isConvertOpcode(op);
+	}
+	constexpr B32 isStackOpcode(Opcode op) {
+		return op == Opcode::StackAlloc || op == Opcode::StackSave || op == Opcode::StackRestore;
 	}
 	constexpr B32 isVectorUtilOpcode(Opcode op) {
 		return op == Opcode::Splat || op == Opcode::Extract || op == Opcode::Pack ||

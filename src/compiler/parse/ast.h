@@ -79,6 +79,7 @@ namespace rat::cc {
 		};
 
 		U32 bits = 32;
+		U32 bitPrec = 0; // bitfield width, 0 when the type is not a bitfield's
 		U32 ptr = 0;
 		U32 quals = 0;
 		Base base = Base::Int;
@@ -133,8 +134,8 @@ namespace rat::cc {
 
 		const String* name = nullptr;
 		CType type;
-		U32 offset = 0;
-		U32 count = 0;
+		U64 offset = 0;
+		U64 count = 0;
 		U32 bitWidth = 0;
 		U32 bitOffset = 0;
 		U8 mods = 0;
@@ -153,7 +154,7 @@ namespace rat::cc {
 	struct StructType {
 		String tag;
 		List<Field> fields;
-		U32 size = 0;
+		U64 size = 0;
 		U32 align = 1;
 		B32 isUnion = false;
 		B32 complete = false;
@@ -168,7 +169,7 @@ namespace rat::cc {
 
 	struct ArrayType {
 		CType elem;
-		U32 count = 0;
+		U64 count = 0;
 		const Expr* countExpr = nullptr;
 	};
 
@@ -212,7 +213,7 @@ namespace rat::cc {
 		return p;
 	}
 
-	constexpr U32 typeSize(CType t, U32 pointerBytes) {
+	constexpr U64 typeSize(CType t, U32 pointerBytes) {
 		if(t.ptr > 0)
 			return pointerBytes;
 		if(isArrayType(t))
@@ -228,6 +229,18 @@ namespace rat::cc {
 		return (t.bits + 7) / 8;
 	}
 
+	constexpr U32 typeAlign(CType t, U32 pointerBytes) {
+		if(t.ptr > 0)
+			return pointerBytes;
+		if(isArrayType(t))
+			return typeAlign(t.array->elem, pointerBytes);
+		if(t.strukt)
+			return t.strukt->align;
+		if(t.isVoid())
+			return 1;
+		return (t.bits + 7) / 8;
+	}
+
 	enum class ExprKind : U8 {
 		IntLit,
 		FloatLit,
@@ -236,6 +249,7 @@ namespace rat::cc {
 		Call,
 		Cast,
 		Sizeof,
+		AlignOf, // _Alignof / __alignof__, over a type name or an expression
 		Unary,
 		Binary,
 		Ternary,
@@ -364,6 +378,7 @@ namespace rat::cc {
 		Empty,
 		Label,
 		Goto,
+		Asm,
 	};
 
 	struct Declarator {
@@ -374,7 +389,25 @@ namespace rat::cc {
 		Expr* arrayLen = nullptr;
 		B32 isStatic = false;
 		B32 isExtern = false;
+		const String* aliasOf = nullptr;
+		U32 align = 0;
 		U32 offset = 0;
+	};
+
+	struct AsmOperand {
+		const String* name = nullptr; // symbolic name, optional
+		const String* constraint = nullptr;
+		Expr* expr = nullptr;
+	};
+
+	struct AsmBlock {
+		const String* text = nullptr; // template, with escapes already resolved
+		B32 isVolatile = false;
+		B32 isGoto = false;
+		List<AsmOperand> outputs;
+		List<AsmOperand> inputs;
+		List<const String*> clobbers;
+		List<const String*> labels;
 	};
 
 	struct Stmt {
@@ -388,6 +421,7 @@ namespace rat::cc {
 		Stmt* forInit = nullptr;
 		Expr* forPost = nullptr;
 		const String* label = nullptr;
+		AsmBlock* asmBlock = nullptr;
 	};
 
 	CType promote(CType t);
@@ -411,7 +445,9 @@ namespace rat::cc {
 		B32 isExternInline = false;
 		B32 isStatic = false;
 		B32 isNoInline = false;
-		Stmt* body = nullptr; // compound statement
+		const String* aliasOf = nullptr; // __attribute__((alias("target")))
+		U32 align = 0;									 // _Alignas on the function
+		Stmt* body = nullptr;						 // compound statement
 		U32 offset = 0;
 	};
 

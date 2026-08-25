@@ -416,6 +416,18 @@ namespace rat {
 				}
 				break;
 			}
+			case Opcode::Asm: {
+				U64 q1 = remainder.find('"');
+				U64 q2 = q1 == String::npos ? String::npos : remainder.find('"', q1 + 1);
+				if(q2 == String::npos)
+					return fail("asm node is missing its quoted template: " + line);
+				List<U8> bytes;
+				if(!unquoteBytes(remainder.substr(q1, q2 - q1 + 1), bytes))
+					return fail("malformed asm template: " + line);
+				pn.asmText.assign(bytes.begin(), bytes.end());
+				pn.operands = parseVRefs(remainder.substr(q2 + 1));
+				break;
+			}
 			case Opcode::Alloc: {
 				if(remainder.empty())
 					return fail("alloc node is missing its type: " + line);
@@ -554,6 +566,17 @@ namespace rat {
 				B32 rv = pn.ty->isTuple() && pn.ty->getTupleElementCount() == 3;
 				return fn->create<CallNode>(pn.ty, pn.callee, rv, ins);
 			}
+			if(op == Opcode::Asm) {
+				List<Node*> ins;
+				for(U32 i = 0; i < pn.operands.size(); ++i) {
+					Node* a = operand(pn, i);
+					if(!a)
+						return nullptr;
+					ins.push_back(a);
+				}
+				U32 outs = pn.ty->isTuple() ? pn.ty->getTupleElementCount() - 2 : 0;
+				return fn->create<AsmNode>(pn.ty, pn.asmText, outs, ins);
+			}
 			if(isBinaryOpcode(op) || isCompareOpcode(op)) {
 				Node* l = operand(pn, 0);
 				Node* rh = operand(pn, 1);
@@ -575,6 +598,20 @@ namespace rat {
 				return fn->create<GlobalNode>(pn.ty, pn.symbol);
 			if(op == Opcode::Alloc)
 				return fn->create<AllocNode>(pn.ty, pn.allocType);
+			if(isStackOpcode(op)) {
+				Node* c = operand(pn, 0);
+				Node* m = operand(pn, 1);
+				if(!c || !m)
+					return nullptr;
+				if(op == Opcode::StackSave)
+					return fn->create<StackSaveNode>(pn.ty, c, m);
+				Node* x = operand(pn, 2);
+				if(!x)
+					return nullptr;
+				if(op == Opcode::StackAlloc)
+					return fn->create<StackAllocNode>(pn.ty, c, m, x);
+				return fn->create<StackRestoreNode>(pn.ty, c, m, x);
+			}
 			if(op == Opcode::Splat) {
 				Node* s = operand(pn, 0);
 				if(!s)

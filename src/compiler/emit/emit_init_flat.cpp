@@ -347,6 +347,8 @@ namespace rat::cc {
 				break;
 			if(cur == flexFi) {
 				const Expr* el = els[i];
+				if(!des.next && isCharType(flex.type) && el->kind == ExprKind::StrLit)
+					return (U32)el->str.bytes->size() + 1;
 				if(el->kind == ExprKind::InitList && !des.next)
 					return flatArrayCount(flex.type, el->args);
 				List<Expr*> tail;

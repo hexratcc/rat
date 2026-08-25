@@ -8,7 +8,6 @@
 #include "pass/verify.h"
 
 #include "codegen/linear_scan_reg_alloc.h"
-#include "pass/emit/c/c_emitter.h"
 #include "pass/emit/graph_emitter.h"
 #include "pass/emit/text_emitter.h"
 #include "pass/emit/x86/x86_encode.h"
@@ -57,7 +56,6 @@ namespace rat {
 				{"verify", "edge consistency + structural invariants", &mk<Pass, VerifyPass>},
 				{"text-emitter", "textual IR visualization", &mk<Pass, TextEmitterPass>},
 				{"graph-emitter", "Graphviz DOT IR visualization", &mk<Pass, GraphEmitterPass>},
-				{"c-emitter", "C code generation", &mk<Pass, CEmitterPass>},
 		};
 
 		// the default x86 machine pipeline, in order

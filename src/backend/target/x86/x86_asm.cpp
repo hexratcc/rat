@@ -291,6 +291,26 @@ namespace rat {
 		b((U8)(0xc0 | (r & 7)));
 	}
 
+	void Asm::bitScan(B32 reverse, Reg dst, Reg src, B32 wide) {
+		rex(wide, dst, 0, src);
+		b(0x0f);
+		b((U8)(reverse ? 0xbd : 0xbc));
+		modrmReg(dst, src);
+	}
+
+	void Asm::bswap(Reg r, B32 wide) {
+		rex(wide, 0, 0, r);
+		b(0x0f);
+		b((U8)(0xc8 + (r & 7)));
+	}
+
+	void Asm::prefetch(U8 hint, Reg base, I32 disp) { memOp(0, kMemEsc, 0x18, hint, base, disp); }
+
+	void Asm::ud2() {
+		b(0x0f);
+		b(0x0b);
+	}
+
 	void Asm::movzxByte(Reg dst, Reg src) {
 		rex(true, dst, 0, src);
 		b(0x0f);
@@ -423,6 +443,7 @@ namespace rat {
 	void Asm::sseArith(U8 op, U32 w, U32 d, U32 s) { ssePacked(ssePrefixByte(w), op, d, s, false); }
 	void Asm::ucomis(U32 w, U32 a, U32 bx) { ssePacked(w == 8 ? 0x66 : 0, 0x2e, a, bx, false); }
 	void Asm::pxor(U32 a, U32 bx) { ssePacked(0x66, 0xef, a, bx, false); }
+	void Asm::pcmpeqd(U32 a, U32 bx) { ssePacked(0x66, 0x76, a, bx, false); }
 	void Asm::pshufd(U32 dst, U32 src, U8 sel) {
 		ssePacked(0x66, 0x70, dst, src, false);
 		b(sel);

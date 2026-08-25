@@ -61,27 +61,21 @@ namespace rat {
 		return isCompareOpcode(op) && op < Opcode::FEq;
 	}
 
-	B32 X86LowerPass::isSseCompare(Node* n) {
+	B32 X86LowerPass::fusableFpCompare(Node* n) {
 		Opcode op = n->getOpcode();
-		if(!isCompareOpcode(op) || op < Opcode::FEq)
+		if(!isCompareOpcode(op) || op < Opcode::FLt)
 			return false;
 		CompareNode* c = cast<CompareNode>(n);
 		return !isX87Ty(c->getLHS()->getType());
 	}
 
 	B32 X86LowerPass::branchOnlyCompare(Node* n) {
-		if(!isIntCompare(n) && !isSseCompare(n))
+		if(!isIntCompare(n) && !fusableFpCompare(n))
 			return false;
 		for(Node* u : n->getUsers())
 			if(!isa<IfNode>(u))
 				return false;
 		return !n->getUsers().empty();
-	}
-
-	String X86LowerPass::libcName(const String& callee) {
-		if(callee.rfind("__builtin_", 0) == 0)
-			return callee.substr(10);
-		return callee;
 	}
 
 	void X86LowerPass::reset(const Function& f, Schedule& s, MachineFunc& o, X86FrameLayout& layout) {
@@ -100,22 +94,24 @@ namespace rat {
 			fl->ldScratch = reserve(16);
 	}
 
-	I32 X86LowerPass::reserve(U32 bytes) {
+	I32 X86LowerPass::reserve(U32 bytes, U32 align) {
+		if(align < 8)
+			align = 8;
+		if(align > 16)
+			align = 16;
 		out->frameBytes += bytes;
-		out->frameBytes = (out->frameBytes + 7u) & ~7u;
+		out->frameBytes = (out->frameBytes + align - 1u) & ~(align - 1u);
 		return -(I32)out->frameBytes;
 	}
 
 	void X86LowerPass::layout() {
 		for(const Node* n : *fn) {
 			if(const AllocNode* al = dyn_cast<AllocNode>(n)) {
-				if(!al->isVariableSized()) {
-					U32 sz = al->getAllocType()->byteSize(ptrBytes);
-					if(sz == 0)
-						sz = 8;
-					sz = (sz + 7u) & ~7u;
-					allocOff[n->getId()] = reserve(sz);
-				}
+				U32 sz = al->getAllocType()->byteSize(ptrBytes);
+				if(sz == 0)
+					sz = 8;
+				sz = (sz + 7u) & ~7u;
+				allocOff[n->getId()] = reserve(sz, al->getAlign());
 			}
 		}
 		if(conv->x87ByRef && isX87Ty(fn->getReturnType()))
@@ -216,11 +212,8 @@ namespace rat {
 			return d;
 		}
 		if(AllocNode* al = dyn_cast<AllocNode>(n)) {
-			I32 aoff = allocOff[al->getId()];
-			if(aoff == kNoSlot)
-				return vregFor(al); // variable-sized: already materialized
 			VReg d = fresh(detail::kGp);
-			inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(d)}, {}, aoff);
+			inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(d)}, {}, allocOff[al->getId()]);
 			return d;
 		}
 		return vregFor(n);
@@ -316,12 +309,8 @@ namespace rat {
 		a.scaleLog2 = m.scaleLog2;
 		a.hasIndex = m.hasIndex;
 		if(AllocNode* al = dyn_cast<AllocNode>(m.base)) {
-			if(allocOff[al->getId()] != kNoSlot) {
-				a.frameBase = true;
-				a.disp += allocOff[al->getId()];
-			} else {
-				a.base = gpValue(m.base);
-			}
+			a.frameBase = true;
+			a.disp += allocOff[al->getId()];
 		} else {
 			a.base = gpValue(m.base);
 		}
@@ -422,6 +411,15 @@ namespace rat {
 				 {MachineOperand::symbol(fpPoolSym((U64)c->getValue(), w))});
 	}
 
+	VReg X86LowerPass::fpConst(U64 bits, U32 width) {
+		VReg d = fresh(detail::kFp);
+		inst(X86Op::FLoad,
+				 detail::kFp,
+				 {MachineOperand::vr(d, width)},
+				 {MachineOperand::symbol(fpPoolSym(bits, width))});
+		return d;
+	}
+
 	I32 X86LowerPass::x87Value(Node* n) {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
 			I32 s = x87SlotOf(n);
@@ -465,8 +463,19 @@ namespace rat {
 		case Opcode::Call:
 			emitCall(cast<CallNode>(n));
 			return;
+		case Opcode::Asm:
+			emitAsm(cast<AsmNode>(n));
+			return;
 		case Opcode::Alloc:
-			emitAlloc(cast<AllocNode>(n));
+			return;
+		case Opcode::StackAlloc:
+			emitStackAlloc(n);
+			return;
+		case Opcode::StackSave:
+			emitStackSave(n);
+			return;
+		case Opcode::StackRestore:
+			emitStackRestore(n);
 			return;
 		case Opcode::Splat:
 			emitSplat(cast<SplatNode>(n));
@@ -563,7 +572,7 @@ namespace rat {
 						 1); // imm2 = 1: condition code in imm, no predicate register
 				return;
 			}
-			if(isSseCompare(pred)) {
+			if(fusableFpCompare(pred)) {
 				// fuse: ucomis lhs, rhs; jcc (swap keeps lt/le NaN-correct)
 				CompareNode* c = cast<CompareNode>(pred);
 				U32 w = opWidth(c->getLHS()->getType());
@@ -693,9 +702,8 @@ namespace rat {
 		hooks.isRemat = [](const MachineInstr& in) {
 			if(in.op == (MachineOpcode)X86Op::LoadImm || in.op == (MachineOpcode)X86Op::LoadSym)
 				return true;
-			// static frame address (the dynamic, variable-sized form has a use)
-			if(in.op == (MachineOpcode)X86Op::FrameAddr && in.uses.empty() && in.imm != -1)
-				return true;
+			if(in.op == (MachineOpcode)X86Op::FrameAddr)
+				return true; // static frame address
 			// constant-pool load
 			if(in.op == (MachineOpcode)X86Op::FLoad && in.uses.size() == 1 &&
 				 in.uses[0].kind == MachineOperand::Kind::Sym)

@@ -90,9 +90,13 @@ namespace rat::cc {
 			collectAddrTaken(s->thenBody);
 			return;
 		case StmtKind::Label:
+		case StmtKind::Default:
 			collectAddrTaken(s->thenBody);
 			return;
 		case StmtKind::Case:
+			collectAddrTakenExpr(s->expr);
+			collectAddrTaken(s->thenBody);
+			return;
 		case StmtKind::Return:
 		case StmtKind::Expr:
 			collectAddrTakenExpr(s->expr);
@@ -129,6 +133,7 @@ namespace rat::cc {
 			collectLabelsInExpr(fn, e->cast.operand);
 			break;
 		case ExprKind::Sizeof:
+		case ExprKind::AlignOf:
 			collectLabelsInExpr(fn, e->sizeOf.operand);
 			break;
 		case ExprKind::Member:
@@ -179,8 +184,14 @@ namespace rat::cc {
 			return;
 		case StmtKind::Expr:
 		case StmtKind::Return:
+			collectLabelsInExpr(fn, s->expr);
+			return;
 		case StmtKind::Case:
 			collectLabelsInExpr(fn, s->expr);
+			collectLabels(fn, s->thenBody);
+			return;
+		case StmtKind::Default:
+			collectLabels(fn, s->thenBody);
 			return;
 		case StmtKind::Decl:
 			for(const Declarator& d : s->decls)
@@ -221,6 +232,7 @@ namespace rat::cc {
 				return true;
 			break;
 		case ExprKind::Sizeof:
+		case ExprKind::AlignOf:
 			if(containsLabelInExpr(e->sizeOf.operand))
 				return true;
 			break;
@@ -268,8 +280,11 @@ namespace rat::cc {
 						 containsLabelInExpr(s->forPost) || containsLabel(s->thenBody);
 		case StmtKind::Expr:
 		case StmtKind::Return:
-		case StmtKind::Case:
 			return containsLabelInExpr(s->expr);
+		case StmtKind::Case:
+			return containsLabelInExpr(s->expr) || containsLabel(s->thenBody);
+		case StmtKind::Default:
+			return containsLabel(s->thenBody);
 		case StmtKind::Decl:
 			for(const Declarator& d : s->decls)
 				if(containsLabelInExpr(d.init))

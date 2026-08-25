@@ -96,7 +96,7 @@ Passes come in three kinds: module `Pass`, `FunctionPass` (run per function), an
 - [**verify:**](./pass/verify.h) Edge consistency + per-opcode structural invariants (see [ir](#ir)).
 - [**rename-symbol:**](./pass/opt/rename_symbol.h) Rename a function or global and every reference to it.
 
-Visualization passes (`text-emitter`, `graph-emitter`, `c-emitter`) are covered in [x86-64 backend](#x86-64-backend).
+Visualization passes (`text-emitter`, `graph-emitter`) are covered in [x86-64 backend](#x86-64-backend).
 
 ## default pipeline
 `-O1` runs, in order:
@@ -108,7 +108,7 @@ sccp, fold, simplifycfg, gvn, memoryopt, inline, fold, gvn, strengthreduce, fold
 Code generation turns the floating graph back into linear code in three stages: schedule the graph into blocks, lower to a target-independent machine IR, allocate registers. Only the lowering step is target-specific.
 
 ## schedule
-[`CodeGen/Schedule.h`:](./codegen/schedule.h) global code motion. Recovers a CFG from the control edges (one block per region / entry projection / if projection, terminated by a return, a two-way branch, or a goto), computes dominators with Lengauer-Tarjan and loop depth from natural loops, then places each floating node into a block: as early as its inputs allow, then sunk toward its uses into the shallowest-loop-depth block dominated by the early placement (hoisting out of loops where legal). Blocks come out in RPO with their phis and compute nodes in emit order. Used by both the x86 backend and the C emitter.
+[`CodeGen/Schedule.h`:](./codegen/schedule.h) global code motion. Recovers a CFG from the control edges (one block per region / entry projection / if projection, terminated by a return, a two-way branch, or a goto), computes dominators with Lengauer-Tarjan and loop depth from natural loops, then places each floating node into a block: as early as its inputs allow, then sunk toward its uses into the shallowest-loop-depth block dominated by the early placement (hoisting out of loops where legal). Blocks come out in RPO with their phis and compute nodes in emit order. Used by the x86 backend.
 
 ## machine ir
 [`CodeGen/MachineFunction.h:`](./codegen/machine_function.h) a minimal, target-independent instruction form: blocks of `MachineInstr`s with defs, uses, clobbers, a register class, and backend-defined immediates. Operands are virtual registers, physical registers, immediates, frame slots, symbols, or block references. Calls are flagged so allocators apply clobbers and bound live ranges correctly.
@@ -129,9 +129,6 @@ Both the SysV (linux) and Windows x64 conventions are supported, selected by the
 
 ## object files
 rat exposes a simple object file abstraction ([`Target/ObjectFile.h`](./target/object_file.h)): A minimal writer with `text`, `rodata`, `data`, and `bss` sections, symbols, and three relocation kinds: `Abs64` (absolute 64-bit, `S + A`), `Pc32` (pc-relative, `S + A - P`, used by rip-relative lea), and `Plt32` (pc-relative call, `L + A - P`). Backed by [`X86Elf`](./target/x86/x86_elf.cpp) for linux and [`X86Coff`](./target/x86/x86_coff.cpp) for windows, link the result with any system linker.
-
-## c emitter
-[**c-emitter:**](./pass/emit/c/c_emitter.h) emits the module as portable C, using the same schedule as the x86 path: one labeled C block per scheduled block, phis lowered to assignments on the incoming edges, node values as numbered temporaries. Useful as a second backend for differential testing and as a bootstrapping escape hatch on targets without native support.
 
 ## visualization
 - [**text-emitter:**](./pass/emit/text_emitter.h) The textual IR form (ANSI-colorized); parseable back by `TextParser`, and the canonical form the IR test suite compares against.
@@ -157,15 +154,14 @@ func foldc() -> i32 {
 ```
 Both sides are parsed and re-emitted through `TextEmitter`, so the comparison is on canonical form (node numbering and whitespace don't have to match). Run the suite with `./bin/rat-test`, to poke at a pipeline interactively, feed raw textual IR (a test's `@input` body) to `./bin/rat -passes=...`.
 
-## compiler tests (`src/compiler/test/**/*.c`)
-End-to-end: each case is compiled by the compiler alone (using its builtin predefined macros and bundled standard headers), then linked with the host compiler, executed, and its exit code (and optionally stdout) checked. Alongside the local cases (`custom/`) the suite carries external corpora ([c-testsuite](https://github.com/c-testsuite/c-testsuite), gcc-torture, c99) with directives added. The suite runs `cc-x86` through the native backend.
+## compiler tests (`src/compiler/test/correctness/**/*.c`)
+End-to-end, driven by [`correctness/run.py`](../compiler/test/correctness/run.py): each case is compiled by `bin/cc` (a `// passes:` directive becomes `-fpasses=`), linked by `bin/link` against a small entry wrapper, executed, and its return value (and optionally stdout) checked. The wrapper reports `main`'s result through a file because an exit status only carries 8 bits, and cases expect values like `-7` and `2000000000`. Alongside the local cases (`custom/`) the suite carries external corpora ([c-testsuite](https://github.com/c-testsuite/c-testsuite), gcc-torture, c99) with directives added.
 
 Directives are comments:
-- `// expect: N`: required; expected exit code (`main`'s return)
+- `// expect: N`: required; expected value returned by `main`
 - `// expect-<os>: N`: os-specific override (`linux`/`windows`)
-- `// passes: a,b,...`: pipeline for this case (default: the `-O1` pipeline)
+- `// passes: a,b,...`: pipeline for this case (empty means none, absent means the `-O1` pipeline)
 - `// output:`: expected stdout follows on `//| ...` continuation lines
 - `// skip-target: <os>`, `// skip-x86-target: <os>`
-
-When no output is expected and the optimized `main` reduces to `return <const>`, the runner reads the result straight out of the IR instead of executing, as the passes must have proven the answer at compile time.
+- `// include-dir: <dir>`: an extra include dir, relative to the case
 

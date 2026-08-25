@@ -65,6 +65,7 @@ namespace rat::cc {
 		}
 		B32 isStatic = sawStatic;
 		B32 isExtern = sawExtern;
+		U32 align = sawAlignas;
 		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
 		if(peek().kind == TokKind::Semicolon) {
 			advance();
@@ -76,6 +77,7 @@ namespace rat::cc {
 			Declarator d;
 			d.isStatic = isStatic;
 			d.isExtern = isExtern;
+			d.align = align;
 			if(looksLikeGroupingParen()) {
 				Token nameTok;
 				B32 haveName = false;
@@ -113,6 +115,8 @@ namespace rat::cc {
 				if(!d.isArray)
 					bindDeclaratorType(d, t, nameTok.offset);
 			}
+			if(!acceptTrailingAlignas(d.align))
+				return nullptr;
 			if(accept(TokKind::Assign)) {
 				if(isExtern) {
 					fail(start, "'extern' variable cannot have an initializer");
@@ -130,6 +134,8 @@ namespace rat::cc {
 		}
 		if(!expect(TokKind::Semicolon, "';'"))
 			return nullptr;
+		for(const Declarator& d : s->decls)
+			typedefs.erase(*d.name);
 		return s;
 	}
 
@@ -265,12 +271,6 @@ namespace rat::cc {
 				return nullptr;
 		} else {
 			Stmt* block = makeStmt(StmtKind::Compound, peek().offset);
-			while(peek().kind == TokKind::KwCase || peek().kind == TokKind::KwDefault) {
-				Stmt* marker = parseStatement();
-				if(!marker)
-					return nullptr;
-				block->body.push_back(marker);
-			}
 			Stmt* inner = parseStatement();
 			if(!inner)
 				return nullptr;
@@ -283,6 +283,12 @@ namespace rat::cc {
 		return s;
 	}
 
+	Stmt* Parser::parseLabeledSub() {
+		if(check(TokKind::RBrace) || check(TokKind::Eof))
+			return makeStmt(StmtKind::Empty, peek().offset);
+		return parseStatement();
+	}
+
 	Stmt* Parser::parseStatement() {
 		DepthScope scope(*this);
 		if(!enterDepth())
@@ -291,33 +297,8 @@ namespace rat::cc {
 		if(tok.kind == TokKind::LBrace)
 			return parseCompound();
 
-		// skip GNU inline assembly statements: __asm__ [volatile|goto] (...) ; (the bare "__asm__(...)"
-		// spelling is erased by a builtin macro, so only the qualified statement form reaches the
-		// parser)
-		if(tok.kind == TokKind::Identifier) {
-			String name = lex.text(tok);
-			if(name == "__asm__" || name == "__asm") {
-				Token kw = advance();
-				while(check(TokKind::KwVolatile) || check(TokKind::KwGoto) ||
-							(check(TokKind::Identifier) && lex.text(peek()) == "__volatile__"))
-					advance();
-				if(!expect(TokKind::LParen, "'(' after '__asm__'"))
-					return nullptr;
-				I32 depth = 1;
-				while(depth > 0 && !check(TokKind::Eof)) {
-					if(check(TokKind::LParen))
-						++depth;
-					else if(check(TokKind::RParen))
-						--depth;
-					if(depth > 0)
-						advance();
-				}
-				if(!expect(TokKind::RParen, "')' closing '__asm__'"))
-					return nullptr;
-				expect(TokKind::Semicolon, "';' after '__asm__' statement");
-				return makeStmt(StmtKind::Empty, kw.offset);
-			}
-		}
+		if(tok.kind == TokKind::KwAsm)
+			return parseAsmStatement();
 
 		if(tok.kind == TokKind::Identifier && peek2().kind == TokKind::Colon) {
 			Token nameTok = advance();
@@ -366,8 +347,12 @@ namespace rat::cc {
 				return nullptr;
 			if(!expect(TokKind::Colon, "':'"))
 				return nullptr;
+			Stmt* sub = parseLabeledSub();
+			if(!sub)
+				return nullptr;
 			Stmt* s = makeStmt(StmtKind::Case, kw.offset);
 			s->expr = value;
+			s->thenBody = sub;
 			return s;
 		}
 
@@ -375,7 +360,12 @@ namespace rat::cc {
 			Token kw = advance();
 			if(!expect(TokKind::Colon, "':'"))
 				return nullptr;
-			return makeStmt(StmtKind::Default, kw.offset);
+			Stmt* sub = parseLabeledSub();
+			if(!sub)
+				return nullptr;
+			Stmt* s = makeStmt(StmtKind::Default, kw.offset);
+			s->thenBody = sub;
+			return s;
 		}
 
 		if(tok.kind == TokKind::KwBreak || tok.kind == TokKind::KwContinue) {
@@ -421,15 +411,19 @@ namespace rat::cc {
 		Stmt* block = makeStmt(StmtKind::Compound, open.offset);
 		Map<String, CType> savedTypedefs = typedefs;
 		Map<String, I64> savedEnumConstants = enumConstants;
-		Map<String, StructType*> savedStructTypes = structTypes;
+		Map<String, B32> savedEnumSignedTags = enumSignedTags;
+		Map<String, TagBinding> savedStructTypes = structTypes;
+		++scopeDepth;
 		while(!failed && peek().kind != TokKind::RBrace && peek().kind != TokKind::Eof) {
 			Stmt* s = parseStatement();
 			if(!s)
 				return nullptr;
 			block->body.push_back(s);
 		}
+		--scopeDepth;
 		typedefs = std::move(savedTypedefs);
 		enumConstants = std::move(savedEnumConstants);
+		enumSignedTags = std::move(savedEnumSignedTags);
 		structTypes = std::move(savedStructTypes);
 		if(!expect(TokKind::RBrace, "'}'"))
 			return nullptr;

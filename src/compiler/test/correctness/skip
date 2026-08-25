@@ -1,0 +1,10 @@
+c99/line.c                  #line N numbers the next line (C11 6.10.4p3), chibicc numbers the directive
+c99/initializer.c           sizeof a struct excludes its flexible array member (C11 6.7.2.1p18), gcc agrees
+c99/pointer.c               reads past one-past-the-end, wants chibicc's frame packing; gcc differs per -O
+c99/variable.c              subtracts pointers into different objects, same frame-packing assumption
+gcc-torture/20031003-1.c    needs -fno-trapping-math to saturate an out-of-range float cast
+gcc-torture/eeprof-1.c      needs -finstrument-functions
+gcc-torture/pr22061-4.c     nested functions with a static chain
+gcc-torture/pr60003.c       __builtin_setjmp, needs returns-twice SSA and locals forced to memory
+gcc-torture/pr47237.c       __builtin_apply_args, needs a register-save prologue and a sized call
+gcc-torture/va-arg-pack-1.c __builtin_va_arg_pack, needs always_inline argument splicing

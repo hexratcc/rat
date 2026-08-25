@@ -77,7 +77,7 @@ namespace rat::cc {
 			return false;
 
 		fn.enterBlock(bodyB);
-		loops.push_back({exitB, header, true});
+		loops.push_back({exitB, header, true, false, curSp});
 		B32 ok = emitStmt(fn, s->thenBody);
 		loops.pop_back();
 		if(!ok)
@@ -97,7 +97,7 @@ namespace rat::cc {
 
 		fn.jmp(bodyB);
 		fn.setInsertBlock(bodyB);
-		loops.push_back({exitB, condB, true});
+		loops.push_back({exitB, condB, true, false, curSp});
 		B32 ok = emitStmt(fn, s->thenBody);
 		loops.pop_back();
 		if(!ok)
@@ -140,7 +140,7 @@ namespace rat::cc {
 		}
 
 		fn.enterBlock(bodyB);
-		loops.push_back({exitB, postB, exitReachable});
+		loops.push_back({exitB, postB, exitReachable, false, curSp});
 		B32 ok = emitStmt(fn, s->thenBody);
 		LoopFrame frame = loops.back();
 		loops.pop_back();
@@ -216,9 +216,11 @@ namespace rat::cc {
 		switch(s->kind) {
 		case StmtKind::Case:
 			cases.push_back(s);
+			collectSwitchCases(s->thenBody, cases, def);
 			return;
 		case StmtKind::Default:
 			def = s;
+			collectSwitchCases(s->thenBody, cases, def);
 			return;
 		case StmtKind::Switch:
 			return;
@@ -340,7 +342,7 @@ namespace rat::cc {
 					fn.jmp(slotTarget[sl]);
 				}
 				switches.push_back(std::move(blocks));
-				loops.push_back({exitB, nullptr, false, true});
+				loops.push_back({exitB, nullptr, false, true, curSp});
 				B32 tok = emitStmt(fn, body);
 				LoopFrame tframe = loops.back();
 				loops.pop_back();
@@ -380,7 +382,7 @@ namespace rat::cc {
 		};
 		emitRange(emitRange, 0, (U32)order.size());
 		switches.push_back(std::move(blocks));
-		loops.push_back({exitB, nullptr, false, true});
+		loops.push_back({exitB, nullptr, false, true, curSp});
 		B32 ok = emitStmt(fn, body);
 		LoopFrame frame = loops.back();
 		loops.pop_back();
@@ -401,8 +403,58 @@ namespace rat::cc {
 		return true;
 	}
 
+	B32 Emitter::declMayBeVla(const Declarator& d) {
+		if(isVlaType(d.type))
+			return true;
+		if(!d.arrayLen)
+			return false;
+		B32 savedFailed = failed;
+		String savedMsg = errMsg;
+		I64 count;
+		B32 constant = evalConst(d.arrayLen, count);
+		failed = savedFailed;
+		errMsg = std::move(savedMsg);
+		return !constant;
+	}
+
+	B32 Emitter::stmtHasVla(const Stmt* s) {
+		if(!s)
+			return false;
+		if(s->kind == StmtKind::Decl) {
+			for(const Declarator& d : s->decls) {
+				if(d.isStatic)
+					continue;
+				if(declMayBeVla(d))
+					return true;
+			}
+			return false;
+		}
+		for(const Stmt* c : s->body)
+			if(stmtHasVla(c))
+				return true;
+		return stmtHasVla(s->thenBody) || stmtHasVla(s->elseBody) || stmtHasVla(s->forInit);
+	}
+
+	B32 Emitter::blockDeclaresVla(const Stmt* s) {
+		for(const Stmt* c : s->body)
+			if(c->kind == StmtKind::Decl && stmtHasVla(c))
+				return true;
+		return false;
+	}
+
+	void Emitter::restoreStack(Function& fn, Node* sp) {
+		if(sp && sp != curSp && !sawAlloca && !fn.blockFinished())
+			fn.stackRestore(sp);
+	}
+
 	B32 Emitter::emitCompound(Function& fn, const Stmt* s) {
 		pushScope();
+		Node* mark = nullptr;
+		Node* outerSp = curSp;
+		if(blockDeclaresVla(s)) {
+			mark = fn.stackSave();
+			curSp = mark;
+		}
 		for(const Stmt* child : s->body) {
 			if(fn.blockFinished() && child->kind != StmtKind::Label && child->kind != StmtKind::Case &&
 				 child->kind != StmtKind::Default && !containsLabel(child) &&
@@ -423,6 +475,8 @@ namespace rat::cc {
 				return false;
 			}
 		}
+		restoreStack(fn, mark);
+		curSp = mark ? mark : outerSp;
 		popScope();
 		return true;
 	}
@@ -441,7 +495,7 @@ namespace rat::cc {
 		if(!fn.blockFinished())
 			fn.jmp(lbl);
 		fn.enterBlock(lbl);
-		return true;
+		return emitStmt(fn, s->thenBody);
 	}
 
 	B32 Emitter::emitStmt(Function& fn, const Stmt* s) {
@@ -470,12 +524,14 @@ namespace rat::cc {
 				return false;
 			}
 			loops.back().exitReachable = true;
+			restoreStack(fn, loops.back().sp);
 			fn.jmp(loops.back().brk);
 			return true;
 		case StmtKind::Continue: {
 			for(auto it = loops.rbegin(); it != loops.rend(); ++it) {
 				if(it->isSwitch)
 					continue;
+				restoreStack(fn, it->sp);
 				fn.jmp(it->cont);
 				return true;
 			}
@@ -492,6 +548,8 @@ namespace rat::cc {
 			return emitLabel(fn, s);
 		case StmtKind::Goto:
 			return emitGoto(fn, s);
+		case StmtKind::Asm:
+			return emitAsm(fn, s);
 		}
 		fail("unsupported statement");
 		return false;
@@ -556,6 +614,7 @@ namespace rat::cc {
 		if(!fn.blockFinished())
 			fn.jmp(lbl);
 		fn.setInsertBlock(lbl);
+		labelSp[*s->label] = curSp;
 		return emitStmt(fn, s->thenBody);
 	}
 
@@ -565,7 +624,128 @@ namespace rat::cc {
 			fail("use of undeclared label '" + *s->label + "'");
 			return false;
 		}
+		auto sp = labelSp.find(*s->label);
+		if(sp != labelSp.end())
+			restoreStack(fn, sp->second);
 		fn.jmp(it->second);
 		return true;
+	}
+
+	static B32 isRegConstraint(const String& c, B32 isOutput, B32& readWrite) {
+		U32 i = 0;
+		readWrite = false;
+		if(isOutput) {
+			if(c.empty() || (c[0] != '=' && c[0] != '+'))
+				return false;
+			readWrite = c[0] == '+';
+			i = 1;
+		}
+		if(i < c.size() && c[i] == '&')
+			++i;
+		return i + 1 == c.size() && c[i] == 'r';
+	}
+
+	static B32 matchingConstraint(const String& c, U32& index) {
+		if(c.size() != 1 || c[0] < '0' || c[0] > '9')
+			return false;
+		index = (U32)(c[0] - '0');
+		return true;
+	}
+
+	B32 Emitter::emitAsm(Function& fn, const Stmt* s) {
+		const AsmBlock* a = s->asmBlock;
+		if(a->isGoto) {
+			fail("'asm goto' is not supported");
+			return false;
+		}
+		if(!a->text->empty()) {
+			fail("inline assembly with a non-empty template is not supported");
+			return false;
+		}
+
+		List<LValue> lvs;
+		List<B32> readsBack(a->outputs.size(), false);
+		List<const Expr*> tie(a->outputs.size(), nullptr);
+		for(U32 i = 0; i < a->outputs.size(); ++i) {
+			const AsmOperand& op = a->outputs[i];
+			B32 readWrite = false;
+			if(!isRegConstraint(*op.constraint, true, readWrite)) {
+				fail("unsupported asm output constraint '" + *op.constraint + "'");
+				return false;
+			}
+			LValue lv;
+			if(!emitLValue(fn, op.expr, lv))
+				return false;
+			if(!asmFitsRegister(lv.type) || lv.isBitfield) {
+				fail("asm operand type does not fit a register");
+				return false;
+			}
+			lvs.push_back(lv);
+			readsBack[i] = readWrite;
+		}
+
+		List<const Expr*> extra; // inputs that no output is tied to
+		for(const AsmOperand& op : a->inputs) {
+			U32 which = 0;
+			if(matchingConstraint(*op.constraint, which)) {
+				if(which >= tie.size() || readsBack[which] || tie[which]) {
+					fail("asm matching constraint '" + *op.constraint + "' names no free output");
+					return false;
+				}
+				tie[which] = op.expr;
+				continue;
+			}
+			B32 readWrite = false;
+			if(!isRegConstraint(*op.constraint, false, readWrite)) {
+				fail("unsupported asm input constraint '" + *op.constraint + "'");
+				return false;
+			}
+			extra.push_back(op.expr);
+		}
+		for(U32 i = 0; i < tie.size(); ++i) {
+			if(!tie[i] && !readsBack[i]) {
+				fail("asm output operand is not tied to an input, so it has no defined value");
+				return false;
+			}
+		}
+
+		List<Type*> outTypes;
+		List<Node*> args;
+		for(U32 i = 0; i < lvs.size(); ++i) {
+			Node* in = nullptr;
+			if(readsBack[i]) {
+				in = loadLValue(fn, lvs[i]);
+			} else {
+				Value v = emitExpr(fn, tie[i]);
+				if(!v.node)
+					return false;
+				in = convert(fn, v.node, v.type, lvs[i].type);
+			}
+			if(!in)
+				return false;
+			args.push_back(in);
+			outTypes.push_back(irType(lvs[i].type));
+		}
+		for(const Expr* e : extra) {
+			Value v = emitExpr(fn, e);
+			if(!v.node)
+				return false;
+			if(!asmFitsRegister(v.type)) {
+				fail("asm operand type does not fit a register");
+				return false;
+			}
+			args.push_back(v.node);
+		}
+
+		List<Node*> outs = fn.inlineAsm(*a->text, outTypes, args);
+		for(U32 i = 0; i < outs.size(); ++i)
+			storeLValue(fn, lvs[i], outs[i]);
+		return true;
+	}
+
+	B32 Emitter::asmFitsRegister(CType t) const {
+		if(isAggregate(t) || isComplexType(t) || isVoidType(t) || isArrayType(t))
+			return false;
+		return byteSize(t) <= 8;
 	}
 } // namespace rat::cc

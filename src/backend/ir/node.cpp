@@ -257,25 +257,57 @@ namespace rat {
 	B32 CallNode::isIndirect() const { return indirect; }
 	Node* CallNode::getTarget() const { return indirect ? getInput(2) : nullptr; }
 
+	AsmNode::AsmNode(Function& fn,
+									 Type* tupleType,
+									 String text,
+									 U32 outputCount,
+									 const List<Node*>& controlMemoryInputs)
+	: Node(fn, Opcode::Asm, tupleType, controlMemoryInputs),
+		text(std::move(text)),
+		outputCount(outputCount) {}
+
+	const String& AsmNode::getText() const { return text; }
+	Node* AsmNode::getControl() const { return getInput(0); }
+	Node* AsmNode::getMemory() const { return getInput(1); }
+	U32 AsmNode::getInputOperandCount() const { return getInputCount() - 2; }
+	Node* AsmNode::getInputOperand(U32 index) const { return getInput(2 + index); }
+
 	GlobalNode::GlobalNode(Function& fn, Type* ptrType, String symbol)
 	: Node(fn, Opcode::Global, ptrType, {}),
 		symbol(std::move(symbol)) {}
 
 	const String& GlobalNode::getSymbol() const { return symbol; }
 
-	AllocNode::AllocNode(Function& fn, Type* ptrType, Type* allocType)
+	AllocNode::AllocNode(Function& fn, Type* ptrType, Type* allocType, U32 align)
 	: Node(fn, Opcode::Alloc, ptrType, {}),
-		allocType(allocType) {}
-
-	AllocNode::AllocNode(Function& fn, Type* ptrType, Type* allocType, Node* size)
-	: Node(fn, Opcode::Alloc, ptrType, {size}),
-		allocType(allocType) {}
+		allocType(allocType),
+		align(align) {}
 
 	Type* AllocNode::getAllocType() const { return allocType; }
 
-	Node* AllocNode::getSizeOperand() const { return getInputCount() > 0 ? getInput(0) : nullptr; }
+	U32 AllocNode::getAlign() const { return align; }
 
-	B32 AllocNode::isVariableSized() const { return getInputCount() > 0; }
+	StackAllocNode::StackAllocNode(
+			Function& fn, Type* ptrType, Node* control, Node* memory, Node* size)
+	: Node(fn, Opcode::StackAlloc, ptrType, {control, memory, size}) {}
+
+	Node* StackAllocNode::getControl() const { return getInput(0); }
+	Node* StackAllocNode::getMemory() const { return getInput(1); }
+	Node* StackAllocNode::getSize() const { return getInput(2); }
+
+	StackSaveNode::StackSaveNode(Function& fn, Type* ptrType, Node* control, Node* memory)
+	: Node(fn, Opcode::StackSave, ptrType, {control, memory}) {}
+
+	Node* StackSaveNode::getControl() const { return getInput(0); }
+	Node* StackSaveNode::getMemory() const { return getInput(1); }
+
+	StackRestoreNode::StackRestoreNode(
+			Function& fn, Type* memoryType, Node* control, Node* memory, Node* saved)
+	: Node(fn, Opcode::StackRestore, memoryType, {control, memory, saved}) {}
+
+	Node* StackRestoreNode::getControl() const { return getInput(0); }
+	Node* StackRestoreNode::getMemory() const { return getInput(1); }
+	Node* StackRestoreNode::getSaved() const { return getInput(2); }
 
 	SplatNode::SplatNode(Function& fn, Type* vecType, Node* scalar)
 	: Node(fn, Opcode::Splat, vecType, {scalar}) {}
@@ -358,14 +390,22 @@ namespace rat {
 			const CallNode* c = cast<CallNode>(n);
 			return into.create<CallNode>(t, c->getCallee(), c->returnsValue(), nulls, c->isIndirect());
 		}
+		case Opcode::Asm: {
+			const AsmNode* a = cast<AsmNode>(n);
+			return into.create<AsmNode>(t, a->getText(), a->getOutputCount(), nulls);
+		}
 		case Opcode::Global:
 			return into.create<GlobalNode>(t, cast<GlobalNode>(n)->getSymbol());
 		case Opcode::Alloc: {
 			const AllocNode* a = cast<AllocNode>(n);
-			if(a->isVariableSized())
-				return into.create<AllocNode>(t, a->getAllocType(), nullptr);
-			return into.create<AllocNode>(t, a->getAllocType());
+			return into.create<AllocNode>(t, a->getAllocType(), a->getAlign());
 		}
+		case Opcode::StackAlloc:
+			return into.create<StackAllocNode>(t, nullptr, nullptr, nullptr);
+		case Opcode::StackSave:
+			return into.create<StackSaveNode>(t, nullptr, nullptr);
+		case Opcode::StackRestore:
+			return into.create<StackRestoreNode>(t, nullptr, nullptr, nullptr);
 		case Opcode::Splat:
 			return into.create<SplatNode>(t, nullptr);
 		case Opcode::Extract:

@@ -89,7 +89,7 @@ namespace rat::cc {
 			Node* nv = convert(fn, v.node, v.type, t);
 			if(isFloating(t))
 				return {fn.unary(Opcode::FNeg, nv), t};
-			return {fn.neg(nv), t};
+			return {reduceBitfield(fn, fn.neg(nv), t), t};
 		}
 		case ExprOp::BitNot: {
 			if(!isInteger(v.type)) {
@@ -97,7 +97,7 @@ namespace rat::cc {
 				return {};
 			}
 			CType t = promote(v.type);
-			return {fn.bitNot(convert(fn, v.node, v.type, t)), t};
+			return {reduceBitfield(fn, fn.bitNot(convert(fn, v.node, v.type, t)), t), t};
 		}
 		case ExprOp::Not:
 			if(isAggregate(v.type) && !isComplexType(v.type)) {
@@ -130,11 +130,12 @@ namespace rat::cc {
 		auto g = globalVars.find(*e->ident.name);
 		if(g != globalVars.end()) {
 			const CType& gt = g->second.type;
+			const String& sym = globalSymbol(*e->ident.name);
 			if(g->second.isArray)
-				return {fn.global(*e->ident.name), pointerTo(gt)};
+				return {fn.global(sym), pointerTo(gt)};
 			if(isAggregate(gt))
-				return {fn.global(*e->ident.name), gt};
-			return {fn.load(irType(gt), fn.global(*e->ident.name)), gt};
+				return {fn.global(sym), gt};
+			return {fn.load(irType(gt), fn.global(sym)), gt};
 		}
 		auto f = funcs.find(*e->ident.name);
 		if(f != funcs.end())
@@ -157,7 +158,7 @@ namespace rat::cc {
 			if(typeOf(e->sizeOf.operand, ot) && hasVlaDim(ot))
 				return {emitArrayByteSize(fn, ot), sz};
 		}
-		U32 n;
+		U64 n;
 		if(e->sizeOf.operand) {
 			if(!sizeofOperand(e->sizeOf.operand, n))
 				return {};
@@ -170,6 +171,25 @@ namespace rat::cc {
 			n = byteSize(e->sizeOf.type);
 		}
 		return {fn.constInt(irType(sz), n), sz};
+	}
+
+	B32 Emitter::alignofValue(const Expr* e, U32& out) {
+		if(!e->sizeOf.operand) {
+			out = alignOf(e->sizeOf.type);
+			return true;
+		}
+		if(e->sizeOf.operand->kind == ExprKind::Ident) {
+			auto fit = funcs.find(*e->sizeOf.operand->ident.name);
+			if(fit != funcs.end()) {
+				out = fit->second.align ? fit->second.align : 1u;
+				return true;
+			}
+		}
+		CType ot;
+		if(!typeOf(e->sizeOf.operand, ot))
+			return false;
+		out = alignOf(ot);
+		return true;
 	}
 
 	Emitter::Value Emitter::emitStmtExpr(Function& fn, const Expr* e) {
@@ -231,10 +251,10 @@ namespace rat::cc {
 		}
 
 		case ExprKind::StrLit: {
-			CType charPtr;
-			charPtr.bits = 8;
-			charPtr.ptr = 1;
-			return {emitStringLiteral(fn, e), charPtr};
+			CType elemPtr;
+			elemPtr.bits = e->str.isWide ? e->str.charSize * 8 : 8;
+			elemPtr.ptr = 1;
+			return {emitStringLiteral(fn, e), elemPtr};
 		}
 
 		case ExprKind::Ident:
@@ -268,6 +288,13 @@ namespace rat::cc {
 
 		case ExprKind::Sizeof:
 			return emitSizeof(fn, e);
+
+		case ExprKind::AlignOf: {
+			U32 n;
+			if(!alignofValue(e, n))
+				return {};
+			return {fn.constInt(irType(ctSize()), n), ctSize()};
+		}
 
 		case ExprKind::VaArg: {
 			Node* ap = vaListRef(fn, e->vaArg.ap);
@@ -310,6 +337,8 @@ namespace rat::cc {
 				return {};
 			if(lv.isArray)
 				return {lv.addr, pointerTo(lv.type)};
+			if(isArrayType(lv.type))
+				return {lv.addr, decay(lv.type)};
 			if(isStruct(lv.type))
 				return {lv.addr, lv.type};
 			return {loadLValue(fn, lv), lv.type};

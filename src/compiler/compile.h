@@ -14,10 +14,7 @@ namespace rat {
 } // namespace rat
 
 namespace rat::cc {
-	enum struct Backend { C, X86 };
-
 	struct CompileOptions {
-		Backend backend = Backend::X86;
 		List<UniquePtr<Pass>> optPasses;
 		List<UniquePtr<MachinePass>> machinePasses; // empty = default x86 pipeline
 		String renameMain;

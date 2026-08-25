@@ -66,32 +66,31 @@ namespace rat::cc {
 				}
 			}
 
-			size_t startDir = 0;
-			if(next) {
-				String cur = curDir;
-				stripTrailingSlash(cur);
-				for(size_t k = 0; k < opts.includeDirs.size(); ++k) {
-					String d = opts.includeDirs[k];
-					stripTrailingSlash(d);
-					if(d == cur) {
-						startDir = k + 1;
-						break;
-					}
-				}
-			}
-
 			List<String> tries;
-			if(!next) {
-				if(!angled && !curDir.empty())
-					tries.push_back(curDir + fname);
-				else if(!angled)
-					tries.push_back(fname);
-			}
-			for(size_t k = startDir; k < opts.includeDirs.size(); ++k) {
-				String base = opts.includeDirs[k];
-				if(!base.empty() && base.back() != '/')
-					base += '/';
-				tries.push_back(base + fname);
+			if(isAbsPath(fname)) {
+				tries.push_back(fname);
+			} else {
+				size_t startDir = 0, best = 0;
+				if(next) {
+					for(size_t k = 0; k < opts.includeDirs.size(); ++k) {
+						String d = opts.includeDirs[k];
+						if(!d.empty() && d.back() != '/')
+							d += '/';
+						if(d.size() > best && d.size() <= curDir.size() &&
+							 curDir.compare(0, d.size(), d) == 0) {
+							best = d.size();
+							startDir = k + 1;
+						}
+					}
+				} else if(!angled) {
+					tries.push_back(curDir.empty() ? fname : curDir + fname);
+				}
+				for(size_t k = startDir; k < opts.includeDirs.size(); ++k) {
+					String base = opts.includeDirs[k];
+					if(!base.empty() && base.back() != '/')
+						base += '/';
+					tries.push_back(base + fname);
+				}
 			}
 
 			String found, content;
@@ -422,8 +421,8 @@ namespace rat::cc {
 			auto defineFrag = [&](const char* text) { doDefine(lexFragment(text, intern("<builtin>"))); };
 			defineFrag("__attribute__(x)");
 			defineFrag("__attribute(x)");
-			defineFrag("__asm__(x)");
-			defineFrag("__asm(x)");
+			defineFrag("__asm__ asm");
+			defineFrag("__asm asm");
 			defineFrag("__restrict");
 			defineFrag("__restrict__ restrict");
 			defineFrag("__inline inline");
@@ -431,6 +430,8 @@ namespace rat::cc {
 			defineFrag("__volatile__ volatile");
 			defineFrag("__volatile volatile");
 			defineFrag("__extension__");
+			defineFrag("__alignof__ _Alignof");
+			defineFrag("__alignof _Alignof");
 			defineFrag("__signed__ signed");
 			defineFrag("__signed signed");
 			defineFrag("__const const");

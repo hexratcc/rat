@@ -27,6 +27,13 @@ namespace rat {
 		Linkage getLinkage() const { return linkage; }
 		void setLinkage(Linkage l) { linkage = l; }
 		B32 isInternal() const { return linkage == Linkage::Internal; }
+
+		const String& getAliasTarget() const { return aliasOf; }
+		B32 isAlias() const { return !aliasOf.empty(); }
+		void setAliasTarget(String target) { aliasOf = std::move(target); }
+
+		U32 getAlign() const { return align; }
+		void setAlign(U32 v) { align = v; }
 	private:
 		String name;
 		Type* type;
@@ -34,6 +41,8 @@ namespace rat {
 		List<U8> init;
 		List<Reloc> relocs;
 		Linkage linkage = Linkage::External;
+		String aliasOf;
+		U32 align = 0;
 	};
 
 	struct Module : TypeContext {
@@ -47,6 +56,7 @@ namespace rat {
 
 		Global* createGlobal(
 				const String& name, Type* type, B32 isConst, List<U8> init, List<Reloc> relocs = {});
+		Global* createAlias(const String& name, const String& target, Type* type);
 		Global* getGlobal(const String& name) const;
 
 		const List<Global*>& globals() const;

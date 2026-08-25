@@ -204,9 +204,11 @@ namespace rat {
 			auto* p = cast<ProjNode>(n);
 			Node* prod = p->getProducer();
 			Opcode po = prod->getOpcode();
-			if(!(po == Opcode::Start || po == Opcode::If || po == Opcode::Call || po == Opcode::Switch)) {
+			if(!(po == Opcode::Start || po == Opcode::If || po == Opcode::Call || po == Opcode::Switch ||
+					 po == Opcode::Asm)) {
 				err(n,
-						"Proj producer " + vref(prod) + " is not a multi-output node (Start/If/Call/Switch)");
+						"Proj producer " + vref(prod) +
+								" is not a multi-output node (Start/If/Call/Switch/Asm)");
 			} else if(!prod->getType()->isTuple()) {
 				err(n, "Proj producer is not tuple-typed");
 			} else if(p->getIndex() >= prod->getType()->getTupleElementCount()) {
@@ -255,6 +257,17 @@ namespace rat {
 				err(n, "Alloc type must be a pointer");
 			if(!cast<AllocNode>(n)->getAllocType())
 				err(n, "Alloc has no allocated type");
+			break;
+
+		case Opcode::StackAlloc:
+		case Opcode::StackSave:
+			if(!t->isPtr())
+				err(n, "stack op type must be a pointer");
+			break;
+
+		case Opcode::StackRestore:
+			if(!t->isMemory())
+				err(n, "StackRestore type must be memory");
 			break;
 
 		case Opcode::Splat: {
@@ -343,6 +356,26 @@ namespace rat {
 				err(n, "Call return slot must be a data type");
 			break;
 		}
+		case Opcode::Asm: {
+			auto* a = cast<AsmNode>(n);
+			ctrlMem(a->getControl(), a->getMemory(), "Asm");
+			if(!t->isTuple()) {
+				err(n, "Asm type must be a tuple");
+				break;
+			}
+			if(t->getTupleElementCount() != 2 + a->getOutputCount()) {
+				err(n, "Asm tuple arity does not match the output count");
+				break;
+			}
+			if(!t->getTupleElement(0)->isControl())
+				err(n, "Asm tuple element 0 must be control");
+			if(!t->getTupleElement(1)->isMemory())
+				err(n, "Asm tuple element 1 must be memory");
+			for(U32 i = 0; i < a->getOutputCount(); ++i)
+				if(!t->getTupleElement(2 + i)->isData())
+					err(n, "Asm output slot must be a data type");
+			break;
+		}
 		default:
 			switch(getOpClass(op)) {
 			case OpClass::Binary: {
@@ -370,8 +403,8 @@ namespace rat {
 						err(n, "binary operands have different types");
 					// only the SSE2-lowerable subset may appear at vector types
 					const Type* et = lt->getVecElement();
-					B32 legal = et->isInt() ? (op == Opcode::Add || op == Opcode::Sub ||
-																		 op == Opcode::And || op == Opcode::Or || op == Opcode::Xor)
+					B32 legal = et->isInt() ? (op == Opcode::Add || op == Opcode::Sub || op == Opcode::And ||
+																		 op == Opcode::Or || op == Opcode::Xor)
 																	: (op == Opcode::FAdd || op == Opcode::FSub ||
 																		 op == Opcode::FMul || op == Opcode::FDiv);
 					if(!legal)

@@ -260,6 +260,8 @@ namespace rat {
 				Node* prod = p->getProducer();
 				if(prod->getOpcode() == Opcode::Call)
 					m = cast<CallNode>(prod)->getMemory();
+				else if(prod->getOpcode() == Opcode::Asm)
+					m = cast<AsmNode>(prod)->getMemory();
 				else
 					break; // start (or foreign): done
 			} else {
@@ -293,6 +295,8 @@ namespace rat {
 					m = st->getMemory();
 				else if(CallNode* cl = dyn_cast<CallNode>(u))
 					m = cl->getMemory();
+				else if(AsmNode* as = dyn_cast<AsmNode>(u))
+					m = as->getMemory();
 				if(m && interWritten.count(m))
 					dest = elseP;
 				else if(m && !preSet.count(m))

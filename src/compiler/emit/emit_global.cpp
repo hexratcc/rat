@@ -3,18 +3,21 @@
 namespace rat::cc {
 	String Emitter::internString(const Expr* e) {
 		const String& bytes = *e->str.bytes;
-		auto it = strPool.find(bytes);
+		U32 cw = e->str.charSize;
+		String key = std::to_string(cw) + ":" + bytes;
+		auto it = strPool.find(key);
 		if(it != strPool.end())
 			return it->second;
 		String name = "__ratcc_str" + std::to_string(strCounter++);
 		List<U8> init;
-		init.reserve(bytes.size() + 1);
+		init.reserve(bytes.size() + cw);
 		for(char c : bytes)
 			init.push_back((U8)c);
-		init.push_back(0);
+		for(U32 i = 0; i < cw; ++i)
+			init.push_back(0);
 		Global* g = mod.createGlobal(name, byteArrayType((U32)init.size()), true, std::move(init));
 		g->setLinkage(Global::Linkage::Internal);
-		strPool.emplace(bytes, name);
+		strPool.emplace(std::move(key), name);
 		return name;
 	}
 
@@ -74,23 +77,30 @@ namespace rat::cc {
 
 	void
 	Emitter::bindArrayGlobal(const Declarator& d, const String& symbol, Function* fn, U32 count) {
-		if(fn)
-			declare(*d.name, Local::memArray(fn->global(symbol), d.type, count));
-		else
+		if(fn) {
+			Local loc = Local::memArray(fn->global(symbol), d.type, count);
+			loc.staticSym = arena.make<String>(symbol);
+			declare(*d.name, loc);
+		} else {
 			globalVars[*d.name] = GlobalVar{d.type, true, count};
+		}
 	}
 
 	void Emitter::bindScalarGlobal(const Declarator& d, const String& symbol, Function* fn) {
-		if(fn)
-			declare(*d.name, Local::mem(fn->global(symbol), d.type));
-		else
+		if(fn) {
+			Local loc = Local::mem(fn->global(symbol), d.type);
+			loc.staticSym = arena.make<String>(symbol);
+			declare(*d.name, loc);
+		} else {
 			globalVars[*d.name] = GlobalVar{d.type, false, 0};
+		}
 	}
 
 	void Emitter::defineGlobal(const Declarator& d, const String& symbol, Type* ty, List<U8>&& img) {
 		Global* g = mod.createGlobal(symbol, ty, false, std::move(img), std::move(relocs));
 		if(d.isStatic)
 			g->setLinkage(Global::Linkage::Internal);
+		g->setAlign(d.align);
 	}
 
 	B32 Emitter::validateGlobalArrayLen(const Declarator& d, I64& count, B32& haveLen) {
@@ -326,6 +336,26 @@ namespace rat::cc {
 		return true;
 	}
 
+	B32 Emitter::registerGlobalAlias(const Declarator& d) {
+		if(d.init) {
+			fail("alias '" + *d.name + "' must not have an initializer");
+			return false;
+		}
+		I64 count = 0;
+		if(d.isArray && d.arrayLen && !evalConst(d.arrayLen, count))
+			count = 0;
+		mod.createAlias(*d.name, *d.aliasOf, irType(d.type))
+				->setLinkage(d.isStatic ? Global::Linkage::Internal : Global::Linkage::External);
+		globalVars[*d.name] = GlobalVar{d.type, d.isArray, (U32)count};
+		aliasTargets[*d.name] = *d.aliasOf;
+		return true;
+	}
+
+	const String& Emitter::globalSymbol(const String& name) const {
+		auto it = aliasTargets.find(name);
+		return it == aliasTargets.end() ? name : it->second;
+	}
+
 	B32 Emitter::registerGlobals(const TransUnit& unit) {
 		List<const Declarator*> order;
 		List<B32> needsStorage;
@@ -353,6 +383,11 @@ namespace rat::cc {
 		}
 		for(U32 gi = 0; gi < order.size(); ++gi) {
 			const Declarator& d = *order[gi];
+			if(d.aliasOf) {
+				if(!registerGlobalAlias(d))
+					return false;
+				continue;
+			}
 			if(!needsStorage[gi]) {
 				I64 count = 0;
 				if(d.isArray && d.arrayLen)

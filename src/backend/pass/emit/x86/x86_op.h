@@ -34,7 +34,15 @@ namespace rat {
 		LoadImm,	 // dst = imm
 		LoadSym,	 // dst = lea rip[sym]  (address of a global)
 		FrameAddr, // dst = lea rbp[imm]  (address of an arbitrary rbp offset; imm = disp)
+		RetAddr,	 // dst = [rbp+8]      (this frame's return address, forces a frame)
 		Lea,			 // dst = lea [use[0] + use[1]*(1<<imm2) + imm]
+		// dynamic stack
+		StackAlloc,		// rsp -= roundup(use[0], 16), rsp &= ~15; dst = rsp
+		StackSave,		// dst = rsp
+		StackRestore, // rsp = use[0]
+		// non-local goto, use[0] points at [frame pointer, resume address, stack pointer]
+		SetJmp,	 // fills the buffer, def = 0 falling through, 1 when a LongJmp lands
+		LongJmp, // restores rbp/rsp from the buffer and jumps to the resume address
 		// integer memory: use[0] = address reg, imm = displacement
 		Load,	 // dst = [addr + index*scale + disp], sign/zero-extended per width/imm2
 		Store, // [addr + index * scale + disp] = src (index in use[2] per imm2), width
@@ -56,10 +64,13 @@ namespace rat {
 		SRem,
 		UDiv,
 		URem,				 // RAX/RDX/RCX fixed by lowering via Phys operands
+		BitScanF,		 // dst = bsf use[0], operand width in imm (undefined when use[0] is 0)
+		BitScanR,		 // dst = bsr use[0], operand width in imm (undefined when use[0] is 0)
 		Cmp,				 // flag-setting compare of use[0],use[1]
 		SetCC,			 // dst = (cc); condition code in imm
 		MaskBits,		 // dst &= ((1<<imm)-1)
 		SignExtBits, // dst = sign-extend dst from imm bits to 64
+		Bswap,			 // dst = byte-reverse dst, operand width in imm (32 or 64)
 		// SSE scalar float
 		FLoad,
 		FStore, // [addr+disp] <-> xmm
@@ -77,9 +88,9 @@ namespace rat {
 		VArith,		// dst = dst OP use[1] packed; imm = (0f38 escape << 16) | (prefix << 8) | opcode byte
 		VSplat,		// dst = broadcast use[0] to all lanes; imm = elem bytes, imm2 = int?
 		VExtract, // dst = lane imm of use[0]; imm2 = (elem bytes << 1) | int?
-		VPack,		// dst = int/fp lanes use[0..k-1] gathered through the vec scratch slot; imm = elem bytes
+		VPack, // dst = int/fp lanes use[0..k-1] gathered through the vec scratch slot; imm = elem bytes
 		VPackReg, // dst = int lanes use[0..k-1] built in-register via movd/movq + pinsr (sse4.1); imm = elem bytes
-		VShuf,		// dst = pshufd(use[0], imm)
+		VShuf, // dst = pshufd(use[0], imm)
 		// x87 ops
 		X87LoadMem,	 // def(slot) = fld [use0 addr]; imm = mem width (4/8/80)
 		X87StoreMem, // [use0 addr] = fstp use1(slot); imm = mem width (4/8/80)
@@ -103,6 +114,9 @@ namespace rat {
 		// variadic support
 		VaStart, // init va_list at [use0]; imm = gpOffset start, imm2 = fpOffset start
 		VaArg,	 // fetch next vararg into def; use0 = va_list ptr; imm = kind, imm2 = width
+		// misc
+		Ud2,			// undefined instruction
+		Prefetch, // prefetch [use0 + imm], imm2 = hint (0 = nta, 1 = t0, 2 = t1, 3 = t2)
 	};
 
 	enum class VaArgKind : I64 { Int = 0, Sse = 1, X87 = 2 };

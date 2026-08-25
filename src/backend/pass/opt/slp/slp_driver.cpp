@@ -22,6 +22,8 @@ namespace rat {
 				succ = cast<StoreNode>(u);
 			} else if(u->getOpcode() == Opcode::Load && cast<LoadNode>(u)->getMemory() == s) {
 				observers.push_back(cast<LoadNode>(u));
+			} else if(u->getOpcode() == Opcode::Asm) {
+				return nullptr; // an asm is an opaque barrier
 			} else if(usesValue(u, s)) {
 				return nullptr;
 			}

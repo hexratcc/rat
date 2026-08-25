@@ -77,56 +77,6 @@ namespace rat::cc {
 				}
 			return false;
 		}
-
-		String decodeUtf8ToUtf32LE(const String& bytes) {
-			String w;
-			U32 i = 0, n = (U32)bytes.size();
-			while(i < n) {
-				U8 b0 = (U8)bytes[i];
-				U32 cp = 0, extra = 0;
-				if(b0 < 0x80) {
-					cp = b0;
-				} else if((b0 & 0xE0) == 0xC0) {
-					cp = b0 & 0x1F;
-					extra = 1;
-				} else if((b0 & 0xF0) == 0xE0) {
-					cp = b0 & 0x0F;
-					extra = 2;
-				} else if((b0 & 0xF8) == 0xF0) {
-					cp = b0 & 0x07;
-					extra = 3;
-				} else {
-					cp = b0;
-				}
-				++i;
-				for(U32 k = 0; k < extra && i < n; ++k, ++i)
-					cp = (cp << 6) | ((U8)bytes[i] & 0x3F);
-				for(U32 k = 0; k < 4; ++k)
-					w.push_back((char)(U8)(cp >> (8 * k)));
-			}
-			return w;
-		}
-
-		String decodeUtf8ToUtf16LE(const String& bytes) {
-			String u32 = decodeUtf8ToUtf32LE(bytes);
-			String w;
-			for(U32 i = 0; i + 3 < (U32)u32.size(); i += 4) {
-				U32 cp = (U8)u32[i] | ((U32)(U8)u32[i + 1] << 8) | ((U32)(U8)u32[i + 2] << 16) |
-								 ((U32)(U8)u32[i + 3] << 24);
-				if(cp >= 0x10000) {
-					U32 v = cp - 0x10000;
-					U32 hi = 0xD800 + (v >> 10), lo = 0xDC00 + (v & 0x3FF);
-					w.push_back((char)(U8)hi);
-					w.push_back((char)(U8)(hi >> 8));
-					w.push_back((char)(U8)lo);
-					w.push_back((char)(U8)(lo >> 8));
-				} else {
-					w.push_back((char)(U8)cp);
-					w.push_back((char)(U8)(cp >> 8));
-				}
-			}
-			return w;
-		}
 	} // namespace detail
 
 	Expr* Parser::parseUnary() {
@@ -153,13 +103,33 @@ namespace rat::cc {
 			}
 			return e;
 		}
+		if(peek().kind == TokKind::KwAlignof) {
+			Token kw = advance();
+			Expr* e = makeExpr(ExprKind::AlignOf, kw.offset);
+			if(peek().kind == TokKind::LParen && startsType(peek2())) {
+				advance(); // (
+				CType ty;
+				if(!parseTypeName(ty))
+					return nullptr;
+				if(!expect(TokKind::RParen, "')'"))
+					return nullptr;
+				e->sizeOf.type = ty;
+				e->sizeOf.operand = nullptr;
+			} else {
+				Expr* operand = parseUnary();
+				if(!operand)
+					return nullptr;
+				e->sizeOf.operand = operand;
+			}
+			return e;
+		}
 		if(peek().kind == TokKind::LParen && startsType(peek2())) {
 			Token lp = advance(); // (
 			CType ty;
 			if(!parseTypeSpec(ty))
 				return nullptr;
 			parsePointers(ty);
-			if(looksLikeFuncPtr()) { // cast to a function-pointer/grouped type
+			if(looksLikeGroupingParen()) { // cast to a parenthesized declarator
 				Token ignored;
 				B32 hn = false;
 				CType ft;

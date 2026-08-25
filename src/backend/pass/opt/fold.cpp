@@ -143,10 +143,40 @@ namespace rat {
 	}
 
 	B32 evalUnaryConst(Opcode op, U32 w, I64 x, I64& out) {
-		if(op != Opcode::Neg && op != Opcode::Not)
+		U64 v = FoldPass::maskW(x, w);
+		U32 n = 0;
+		switch(op) {
+		case Opcode::Neg:
+		case Opcode::Not:
+			out = FoldPass::normalizeConst(op == Opcode::Neg ? -x : ~x, w);
+			return true;
+		case Opcode::Clz:
+		case Opcode::Ctz:
+			// undefined at zero
+			if(v == 0)
+				return false;
+			if(op == Opcode::Clz)
+				while(((v >> (w - 1 - n)) & 1) == 0)
+					++n;
+			else
+				n = (U32)countTrailingZeros64(v);
+			out = (I64)n;
+			return true;
+		case Opcode::Popcnt:
+			for(; v != 0; v &= v - 1)
+				++n;
+			out = (I64)n;
+			return true;
+		case Opcode::Bswap: {
+			U64 r = 0;
+			for(n = 0; n < w; n += 8)
+				r = (r << 8) | ((v >> n) & 0xff);
+			out = FoldPass::normalizeConst((I64)r, w);
+			return true;
+		}
+		default:
 			return false;
-		out = FoldPass::normalizeConst(op == Opcode::Neg ? -x : ~x, w);
-		return true;
+		}
 	}
 
 	B32 evalCompareConst(Opcode op, U32 w, I64 a, I64 b, I64& out) {

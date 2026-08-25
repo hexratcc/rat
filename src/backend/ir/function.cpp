@@ -104,6 +104,10 @@ namespace rat {
 	}
 	Node* Function::neg(Node* operand) { return unary(Opcode::Neg, operand); }
 	Node* Function::bitNot(Node* operand) { return unary(Opcode::Not, operand); }
+	Node* Function::clz(Node* operand) { return unary(Opcode::Clz, operand); }
+	Node* Function::ctz(Node* operand) { return unary(Opcode::Ctz, operand); }
+	Node* Function::popcnt(Node* operand) { return unary(Opcode::Popcnt, operand); }
+	Node* Function::bswap(Node* operand) { return unary(Opcode::Bswap, operand); }
 
 	Node* Function::compare(Opcode op, Node* lhs, Node* rhs) {
 		return create<CompareNode>(op, boolTy(), lhs, rhs);
@@ -135,10 +139,17 @@ namespace rat {
 
 	Node* Function::global(const String& name) { return create<GlobalNode>(ptrTy(), name); }
 
-	Node* Function::alloc(Type* type) { return create<AllocNode>(ptrTy(), type); }
+	Node* Function::alloc(Type* type, U32 align) { return create<AllocNode>(ptrTy(), type, align); }
 
-	Node* Function::allocVLA(Type* type, Node* byteCount) {
-		return create<AllocNode>(ptrTy(), type, byteCount);
+	Node* Function::stackAlloc(Node* byteCount) {
+		return create<StackAllocNode>(ptrTy(), control(), readVar(memVar), byteCount);
+	}
+
+	Node* Function::stackSave() { return create<StackSaveNode>(ptrTy(), control(), readVar(memVar)); }
+
+	void Function::stackRestore(Node* saved) {
+		Node* nm = create<StackRestoreNode>(memTy(), control(), readVar(memVar), saved);
+		writeVar(memVar, nm);
 	}
 
 	Type* Function::callTupleType(Type* retType) {
@@ -177,6 +188,26 @@ namespace rat {
 		CallNode* c = create<CallNode>(callTupleType(retType), String(), retType != nullptr, ins, true);
 		c->setVarArgs(varArgs);
 		return attachCallProjections(c, retType);
+	}
+
+	List<Node*>
+	Function::inlineAsm(const String& text, const List<Type*>& outputs, const List<Node*>& args) {
+		List<Type*> elems{ctrlTy(), memTy()};
+		for(Type* t : outputs)
+			elems.push_back(t);
+		List<Node*> ins{control(), readVar(memVar)};
+		for(Node* a : args)
+			ins.push_back(a);
+
+		AsmNode* a = create<AsmNode>(mod->getTuple(elems), text, outputs.size(), ins);
+		Node* ctrlProj = proj(a, AsmNode::controlProjIndex(), ctrlTy(), "ctrl");
+		if(cur->ctrl)
+			cur->ctrl = ctrlProj;
+		writeVar(memVar, proj(a, AsmNode::memoryProjIndex(), memTy(), "mem"));
+		List<Node*> outs;
+		for(U32 i = 0; i < outputs.size(); ++i)
+			outs.push_back(proj(a, AsmNode::outputProjIndex(i), outputs[i], "out"));
+		return outs;
 	}
 
 	IfNode* Function::iff(Node* predicate) {
@@ -419,7 +450,7 @@ namespace rat {
 				return false; // already processed
 			B32 d = !n->hasUsers() && !n->hasSideEffects() && (includeControl || !n->isCFG()) &&
 							n != start && n != stop;
-			if(!d && (isa<StoreNode>(n) || isa<CallNode>(n)) && !n->getControlInput())
+			if(!d && (isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n)) && !n->getControlInput())
 				d = true;
 			return d;
 		};
@@ -449,7 +480,7 @@ namespace rat {
 		Set<Node*> dead;
 		List<Node*> work;
 		for(Node* n : nodes) {
-			B32 anchored = isa<LoadNode>(n) || isa<StoreNode>(n) || isa<CallNode>(n);
+			B32 anchored = isa<LoadNode>(n) || isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n);
 			if(anchored && !n->getControlInput()) {
 				dead.insert(n);
 				work.push_back(n);

@@ -42,10 +42,13 @@ namespace rat {
 
 	I32 runTestSuite(I32 argc, char** argv, const TestSuiteSpec& spec) {
 		U32 jobs = 1;
+		B32 quiet = false; // -q: only the per-case lines, the caller tallies them
 		List<String> cases;
 		for(I32 i = 1; i < argc; ++i) {
 			String arg = argv[i];
-			if(arg.rfind("-j", 0) == 0) {
+			if(arg == "-q") {
+				quiet = true;
+			} else if(arg.rfind("-j", 0) == 0) {
 				String num = arg.substr(2);
 				if(num.empty() && i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9')
 					num = argv[++i];
@@ -130,14 +133,15 @@ namespace rat {
 				t.join();
 		}
 
-		if(!failures.empty()) {
-			std::sort(failures.begin(), failures.end());
-			std::cout << "\n=== failures ===\n";
-			for(const String& path : failures)
-				std::cout << "FAIL  " << path << "\n";
+		if(!quiet) {
+			if(!failures.empty()) {
+				std::sort(failures.begin(), failures.end());
+				std::cout << "\n=== failures ===\n";
+				for(const String& path : failures)
+					std::cout << "FAIL  " << path << "\n";
+			}
+			std::cout << "\n" << passed.load() << " passed, " << failed.load() << " failed\n";
 		}
-
-		std::cout << "\n" << passed.load() << " passed, " << failed.load() << " failed\n";
 		return failed.load() == 0 ? 0 : 1;
 	}
 } // namespace rat

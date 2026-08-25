@@ -13,18 +13,37 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::sizeofOperand(const Expr* operand, U32& out) {
+	B32 Emitter::identIsArray(const String& name) {
+		Local loc;
+		if(lookup(name, loc))
+			return loc.isArray;
+		auto gv = globalVars.find(name);
+		return gv != globalVars.end() && gv->second.isArray;
+	}
+
+	B32 Emitter::sizeofOperand(const Expr* operand, U64& out) {
+		if(operand->kind == ExprKind::StrLit) {
+			out = (U32)operand->str.bytes->size() + operand->str.charSize;
+			return true;
+		}
 		if(operand->kind == ExprKind::Ident) {
+			const String& name = *operand->ident.name;
 			Local loc;
-			if(lookup(*operand->ident.name, loc) && loc.isArray) {
+			B32 isLocal = lookup(name, loc);
+			if(isLocal && loc.isArray) {
 				if(loc.lengthNode)
 					return false;
 				out = loc.count * byteSize(loc.type);
 				return true;
 			}
-			auto gv = globalVars.find(*operand->ident.name);
-			if(gv != globalVars.end() && gv->second.isArray) {
-				out = gv->second.count * byteSize(gv->second.type);
+			auto gv = globalVars.find(name);
+			if(gv != globalVars.end()) {
+				if(gv->second.isArray) {
+					out = gv->second.count * byteSize(gv->second.type);
+					return true;
+				}
+			} else if(!isLocal && funcs.count(name)) {
+				out = 1;
 				return true;
 			}
 		}
@@ -37,6 +56,10 @@ namespace rat::cc {
 				const Field* f = st.strukt->find(*operand->member.name);
 				if(f && f->isArray()) {
 					out = f->count * byteSize(f->type);
+					return true;
+				}
+				if(f && isArrayType(f->type)) {
+					out = byteSize(f->type);
 					return true;
 				}
 			}
@@ -139,9 +162,14 @@ namespace rat::cc {
 		case ExprOp::PostDec:
 			return typeOf(e->unary.operand, out);
 		case ExprOp::Addr: {
+			const Expr* operand = e->unary.operand;
 			CType t;
-			if(!typeOf(e->unary.operand, t))
+			if(!typeOf(operand, t))
 				return false;
+			if(operand->kind == ExprKind::Ident && identIsArray(*operand->ident.name)) {
+				out = t;
+				return true;
+			}
 			out = pointerTo(t);
 			return true;
 		}
@@ -278,6 +306,8 @@ namespace rat::cc {
 					out = found->second.ret;
 					return true;
 				}
+				if(builtinReturnType(*e->call.callee, lay.longBits, out))
+					return true;
 				Local loc;
 				if(lookup(*e->call.callee, loc) && isFuncPtr(loc.type)) {
 					out = loc.type.func->ret;
@@ -301,6 +331,7 @@ namespace rat::cc {
 			out = e->cast.type;
 			return resolveType(out);
 		case ExprKind::Sizeof:
+		case ExprKind::AlignOf:
 			out = ctSize();
 			return true;
 		case ExprKind::VaArg:
@@ -333,7 +364,10 @@ namespace rat::cc {
 				fail("no member named '" + *e->member.name + "' in '" + typeName(st) + "'");
 				return false;
 			}
-			out = f->isArray() ? pointerTo(f->type) : f->type;
+			if(f->isArray())
+				out = pointerTo(f->type);
+			else
+				out = isArrayType(f->type) ? decay(f->type) : f->type;
 			return true;
 		}
 		case ExprKind::InitList:

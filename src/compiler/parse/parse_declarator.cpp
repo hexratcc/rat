@@ -21,9 +21,11 @@ namespace rat::cc {
 		return base;
 	}
 
-	B32 Parser::parseArraySuffix(Declarator& d) {
+	B32 Parser::parseArraySuffix(Declarator& d, U32* align) {
+		U32 sink = 0;
+		U32& objAlign = align ? *align : sink;
 		if(!check(TokKind::LBracket))
-			return true;
+			return acceptTrailingAlignas(objAlign);
 		advance(); // [
 		d.isArray = true;
 		skipArrayQualifiers();
@@ -49,13 +51,13 @@ namespace rat::cc {
 					fail(peek(), "array dimension must be a positive integer constant");
 					return false;
 				}
-				inner.push_back(Dim{(U32)n, nullptr});
+				inner.push_back(Dim{(U64)n, nullptr});
 			} else {
 				inner.push_back(Dim{0, sz});
 			}
 		}
 		d.type = wrapArrayDims(d.type, inner);
-		return true;
+		return acceptTrailingAlignas(objAlign);
 	}
 
 	B32 Parser::parseParamArray(CType& t) {
@@ -67,12 +69,6 @@ namespace rat::cc {
 		++decayed.ptr;
 		t = decayed;
 		return true;
-	}
-
-	B32 Parser::looksLikeFuncPtr() {
-		if(peek().kind != TokKind::LParen)
-			return false;
-		return peek2().kind == TokKind::Star || peek2().kind == TokKind::KwNoinline;
 	}
 
 	void Parser::adjustParamType(CType& t, const Expr** vlaBound) {
@@ -126,15 +122,10 @@ namespace rat::cc {
 		return expect(TokKind::RParen, "')'");
 	}
 
-	B32 Parser::parseFuncPtrDeclarator(CType ret, Token& nameOut, CType& outType) {
-		B32 haveName = false;
-		return parseDeclaratorType(ret, nameOut, haveName, outType);
-	}
-
 	void Parser::bindDeclaratorType(Declarator& d, CType t, U32 offset) {
 		if(isArrayType(t)) {
 			d.isArray = true;
-			U32 count = t.array->count;
+			U64 count = t.array->count;
 			d.type = t.array->elem;
 			if(count > 0) {
 				Expr* len = makeExpr(ExprKind::IntLit, offset);
@@ -205,7 +196,7 @@ namespace rat::cc {
 						return false;
 					I64 n = 0;
 					if(tryEvalIntConst(e, n) && n > 0)
-						op.count = (U32)n;
+						op.count = (U64)n;
 					else
 						op.countExpr = e; // VLA
 				}
@@ -220,6 +211,10 @@ namespace rat::cc {
 				if(!parseParamTypeList(op.func))
 					return false;
 				sfx.push_back(op);
+			} else if(peek().kind == TokKind::KwAlignas) {
+				U32 ignored = 0;
+				if(!acceptTrailingAlignas(ignored))
+					return false;
 			} else {
 				break;
 			}

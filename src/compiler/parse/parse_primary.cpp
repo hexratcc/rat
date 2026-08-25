@@ -69,7 +69,7 @@ namespace rat::cc {
 		if(!parseTypeSpec(ty))
 			return false;
 		parsePointers(ty);
-		if(looksLikeFuncPtr()) { // abstract function-pointer/grouped type
+		if(looksLikeGroupingParen()) { // abstract parenthesized declarator
 			Token ignored;
 			B32 hn = false;
 			CType ft;
@@ -86,7 +86,7 @@ namespace rat::cc {
 						return false;
 					I64 v = 0;
 					if(tryEvalIntConst(len, v) && v > 0)
-						d.count = (U32)v;
+						d.count = (U64)v;
 					else
 						d.expr = len; // VLA
 				}
@@ -136,31 +136,33 @@ namespace rat::cc {
 		if(tok.kind == TokKind::KwGeneric)
 			return parseGeneric();
 		if(tok.kind == TokKind::StringLiteral) {
-			Token first = advance();
-			String head = lex.text(first);
-			B32 wide = !head.empty() && head[0] == 'L';
+			List<Token> parts;
+			parts.push_back(advance());
+			while(peek().kind == TokKind::StringLiteral)
+				parts.push_back(advance());
+			U32 unitBytes = 1;
+			for(const Token& t : parts) {
+				String h = lex.text(t);
+				if(h.empty())
+					continue;
+				if(h[0] == 'L')
+					unitBytes = lay.wcharBytes;
+				else if(h[0] == 'U')
+					unitBytes = 4;
+				else if(h[0] == 'u' && !(h.size() > 1 && h[1] == '8'))
+					unitBytes = 2;
+			}
 			String bytes;
-			if(!parseStringLiteral(first, bytes))
-				return nullptr;
-			while(peek().kind == TokKind::StringLiteral) {
-				String h2 = lex.text(peek());
-				if(!h2.empty() && h2[0] == 'L')
-					wide = true;
-				if(!parseStringLiteral(advance(), bytes))
+			for(const Token& t : parts) {
+				B32 read = unitBytes == 1 ? parseStringLiteral(t, bytes)
+																	: parseWideStringLiteral(t, unitBytes, bytes);
+				if(!read)
 					return nullptr;
 			}
-			Expr* e = makeExpr(ExprKind::StrLit, first.offset);
-			if(wide) {
-				String w = lay.wcharBytes == 2 ? detail::decodeUtf8ToUtf16LE(bytes)
-																			 : detail::decodeUtf8ToUtf32LE(bytes);
-				e->str.bytes = arena.make<String>(std::move(w));
-				e->str.isWide = true;
-				e->str.charSize = lay.wcharBytes;
-			} else {
-				e->str.bytes = arena.make<String>(std::move(bytes));
-				e->str.isWide = false;
-				e->str.charSize = 1;
-			}
+			Expr* e = makeExpr(ExprKind::StrLit, parts[0].offset);
+			e->str.bytes = arena.make<String>(std::move(bytes));
+			e->str.isWide = unitBytes != 1;
+			e->str.charSize = unitBytes;
 			return e;
 		}
 		if(tok.kind == TokKind::CharConstant) {
@@ -212,6 +214,8 @@ namespace rat::cc {
 			if(lex.text(id) == "__func__") {
 				Expr* e = makeExpr(ExprKind::StrLit, id.offset);
 				e->str.bytes = arena.make<String>(curFuncName);
+				e->str.isWide = false;
+				e->str.charSize = 1;
 				return e;
 			}
 			// __builtin_offsetof(type, member)

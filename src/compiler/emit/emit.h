@@ -17,12 +17,16 @@ namespace rat::cc {
 		U32 alignedChunkWidth(U32 offset, U32 size);
 	} // namespace detail
 
+	B32 builtinReturnType(const String& name, U32 longBits, CType& out);
+	String builtinLibcName(const String& name);
+
 	struct Emitter {
 		Emitter(Module& module, const TargetLayout& layout);
 
 		B32 emit(const TransUnit& unit);
 
 		const String& error() const { return errMsg; }
+		const List<String>& warnings() const { return warns; }
 	private:
 		struct Value {
 			Node* node = nullptr;
@@ -50,6 +54,24 @@ namespace rat::cc {
 		Value emitSizeof(Function& fn, const Expr* expr);
 		Value emitStmtExpr(Function& fn, const Expr* expr);
 		B32 emitBuiltinCall(Function& fn, const Expr* expr, Value& out);
+		B32 emitBitCountBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitOverflowBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitAbsBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitBswapBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitClassifyBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitFpClassBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitFrameBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitPrefetchBuiltin(Function& fn, const Expr* expr, Value& out);
+		static I64 typeClassOf(CType t);
+		struct Wide {
+			Node* lo = nullptr;
+			Node* hi = nullptr;
+		};
+		Wide wideExtend(Function& fn, Node* v, CType from);
+		Wide wideAddSub(Function& fn, Wide a, Wide b, B32 sub);
+		Wide wideMul(Function& fn, Wide a, Wide b);
+		Node* wideFits(Function& fn, Wide v, CType rt);
+		Node* fitsIn64(Function& fn, Node* r, CType rt, B32 sgn);
 		Node* emitArith(Function& fn, ExprOp op, Node* l, Node* r, CType ct);
 		CType completeComplex(CType t);
 		Node* complexReal(Function& fn, const Value& v);
@@ -67,6 +89,7 @@ namespace rat::cc {
 		B32 emitTypedefArrayDecl(Function& fn, const Declarator& d);
 		B32 emitMultiDimArrayDecl(Function& fn, const Declarator& d);
 		B32 declareStatic(Function& fn, const Declarator& d);
+		B32 declareExtern(Function& fn, const Declarator& d);
 		B32 emitVlaDecl(Function& fn, const Declarator& d);
 		B32 declIsVla(const Declarator& d, I64& count);
 		void zeroSlot(Function& fn, Node* slot, U32 size);
@@ -81,6 +104,8 @@ namespace rat::cc {
 		B32 emitExprStmt(Function& fn, const Stmt* stmt);
 		B32 emitLabel(Function& fn, const Stmt* stmt);
 		B32 emitGoto(Function& fn, const Stmt* stmt);
+		B32 emitAsm(Function& fn, const Stmt* stmt);
+		B32 asmFitsRegister(CType t) const;
 		void collectSwitchCases(const Stmt* s, List<const Stmt*>& cases, const Stmt*& def);
 		B32 evalConst(const Expr* expr, I64& out);
 		B32 evalConstTyped(const Expr* expr, I64& out, CType& ty);
@@ -101,14 +126,19 @@ namespace rat::cc {
 		const Expr* genericSelect(const Expr* e);
 		B32 exprRefersTo(const Expr* expr, const String& name) const;
 		Node* convert(Function& fn, Node* n, CType from, CType to);
+		Node* reduceBitfield(Function& fn, Node* n, CType t);
 		Type* irType(CType t);
-		U32 byteSize(CType t) const;
+		U64 byteSize(CType t) const;
+		U32 alignOf(CType t) const;
+		B32 alignofValue(const Expr* e, U32& out);
 		CType ctSize() const;
 		CType ctPtrDiff() const;
 		Node* constSize(Function& fn, U64 value);
 		Node* allocBytes(Function& fn, U32 size);
+		Node* declSlot(Function& fn, const Declarator& d, Type* ty, U32 size);
 		Type* byteArrayType(U32 n);
-		B32 sizeofOperand(const Expr* operand, U32& out);
+		B32 identIsArray(const String& name);
+		B32 sizeofOperand(const Expr* operand, U64& out);
 		Node* emitArrayElemCount(Function& fn, CType t);
 		Node* emitArrayByteSize(Function& fn, CType t);
 
@@ -154,7 +184,8 @@ namespace rat::cc {
 			CType type;
 			B32 isArray = false;
 			U32 count = 0;
-			Node* lengthNode = nullptr; // runtime byte size for a VLA
+			Node* lengthNode = nullptr;				 // runtime byte size for a VLA
+			const String* staticSym = nullptr; // symbol backing a function-local static
 
 			B32 inMem() const { return kind == Kind::Mem; }
 			static Local inVar(Function::Var v, CType t) {
@@ -183,6 +214,7 @@ namespace rat::cc {
 		B32 lookup(const String& name, Local& out) const;
 
 		void fail(const String& msg);
+		void warn(const String& msg);
 		void failUndeclared(const String& name) { fail("use of undeclared identifier '" + name + "'"); }
 		void failArrayCount() { fail("array size must be a positive integer constant"); }
 		void failArrayUnknownSize(const String& name) { fail("array '" + name + "' has unknown size"); }
@@ -197,7 +229,16 @@ namespace rat::cc {
 			Function::Block* cont = nullptr;
 			B32 exitReachable = false;
 			B32 isSwitch = false;
+			Node* sp = nullptr;
 		};
+
+		Node* curSp = nullptr;
+		Map<String, Node*> labelSp;
+		B32 sawAlloca = false;
+		B32 declMayBeVla(const Declarator& d);
+		B32 stmtHasVla(const Stmt* s);
+		B32 blockDeclaresVla(const Stmt* s);
+		void restoreStack(Function& fn, Node* sp);
 
 		struct FnSig {
 			CType ret;
@@ -205,6 +246,7 @@ namespace rat::cc {
 			B32 isVarArgs = false;
 			B32 unprototyped = false;
 			B32 noInline = false;
+			U32 align = 0;
 		};
 
 		struct Callee {
@@ -226,6 +268,8 @@ namespace rat::cc {
 		Type* i32 = nullptr;
 		B32 failed = false;
 		String errMsg;
+		List<String> warns;
+		Set<String> implicitFuncs;
 		U32 curOffset = 0;
 		U32 flexCount = 0;
 		String curFunc;
@@ -247,6 +291,8 @@ namespace rat::cc {
 			U32 count = 0;
 		};
 		Map<String, GlobalVar> globalVars;
+		Map<String, String> aliasTargets;
+		const String& globalSymbol(const String& name) const;
 		Map<U32, StructType*> complexLayouts;
 		CType curRet;
 		Node* sretSlot = nullptr;
@@ -267,6 +313,8 @@ namespace rat::cc {
 		static B32 containsSwitchCase(const Stmt* s);
 
 		B32 registerGlobals(const TransUnit& unit);
+		B32 registerGlobalAlias(const Declarator& d);
+		B32 checkAliases();
 		B32 registerGlobalArray(const Declarator& d, const String& symbol, Function* fn);
 		B32 validateGlobalArrayLen(const Declarator& d, I64& count, B32& haveLen);
 		B32 registerGlobalArrayOfArray(const Declarator& d, const String& symbol, Function* fn);

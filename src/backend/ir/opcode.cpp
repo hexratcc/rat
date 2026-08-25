@@ -33,6 +33,10 @@ namespace rat {
 				{"fdiv", 0, 0, 0, -1, 2, 2, OpClass::Binary},
 				{"neg", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"not", 0, 0, 0, -1, 1, 1, OpClass::Unary},
+				{"clz", 0, 0, 0, -1, 1, 1, OpClass::Unary},
+				{"ctz", 0, 0, 0, -1, 1, 1, OpClass::Unary},
+				{"popcnt", 0, 0, 0, -1, 1, 1, OpClass::Unary},
+				{"bswap", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"fneg", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"eq", 0, 0, 1, -1, 2, 2, OpClass::Compare},
 				{"ne", 0, 0, 1, -1, 2, 2, OpClass::Compare},
@@ -58,14 +62,20 @@ namespace rat {
 				{"load", 0, 0, 0, 0, 3, 3, OpClass::None},
 				{"store", 0, 1, 0, 0, 4, 4, OpClass::None},
 				{"call", 0, 1, 0, 0, 2, -1, OpClass::None},
+				{"asm", 0, 1, 0, 0, 2, -1, OpClass::None},
 				{"global", 0, 0, 0, -1, 0, 0, OpClass::None},
-				{"alloc", 0, 0, 0, -1, 0, 1, OpClass::None},
+				{"alloc", 0, 0, 0, -1, 0, 0, OpClass::None},
+				{"stackalloc", 0, 1, 0, 0, 3, 3, OpClass::None},
+				{"stacksave", 0, 1, 0, 0, 2, 2, OpClass::None},
+				{"stackrestore", 0, 1, 0, 0, 3, 3, OpClass::None},
 				{"switch", 1, 0, 0, 0, 2, 2, OpClass::None},
 				{"splat", 0, 0, 0, -1, 1, 1, OpClass::None},
 				{"extract", 0, 0, 0, -1, 1, 1, OpClass::None},
 				{"pack", 0, 0, 0, -1, 1, -1, OpClass::None},
 				{"shuffle", 0, 0, 0, -1, 1, 1, OpClass::None},
 		};
+		static_assert(sizeof(kOpcodeInfo) / sizeof(kOpcodeInfo[0]) == (U32)Opcode::Shuffle + 1,
+									"kOpcodeInfo must cover every Opcode");
 	} // namespace detail
 
 	const OpcodeInfo& getOpcodeInfo(Opcode op) { return detail::kOpcodeInfo[(U32)op]; }

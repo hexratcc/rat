@@ -62,7 +62,7 @@ namespace rat::cc {
 			return x == s;
 		}
 		String unquote(const String& s);
-		void stripTrailingSlash(String& s);
+		B32 isAbsPath(const String& s);
 		size_t ucnLen(const String& s, size_t i);
 		Pk classify(const String& s);
 
@@ -163,15 +163,21 @@ namespace rat::cc {
 			std::deque<HideSet> hideStore;
 			Map<U64, List<const HideSet*>> hidePool; // keyed by pointer-FNV, chained
 			// pre-interned, compared by pointer on hot paths
-			const String* idLine;		 // "__LINE__"
-			const String* idFile;		 // "__FILE__"
-			const String* idDefined; // "defined"
-			const String* idVaArgs;	 // "__VA_ARGS__"
-			const String* idAttr;					 // "__attribute__"
-			const String* idAttr2;				 // "__attribute"
-			const String* idNoinline;			 // "noinline"
-			const String* idNoinline2;		 // "__noinline__"
+			const String* idLine;					// "__LINE__"
+			const String* idFile;					// "__FILE__"
+			const String* idDefined;			// "defined"
+			const String* idVaArgs;				// "__VA_ARGS__"
+			const String* idAttr;					// "__attribute__"
+			const String* idAttr2;				// "__attribute"
+			const String* idNoinline;			// "noinline"
+			const String* idNoinline2;		// "__noinline__"
 			const String* idNoinlineMark; // "__rat_noinline__"
+			const String* idAligned;			// "aligned"
+			const String* idAligned2;			// "__aligned__"
+			const String* idAlignas;			// "_Alignas"
+			const String* idAlias;				// "alias"
+			const String* idAlias2;				// "__alias__"
+			const String* idAliasMark;		// "__rat_alias__"
 			String err;
 			B32 ok = true;
 			I64 lineDelta = 0;
@@ -195,6 +201,12 @@ namespace rat::cc {
 				idNoinline = interner.intern("noinline");
 				idNoinline2 = interner.intern("__noinline__");
 				idNoinlineMark = interner.intern("__rat_noinline__");
+				idAligned = interner.intern("aligned");
+				idAligned2 = interner.intern("__aligned__");
+				idAlignas = interner.intern("_Alignas");
+				idAlias = interner.intern("alias");
+				idAlias2 = interner.intern("__alias__");
+				idAliasMark = interner.intern("__rat_alias__");
 			}
 
 			B32 isBuiltinDynamic(const String* name) { return name == idLine || name == idFile; }
@@ -220,9 +232,11 @@ namespace rat::cc {
 															 const List<List<PpToken>>& args,
 															 const HideSet* hs,
 															 const List<const String*>& formals);
+			static U32 matchParen(const List<PpToken>& arg, U32 open);
 			// stack: next token is work.back()
 			B32 gatherArgs(List<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen);
 			B32 mapArgs(const Macro& m, const List<List<PpToken>>& raw, List<List<PpToken>>& actuals);
+			void emitAttrMarkers(const PpToken& at, const List<List<PpToken>>& raw, List<PpToken>& os);
 			void requeueExpansion(List<PpToken>& r, const PpToken& invoker, List<PpToken>& work);
 			List<PpToken> expand(PpSpan in);
 

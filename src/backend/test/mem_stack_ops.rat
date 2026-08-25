@@ -1,0 +1,39 @@
+@name dynamic stack ops survive load forwarding and round-trip through the text form
+@passes memoryopt
+
+@input
+func t(i64) -> i32 {
+	v0 = start : (ctrl, mem, i64)
+	v1 = stop : ctrl v14
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i64  #2 "arg0" of v0
+	v5 = stacksave : ptr v2, v3
+	v6 = stackalloc : ptr v2, v3, v4
+	v7 = const : i32  1
+	v8 = store : mem v2, v3, v6, v7
+	v9 = load : i32 v2, v8, v6
+	v10 = stackrestore : mem v2, v8, v5
+	v11 = stackalloc : ptr v2, v10, v4
+	v12 = load : i32 v2, v10, v11
+	v13 = add : i32 v9, v12
+	v14 = return : ctrl v2, v10, v13
+}
+
+@expect
+func t(i64) -> i32 {
+	v0 = start : (ctrl, mem, i64)
+	v1 = stop : ctrl v14
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i64  #2 "arg0" of v0
+	v5 = stacksave : ptr v2, v3
+	v6 = stackalloc : ptr v2, v3, v4
+	v7 = const : i32  1
+	v8 = store : mem v2, v3, v6, v7
+	v10 = stackrestore : mem v2, v8, v5
+	v11 = stackalloc : ptr v2, v10, v4
+	v12 = load : i32 v2, v10, v11
+	v13 = add : i32 v7, v12
+	v14 = return : ctrl v2, v10, v13
+}

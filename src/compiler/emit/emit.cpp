@@ -15,7 +15,9 @@ namespace rat::cc {
 	: mod(module),
 		lay(layout) {}
 
-	U32 Emitter::byteSize(CType t) const { return typeSize(t, lay.ptrBytes); }
+	U64 Emitter::byteSize(CType t) const { return typeSize(t, lay.ptrBytes); }
+
+	U32 Emitter::alignOf(CType t) const { return typeAlign(t, lay.ptrBytes); }
 
 	CType Emitter::ctSize() const {
 		CType t;
@@ -35,6 +37,14 @@ namespace rat::cc {
 	Type* Emitter::byteArrayType(U32 n) { return mod.getArray(mod.getInt(8), n); }
 
 	Node* Emitter::allocBytes(Function& fn, U32 size) { return fn.alloc(byteArrayType(size)); }
+
+	Node* Emitter::declSlot(Function& fn, const Declarator& d, Type* ty, U32 size) {
+		if(d.align <= 16)
+			return fn.alloc(ty, d.align);
+		Node* raw = fn.alloc(byteArrayType(size + d.align - 16), 16);
+		Type* sz = irType(ctSize());
+		return fn.and_(fn.add(raw, fn.constInt(sz, (I64)d.align - 1)), fn.constInt(sz, -(I64)d.align));
+	}
 
 	Node* Emitter::emitArrayElemCount(Function& fn, CType t) {
 		Node* total = constSize(fn, 1);
@@ -72,6 +82,8 @@ namespace rat::cc {
 				msg + " [@" + std::to_string(curOffset) + (curFunc.empty() ? "" : " in " + curFunc) + "]";
 		failed = true;
 	}
+
+	void Emitter::warn(const String& msg) { warns.push_back("warning: " + msg); }
 
 	void Emitter::pushScope() { scopeMarks.push_back((U32)scopeUndo.size()); }
 
@@ -164,14 +176,27 @@ namespace rat::cc {
 			// integer -> float
 			return fn.convert(from.isUnsigned() ? Opcode::UIToFP : Opcode::SIToFP, n, irType(to));
 		}
-		if(to.isVoid() || from.bits == to.bits)
+		if(to.isVoid())
 			return n;
 		if(to.bits == 1)
 			return fn.ne(n, fn.constInt(irType(from), 0));
-		Type* dst = irType(to);
-		if(to.bits < from.bits)
-			return fn.trunc(n, dst);
-		return from.isUnsigned() ? fn.zext(n, dst) : fn.sext(n, dst);
+		Node* r = n;
+		if(from.bits != to.bits) {
+			Type* dst = irType(to);
+			r = to.bits < from.bits ? fn.trunc(n, dst)
+															: (from.isUnsigned() ? fn.zext(n, dst) : fn.sext(n, dst));
+		}
+		return reduceBitfield(fn, r, to);
+	}
+
+	Node* Emitter::reduceBitfield(Function& fn, Node* n, CType t) {
+		if(t.bitPrec == 0 || t.bitPrec >= t.bits || !isInteger(t))
+			return n;
+		Type* ty = irType(t);
+		if(t.isUnsigned())
+			return fn.and_(n, fn.constInt(ty, (I64)((1ull << t.bitPrec) - 1)));
+		U32 lo = t.bits - t.bitPrec;
+		return fn.ashr(fn.shl(n, fn.constInt(ty, lo)), fn.constInt(ty, lo));
 	}
 
 	Node* Emitter::toBool(Function& fn, const Value& v) {
@@ -271,7 +296,7 @@ namespace rat::cc {
 			auto g = globalVars.find(*e->ident.name);
 			if(g != globalVars.end() && !g->second.isArray) {
 				out.kind = LValue::Kind::Addr;
-				out.addr = fn.global(*e->ident.name);
+				out.addr = fn.global(globalSymbol(*e->ident.name));
 				out.type = g->second.type;
 				return true;
 			}
@@ -336,9 +361,9 @@ namespace rat::cc {
 		if(lv.isVar())
 			return fn.get(lv.var);
 		if(lv.isBitfield) {
-			Type* ty = irType(lv.type);
-			Node* unit = fn.load(ty, lv.addr);
 			U32 unitBits = byteSize(lv.type) * 8;
+			Type* ty = mod.getInt(unitBits);
+			Node* unit = fn.load(ty, lv.addr);
 			U32 hi = unitBits - lv.bitOffset - lv.bitWidth;
 			U32 lo = unitBits - lv.bitWidth;
 			Node* n = unit;
@@ -347,7 +372,8 @@ namespace rat::cc {
 			if(lo)
 				n = lv.type.isUnsigned() ? fn.lshr(n, fn.constInt(ty, lo))
 																 : fn.ashr(n, fn.constInt(ty, lo));
-			return n;
+			Type* want = irType(lv.type);
+			return want == ty ? n : fn.trunc(n, want);
 		}
 		return fn.load(irType(lv.type), lv.addr);
 	}
@@ -358,12 +384,14 @@ namespace rat::cc {
 			return;
 		}
 		if(lv.isBitfield) {
-			Type* ty = irType(lv.type);
+			U32 unitBits = byteSize(lv.type) * 8;
+			Type* ty = mod.getInt(unitBits);
 			U64 maskBits = lv.bitWidth >= 64 ? ~0ull : ((1ull << lv.bitWidth) - 1);
 			U64 shifted = maskBits << lv.bitOffset;
 			Node* unit = fn.load(ty, lv.addr);
 			Node* cleared = fn.and_(unit, fn.constInt(ty, (I64)~shifted));
-			Node* masked = fn.and_(value, fn.constInt(ty, (I64)maskBits));
+			Node* wide = value->getType() == ty ? value : fn.zext(value, ty);
+			Node* masked = fn.and_(wide, fn.constInt(ty, (I64)maskBits));
 			Node* placed = lv.bitOffset ? fn.shl(masked, fn.constInt(ty, lv.bitOffset)) : masked;
 			fn.store(lv.addr, fn.or_(cleared, placed));
 			return;
@@ -404,13 +432,17 @@ namespace rat::cc {
 			sig.isVarArgs = def->isVarArgs;
 			sig.unprototyped = def->unprototyped;
 			sig.noInline = def->isNoInline;
+			sig.align = def->align;
 			for(const Param& p : def->params)
 				sig.params.push_back(p.type);
 			auto prev = funcs.find(def->name);
 			if(prev != funcs.end()) {
 				sig.noInline |= prev->second.noInline;
+				if(prev->second.align > sig.align)
+					sig.align = prev->second.align; // an earlier declaration may carry it
 				if(def->unprototyped && !prev->second.unprototyped) {
 					prev->second.noInline = sig.noInline;
+					prev->second.align = sig.align;
 					continue;
 				}
 			}
@@ -421,6 +453,13 @@ namespace rat::cc {
 			return false;
 
 		for(const FuncDef* def : unit.functions) {
+			if(!def->aliasOf || mod.getGlobal(def->name))
+				continue;
+			mod.createAlias(def->name, *def->aliasOf, mod.getInt(8))
+					->setLinkage(def->isStatic ? Global::Linkage::Internal : Global::Linkage::External);
+		}
+
+		for(const FuncDef* def : unit.functions) {
 			if(!def->body)
 				continue;
 			if(def->isExternInline)
@@ -428,7 +467,23 @@ namespace rat::cc {
 			if(!emitFunctionBody(def))
 				return false;
 		}
+		if(!checkAliases())
+			return false;
 		return !failed;
+	}
+
+	B32 Emitter::checkAliases() {
+		for(const Global* g : mod.globals()) {
+			if(!g->isAlias())
+				continue;
+			const String& target = g->getAliasTarget();
+			const Global* t = mod.getGlobal(target);
+			if((t && !t->isAlias()) || mod.getFunction(target))
+				continue;
+			fail("alias '" + g->getName() + "' names '" + target + "', which is not defined here");
+			return false;
+		}
+		return true;
 	}
 
 	void Emitter::bindFunctionParams(Function& fn, const FuncDef* def, U32 paramBase) {
@@ -463,6 +518,7 @@ namespace rat::cc {
 		Function* fn = mod.createFunction(def->name, paramTypes, retTy);
 		fn->setVariadic(def->isVarArgs);
 		fn->setNoInline(def->isNoInline || funcs[def->name].noInline);
+		fn->setAlign(funcs[def->name].align);
 		fn->setLinkage(def->isStatic ? Function::Linkage::Internal : Function::Linkage::External);
 
 		curRet = def->retType;
@@ -474,8 +530,11 @@ namespace rat::cc {
 		memVars.clear();
 		collectAddrTaken(def->body);
 		labelBlocks.clear();
+		labelSp.clear();
+		sawAlloca = false;
 		collectLabels(*fn, def->body);
 		pushScope();
+		curSp = stmtHasVla(def->body) ? fn->stackSave() : nullptr;
 		bindFunctionParams(*fn, def, paramBase);
 		for(const Param& p : def->params) {
 			if(!p.vlaBound)

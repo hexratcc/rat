@@ -1,15 +1,24 @@
-[submodule "src/compiler/bench/third_party/sqlite"]
-	path = src/compiler/bench/third_party/sqlite
+[submodule "src/compiler/test/sqlite/sqlite"]
+	path = src/compiler/test/sqlite/sqlite
 	url = https://github.com/azadkuh/sqlite-amalgamation
-[submodule "src/compiler/bench/third_party/lz4"]
-	path = src/compiler/bench/third_party/lz4
+[submodule "src/compiler/test/lz4/lz4"]
+	path = src/compiler/test/lz4/lz4
 	url = https://github.com/lz4/lz4
-[submodule "src/compiler/bench/third_party/wren"]
-	path = src/compiler/bench/third_party/wren
+[submodule "src/compiler/test/wren/wren"]
+	path = src/compiler/test/wren/wren
 	url = https://github.com/wren-lang/wren
-[submodule "src/compiler/bench/third_party/libyaml"]
-	path = src/compiler/bench/third_party/libyaml
+[submodule "src/compiler/test/libyaml/libyaml"]
+	path = src/compiler/test/libyaml/libyaml
 	url = https://github.com/yaml/libyaml
-[submodule "src/compiler/bench/third_party/zlib"]
-	path = src/compiler/bench/third_party/zlib
+[submodule "src/compiler/test/zlib/zlib"]
+	path = src/compiler/test/zlib/zlib
 	url = https://github.com/madler/zlib
+[submodule "src/compiler/test/coremark/coremark"]
+	path = src/compiler/test/coremark/coremark
+	url = https://github.com/eembc/coremark
+[submodule "src/compiler/test/polybench/polybench"]
+	path = src/compiler/test/polybench/polybench
+	url = https://github.com/MatthiasJReisinger/PolyBenchC-4.2.1
+[submodule "src/compiler/test/c-ray/c-ray"]
+	path = src/compiler/test/c-ray/c-ray
+	url = https://github.com/jtsiomb/c-ray

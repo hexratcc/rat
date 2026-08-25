@@ -26,6 +26,7 @@ namespace rat {
 			U32 projIndex = 0;				 // Proj
 			String projLabel;					 // Proj
 			String callee;						 // Call
+			String asmText;						 // Asm
 			String symbol;						 // Global
 			Type* allocType = nullptr; // Alloc
 			B32 loopHeader = false;		 // Region

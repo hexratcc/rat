@@ -32,6 +32,8 @@ namespace rat {
 		CC_NE = 0x5,
 		CC_BE = 0x6,
 		CC_A = 0x7,
+		CC_P = 0xa,
+		CC_NP = 0xb,
 		CC_L = 0xc,
 		CC_LE = 0xe,
 	};
@@ -255,6 +257,10 @@ namespace rat {
 
 		void setcc(U8 cc, Reg r);
 		void movzxByte(Reg dst, Reg src);
+		void bitScan(B32 reverse, Reg dst, Reg src, B32 wide);
+		void bswap(Reg r, B32 wide);
+		void prefetch(U8 hint, Reg base, I32 disp);
+		void ud2();
 
 		void leaMem(Reg dst, Reg base, I32 disp);
 		// lea dst, [base + index*(1<<scaleLog2) + disp]
@@ -300,6 +306,8 @@ namespace rat {
 		void sseArith(U8 op, U32 w, U32 d, U32 s);
 		void ucomis(U32 w, U32 a, U32 bx);
 		void pxor(U32 a, U32 bx);
+		// pcmpeqd a, a builds an all-ones register
+		void pcmpeqd(U32 a, U32 bx);
 		// pshufd dst, src, sel
 		void pshufd(U32 dst, U32 src, U8 sel);
 		// movd/movq xmm, r32/r64

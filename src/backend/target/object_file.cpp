@@ -42,6 +42,8 @@ namespace rat {
 	}
 
 	U32 ObjectFile::align(Section sec, U32 a) {
+		if(a > secAlign[sec])
+			secAlign[sec] = a;
 		U32 sz = sectionSize(sec);
 		U32 pad = (a - (sz % a)) % a;
 		if(pad)
@@ -74,6 +76,15 @@ namespace rat {
 		U32 idx = (U32)syms.size();
 		syms.push_back({name, sec, offset, true, global, isFunc});
 		symByName[name] = idx;
+	}
+
+	B32 ObjectFile::defineAlias(const String& name, const String& target, B32 global) {
+		auto it = symByName.find(target);
+		if(it == symByName.end() || !syms[it->second].defined)
+			return false;
+		const Sym t = syms[it->second];
+		defineSymbol(name, t.sec, t.offset, global, t.isFunc);
+		return true;
 	}
 
 	void

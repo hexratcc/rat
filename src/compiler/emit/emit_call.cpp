@@ -1,99 +1,6 @@
 #include "emit/emit.h"
 
 namespace rat::cc {
-	Node* Emitter::vaListRef(Function& fn, const Expr* ap) {
-		if(!lay.win64VaList)
-			return emitExpr(fn, ap).node;
-		LValue lv;
-		if(!emitLValue(fn, ap, lv))
-			return nullptr;
-		if(lv.isVar() || !lv.addr) {
-			fail("va_list operand must be addressable");
-			return nullptr;
-		}
-		return lv.addr;
-	}
-
-	B32 Emitter::emitBuiltinCall(Function& fn, const Expr* e, Value& out) {
-		if(!e->call.callee)
-			return false;
-		const String& b = *e->call.callee;
-
-		if(b == "__builtin_va_start" || b == "__builtin_va_end") {
-			List<Node*> args;
-			for(U32 i = 0; i < e->args.size(); ++i) {
-				Node* n = i == 0 ? vaListRef(fn, e->args[i]) : emitExpr(fn, e->args[i]).node;
-				if(!n)
-					return true;
-				args.push_back(n);
-			}
-			fn.call(b, nullptr, args);
-			CType v;
-			v.base = CType::Base::Void;
-			out = {fn.constInt(i32, 0), v};
-			return true;
-		}
-
-		if(b == "__builtin_va_copy") {
-			if(e->args.size() != 2) {
-				fail("__builtin_va_copy expects two arguments");
-				return true;
-			}
-			Node* dst = vaListRef(fn, e->args[0]);
-			if(!dst)
-				return true;
-			if(lay.win64VaList) {
-				Value src = emitExpr(fn, e->args[1]);
-				if(!src.node)
-					return true;
-				fn.store(dst, src.node);
-			} else {
-				Value src = emitExpr(fn, e->args[1]);
-				if(!src.node)
-					return true;
-				emitMemCopy(fn, dst, src.node, lay.ptrBytes * 3);
-			}
-			CType v;
-			v.base = CType::Base::Void;
-			out = {fn.constInt(i32, 0), v};
-			return true;
-		}
-
-		if(b == "__builtin_expect") {
-			if(e->args.size() != 2) {
-				fail("__builtin_expect expects two arguments");
-				return true;
-			}
-			Value exp = emitExpr(fn, e->args[0]);
-			if(!exp.node)
-				return true;
-			Value hint = emitExpr(fn, e->args[1]);
-			if(!hint.node)
-				return true;
-			CType lng;
-			lng.bits = 64;
-			out = {convert(fn, exp.node, exp.type, lng), lng};
-			return true;
-		}
-		if(b == "__builtin_constant_p") {
-			if(e->args.size() != 1) {
-				fail("__builtin_constant_p expects one argument");
-				return true;
-			}
-			I64 v = 0;
-			B32 isConst = evalConst(e->args[0], v);
-			out = {fn.constInt(i32, isConst ? 1 : 0), ctInt()};
-			return true;
-		}
-		if(b == "__builtin_unreachable") {
-			CType vd;
-			vd.base = CType::Base::Void;
-			out = {fn.constInt(i32, 0), vd};
-			return true;
-		}
-		return false;
-	}
-
 	B32 Emitter::resolveCallee(Function& fn, const Expr* e, Callee& c) {
 		if(e->call.callee) {
 			auto found = funcs.find(*e->call.callee);
@@ -114,7 +21,7 @@ namespace rat::cc {
 			} else {
 				auto g = globalVars.find(*e->call.callee);
 				if(g != globalVars.end() && !g->second.isArray) {
-					val = fn.load(irType(g->second.type), fn.global(*e->call.callee));
+					val = fn.load(irType(g->second.type), fn.global(globalSymbol(*e->call.callee)));
 					ct = g->second.type;
 					isObject = true;
 				}
@@ -127,8 +34,12 @@ namespace rat::cc {
 				fail("called object is not a function or function pointer");
 				return false;
 			} else {
+				const String& callee = *e->call.callee;
+				if(callee.rfind("__builtin_", 0) != 0 && implicitFuncs.insert(callee).second)
+					warn("implicit declaration of function '" + callee + "'");
 				c.direct = true;
-				c.sig.ret = ctInt();
+				if(!builtinReturnType(callee, lay.longBits, c.sig.ret))
+					c.sig.ret = ctInt();
 			}
 			return true;
 		}
@@ -197,6 +108,12 @@ namespace rat::cc {
 		B32 va = true;
 		if(c.prototyped && !unproto)
 			va = c.direct ? c.sig.isVarArgs : c.ft->isVarArgs;
+		String sym;
+		if(c.direct) {
+			sym = builtinLibcName(*e->call.callee);
+			if(sym.empty())
+				sym = *e->call.callee;
+		}
 		List<Node*> args;
 		Node* resultSlot = nullptr;
 		if(isAggregate(ret)) {
@@ -207,17 +124,17 @@ namespace rat::cc {
 			return {};
 		if(resultSlot) {
 			if(c.direct)
-				fn.call(*e->call.callee, mod.getPtr(), args, va);
+				fn.call(sym, mod.getPtr(), args, va);
 			else
 				fn.callIndirect(c.target, mod.getPtr(), args, va);
 			return {resultSlot, ret};
 		}
 		if(c.direct) {
 			if(isVoidType(c.sig.ret)) {
-				fn.call(*e->call.callee, nullptr, args, va);
+				fn.call(sym, nullptr, args, va);
 				return {fn.constInt(i32, 0), c.sig.ret};
 			}
-			return {fn.call(*e->call.callee, irType(c.sig.ret), args, va), c.sig.ret};
+			return {fn.call(sym, irType(c.sig.ret), args, va), c.sig.ret};
 		}
 		if(isVoidType(ret)) {
 			fn.callIndirect(c.target, nullptr, args, va);

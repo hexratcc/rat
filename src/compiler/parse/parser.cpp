@@ -179,8 +179,11 @@ namespace rat::cc {
 		if(!expect(TokKind::RParen, "')'"))
 			return nullptr;
 
-		while(accept(TokKind::KwNoinline))
-			fn->isNoInline = true;
+		// attribute markers may trail the parameter list
+		B32 noInline = false;
+		if(!parseDeclAttributes(fn->aliasOf, noInline, fn->align))
+			return nullptr;
+		fn->isNoInline |= noInline;
 
 		if(accept(TokKind::Semicolon))
 			return fn;
@@ -270,6 +273,9 @@ namespace rat::cc {
 				return nullptr;
 			if(!d.isArray)
 				bindDeclaratorType(d, raw, d.offset);
+			B32 noInline = false;
+			if(!parseDeclAttributes(d.aliasOf, noInline, d.align))
+				return nullptr;
 			if(accept(TokKind::Assign)) {
 				d.init = parseInitializer();
 				if(!d.init)
@@ -286,6 +292,7 @@ namespace rat::cc {
 			d = Declarator{};
 			d.isExtern = prev.isExtern;
 			d.isStatic = prev.isStatic;
+			d.align = prev.align;
 			if(looksLikeGroupingParen()) {
 				Token nameTok;
 				B32 haveName = false;
@@ -376,6 +383,16 @@ namespace rat::cc {
 					return nullptr;
 				continue;
 			}
+			if(peek().kind == TokKind::KwAsm) {
+				Stmt* s = parseAsmStatement();
+				if(!s)
+					return nullptr;
+				if(!s->asmBlock->text->empty()) {
+					fail(start, "file-scope assembly is not supported");
+					return nullptr;
+				}
+				continue;
+			}
 			CType base;
 			if(!parseTypeSpec(base)) {
 				fail(peek(), "expected type specifier");
@@ -385,6 +402,7 @@ namespace rat::cc {
 			B32 gExternInline = sawExtern && sawInline;
 			B32 gStatic = sawStatic;
 			B32 gNoinline = sawNoinline;
+			U32 gAlign = sawAlignas;
 			CType first = base;
 			parsePointers(first);
 			if(first.ptr == 0 && peek().kind == TokKind::Semicolon) {
@@ -392,11 +410,16 @@ namespace rat::cc {
 				continue;
 			}
 
-			if(looksLikeFuncPtr()) {
+			if(looksLikeGroupingParen()) {
 				Token nameTok;
+				B32 haveName = false;
 				CType fpt;
-				if(!parseFuncPtrDeclarator(first, nameTok, fpt))
+				if(!parseDeclaratorType(first, nameTok, haveName, fpt))
 					return nullptr;
+				if(!haveName) {
+					fail(peek(), "expected declarator name");
+					return nullptr;
+				}
 
 				if(fpt.func && fpt.ptr == 0) {
 					FuncDef* fn = arena.make<FuncDef>();
@@ -405,6 +428,7 @@ namespace rat::cc {
 					fn->isVarArgs = fpt.func->isVarArgs;
 					fn->isStatic = gStatic;
 					fn->isNoInline = gNoinline;
+					fn->align = gAlign;
 					fn->offset = start.offset;
 					for(U32 i = 0; i < fpt.func->params.size(); ++i) {
 						Param p;
@@ -430,6 +454,7 @@ namespace rat::cc {
 				Declarator d;
 				d.isExtern = gExtern;
 				d.isStatic = gStatic;
+				d.align = gAlign;
 				d.name = arena.make<String>(lex.text(nameTok));
 				bindDeclaratorType(d, fpt, nameTok.offset);
 				d.offset = nameTok.offset;
@@ -452,6 +477,8 @@ namespace rat::cc {
 				fn->isExternInline = gExternInline;
 				fn->isStatic = gStatic;
 				fn->isNoInline |= gNoinline;
+				if(gAlign > fn->align)
+					fn->align = gAlign;
 				if(!registerFuncDef(fn))
 					return nullptr;
 				unit->functions.push_back(fn);
@@ -463,6 +490,7 @@ namespace rat::cc {
 				Declarator d;
 				d.isExtern = gExtern;
 				d.isStatic = gStatic;
+				d.align = gAlign;
 				d.name = arena.make<String>(lex.text(nameTok));
 				d.type = first;
 				d.offset = nameTok.offset;

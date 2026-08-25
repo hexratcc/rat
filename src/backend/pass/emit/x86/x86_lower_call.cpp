@@ -37,6 +37,17 @@ namespace rat {
 		return cached;
 	}
 
+	List<PhysReg> X86LowerPass::allRegClobbers() const {
+		List<PhysReg> cl;
+		for(const RegClass& rc : regs->classes) {
+			for(PhysReg p : rc.allocatable)
+				cl.push_back(p);
+			for(PhysReg p : rc.scratch)
+				cl.push_back(p);
+		}
+		return cl;
+	}
+
 	B32 X86LowerPass::emitMathIntrinsic(CallNode* c) {
 		const String& callee = c->getCallee();
 		B32 isSqrt = callee == "sqrt" || callee == "sqrtf";
@@ -67,6 +78,57 @@ namespace rat {
 		return true;
 	}
 
+	B32 X86LowerPass::emitInlineIntrinsic(CallNode* c) {
+		const String& callee = c->getCallee();
+		if(callee == "__builtin_trap") {
+			inst(X86Op::Ud2, detail::kGp, {}, {});
+			return true;
+		}
+		if(callee == "__builtin_prefetch") {
+			// prefetchw needs 3dnowprefetch, so a write prefetch uses the read form
+			static const U8 kHint[] = {0, 3, 2, 1};
+			I64 l = 3;
+			if(c->getArgCount() >= 3)
+				if(ConstantNode* loc = dyn_cast<ConstantNode>(c->getArg(2)))
+					l = loc->getValue();
+			inst(X86Op::Prefetch,
+					 detail::kGp,
+					 {},
+					 {MachineOperand::vr(gpValue(c->getArg(0)))},
+					 0,
+					 (I64)kHint[l < 0 || l > 3 ? 3 : l]);
+			return true;
+		}
+		B32 isFrame = callee == "__builtin_frame_address";
+		if(!isFrame && callee != "__builtin_return_address")
+			return false;
+		Node* vp = c->projection(CallNode::valueProjIndex());
+		if(!vp)
+			return true;
+		VReg d = vregFor(vp);
+		if(isFrame)
+			inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(d)}, {}, 0);
+		else
+			inst(X86Op::RetAddr, detail::kGp, {MachineOperand::vr(d)}, {});
+		return true;
+	}
+
+	void X86LowerPass::emitAsm(AsmNode* a) {
+		for(U32 i = 0; i < a->getOutputCount(); ++i) {
+			ProjNode* out = a->projection(AsmNode::outputProjIndex(i));
+			if(!out)
+				continue;
+			Node* src = a->getInputOperand(i);
+			if(isSseTy(out->getType())) {
+				U32 w = opWidth(out->getType());
+				copy(
+						MachineOperand::vr(vregFor(out), w), MachineOperand::vr(sseValue(src), w), detail::kFp);
+			} else {
+				copy(MachineOperand::vr(vregFor(out)), MachineOperand::vr(gpValue(src)), detail::kGp);
+			}
+		}
+	}
+
 	void X86LowerPass::emitCall(CallNode* c) {
 		if(!c->isIndirect()) {
 			const String& callee = c->getCallee();
@@ -80,7 +142,17 @@ namespace rat {
 				emitVaArg(c);
 				return;
 			}
+			if(callee == "__builtin_setjmp") {
+				emitSetJmp(c);
+				return;
+			}
+			if(callee == "__builtin_longjmp") {
+				emitLongJmp(c);
+				return;
+			}
 			if(emitMathIntrinsic(c))
+				return;
+			if(emitInlineIntrinsic(c))
 				return;
 		}
 
@@ -133,35 +205,33 @@ namespace rat {
 			}
 		}
 
-		B32 needAl = conv->alHoldsSseCount && c->isVarArgs();
-		if(needAl) {
-			VReg al = fresh(detail::kGp);
-			def1(X86Op::LoadImm, al, detail::kGp, {MachineOperand::immVal((I64)as.sseUsed)});
-			copy(MachineOperand::fixed(gpReg(RAX)), MachineOperand::vr(al), detail::kGp);
-		}
-
 		// register arguments: copy into place and pin as uses
-		for(const ArgLoc& al : args) {
-			if(al.reg < 0)
+		for(const ArgLoc& a : args) {
+			if(a.reg < 0)
 				continue;
-			if(al.cls == Kind::Sse) {
-				MachineOperand dst = MachineOperand::fixed(xmmReg((U32)al.reg), al.val.width);
-				copy(dst, al.val, detail::kFp);
+			if(a.cls == Kind::Sse) {
+				MachineOperand dst = MachineOperand::fixed(xmmReg((U32)a.reg), a.val.width);
+				copy(dst, a.val, detail::kFp);
 				call.uses.push_back(dst);
 			} else {
-				MachineOperand dst = MachineOperand::fixed(gpReg(conv->gpArgs[al.reg]));
-				copy(dst, al.val, detail::kGp);
+				MachineOperand dst = MachineOperand::fixed(gpReg(conv->gpArgs[a.reg]));
+				copy(dst, a.val, detail::kGp);
 				call.uses.push_back(dst);
 			}
 		}
-		if(needAl)
+
+		if(conv->alHoldsSseCount && c->isVarArgs()) {
+			VReg al = fresh(detail::kGp);
+			def1(X86Op::LoadImm, al, detail::kGp, {MachineOperand::immVal((I64)as.sseUsed)});
+			copy(MachineOperand::fixed(gpReg(RAX)), MachineOperand::vr(al), detail::kGp);
 			call.uses.push_back(MachineOperand::fixed(gpReg(RAX)));
+		}
 
 		if(c->isIndirect()) {
 			call.uses.push_back(MachineOperand::fixed(gpReg(R11)));
 			call.imm2 = 1; // indirect
 		} else {
-			call.uses.push_back(MachineOperand::symbol(libcName(c->getCallee())));
+			call.uses.push_back(MachineOperand::symbol(c->getCallee()));
 		}
 
 		// stack arguments follow the target use, in declaration order
@@ -316,11 +386,33 @@ namespace rat {
 				.clobbers = {gpReg(R10), gpReg(R11)};
 	}
 
+	void X86LowerPass::emitSetJmp(CallNode* c) {
+		VReg buf = gpValue(c->getArg(0));
+		copy(MachineOperand::fixed(gpReg(R11)), MachineOperand::vr(buf), detail::kGp);
+		MachineInstr& m = inst(X86Op::SetJmp,
+													 detail::kGp,
+													 {MachineOperand::fixed(gpReg(RAX))},
+													 {MachineOperand::fixed(gpReg(R11))});
+		m.isCall = true; // nothing survives the jump in a register
+		m.clobbers = allRegClobbers();
+		if(Node* vp = c->projection(CallNode::valueProjIndex()))
+			copy(MachineOperand::vr(vregFor(vp)), MachineOperand::fixed(gpReg(RAX)), detail::kGp);
+	}
+
+	void X86LowerPass::emitLongJmp(CallNode* c) {
+		VReg buf = gpValue(c->getArg(0));
+		copy(MachineOperand::fixed(gpReg(R11)), MachineOperand::vr(buf), detail::kGp);
+		inst(X86Op::LongJmp, detail::kGp, {}, {MachineOperand::fixed(gpReg(R11))}).clobbers = {
+				gpReg(R10)};
+	}
+
 	void X86LowerPass::emitVaArg(CallNode* c) {
 		needScratch(); // the fetch sequences stash through the scratch slot
+		if(!c->returnsValue())
+			return;
 		Node* vp = c->projection(CallNode::valueProjIndex());
-		const Type* rt = vp ? vp->getType() : nullptr;
-		if(!vp || !rt)
+		Type* rt = vp ? vp->getType() : c->getType()->getTupleElement(CallNode::valueProjIndex());
+		if(!rt)
 			return;
 		VReg ptr = gpValue(c->getArg(0));
 		VaArgKind kind = isX87Ty(rt) ? VaArgKind::X87 : (isSseTy(rt) ? VaArgKind::Sse : VaArgKind::Int);
@@ -328,8 +420,11 @@ namespace rat {
 		I64 imm2 = (I64)w;
 		if(kind == VaArgKind::Int && rt->isInt())
 			imm2 |= (I64)1 << 32; // sign-extend the fetched value
-		MachineOperand def = kind == VaArgKind::X87 ? MachineOperand::frameSlot(x87SlotOf(vp))
-																								: MachineOperand::vr(vregFor(vp), w);
+		MachineOperand def;
+		if(kind == VaArgKind::X87)
+			def = MachineOperand::frameSlot(vp ? x87SlotOf(vp) : reserve(16));
+		else
+			def = MachineOperand::vr(vp ? vregFor(vp) : fresh(classOf(rt)), w);
 		inst(X86Op::VaArg,
 				 kind == VaArgKind::X87 ? detail::kX87 : classOf(rt),
 				 {def},

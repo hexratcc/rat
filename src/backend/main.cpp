@@ -13,7 +13,7 @@ namespace detail {
 		os << "usage: rat [options] [input.rat]\n"
 					"\n"
 					"  -passes <a,b,...>   pass pipeline to run, in order\n"
-					"  -emit <text|c|dot>  output format (default text)\n"
+					"  -emit <text|dot>    output format (default text)\n"
 					"  -o <file>           output file (default stdout)\n"
 					"  -stats              report per-pass changes to stderr\n"
 					"  -verify             append a verify pass\n"
@@ -50,9 +50,9 @@ static I32 run(I32 argc, C8** argv) {
 			return cli::error(::detail::kTool, "unexpected extra argument '" + arg + "'");
 	}
 
-	if(emitKind != "text" && emitKind != "c" && emitKind != "dot")
+	if(emitKind != "text" && emitKind != "dot")
 		return cli::error(
-				::detail::kTool, "unknown -emit value '" + emitKind + "' (expected text, c, or dot)");
+				::detail::kTool, "unknown -emit value '" + emitKind + "' (expected text or dot)");
 	String emitter = emitKind == "dot" ? "graph-emitter" : emitKind + "-emitter";
 
 	String source;
