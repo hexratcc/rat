@@ -289,7 +289,26 @@ namespace rat {
 				(op == Opcode::Add || op == Opcode::Sub || op == Opcode::Mul) ? intBits(n->getType()) : 64u;
 		if(immOf(rn, iv)) {
 			VReg lhs = gpValue(ln);
-			if(mop == X86Op::Mul) { // three-operand imul: no tied copy needed
+			if(mop == X86Op::Mul) {
+				// x*3, x*5, x*9
+				U32 sc = 0;
+				if(iv == 3)
+					sc = 1;
+				else if(iv == 5)
+					sc = 2;
+				else if(iv == 9)
+					sc = 3;
+				if(sc) {
+					inst(X86Op::Lea,
+							 detail::kGp,
+							 {MachineOperand::vr(d)},
+							 {MachineOperand::vr(lhs), MachineOperand::vr(lhs)},
+							 0,
+							 (I64)sc);
+					signExtBits(d, bits);
+					return;
+				}
+				// otherwise three-operand imul: no tied copy needed
 				inst(X86Op::Mul,
 						 detail::kGp,
 						 {MachineOperand::vr(d)},
