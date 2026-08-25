@@ -180,6 +180,9 @@ namespace rat {
 		void modrmMem(U32 reg, U32 base, I32 disp);
 		// [base + index*(1<<scaleLog2) + disp]
 		void modrmMemSib(U32 reg, U32 base, U32 index, U32 scaleLog2, I32 disp);
+		// narrowest mod field the displacement fits in, and its tail
+		static U32 memMod(U32 base, I32 disp);
+		void memDisp(U32 mod, I32 disp);
 
 		enum MemFlags : U8 {
 			kMemW = 1,				// REX.W
