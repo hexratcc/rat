@@ -50,17 +50,34 @@ namespace rat {
 
 	void Asm::modrmReg(U32 reg, U32 rm) { b((U8)(0xc0 | ((reg & 7) << 3) | (rm & 7))); }
 
+	// mod=00 carries no displacement, but base=101 means rip / no-base there, so
+	// rbp and r13 always need at least a disp8
+	U32 Asm::memMod(U32 base, I32 disp) {
+		if(disp == 0 && (base & 7) != 5)
+			return 0;
+		return disp == (I32)(I8)disp ? 1u : 2u;
+	}
+
+	void Asm::memDisp(U32 mod, I32 disp) {
+		if(mod == 1)
+			b((U8)disp);
+		else if(mod == 2)
+			d32((U32)disp);
+	}
+
 	void Asm::modrmMem(U32 reg, U32 base, I32 disp) {
-		b((U8)(0x80 | ((reg & 7) << 3) | (base & 7)));
+		U32 mod = memMod(base, disp);
+		b((U8)((mod << 6) | ((reg & 7) << 3) | (base & 7)));
 		if((base & 7) == 4)
 			b(0x24); // SIB: scale=0, index=none, base
-		d32((U32)disp);
+		memDisp(mod, disp);
 	}
 
 	void Asm::modrmMemSib(U32 reg, U32 base, U32 index, U32 scaleLog2, I32 disp) {
-		b((U8)(0x80 | ((reg & 7) << 3) | 4)); // rm=100 => SIB byte follows
+		U32 mod = memMod(base, disp);
+		b((U8)((mod << 6) | ((reg & 7) << 3) | 4)); // rm=100 => SIB byte follows
 		b((U8)(((scaleLog2 & 3) << 6) | ((index & 7) << 3) | (base & 7)));
-		d32((U32)disp);
+		memDisp(mod, disp);
 	}
 
 	void
