@@ -215,10 +215,241 @@ namespace rat {
 		return changed;
 	}
 
+	// TODO(hexratcc): hack, impl i32 ops
+
+	U64 X86PeepholePass::lowMask(U32 n) { return n >= 64 ? kAllBits : (((U64)1 << n) - 1); }
+
+	// carries only travel upward, so a demand up to bit h reads bits [0,h]
+	U64 X86PeepholePass::carryMask(U64 out) {
+		if(!out)
+			return 0;
+		return lowMask((U32)(64 - countLeadingZeros64(out)));
+	}
+
+	B32 X86PeepholePass::isNormalize(X86Op op) {
+		return op == X86Op::MaskBits || op == X86Op::SignExtBits;
+	}
+
+	void X86PeepholePass::demandUses(const MachineInstr& in, U64 mask, U64* dem, U32 from, U32 to) {
+		U32 end = std::min(to, (U32)in.uses.size());
+		for(U32 i = from; i < end; ++i)
+			if(in.uses[i].isPhys() && in.uses[i].phys < kMaxPhys)
+				dem[in.uses[i].phys] |= mask;
+	}
+
+	B32 X86PeepholePass::immCount(const MachineInstr& in, U32& out) {
+		if(in.uses.size() < 2 || in.uses[1].kind != MachineOperand::Kind::Imm)
+			return false;
+		out = (U32)(in.uses[1].imm & 63);
+		return true;
+	}
+
+	B32 X86PeepholePass::readsFlags(X86Op op) { return op == X86Op::SetCC || op == X86Op::Br; }
+
+	B32 X86PeepholePass::writesFlags(X86Op op) {
+		switch(op) {
+		case X86Op::Add:
+		case X86Op::Sub:
+		case X86Op::Mul:
+		case X86Op::And:
+		case X86Op::Or:
+		case X86Op::Xor:
+		case X86Op::Neg:
+		case X86Op::Shl:
+		case X86Op::AShr:
+		case X86Op::LShr:
+		case X86Op::Rotl:
+		case X86Op::Rotr:
+		case X86Op::Cmp:
+		case X86Op::FCmp:
+		case X86Op::FCmpFlags:
+		case X86Op::MaskBits:
+		case X86Op::BitScanF:
+		case X86Op::BitScanR:
+		case X86Op::SDiv:
+		case X86Op::SRem:
+		case X86Op::UDiv:
+		case X86Op::URem:
+		case X86Op::Call:
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	// MaskBits and wide SignExtBits set flags, so dropping one is only safe when
+	// the next instruction to care about flags overwrites them anyway
+	B32 X86PeepholePass::flagSafeToDrop(const MachineBlock& b, U32 at) {
+		if((X86Op)b.insts[at].op == X86Op::SignExtBits && b.insts[at].imm == 32)
+			return true; // movsxd leaves flags alone
+		for(U32 i = at + 1; i < (U32)b.insts.size(); ++i) {
+			X86Op op = (X86Op)b.insts[i].op;
+			if(readsFlags(op))
+				return false;
+			if(writesFlags(op))
+				return true;
+		}
+		return true;
+	}
+
+	// walk one instruction backwards, dem holds the demand after it on entry
+	void X86PeepholePass::transfer(const MachineInstr& in, U64* dem) {
+		X86Op op = (X86Op)in.op;
+		U64 outD = 0;
+		if(!in.defs.empty() && in.defs[0].isPhys() && in.defs[0].phys < kMaxPhys)
+			outD = dem[in.defs[0].phys];
+		for(const MachineOperand& d : in.defs)
+			if(d.isPhys() && d.phys < kMaxPhys)
+				dem[d.phys] = 0;
+		for(PhysReg p : in.clobbers)
+			if(p < kMaxPhys)
+				dem[p] = 0;
+
+		U32 cnt = 0;
+		switch(op) {
+		case X86Op::SignExtBits: {
+			U32 n = (U32)in.imm;
+			U64 m = outD & lowMask(n);
+			if(n > 0 && n < 64 && (outD & ~lowMask(n)))
+				m |= (U64)1 << (n - 1); // the copied sign bit
+			demandUses(in, m, dem);
+			return;
+		}
+		case X86Op::MaskBits:
+			demandUses(in, outD & lowMask((U32)in.imm), dem);
+			return;
+		case X86Op::Copy:
+		case X86Op::And:
+		case X86Op::Or:
+		case X86Op::Xor:
+		case X86Op::Not:
+			demandUses(in, outD, dem);
+			return;
+		case X86Op::Add:
+		case X86Op::Sub:
+		case X86Op::Mul:
+		case X86Op::Neg:
+			demandUses(in, carryMask(outD), dem);
+			return;
+		case X86Op::Shl:
+			if(immCount(in, cnt)) {
+				demandUses(in, outD >> cnt, dem);
+				return;
+			}
+			break;
+		case X86Op::LShr:
+			if(immCount(in, cnt)) {
+				demandUses(in, cnt ? (outD << cnt) : outD, dem);
+				return;
+			}
+			break;
+		case X86Op::AShr:
+			if(immCount(in, cnt)) {
+				U64 m = cnt ? (outD << cnt) : outD;
+				if(cnt && (outD >> (64 - cnt)))
+					m |= (U64)1 << 63; // the replicated sign bit
+				demandUses(in, m, dem);
+				return;
+			}
+			break;
+		case X86Op::Store:
+			// a frame slot is always written full width, a real store is not
+			if(in.uses.size() >= 2 && in.uses[0].kind != MachineOperand::Kind::FrameSlot) {
+				demandUses(in, kAllBits, dem, 0, 1);									// address
+				demandUses(in, kAllBits, dem, 2);											// index
+				if(in.uses[1].isPhys() && in.uses[1].phys < kMaxPhys) // stored value
+					dem[in.uses[1].phys] |= lowMask(in.uses[1].width * 8);
+				return;
+			}
+			break;
+		default:
+			break;
+		}
+		demandUses(in, kAllBits, dem);
+	}
+
+	// erase normalizations whose high bits nobody reads
+	U32 X86PeepholePass::elimRedundantExt(MachineFunc& mf) {
+		U32 nb = (U32)mf.blocks.size();
+		List<List<U64>> demIn(nb, List<U64>(kMaxPhys, 0));
+		List<U64> cur(kMaxPhys, 0);
+
+		B32 running = true;
+		while(running) {
+			running = false;
+			for(U32 bi = nb; bi-- > 0;) {
+				const MachineBlock& b = mf.blocks[bi];
+				if(b.id < 0)
+					continue;
+				// no successors and no return
+				B32 open = b.succs.empty() && !b.insts.empty() && (X86Op)b.insts.back().op != X86Op::Ret &&
+									 (X86Op)b.insts.back().op != X86Op::Ud2;
+				for(U32 i = 0; i < kMaxPhys; ++i)
+					cur[i] = open ? kAllBits : 0;
+				for(I32 s : b.succs)
+					if(s >= 0 && s < (I32)nb)
+						for(U32 i = 0; i < kMaxPhys; ++i)
+							cur[i] |= demIn[(U32)s][i];
+				for(U32 i = (U32)b.insts.size(); i-- > 0;)
+					transfer(b.insts[i], cur.data());
+				for(U32 i = 0; i < kMaxPhys; ++i)
+					if((demIn[(U32)b.id][i] | cur[i]) != demIn[(U32)b.id][i]) {
+						demIn[(U32)b.id][i] |= cur[i];
+						running = true;
+					}
+			}
+		}
+
+		U32 removed = 0;
+		for(MachineBlock& b : mf.blocks) {
+			if(b.id < 0 || b.insts.empty())
+				continue;
+			for(U32 i = 0; i < kMaxPhys; ++i)
+				cur[i] = 0;
+			for(I32 s : b.succs)
+				if(s >= 0 && s < (I32)nb)
+					for(U32 i = 0; i < kMaxPhys; ++i)
+						cur[i] |= demIn[(U32)s][i];
+			if(b.succs.empty() && (X86Op)b.insts.back().op != X86Op::Ret &&
+				 (X86Op)b.insts.back().op != X86Op::Ud2)
+				for(U32 i = 0; i < kMaxPhys; ++i)
+					cur[i] = kAllBits;
+
+			List<B32> drop(b.insts.size(), false);
+			U32 here = 0;
+			for(U32 i = (U32)b.insts.size(); i-- > 0;) {
+				const MachineInstr& in = b.insts[i];
+				X86Op op = (X86Op)in.op;
+				U32 n = (U32)in.imm;
+				if(isNormalize(op) && n > 0 && n < 64 && !in.defs.empty() && in.defs[0].isPhys() &&
+					 in.defs[0].phys < kMaxPhys && !(cur[in.defs[0].phys] & ~lowMask(n)) &&
+					 flagSafeToDrop(b, i)) {
+					drop[i] = true;
+					++here;
+					continue; // dead
+				}
+				transfer(in, cur.data());
+			}
+			if(!here)
+				continue;
+			removed += here;
+			List<MachineInstr> out;
+			out.reserve(b.insts.size());
+			for(U32 i = 0; i < (U32)b.insts.size(); ++i)
+				if(!drop[i])
+					out.push_back(std::move(b.insts[i]));
+			b.insts = std::move(out);
+		}
+		return removed;
+	}
+
 	B32 X86PeepholePass::run(Module& module, MachineModule& mm, const TargetInfo&) {
 		U32 changed = 0;
 		for(const Function* fn : module) {
 			MachineFunc& mf = mm.get(fn);
+			for(U32 round = 0; round < 3; ++round)
+				if(!elimRedundantExt(mf))
+					break;
 			for(MachineBlock& b : mf.blocks)
 				if(b.id >= 0)
 					changed += runOnBlock(b);

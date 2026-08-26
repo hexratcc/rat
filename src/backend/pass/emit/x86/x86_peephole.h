@@ -5,6 +5,10 @@
 //   mov [rbp-8],rax        mov [rbp-8],rax
 //   mov rcx,[rbp-8]   ->   mov rcx,rax      (slot value still sits in a reg)
 //   mov rax,rcx            <deleted>        (both sides already equal)
+//
+// A second phase runs a backward demanded-bits dataflow over the physical
+// registers and deletes the width normalizations (SignExtBits/MaskBits) whose
+// high bits no reader observes.
 
 #ifndef RAT_PASS_EMIT_X86PEEPHOLE_H
 #define RAT_PASS_EMIT_X86PEEPHOLE_H
@@ -20,6 +24,7 @@ namespace rat {
 		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;
 	private:
 		static constexpr U32 kMaxPhys = 64;
+		static constexpr U64 kAllBits = ~(U64)0;
 
 		struct ValueState {
 			U32 reg[kMaxPhys];
@@ -46,6 +51,19 @@ namespace rat {
 		static MachineInstr makeCopy(PhysReg dst, PhysReg src, U32 cls, U32 width);
 		static B32 writesUntrackedSlot(const MachineInstr& in);
 		U32 runOnBlock(MachineBlock& b);
+
+		// demanded-bits phase
+		static U64 lowMask(U32 n);
+		static U64 carryMask(U64 out);
+		static B32 isNormalize(X86Op op);
+		static void
+		demandUses(const MachineInstr& in, U64 mask, U64* dem, U32 from = 0, U32 to = ~(U32)0);
+		static B32 immCount(const MachineInstr& in, U32& out);
+		static B32 readsFlags(X86Op op);
+		static B32 writesFlags(X86Op op);
+		static B32 flagSafeToDrop(const MachineBlock& b, U32 at);
+		static void transfer(const MachineInstr& in, U64* dem);
+		U32 elimRedundantExt(MachineFunc& mf);
 	private:
 		ValueState st;
 	};
