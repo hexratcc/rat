@@ -39,13 +39,23 @@ namespace rat {
 	using C8 = char;
 	using B32 = uint32_t;
 
-	inline int32_t countTrailingZeros64(uint64_t v) {
+	inline int32_t countTrailingZeros64(U64 v) {
 #if defined(_MSC_VER)
 		unsigned long index;
 		_BitScanForward64(&index, v);
 		return (int32_t)index;
 #else
 		return __builtin_ctzll(v);
+#endif
+	}
+
+	inline int32_t countLeadingZeros64(U64 v) {
+#if defined(_MSC_VER)
+		unsigned long index;
+		_BitScanReverse64(&index, v);
+		return (int32_t)(63 - index);
+#else
+		return __builtin_clzll(v);
 #endif
 	}
 
