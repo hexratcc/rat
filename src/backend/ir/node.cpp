@@ -327,6 +327,14 @@ namespace rat {
 	U32 PackNode::getLaneCount() const { return getInputCount(); }
 	Node* PackNode::getLane(U32 index) const { return getInput(index); }
 
+	SelectNode::SelectNode(Function& fn, Type* type, Node* cond, Node* thenVal, Node* elseVal)
+	: Node(fn, Opcode::Select, type, {cond, thenVal, elseVal}) {}
+
+	Node* SelectNode::getCondition() const { return getInput(0); }
+	Node* SelectNode::getTrue() const { return getInput(1); }
+	Node* SelectNode::getFalse() const { return getInput(2); }
+
+
 	ShuffleNode::ShuffleNode(Function& fn, Type* vecType, Node* vector, U8 sel)
 	: Node(fn, Opcode::Shuffle, vecType, {vector}),
 		sel(sel) {}
@@ -414,6 +422,8 @@ namespace rat {
 			return into.create<PackNode>(t, nulls);
 		case Opcode::Shuffle:
 			return into.create<ShuffleNode>(t, nullptr, cast<ShuffleNode>(n)->getSelector());
+		case Opcode::Select:
+			return into.create<SelectNode>(t, nullptr, nullptr, nullptr);
 		default:
 			break;
 		}

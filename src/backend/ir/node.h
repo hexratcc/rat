@@ -312,6 +312,15 @@ namespace rat {
 		Node* getLane(U32 index) const;
 	};
 
+	// branch-free choice between two already-computed values
+	struct SelectNode : Node {
+		SelectNode(Function& fn, Type* type, Node* cond, Node* thenVal, Node* elseVal);
+
+		Node* getCondition() const;
+		Node* getTrue() const;
+		Node* getFalse() const;
+	};
+
 	// permute 32-bit lanes by a pshufd-style selector
 	struct ShuffleNode : Node {
 		ShuffleNode(Function& fn, Type* vecType, Node* vector, U8 sel);
@@ -397,6 +406,7 @@ namespace rat {
 		template <> inline B32 nodeIsa<ExtractNode>(const Node* n)  { return n->getOpcode() == Opcode::Extract; }
 		template <> inline B32 nodeIsa<PackNode>(const Node* n)     { return n->getOpcode() == Opcode::Pack; }
 		template <> inline B32 nodeIsa<ShuffleNode>(const Node* n)  { return n->getOpcode() == Opcode::Shuffle; }
+		template <> inline B32 nodeIsa<SelectNode>(const Node* n)   { return n->getOpcode() == Opcode::Select; }
 	} // namespace detail
 
 	// isa/dyn_cast are null-safe
