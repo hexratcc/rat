@@ -325,6 +325,8 @@ namespace rat {
 			return emitCmp(in);
 		case X86Op::SetCC:
 			return setccExt((U8)in.imm, gpOf(in.defs[0]));
+		case X86Op::CMov:
+			return a->cmovcc((U8)in.imm, gpOf(in.defs[0]), gpOf(in.uses[1]));
 		case X86Op::MaskBits:
 			return emitMaskBits(in);
 		case X86Op::SignExtBits:

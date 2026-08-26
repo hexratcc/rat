@@ -68,6 +68,7 @@ namespace rat {
 		BitScanR,		 // dst = bsr use[0], operand width in imm (undefined when use[0] is 0)
 		Cmp,				 // flag-setting compare of use[0],use[1]
 		SetCC,			 // dst = (cc); condition code in imm
+		CMov,				 // dst = (cc) ? use[1] : dst
 		MaskBits,		 // dst &= ((1<<imm)-1)
 		SignExtBits, // dst = sign-extend dst from imm bits to 64
 		Bswap,			 // dst = byte-reverse dst, operand width in imm (32 or 64)

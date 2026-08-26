@@ -298,6 +298,13 @@ namespace rat {
 
 	void Asm::shiftImm(U8 ext, Reg r, U8 cnt) { rotImm(ext, r, cnt, true); }
 
+	void Asm::cmovcc(U8 cc, Reg dst, Reg src) {
+		rex(true, dst, 0, src);
+		b(0x0f);
+		b((U8)(0x40 + cc));
+		modrmReg(dst, src);
+	}
+
 	void Asm::setcc(U8 cc, Reg r) {
 		if(r >= RSP && r <= RDI)
 			rexForce(false, 0, 0, r);
