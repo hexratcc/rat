@@ -51,6 +51,7 @@ namespace rat {
 		static B32 immOf(Node* n, I64& out);
 		static B32 branchOnlyCompare(Node* n);
 		static B32 selectOnlyCompare(Node* n);
+		static B32 fpSelectOnlyCompare(Node* n);
 		static B32 fusableFpCompare(Node* n);
 		static B32 zextOnlyLoad(const LoadNode* l);
 		static U32 opWidth(const Type* t);

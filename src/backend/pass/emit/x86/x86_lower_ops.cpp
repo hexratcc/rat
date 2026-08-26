@@ -668,6 +668,19 @@ namespace rat {
 			CompareNode* c = cast<CompareNode>(cond);
 			cc = detail::kIntCc[(U32)c->getOpcode() - (U32)Opcode::Eq];
 			emitIntCmp(c);
+		} else if(fpSelectOnlyCompare(cond)) {
+			CompareNode* c = cast<CompareNode>(cond);
+			U32 w = opWidth(c->getLHS()->getType());
+			U32 idx = (U32)c->getOpcode() - (U32)Opcode::FEq;
+			cc = detail::kFpCc[idx];
+			VReg l = sseValue(c->getLHS());
+			VReg r = sseValue(c->getRHS());
+			inst(X86Op::FCmpFlags,
+					 detail::kFp,
+					 {},
+					 {MachineOperand::vr(l, w), MachineOperand::vr(r, w)},
+					 0,
+					 detail::kFpSwap[idx]);
 		} else {
 			VReg cv = gpValue(cond);
 			inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(cv), MachineOperand::immVal(0)});
