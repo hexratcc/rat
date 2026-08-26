@@ -69,6 +69,13 @@ namespace rat {
 		return !isX87Ty(c->getLHS()->getType());
 	}
 
+	// an integer compare feeding exactly one Select folds into that select's cmp
+	B32 X86LowerPass::selectOnlyCompare(Node* n) {
+		if(!isIntCompare(n) || n->getUsers().size() != 1)
+			return false;
+		return isa<SelectNode>(n->getUsers()[0]);
+	}
+
 	B32 X86LowerPass::branchOnlyCompare(Node* n) {
 		if(!isIntCompare(n) && !fusableFpCompare(n))
 			return false;
@@ -489,12 +496,17 @@ namespace rat {
 		case Opcode::Shuffle:
 			emitShuffle(cast<ShuffleNode>(n));
 			return;
+		case Opcode::Select:
+			emitSelect(cast<SelectNode>(n));
+			return;
 		default:
 			break;
 		}
 		if(isCompareOpcode(n->getOpcode())) {
 			if(branchOnlyCompare(n))
 				return; // no value users; each If re-emits the compare fused with its jcc
+			if(selectOnlyCompare(n))
+				return; // the select re-emits it fused with its cmov
 			emitCompare(cast<CompareNode>(n));
 			return;
 		}

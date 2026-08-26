@@ -24,6 +24,7 @@ namespace rat {
 	struct Node;
 	struct PackNode;
 	struct ProjNode;
+	struct SelectNode;
 	struct ShuffleNode;
 	struct ReturnNode;
 	struct SplatNode;
@@ -49,6 +50,7 @@ namespace rat {
 		static B32 isIntCompare(Node* n);
 		static B32 immOf(Node* n, I64& out);
 		static B32 branchOnlyCompare(Node* n);
+		static B32 selectOnlyCompare(Node* n);
 		static B32 fusableFpCompare(Node* n);
 		static B32 zextOnlyLoad(const LoadNode* l);
 		static U32 opWidth(const Type* t);
@@ -121,6 +123,7 @@ namespace rat {
 		void emitExtract(ExtractNode* n);
 		void emitPack(PackNode* n);
 		void emitShuffle(ShuffleNode* n);
+		void emitSelect(SelectNode* n);
 		void needVecScratch();
 		String vecPoolSym(const List<U8>& bytes);
 		void emitX87Binary(BinaryNode* n, U32 idx);
