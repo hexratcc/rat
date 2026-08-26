@@ -316,6 +316,20 @@ namespace rat {
 			break;
 		}
 
+		case Opcode::Select: {
+			auto* s = cast<SelectNode>(n);
+			if(!t->isInt() && !t->isPtr())
+				err(n, "Select type must be an integer or pointer");
+			if(!s->getCondition() || !s->getCondition()->getType()->isInt() ||
+				 s->getCondition()->getType()->getIntWidth() != 1)
+				err(n, "Select condition must be i1");
+			if(!s->getTrue() || s->getTrue()->getType() != t)
+				err(n, "Select then-value type does not match the result");
+			if(!s->getFalse() || s->getFalse()->getType() != t)
+				err(n, "Select else-value type does not match the result");
+			break;
+		}
+
 		case Opcode::Load: {
 			auto* l = cast<LoadNode>(n);
 			ctrlMem(l->getControl(), l->getMemory(), "Load");

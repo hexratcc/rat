@@ -377,7 +377,8 @@ namespace rat {
 			return true;
 		if(op == Opcode::Constant)
 			return n->getType()->isFloat() && n->getType()->getFloatWidth() != 128;
-		return op == Opcode::Load || isArithmeticOpcode(op) || isVectorUtilOpcode(op);
+		return op == Opcode::Load || op == Opcode::Select || isArithmeticOpcode(op) ||
+					 isVectorUtilOpcode(op);
 	}
 
 	B32 Schedule::mayTrap(const Node* n) {

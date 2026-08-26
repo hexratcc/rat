@@ -113,7 +113,7 @@ namespace rat {
 		Opcode opcodeForMnemonic(const String& m, B32& ok) {
 			static const Map<String, Opcode> table = [] {
 				Map<String, Opcode> t;
-				for(U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Shuffle; ++i)
+				for(U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Select; ++i)
 					t.emplace(getOpcodeMnemonic((Opcode)i), (Opcode)i);
 				return t;
 			}();
@@ -629,6 +629,14 @@ namespace rat {
 				if(!v)
 					return nullptr;
 				return fn->create<ShuffleNode>(pn.ty, v, (U8)pn.projIndex);
+			}
+			if(op == Opcode::Select) {
+				Node* c = operand(pn, 0);
+				Node* t = operand(pn, 1);
+				Node* f = operand(pn, 2);
+				if(!c || !t || !f)
+					return nullptr;
+				return fn->create<SelectNode>(pn.ty, c, t, f);
 			}
 			if(op == Opcode::Pack) {
 				List<Node*> lanes;
