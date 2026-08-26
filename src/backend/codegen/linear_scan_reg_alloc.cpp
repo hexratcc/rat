@@ -48,12 +48,17 @@ namespace rat {
 			live.copyFrom(liveOut[b]);
 			live.forEach([&](VReg v) { segEnd[v] = last; });
 
+			// an inner-loop reference costs more than a straight-line one
+			U32 weight = 1;
+			for(I32 d = fn->blocks[b].loopDepth; d > 0 && weight < kMaxUseWeight; --d)
+				weight *= kLoopUseWeight;
+
 			for(I32 i = (I32)fn->blocks[b].insts.size() - 1; i >= 0; --i) {
 				I32 pt = (I32)blkPts[b][(U32)i];
 				const MachineInstr& in = fn->blocks[b].insts[(U32)i];
 				for(const MachineOperand& d : in.defs)
 					if(d.isVReg()) {
-						++ivFor(d.vreg).uses;
+						ivFor(d.vreg).uses += weight;
 						if(live.test(d.vreg)) {
 							ivFor(d.vreg).segs.push_back({pt, segEnd[d.vreg]});
 							live.reset(d.vreg);
@@ -63,7 +68,7 @@ namespace rat {
 					}
 				for(const MachineOperand& u : in.uses)
 					if(u.isVReg()) {
-						++ivFor(u.vreg).uses;
+						ivFor(u.vreg).uses += weight;
 						if(!live.test(u.vreg)) {
 							live.set(u.vreg);
 							segEnd[u.vreg] = pt;
@@ -291,7 +296,11 @@ namespace rat {
 			F64 c = (F64)(iv->uses ? iv->uses : 1);
 			if(rematDef.find(iv->vreg) != rematDef.end())
 				c *= 0.3;
-			return c;
+			// lose to a densely used value
+			I32 span = 0;
+			for(const Seg& sg : iv->segs)
+				span += sg.end - sg.start + 1;
+			return c / (F64)(span > 0 ? span : 1);
 		};
 
 		Interval* victim = nullptr;

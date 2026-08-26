@@ -26,6 +26,10 @@ namespace rat {
 	struct LinearScanRegAllocPass : RegAllocBase {
 		const C8* name() const override { return "linear-scan-regalloc"; }
 	private:
+		// per-loop-level use weight
+		static constexpr U32 kLoopUseWeight = 3;
+		static constexpr U32 kMaxUseWeight = 100000;
+
 		// closed [start, end]
 		struct Seg {
 			I32 start;

@@ -247,6 +247,32 @@ namespace rat {
 						continue;
 					}
 				}
+
+				// spill from or reload into it directly instead of bouncing through a scratch register
+				if(hooks->isCopy && hooks->isCopy(in) && in.defs.size() == 1 && in.uses.size() == 1) {
+					const MachineOperand& d = in.defs[0];
+					const MachineOperand& u = in.uses[0];
+					if(d.isVReg() && u.isPhys()) {
+						Assignment da = assignmentOf(d.vreg);
+						if(da.spilled) {
+							out.push_back(hooks->makeSpill(da.spillSlot, u.phys, da.cls, d.width));
+							memo = true;
+							memoSlot = da.spillSlot;
+							memoReg = u.phys;
+							memoCls = da.cls;
+							memoWidth = d.width;
+							continue;
+						}
+					} else if(d.isPhys() && u.isVReg()) {
+						Assignment ua = assignmentOf(u.vreg);
+						if(ua.spilled) {
+							reloadInto(d.phys, u, ua);
+							memo = false;
+							continue;
+						}
+					}
+				}
+
 				// spilled-copy peepholes
 				if(hooks->isCopy && hooks->isCopy(in) && in.defs.size() == 1 && in.uses.size() == 1 &&
 					 in.defs[0].isVReg() && in.uses[0].isVReg()) {
