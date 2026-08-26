@@ -1,0 +1,40 @@
+@name simplifycfg: a divide under the guard blocks the select
+@passes simplifycfg
+
+@input
+func guard(i32, i32) -> i32 {
+	v0 = start : (ctrl, mem, i32, i32)
+	v1 = stop : ctrl v15
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = proj : i32  #3 "arg1" of v0
+	v6 = const : i32  0
+	v8 = ne : i1 v5, v6
+	v9 = if : (ctrl, ctrl) v2, v8
+	v10 = proj : ctrl  #0 "then" of v9
+	v11 = proj : ctrl  #1 "else" of v9
+	v12 = region : ctrl v10, v11
+	v7 = sdiv : i32 v4, v5
+	v13 = phi : i32 v12, v7, v6
+	v15 = return : ctrl v12, v3, v13
+}
+
+@expect
+func guard(i32, i32) -> i32 {
+	v0 = start : (ctrl, mem, i32, i32)
+	v1 = stop : ctrl v15
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = proj : i32  #3 "arg1" of v0
+	v6 = const : i32  0
+	v8 = ne : i1 v5, v6
+	v9 = if : (ctrl, ctrl) v2, v8
+	v10 = proj : ctrl  #0 "then" of v9
+	v11 = proj : ctrl  #1 "else" of v9
+	v12 = region : ctrl v10, v11
+	v7 = sdiv : i32 v4, v5
+	v13 = phi : i32 v12, v7, v6
+	v15 = return : ctrl v12, v3, v13
+}

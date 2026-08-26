@@ -104,6 +104,9 @@ namespace rat {
 		Extract,
 		Pack,
 		Shuffle,
+
+		// branch-free choice
+		Select,
 	};
 
 	enum class OpClass : U8 {

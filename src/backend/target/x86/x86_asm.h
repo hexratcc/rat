@@ -259,6 +259,7 @@ namespace rat {
 		void shiftImm(U8 ext, Reg r, U8 cnt);
 
 		void setcc(U8 cc, Reg r);
+		void cmovcc(U8 cc, Reg dst, Reg src); // dst = cc ? src : dst
 		void movzxByte(Reg dst, Reg src);
 		void bitScan(B32 reverse, Reg dst, Reg src, B32 wide);
 		void bswap(Reg r, B32 wide);

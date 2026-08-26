@@ -1,0 +1,29 @@
+@name fold: selects with a constant condition or equal arms collapse
+@passes fold
+
+@input
+func f(i32, i32) -> i32 {
+	v0 = start : (ctrl, mem, i32, i32)
+	v1 = stop : ctrl v20
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = proj : i32  #3 "arg1" of v0
+	v6 = const : i1  1
+	v7 = select : i32 v6, v4, v5
+	v8 = select : i32 v6, v5, v5
+	v9 = add : i32 v7, v8
+	v20 = return : ctrl v2, v3, v9
+}
+
+@expect
+func f(i32, i32) -> i32 {
+	v0 = start : (ctrl, mem, i32, i32)
+	v1 = stop : ctrl v10
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "arg0" of v0
+	v5 = proj : i32  #3 "arg1" of v0
+	v9 = add : i32 v4, v5
+	v10 = return : ctrl v2, v3, v9
+}

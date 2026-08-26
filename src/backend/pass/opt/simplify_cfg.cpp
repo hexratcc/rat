@@ -54,6 +54,134 @@ namespace rat {
 		}
 	}
 
+	// already materialized, or anchored to control this rewrite does not touch
+	B32 SimplifyCFGPass::freeValue(Node* v) {
+		if(isa<ConstantNode>(v) || isa<GlobalNode>(v) || isa<AllocNode>(v) || isa<ProjNode>(v) ||
+			 isa<PhiNode>(v))
+			return true;
+		if(v->hasSideEffects())
+			return false;
+		return v->getControlInput() != nullptr;
+	}
+
+	B32 SimplifyCFGPass::cheapOp(Opcode op) {
+		switch(op) {
+		case Opcode::Add:
+		case Opcode::Sub:
+		case Opcode::And:
+		case Opcode::Or:
+		case Opcode::Xor:
+		case Opcode::Shl:
+		case Opcode::LShr:
+		case Opcode::AShr:
+		case Opcode::Neg:
+		case Opcode::Not:
+		case Opcode::Trunc:
+		case Opcode::SExt:
+		case Opcode::ZExt:
+			return true;
+		default:
+			return isCompareOpcode(op) && op < Opcode::FEq;
+		}
+	}
+
+	I32 SimplifyCFGPass::speculationCost(Node* v, Node* phi, U32 depth) {
+		if(freeValue(v))
+			return 0;
+		if(depth == 0 || !cheapOp(v->getOpcode()))
+			return -1;
+		for(Node* u : v->getUsers())
+			if(u != phi)
+				return 0;
+		I32 total = 1;
+		for(U32 i = 0, e = v->getInputCount(); i < e; ++i) {
+			Node* in = v->getInput(i);
+			if(!in)
+				return -1;
+			I32 c = speculationCost(in, phi, depth - 1);
+			if(c < 0)
+				return -1;
+			total += c;
+		}
+		return total;
+	}
+
+	B32 SimplifyCFGPass::selectableType(Type* t) { return t && (t->isInt() || t->isPtr()); }
+
+	// try to rewrite one empty-armed diamond as selects
+	B32 SimplifyCFGPass::regionToSelect(Function& fn, RegionNode* r) {
+		if(r->isLoopHeader() || r->getPredecessorCount() != 2)
+			return false;
+		ProjNode* a = dyn_cast<ProjNode>(r->getPredecessor(0));
+		ProjNode* b = dyn_cast<ProjNode>(r->getPredecessor(1));
+		if(!a || !b)
+			return false;
+		IfNode* iff = dyn_cast<IfNode>(a->getProducer());
+		if(!iff || iff != dyn_cast<IfNode>(b->getProducer()))
+			return false;
+		// nothing may be anchored to the projections
+		if(a->getUsers().size() != 1 || b->getUsers().size() != 1)
+			return false;
+		if(a->getIndex() == b->getIndex())
+			return false;
+
+		Node* pred = iff->getPredicate();
+		// predecessor slot carrying the then-edge
+		U32 thenSlot = a->getIndex() == IfNode::thenProjIndex() ? 0u : 1u;
+
+		collectPhis(r, phis);
+		I32 cost = 0;
+		for(PhiNode* phi : phis) {
+			if(phi->getValueCount() != 2)
+				return false;
+			Node* tv = phi->getValue(thenSlot);
+			Node* fv = phi->getValue(1 - thenSlot);
+			if(tv == fv)
+				continue; // degenerate
+			I32 c0 = speculationCost(tv, phi, kSpeculationDepth);
+			I32 c1 = speculationCost(fv, phi, kSpeculationDepth);
+			if(!selectableType(phi->getType()) || c0 < 0 || c1 < 0)
+				return false;
+			cost += c0 + c1;
+		}
+		if(phis.empty() || cost > kSpeculationBudget)
+			return false;
+
+		for(PhiNode* phi : phis) {
+			if(phi->getValue(0) == phi->getValue(1)) {
+				phi->replaceAllUsesWith(phi->getValue(0));
+			} else {
+				Node* sel = fn.create<SelectNode>(
+						phi->getType(), pred, phi->getValue(thenSlot), phi->getValue(1 - thenSlot));
+				phi->replaceAllUsesWith(sel);
+			}
+		}
+		// splice the merge out of the control chain, then drop the diamond
+		r->replaceAllUsesWith(iff->getControl());
+		auto drop = [&](Node* dead) {
+			if(dead && !dead->hasUsers())
+				fn.removeNode(dead);
+		};
+		for(PhiNode* phi : phis)
+			drop(phi);
+		drop(r);
+		drop(a);
+		drop(b);
+		drop(iff);
+		return true;
+	}
+
+	U32 SimplifyCFGPass::ifToSelect(Function& fn) {
+		selectRegions.clear();
+		for(Node* n : fn)
+			if(RegionNode* r = dyn_cast<RegionNode>(n))
+				selectRegions.push_back(r);
+		U32 changed = 0;
+		for(Node* n : selectRegions)
+			changed += regionToSelect(fn, cast<RegionNode>(n));
+		return changed;
+	}
+
 	const C8* SimplifyCFGPass::name() const { return "simplifycfg"; }
 
 	U32 SimplifyCFGPass::runOnFunction(Function& fn, const TargetInfo&) {
@@ -188,6 +316,11 @@ namespace rat {
 					phi->replaceAllUsesWith(phi->getValue(0));
 				r->replaceAllUsesWith(r->getPredecessor(0));
 				++changed;
+				again = true;
+			}
+
+			if(U32 sel = ifToSelect(fn)) {
+				changed += sel;
 				again = true;
 			}
 

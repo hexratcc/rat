@@ -69,6 +69,34 @@ namespace rat {
 		return !isX87Ty(c->getLHS()->getType());
 	}
 
+	B32 X86LowerPass::selectOnlyCompare(Node* n) {
+		if(!isIntCompare(n) || n->getUsers().empty())
+			return false;
+		for(Node* u : n->getUsers()) {
+			SelectNode* s = dyn_cast<SelectNode>(u);
+			// an arm reading the compare as a value still needs it materialized
+			if(!s || s->getCondition() != n || s->getTrue() == n || s->getFalse() == n)
+				return false;
+		}
+		return true;
+	}
+
+	B32 X86LowerPass::fpSelectOnlyCompare(Node* n) {
+		Opcode op = n->getOpcode();
+		if(op < Opcode::FLt || op > Opcode::FGe)
+			return false;
+		if(isX87Ty(cast<CompareNode>(n)->getLHS()->getType()))
+			return false;
+		if(n->getUsers().empty())
+			return false;
+		for(Node* u : n->getUsers()) {
+			SelectNode* s = dyn_cast<SelectNode>(u);
+			if(!s || s->getCondition() != n || s->getTrue() == n || s->getFalse() == n)
+				return false;
+		}
+		return true;
+	}
+
 	B32 X86LowerPass::branchOnlyCompare(Node* n) {
 		if(!isIntCompare(n) && !fusableFpCompare(n))
 			return false;
@@ -489,12 +517,17 @@ namespace rat {
 		case Opcode::Shuffle:
 			emitShuffle(cast<ShuffleNode>(n));
 			return;
+		case Opcode::Select:
+			emitSelect(cast<SelectNode>(n));
+			return;
 		default:
 			break;
 		}
 		if(isCompareOpcode(n->getOpcode())) {
 			if(branchOnlyCompare(n))
 				return; // no value users; each If re-emits the compare fused with its jcc
+			if(selectOnlyCompare(n) || fpSelectOnlyCompare(n))
+				return; // each select re-emits it fused with its cmov
 			emitCompare(cast<CompareNode>(n));
 			return;
 		}

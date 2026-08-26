@@ -653,6 +653,45 @@ namespace rat {
 		}
 	}
 
+	// dst starts as the else-value, then cmov overwrites it when the flags say so
+	// the condition folds into the cmp when it is an integer compare used only here
+	void X86LowerPass::emitSelect(SelectNode* n) {
+		Node* cond = n->getCondition();
+		VReg d = vregFor(n);
+		// materialize both arms before the compare
+		VReg f = gpValue(n->getFalse());
+		VReg t = gpValue(n->getTrue());
+		copy(MachineOperand::vr(d), MachineOperand::vr(f), detail::kGp);
+
+		U8 cc = CC_NE;
+		if(selectOnlyCompare(cond)) {
+			CompareNode* c = cast<CompareNode>(cond);
+			cc = detail::kIntCc[(U32)c->getOpcode() - (U32)Opcode::Eq];
+			emitIntCmp(c);
+		} else if(fpSelectOnlyCompare(cond)) {
+			CompareNode* c = cast<CompareNode>(cond);
+			U32 w = opWidth(c->getLHS()->getType());
+			U32 idx = (U32)c->getOpcode() - (U32)Opcode::FEq;
+			cc = detail::kFpCc[idx];
+			VReg l = sseValue(c->getLHS());
+			VReg r = sseValue(c->getRHS());
+			inst(X86Op::FCmpFlags,
+					 detail::kFp,
+					 {},
+					 {MachineOperand::vr(l, w), MachineOperand::vr(r, w)},
+					 0,
+					 detail::kFpSwap[idx]);
+		} else {
+			VReg cv = gpValue(cond);
+			inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(cv), MachineOperand::immVal(0)});
+		}
+		inst(X86Op::CMov,
+				 detail::kGp,
+				 {MachineOperand::vr(d)},
+				 {MachineOperand::vr(d), MachineOperand::vr(t)},
+				 (I64)cc);
+	}
+
 	void X86LowerPass::emitCompare(CompareNode* n) {
 		Opcode op = n->getOpcode();
 		if(op >= Opcode::FEq && op <= Opcode::FGe) {

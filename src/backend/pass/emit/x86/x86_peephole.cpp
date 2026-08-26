@@ -75,6 +75,7 @@ namespace rat {
 		case X86Op::BitScanR:
 		case X86Op::Cmp:
 		case X86Op::SetCC:
+		case X86Op::CMov:
 		case X86Op::MaskBits:
 		case X86Op::SignExtBits:
 		case X86Op::Bswap:
@@ -244,7 +245,9 @@ namespace rat {
 		return true;
 	}
 
-	B32 X86PeepholePass::readsFlags(X86Op op) { return op == X86Op::SetCC || op == X86Op::Br; }
+	B32 X86PeepholePass::readsFlags(X86Op op) {
+		return op == X86Op::SetCC || op == X86Op::CMov || op == X86Op::Br;
+	}
 
 	B32 X86PeepholePass::writesFlags(X86Op op) {
 		switch(op) {
@@ -319,6 +322,7 @@ namespace rat {
 			demandUses(in, outD & lowMask((U32)in.imm), dem);
 			return;
 		case X86Op::Copy:
+		case X86Op::CMov:
 		case X86Op::And:
 		case X86Op::Or:
 		case X86Op::Xor:
