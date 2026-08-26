@@ -626,6 +626,7 @@ namespace rat {
 			I32 b = order[i];
 			MachineBlock& block = out->blocks[b];
 			block.id = b;
+			block.loopDepth = sched->block(b).loopDepth;
 			mb = &block;
 			if(i == 0)
 				emitPrologue();
