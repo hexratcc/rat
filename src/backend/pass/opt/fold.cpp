@@ -682,6 +682,14 @@ namespace rat {
 
 	Node* simplify(Function& fn, Node* n) {
 		Opcode op = n->getOpcode();
+		if(op == Opcode::Select) {
+			SelectNode* s = cast<SelectNode>(n);
+			if(s->getTrue() == s->getFalse())
+				return s->getTrue();
+			if(ConstantNode* c = dyn_cast<ConstantNode>(s->getCondition()))
+				return c->getValue() != 0 ? s->getTrue() : s->getFalse();
+			return n;
+		}
 		if(isBinaryOpcode(op)) {
 			BinaryNode* b = cast<BinaryNode>(n);
 			if(Node* r = foldBinary(fn, op, b->getLHS(), b->getRHS()))
@@ -711,7 +719,7 @@ namespace rat {
 		queued.assign(fn.size(), 0);
 
 		auto push = [&](Node* n) {
-			if(!isArithmeticOpcode(n->getOpcode()))
+			if(!isArithmeticOpcode(n->getOpcode()) && n->getOpcode() != Opcode::Select)
 				return;
 			U32 id = n->getId();
 			if(id >= queued.size())
