@@ -16,6 +16,7 @@
 #include "pass/emit/x86/x86_encode.h"
 #include "pass/emit/x86/x86_layout.h"
 #include "pass/emit/x86/x86_lower.h"
+#include "pass/emit/x86/x86_peephole.h"
 
 #include "pass/opt/fold.h"
 #include "pass/opt/gvn.h"

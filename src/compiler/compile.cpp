@@ -26,6 +26,7 @@ namespace rat::cc {
 		} else {
 			pm.add<X86LowerPass>();
 			pm.add<LinearScanRegAllocPass>();
+			pm.add<X86PeepholePass>();
 			pm.add<X86LayoutPass>();
 			pm.add<X86EncodePass>(out);
 		}
