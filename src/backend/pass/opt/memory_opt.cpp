@@ -101,6 +101,73 @@ namespace rat {
 		return removed;
 	}
 
+	MemoryOptPass::ChainScan
+	MemoryOptPass::scanPhiSide(const AliasAnalysis& aa, PhiNode* m, U32 side, LoadNode* l) {
+		constexpr U32 kMaxStoreWalk = 512;
+		ChainScan scan{nullptr, false, false};
+		U32 size = aa.getAccessSize(l);
+		Node* mem = m->getValue(side);
+		for(U32 steps = 0;; ++steps) {
+			if(mem == m) {
+				scan.loops = true;
+				return scan;
+			}
+			StoreNode* s = dyn_cast<StoreNode>(mem);
+			if(!s)
+				return scan;
+			if(steps >= kMaxStoreWalk) {
+				scan.clobbered = true;
+				return scan;
+			}
+			// stores older than the found one are overwritten
+			if(!scan.store) {
+				AliasResult r = aa.alias(l->getPointer(), size, s->getPointer(), aa.getAccessSize(s));
+				if(r == AliasResult::MustAlias && aa.getAccessSize(s) == size &&
+					 s->getValue()->getType() == l->getType())
+					scan.store = s;
+				else if(r != AliasResult::NoAlias)
+					scan.clobbered = true;
+			}
+			mem = s->getMemory();
+		}
+	}
+
+	// a load whose def is a loop memory phi reads either the value stored on
+	// the previous iteration or the last store before the loop, forward both
+	// through a data phi and the load (not the store) becomes dead
+	U32 MemoryOptPass::forwardLoopCarried(Function& fn, const AliasAnalysis& aa) {
+		U32 removed = 0;
+		for(LoadNode* l : loads) {
+			if(!l->hasUsers())
+				continue;
+			PhiNode* m = dyn_cast<PhiNode>(defs[l->getId()]);
+			if(!m || !m->getType()->isMemory() || m->getValueCount() != 2)
+				continue;
+			if(!m->getRegion()->isLoopHeader())
+				continue;
+			ChainScan a = scanPhiSide(aa, m, 0, l);
+			ChainScan b = scanPhiSide(aa, m, 1, l);
+			if(a.loops == b.loops) // need exactly one backedge
+				continue;
+			const ChainScan& entry = a.loops ? b : a;
+			const ChainScan& back = a.loops ? a : b;
+			if(entry.clobbered || back.clobbered || !entry.store)
+				continue;
+			Node* init = entry.store->getValue();
+			Node* replacement;
+			if(!back.store || back.store->getValue() == l) {
+				replacement = init;
+			} else {
+				List<Node*> values{init, init};
+				values[a.loops ? 0 : 1] = back.store->getValue();
+				replacement = fn.phi(l->getType(), m->getRegion(), values);
+			}
+			l->replaceAllUsesWith(replacement);
+			++removed;
+		}
+		return removed;
+	}
+
 	const C8* MemoryOptPass::name() const { return "memoryopt"; }
 
 	U32 MemoryOptPass::runOnFunction(Function& fn, const TargetInfo& target) {
@@ -117,8 +184,10 @@ namespace rat {
 			if(l->hasUsers())
 				defs[l->getId()] = effectiveDef(aa, l);
 
-		U32 removed = forwardStores(aa);
+		U32 removed = 0;
+		removed += forwardStores(aa);
 		removed += cseLoads(fn, aa);
+		removed += forwardLoopCarried(fn, aa);
 		if(removed)
 			fn.eliminateDeadNodes();
 		return removed;
