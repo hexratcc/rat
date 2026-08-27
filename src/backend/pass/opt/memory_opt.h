@@ -21,6 +21,8 @@ namespace rat {
 	struct LoadNode;
 	struct Module;
 	struct Node;
+	struct PhiNode;
+	struct StoreNode;
 	struct Type;
 
 	struct MemoryOptPass : FunctionPass {
@@ -29,10 +31,18 @@ namespace rat {
 	private:
 		U32 forwardStores(const AliasAnalysis& aa);
 		U32 cseLoads(Function& fn, const AliasAnalysis& aa);
+		U32 forwardLoopCarried(Function& fn, const AliasAnalysis& aa);
 
 		// skip back over stores that provably do not alias [addr, addr+size)
 		static Node* effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size);
 		static Node* effectiveDef(const AliasAnalysis& aa, LoadNode* l);
+
+		struct ChainScan {
+			StoreNode* store; // last must-alias store of matching size and type
+			B32 clobbered;		// an aliasing store that cannot be forwarded intervenes
+			B32 loops;				// the chain returns to the phi
+		};
+		static ChainScan scanPhiSide(const AliasAnalysis& aa, PhiNode* m, U32 side, LoadNode* l);
 	private:
 		struct BucketKey {
 			Node* def;

@@ -1,0 +1,52 @@
+@name memoryopt: loop-carried store forwarded to load
+@passes memoryopt
+
+@input
+func acc(ptr, i32) -> void {
+	v0 = start : (ctrl, mem, ptr, i32)
+	v1 = stop : ctrl v20
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "arg0" of v0
+	v5 = proj : i32  #3 "arg1" of v0
+	v6 = const : i32  0
+	v7 = const : i32  1
+	v8 = store : mem v2, v3, v4, v6
+	v9 = region : ctrl  loop v2, v13
+	v10 = phi : i32 v9, v6, v19
+	v11 = slt : i1 v10, v5
+	v12 = if : (ctrl, ctrl) v9, v11
+	v13 = proj : ctrl  #0 "then" of v12
+	v14 = proj : ctrl  #1 "else" of v12
+	v15 = phi : mem v9, v8, v18
+	v16 = load : i32 v13, v15, v4
+	v17 = add : i32 v16, v10
+	v18 = store : mem v13, v15, v4, v17
+	v19 = add : i32 v10, v7
+	v20 = return : ctrl v14, v15
+}
+
+@expect
+func acc(ptr, i32) -> void {
+	v0 = start : (ctrl, mem, ptr, i32)
+	v1 = stop : ctrl v17
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "arg0" of v0
+	v5 = proj : i32  #3 "arg1" of v0
+	v6 = const : i32  0
+	v7 = const : i32  1
+	v8 = store : mem v2, v3, v4, v6
+	v9 = region : ctrl  loop v2, v13
+	v10 = phi : i32 v9, v6, v16
+	v11 = slt : i1 v10, v5
+	v12 = if : (ctrl, ctrl) v9, v11
+	v13 = proj : ctrl  #0 "then" of v12
+	v14 = proj : ctrl  #1 "else" of v12
+	v15 = phi : mem v9, v8, v20
+	v16 = add : i32 v10, v7
+	v17 = return : ctrl v14, v15
+	v18 = phi : i32 v9, v6, v19
+	v19 = add : i32 v18, v10
+	v20 = store : mem v13, v15, v4, v19
+}
