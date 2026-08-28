@@ -1,5 +1,7 @@
 #include "codegen/linear_scan_reg_alloc.h"
 
+#include <cmath>
+
 #include "target/target.h"
 
 namespace rat {
@@ -237,7 +239,7 @@ namespace rat {
 					continue;
 				if(iv->crossesCall && !isCalleeSaved(rc, h))
 					continue;
-				if(isCalleeSaved(rc, h) && !usedCallee.count(h))
+				if(isCalleeSaved(rc, h) && !usedCallee.count(h) && !iv->crossesCall)
 					continue;
 				if((pool >> h) & 1) {
 					pick = h;
@@ -296,11 +298,12 @@ namespace rat {
 			F64 c = (F64)(iv->uses ? iv->uses : 1);
 			if(rematDef.find(iv->vreg) != rematDef.end())
 				c *= 0.3;
-			// lose to a densely used value
 			I32 span = 0;
 			for(const Seg& sg : iv->segs)
 				span += sg.end - sg.start + 1;
-			return c / (F64)(span > 0 ? span : 1);
+			// a dense temp still wins its register, but a long-lived hot value (loop state) is
+			// not written off just for being long
+			return c / std::sqrt((F64)(span > 0 ? span : 1));
 		};
 
 		Interval* victim = nullptr;
