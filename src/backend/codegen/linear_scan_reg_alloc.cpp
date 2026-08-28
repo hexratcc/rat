@@ -337,6 +337,55 @@ namespace rat {
 		}
 	}
 
+	VReg LinearScanRegAllocPass::webFind(VReg v) {
+		while(webParent[v] != v)
+			v = webParent[v] = webParent[webParent[v]];
+		return v;
+	}
+
+	void LinearScanRegAllocPass::webUnion(VReg x, VReg y) {
+		VReg rx = webFind(x), ry = webFind(y);
+		if(rx == ry)
+			return;
+		// safe only when no two members are live at once
+		List<I32> connecting = copyPointsBetween(x, y);
+		List<I32> none;
+		for(VReg a : webMembers[rx])
+			for(VReg b : webMembers[ry]) {
+				B32 isEdge = (a == x && b == y) || (a == y && b == x);
+				if(!overlapOnlyAt(ivAt(a), ivAt(b), isEdge ? connecting : none))
+					return;
+			}
+		webParent[ry] = rx;
+		List<VReg>& into = webMembers[rx];
+		for(VReg m : webMembers[ry])
+			into.push_back(m);
+		webMembers.erase(ry);
+	}
+
+	void LinearScanRegAllocPass::buildSpillWebs(const List<Interval*>& spilled) {
+		webParent.assign(fn->nextVReg, kNoVReg);
+		webMembers.clear();
+		for(const Interval* iv : spilled) {
+			webParent[iv->vreg] = iv->vreg;
+			webMembers[iv->vreg].push_back(iv->vreg);
+		}
+		for(const Interval* iv : spilled) {
+			// a spilled remat def never stores its slot, so
+			// sharing would drop its copies as self-moves and read a stale slot
+			if(rematDef.find(iv->vreg) != rematDef.end())
+				continue;
+			auto it = copyHints.find(iv->vreg);
+			if(it == copyHints.end())
+				continue;
+			for(const CopyHint& h : it->second) {
+				const Interval* p = ivFind(h.partner);
+				if(p && p->spilled && rematDef.find(h.partner) == rematDef.end())
+					webUnion(iv->vreg, h.partner);
+			}
+		}
+	}
+
 	void LinearScanRegAllocPass::assignSpillSlots() {
 		// pack
 		List<Interval*> spilled;
@@ -346,8 +395,23 @@ namespace rat {
 		std::sort(spilled.begin(), spilled.end(), [](const Interval* a, const Interval* b) {
 			return a->start != b->start ? a->start < b->start : a->vreg < b->vreg;
 		});
-		for(Interval* iv : spilled)
-			iv->spillSlot = takeSpillSlot(iv->cls, iv->start, iv->end);
+		buildSpillWebs(spilled);
+		Map<VReg, I32> webSlot;
+		for(Interval* iv : spilled) {
+			VReg root = webFind(iv->vreg);
+			auto it = webSlot.find(root);
+			if(it != webSlot.end()) {
+				iv->spillSlot = it->second;
+				continue;
+			}
+			I32 start = iv->start, end = iv->end;
+			for(VReg m : webMembers[root]) {
+				start = std::min(start, ivAt(m).start);
+				end = std::max(end, ivAt(m).end);
+			}
+			iv->spillSlot = takeSpillSlot(iv->cls, start, end);
+			webSlot.emplace(root, iv->spillSlot);
+		}
 	}
 
 } // namespace rat

@@ -85,6 +85,9 @@ namespace rat {
 		void assignRegs();
 		void assignSpillSlots();
 		void spillAt(Interval* cur, List<Interval*>& active);
+		void buildSpillWebs(const List<Interval*>& spilled);
+		VReg webFind(VReg v);
+		void webUnion(VReg x, VReg y);
 	private:
 		Interval& ivAt(VReg v) { return intervals[v]; }
 		const Interval* ivFind(VReg v) const {
@@ -92,6 +95,8 @@ namespace rat {
 		}
 
 		List<Interval> intervals;
+		List<VReg> webParent;
+		Map<VReg, List<VReg>> webMembers; // union-find root -> members
 		List<std::pair<I32, U64>> pinsByPoint;
 		List<Interval*> expiredBuf;
 		List<I32> segEnd;
