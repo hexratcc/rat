@@ -8,7 +8,9 @@
 //
 // A second phase runs a backward demanded-bits dataflow over the physical
 // registers and deletes the width normalizations (SignExtBits/MaskBits) whose
-// high bits no reader observes.
+// high bits no reader observes. A third phase runs a backward liveness
+// dataflow over the spill slots and deletes the stores no reload, call 
+// argument, or overwrite ever observes.
 
 #ifndef RAT_PASS_EMIT_X86PEEPHOLE_H
 #define RAT_PASS_EMIT_X86PEEPHOLE_H
@@ -64,6 +66,16 @@ namespace rat {
 		static B32 flagSafeToDrop(const MachineBlock& b, U32 at);
 		static void transfer(const MachineInstr& in, U64* dem);
 		U32 elimRedundantExt(MachineFunc& mf);
+
+		// dead-slot-store phase
+		static B32 isAnySlotStore(const MachineInstr& in);
+		static B32 isAnySlotLoad(const MachineInstr& in);
+		static void slotBlockOut(const MachineBlock& b, const List<List<U64>>& liveIn, List<U64>& cur);
+		static void slotStep(const MachineInstr& in,
+												 const Map<I32, U32>& slotIdx,
+												 const Map<I32, U32>& readWidth,
+												 List<U64>& cur);
+		U32 elimDeadSlotStores(MachineFunc& mf);
 	private:
 		ValueState st;
 	};
