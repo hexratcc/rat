@@ -16,7 +16,7 @@ class BuildError(Exception):
 
 
 def parse_args(argv):
-    jobs, quiet, bench, rest = os.cpu_count(), False, False, []
+    jobs, quiet, bench, reps, rest = os.cpu_count(), False, False, 10, []
     args = iter(argv)
     for arg in args:
         if arg == "-q":
@@ -27,9 +27,13 @@ def parse_args(argv):
             jobs = int(next(args))
         elif arg.startswith("-j"):
             jobs = int(arg[2:])
+        elif arg == "-r":
+            reps = int(next(args))
+        elif arg.startswith("-r"):
+            reps = int(arg[2:])
         else:
             rest.append(arg)
-    return jobs, quiet, bench, rest
+    return jobs, quiet, bench, reps, rest
 
 
 def host_compilers():
@@ -60,7 +64,7 @@ class Suite:
         self.name = name
         self.here = Path("src/compiler/test") / name
         self.out = Path("build/test") / name
-        self.jobs, self.quiet, self.bench_mode, self.args = parse_args(sys.argv[1:])
+        self.jobs, self.quiet, self.bench_mode, self.reps, self.args = parse_args(sys.argv[1:])
         self.ratcc = tool("RATCC", "bin/cc")
         self.hostcc = os.environ.get("HOSTCC", "cc")
         self.passed = 0
@@ -93,6 +97,15 @@ class Suite:
         self.dir.mkdir(parents=True)
         self.flags = []
         self.ldlibs = []
+
+    def bench_min(self, sample):
+        vals = []
+        for _ in range(self.reps):
+            v = sample()
+            if v is None:
+                return None
+            vals.append(v)
+        return min(vals)
 
     def compare(self, results):
         for test, vals in results.items():

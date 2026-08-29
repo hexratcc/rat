@@ -71,11 +71,19 @@ def bench():
             except lib.BuildError:
                 s.fail(f"{cc} {name}", f"build, see {s.dir}/build.log")
                 continue
-            result = subprocess.run([str(exe)], capture_output=True, text=True)
-            try:
-                results.setdefault(name, {})[cc] = round(float(result.stdout), 3)
-            except ValueError:
+
+            def sample(exe=exe):
+                result = subprocess.run([str(exe)], capture_output=True, text=True)
+                try:
+                    return float(result.stdout)
+                except ValueError:
+                    return None
+
+            t = s.bench_min(sample)
+            if t is None:
                 s.fail(f"{cc} {name}", "no timing output")
+            else:
+                results.setdefault(name, {})[cc] = round(t, 3)
     if not s.quiet:
         lib.bench_header()
     s.compare(results)
