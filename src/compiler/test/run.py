@@ -17,7 +17,8 @@ for exe in ("bin/rat-test", "bin/cc"):
 
 names = sys.argv[1:]
 bench = "bench" in names
-names = [name for name in names if name != "bench"]
+reps = [arg for arg in names if arg.startswith("-r")]
+names = [name for name in names if name != "bench" and not name.startswith("-r")]
 run_ir = not names and not bench
 if not names:
     names = sorted(child.name for child in TEST.iterdir() if (child / "run.py").is_file())
@@ -54,7 +55,7 @@ for name in names:
     runner = TEST / name / "run.py"
     if not runner.is_file():
         sys.exit(f"no such suite: {name}")
-    ok &= report([sys.executable, str(runner), f"-j{jobs}", "-q"] + (["bench"] if bench else []))
+    ok &= report([sys.executable, str(runner), f"-j{jobs}", "-q"] + (["bench"] if bench else []) + reps)
 
 if bench:
     if counts["BENCH"]:

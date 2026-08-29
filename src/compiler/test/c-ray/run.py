@@ -51,12 +51,18 @@ def bench():
         except lib.BuildError:
             s.fail(f"{cc} build", f"see {s.dir}/build.log")
             continue
-        result = render(exe, "3200x2400", s.dir / "out.ppm")
-        took = re.search(r"\((\d+) milliseconds\)", result.stderr)
-        if result.returncode == 0 and took:
-            results.setdefault("render", {})[cc] = int(took.group(1)) / 1000
-        else:
+        def sample(exe=exe):
+            result = render(exe, "3200x2400", s.dir / "out.ppm")
+            took = re.search(r"\((\d+) milliseconds\)", result.stderr)
+            if result.returncode != 0 or not took:
+                return None
+            return int(took.group(1)) / 1000
+
+        t = s.bench_min(sample)
+        if t is None:
             s.fail(f"{cc} render", "no timing output")
+        else:
+            results.setdefault("render", {})[cc] = round(t, 3)
     if not s.quiet:
         lib.bench_header()
     s.compare(results)

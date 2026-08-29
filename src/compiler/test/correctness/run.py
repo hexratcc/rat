@@ -37,7 +37,7 @@ int __ratcc_entry(void) {
 }
 """
 
-jobs, quiet, bench, picked = lib.parse_args(sys.argv[1:])
+jobs, quiet, bench, reps, picked = lib.parse_args(sys.argv[1:])
 if bench:
     sys.exit(0)  # no benchmarks here
 os.chdir(lib.ROOT)

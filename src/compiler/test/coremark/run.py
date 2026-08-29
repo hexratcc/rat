@@ -42,13 +42,19 @@ def bench():
         except lib.BuildError:
             s.fail(f"{cc} build", f"see {s.dir}/build.log")
             continue
-        result = run(exe)
-        rate = re.search(r"Iterations/Sec   : ([\d.]+)", result.stdout)
-        if result.returncode == 0 and rate and "Correct operation validated" in result.stdout:
+        def sample(exe=exe):
+            result = run(exe)
+            rate = re.search(r"Iterations/Sec   : ([\d.]+)", result.stdout)
+            if result.returncode != 0 or not rate or "Correct operation validated" not in result.stdout:
+                return None
             # seconds per 100k iterations, so lower is better like the rest
-            results.setdefault("coremark (s/100k iters)", {})[cc] = round(100000 / float(rate.group(1)), 3)
-        else:
+            return 100000 / float(rate.group(1))
+
+        t = s.bench_min(sample)
+        if t is None:
             s.fail(f"{cc} run", f"see {s.dir}/build.log")
+        else:
+            results.setdefault("coremark (s/100k iters)", {})[cc] = round(t, 3)
     if not s.quiet:
         lib.bench_header()
     s.compare(results)

@@ -51,13 +51,20 @@ def bench():
             s.fail(f"{cc} build", f"see {s.dir}/build.log")
             continue
         for script in sorted((tree / "test/benchmark").glob("*.wren")):
-            result = subprocess.run([str(Path(exe).resolve()), str(script.relative_to(tree))], cwd=tree, capture_output=True, text=True)
-            s.log(result.stdout + result.stderr)
-            elapsed = re.search(r"elapsed: ([\d.]+)", result.stdout)
-            if result.returncode == 0 and elapsed:
-                results.setdefault(script.stem, {})[cc] = round(float(elapsed.group(1)), 3)
-            else:
+
+            def sample(exe=exe, script=script):
+                result = subprocess.run([str(Path(exe).resolve()), str(script.relative_to(tree))], cwd=tree, capture_output=True, text=True)
+                s.log(result.stdout + result.stderr)
+                elapsed = re.search(r"elapsed: ([\d.]+)", result.stdout)
+                if result.returncode != 0 or not elapsed:
+                    return None
+                return float(elapsed.group(1))
+
+            t = s.bench_min(sample)
+            if t is None:
                 s.fail(f"{cc} {script.stem}", f"see {s.dir}/build.log")
+            else:
+                results.setdefault(script.stem, {})[cc] = round(t, 3)
     if not s.quiet:
         lib.bench_header()
     s.compare(results)
