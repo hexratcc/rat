@@ -10,15 +10,6 @@ namespace rat {
 			os << "f" << fnIndex << "_v" << n->getId();
 		}
 
-		// dot label strings: escape quote and backslash
-		void writeEscaped(std::ostream& os, const String& s) {
-			for(C8 ch : s) {
-				if(ch == '"' || ch == '\\')
-					os << '\\';
-				os << ch;
-			}
-		}
-
 		void writeHtml(std::ostream& os, const String& s) {
 			for(C8 ch : s) {
 				switch(ch) {
@@ -218,9 +209,7 @@ namespace rat {
 					if(const Node* in = n->getInput(i))
 						++uses[in][outElem(in, n)];
 
-			os << "  subgraph cluster_" << index << " {\n    label=\"";
-			writeEscaped(os, fn.getName());
-			os << "\";\n    penwidth=0;\n";
+			os << "  subgraph cluster_" << index << " {\n    penwidth=0;\n";
 			for(const Node* n : fn)
 				writeNode(os, index, n, uses[n]);
 			os << "\n";
