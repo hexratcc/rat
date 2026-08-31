@@ -15,7 +15,7 @@
 #include "target/x86/x86_asm.h"
 
 namespace rat {
-	PhysReg X86LowerPass::gpReg(Reg r) { return X86Target::kGpBase + (PhysReg)r; }
+	PhysReg X86LowerPass::gpReg(Reg r) { return detail::gpPhys(r); }
 	U32 X86LowerPass::opWidth(const Type* t) {
 		if(!t)
 			return 8;
@@ -35,7 +35,7 @@ namespace rat {
 		return 8;
 	}
 
-	PhysReg X86LowerPass::xmmReg(U32 n) { return X86Target::kXmmBase + n; }
+	PhysReg X86LowerPass::xmmReg(U32 n) { return detail::xmmPhys(n); }
 	B32 X86LowerPass::isFloatTy(const Type* t) { return t && t->isFloat(); }
 	B32 X86LowerPass::isX87Ty(const Type* t) {
 		return t && t->isFloat() && t->getFloatWidth() == 128;
@@ -732,17 +732,15 @@ namespace rat {
 			fn.frameBytes = (fn.frameBytes + 7u) & ~7u;
 			return -(I32)fn.frameBytes;
 		};
-		hooks.isCopy = [](const MachineInstr& in) { return in.op == (MachineOpcode)X86Op::Copy; };
+		hooks.isCopy = [](const MachineInstr& in) {
+			return (x86OpInfo((X86Op)in.op).flags & kOpCopy) != 0;
+		};
 		hooks.isRemat = [](const MachineInstr& in) {
-			if(in.op == (MachineOpcode)X86Op::LoadImm || in.op == (MachineOpcode)X86Op::LoadSym)
+			if(x86OpInfo((X86Op)in.op).flags & kOpRemat)
 				return true;
-			if(in.op == (MachineOpcode)X86Op::FrameAddr)
-				return true; // static frame address
 			// constant-pool load
-			if(in.op == (MachineOpcode)X86Op::FLoad && in.uses.size() == 1 &&
-				 in.uses[0].kind == MachineOperand::Kind::Sym)
-				return true;
-			return false;
+			return in.op == (MachineOpcode)X86Op::FLoad && in.uses.size() == 1 &&
+						 in.uses[0].kind == MachineOperand::Kind::Sym;
 		};
 		return hooks;
 	}
