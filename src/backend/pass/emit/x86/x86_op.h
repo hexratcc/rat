@@ -157,6 +157,24 @@ namespace rat {
 	const X86OpInfo& x86OpInfo(X86Op op);
 	const C8* x86OpMnemonic(X86Op op);
 
+	// operand shorthands, for the cases where a raw type would be ambiguous with VReg
+	struct Imm {
+		I64 v;
+		U32 w = 8;
+	};
+	struct Slot {
+		I32 s;
+		U32 w = 8;
+	};
+	struct Xmm {
+		U32 n;
+		U32 w = 8;
+	};
+
+	inline Imm imm(I64 v, U32 w = 8) { return {v, w}; }
+	inline Slot slot(I32 s, U32 w = 8) { return {s, w}; }
+	inline Xmm xmm(U32 n, U32 w = 8) { return {n, w}; }
+
 	struct X86FrameLayout : MachineFuncAux {
 		I32 ldScratch = 0;
 		I32 vecScratch = 0;

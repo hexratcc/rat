@@ -33,123 +33,72 @@ namespace rat {
 		U32 w = opWidth(val->getType());
 		if(isX87Ty(val->getType())) {
 			VReg addr = gpValue(s->getPointer()); // x87 mem ops carry width in imm, no disp
-			I32 slot = x87Value(val);
-			inst(X86Op::X87StoreMem,
-					 detail::kX87,
-					 {},
-					 {MachineOperand::vr(addr), MachineOperand::frameSlot(slot)},
-					 detail::kX87MemBits);
+			I32 s87 = x87Value(val);
+			fstp(addr, slot(s87));
 			return;
 		}
 		AddrParts a = matchAddr(s->getPointer());
-		auto emitOne = [&](X86Op op, U32 cls, MachineOperand src) {
-			List<MachineOperand> uses = {addrBase(a), std::move(src)};
-			if(a.hasIndex)
-				uses.push_back(MachineOperand::vr(a.index));
-			inst(op, cls, {}, std::move(uses), a.disp, sibBits(0, a));
-		};
 		if(isSseTy(val->getType())) {
-			emitOne(X86Op::FStore, detail::kFp, MachineOperand::vr(sseValue(val), w));
-		} else {
-			if(ConstantNode* c = dyn_cast<ConstantNode>(val)) {
-				I64 v = c->getValue();
-				if(w < 8 || v == (I64)(I32)v) {
-					emitOne(X86Op::Store, detail::kGp, MachineOperand::immVal(v, w));
-					return;
-				}
-			}
-			MachineOperand src = MachineOperand::vr(gpValue(val), w);
-			// indexed reg store [base+index*scale+disp]=src has 3 gp uses; a vreg base lets all three
-			// spill at once but only 2 gp scratch exist, so fold the address into an lea and keep the
-			// store at <=2 gp uses
-			if(a.hasIndex && !a.frameBase) {
-				VReg t = fresh(detail::kGp);
-				inst(X86Op::Lea,
-						 detail::kGp,
-						 {MachineOperand::vr(t)},
-						 {addrBase(a), MachineOperand::vr(a.index)},
-						 a.disp,
-						 (I64)(a.scaleLog2 & 3));
-				inst(X86Op::Store, detail::kGp, {}, {MachineOperand::vr(t), std::move(src)});
+			VReg src = sseValue(val);
+			stf(a, src, w);
+			return;
+		}
+		if(ConstantNode* c = dyn_cast<ConstantNode>(val)) {
+			I64 v = c->getValue();
+			if(w < 8 || v == (I64)(I32)v) {
+				st(a, MachineOperand::immVal(v, w));
 				return;
 			}
-			emitOne(X86Op::Store, detail::kGp, std::move(src));
 		}
+		MachineOperand src = MachineOperand::vr(gpValue(val), w);
+		// indexed reg store [base+index*scale+disp]=src has 3 gp uses; a vreg base lets all three
+		// spill at once but only 2 gp scratch exist, so fold the address into an lea and keep the
+		// store at <=2 gp uses
+		if(a.hasIndex && !a.frameBase) {
+			VReg t = fresh(detail::kGp);
+			lea(t, a);
+			st(t, std::move(src));
+			return;
+		}
+		st(a, std::move(src));
 	}
 
 	void X86LowerPass::emitLoad(LoadNode* l) {
 		U32 w = opWidth(l->getType());
 		if(isX87Ty(l->getType())) {
 			VReg addr = gpValue(l->getPointer());
-			inst(X86Op::X87LoadMem,
-					 detail::kX87,
-					 {MachineOperand::frameSlot(x87SlotOf(l))},
-					 {MachineOperand::vr(addr)},
-					 detail::kX87MemBits);
+			fld(slot(x87SlotOf(l)), addr);
 			return;
 		}
 		AddrParts a = matchAddr(l->getPointer());
-		List<MachineOperand> uses = {addrBase(a)};
-		if(a.hasIndex)
-			uses.push_back(MachineOperand::vr(a.index));
 		if(isSseTy(l->getType())) {
-			inst(X86Op::FLoad,
-					 detail::kFp,
-					 {MachineOperand::vr(vregFor(l), w)},
-					 std::move(uses),
-					 a.disp,
-					 sibBits(0, a));
+			ldf(vregFor(l), w, a);
 		} else {
 			B32 sign = l->getType() && l->getType()->isInt() && !zextOnlyLoad(l);
-			inst(X86Op::Load,
-					 detail::kGp,
-					 {MachineOperand::vr(vregFor(l), w)},
-					 std::move(uses),
-					 a.disp,
-					 sibBits(sign ? 1 : 0, a));
+			ld(vregFor(l), w, a, sign);
 		}
 	}
 
 	void X86LowerPass::emitStackAlloc(Node* n) {
 		VReg sz = gpValue(cast<StackAllocNode>(n)->getSize());
-		inst(X86Op::StackAlloc, detail::kGp, {MachineOperand::vr(vregFor(n))}, {MachineOperand::vr(sz)})
-				.clobbers = {gpReg(R10), gpReg(R11)}; // rounding runs through the scratch regs
+		stackAlloc(vregFor(n), sz);
 	}
 
-	void X86LowerPass::emitStackSave(Node* n) {
-		inst(X86Op::StackSave, detail::kGp, {MachineOperand::vr(vregFor(n))}, {});
-	}
+	void X86LowerPass::emitStackSave(Node* n) { stackSave(vregFor(n)); }
 
 	void X86LowerPass::emitStackRestore(Node* n) {
 		VReg sp = gpValue(cast<StackRestoreNode>(n)->getSaved());
-		inst(X86Op::StackRestore, detail::kGp, {}, {MachineOperand::vr(sp)});
+		stackRestore(sp);
 	}
 
 	void X86LowerPass::twoAddr(X86Op op, VReg d, VReg lhs, VReg rhs) {
-		copy(MachineOperand::vr(d), MachineOperand::vr(lhs), detail::kGp);
-		inst(
-				op, detail::kGp, {MachineOperand::vr(d)}, {MachineOperand::vr(d), MachineOperand::vr(rhs)});
-	}
-
-	void X86LowerPass::twoAddrF(X86Op op, VReg d, VReg lhs, VReg rhs, U32 w, I64 imm) {
-		copy(MachineOperand::vr(d, w), MachineOperand::vr(lhs, w), detail::kFp);
-		inst(op,
-				 detail::kFp,
-				 {MachineOperand::vr(d, w)},
-				 {MachineOperand::vr(d, w), MachineOperand::vr(rhs, w)},
-				 imm);
+		mov(d, lhs);
+		alu(op, d, d, rhs);
 	}
 
 	void X86LowerPass::maskBits(VReg d, U32 bits) {
-		if(bits > 0 && bits < 64) {
-			MachineInstr& m = inst(X86Op::MaskBits,
-														 detail::kGp,
-														 {MachineOperand::vr(d)},
-														 {MachineOperand::vr(d)},
-														 (I64)bits);
-			if(bits > 32)
-				m.clobbers = {gpReg(R11)}; // mask built via scratch reg
-		}
+		if(bits > 0 && bits < 64)
+			maskBitsOp(d, bits);
 	}
 
 	void X86LowerPass::signExtBits(VReg d, U32 bits) {
@@ -158,11 +107,7 @@ namespace rat {
 			return;
 		}
 		if(bits > 0 && bits < 64)
-			inst(X86Op::SignExtBits,
-					 detail::kGp,
-					 {MachineOperand::vr(d)},
-					 {MachineOperand::vr(d)},
-					 (I64)bits);
+			signExtBitsOp(d, bits);
 	}
 
 	void X86LowerPass::emitDivLike(BinaryNode* n, X86Op op) {
@@ -174,39 +119,29 @@ namespace rat {
 
 		U32 bits = intBits(n->getType());
 
-		copy(MachineOperand::fixed(gpReg(R11)), MachineOperand::vr(rhs), detail::kGp);
-		copy(MachineOperand::fixed(gpReg(RAX)), MachineOperand::vr(lhs), detail::kGp);
-		copy(MachineOperand::fixed(gpReg(RCX)), MachineOperand::fixed(gpReg(R11)), detail::kGp);
+		mov(R11, rhs);
+		mov(RAX, lhs);
+		mov(RCX, R11);
 
-		inst(op,
-				 detail::kGp,
-				 {MachineOperand::fixed(gpReg(RAX)), MachineOperand::fixed(gpReg(RDX))},
-				 {MachineOperand::fixed(gpReg(RAX)), MachineOperand::fixed(gpReg(RCX))},
-				 (I64)bits);
+		idiv(op, bits);
 
-		copy(MachineOperand::vr(d), MachineOperand::fixed(gpReg(wantRem ? RDX : RAX)), detail::kGp);
+		mov(d, wantRem ? RDX : RAX);
 	}
 
 	void X86LowerPass::emitShift(BinaryNode* n, X86Op op) {
 		VReg lhs = gpValue(n->getLHS());
 		VReg d = vregFor(n);
 		U32 bits = intBits(n->getType());
-		copy(MachineOperand::vr(d), MachineOperand::vr(lhs), detail::kGp);
+		mov(d, lhs);
 		if(op == X86Op::LShr)
 			maskBits(d, bits);
 		I64 iv;
 		if(immOf(n->getRHS(), iv)) { // constant count: shift-by-imm, no RCX
-			inst(op,
-					 detail::kGp,
-					 {MachineOperand::vr(d)},
-					 {MachineOperand::vr(d), MachineOperand::immVal(iv & 63)});
+			shift(op, d, imm(iv & 63));
 		} else {
 			VReg rhs = gpValue(n->getRHS());
-			copy(MachineOperand::fixed(gpReg(RCX)), MachineOperand::vr(rhs), detail::kGp);
-			inst(op,
-					 detail::kGp,
-					 {MachineOperand::vr(d)},
-					 {MachineOperand::vr(d), MachineOperand::fixed(gpReg(RCX))});
+			mov(RCX, rhs);
+			shift(op, d, RCX);
 		}
 		if(op == X86Op::Shl)
 			signExtBits(d, bits);
@@ -218,15 +153,11 @@ namespace rat {
 		U32 bits = intBits(n->getType());
 		VReg lhs = gpValue(n->getLHS());
 		VReg d = vregFor(n);
-		copy(MachineOperand::vr(d), MachineOperand::vr(lhs), detail::kGp);
+		mov(d, lhs);
 		I64 iv = 0;
 		if(!immOf(n->getRHS(), iv))
 			return; // degenerate; should not happen
-		inst(left ? X86Op::Rotl : X86Op::Rotr,
-				 detail::kGp,
-				 {MachineOperand::vr(d)},
-				 {MachineOperand::vr(d), MachineOperand::immVal(iv & (bits - 1))},
-				 (I64)bits);
+		rot(left ? X86Op::Rotl : X86Op::Rotr, d, iv & (bits - 1), bits);
 		signExtBits(d, bits); // restore in-register sign-extended convention
 	}
 
@@ -299,28 +230,22 @@ namespace rat {
 				else if(iv == 9)
 					sc = 3;
 				if(sc) {
-					inst(X86Op::Lea,
-							 detail::kGp,
-							 {MachineOperand::vr(d)},
-							 {MachineOperand::vr(lhs), MachineOperand::vr(lhs)},
-							 0,
-							 (I64)sc);
+					AddrParts a; // lhs + lhs*(1<<sc)
+					a.base = lhs;
+					a.index = lhs;
+					a.scaleLog2 = sc;
+					a.hasIndex = true;
+					lea(d, a);
 					signExtBits(d, bits);
 					return;
 				}
 				// otherwise three-operand imul: no tied copy needed
-				inst(X86Op::Mul,
-						 detail::kGp,
-						 {MachineOperand::vr(d)},
-						 {MachineOperand::vr(lhs), MachineOperand::immVal(iv)});
+				imul(d, lhs, imm(iv));
 				signExtBits(d, bits);
 				return;
 			}
-			copy(MachineOperand::vr(d), MachineOperand::vr(lhs), detail::kGp);
-			inst(mop,
-					 detail::kGp,
-					 {MachineOperand::vr(d)},
-					 {MachineOperand::vr(d), MachineOperand::immVal(iv)});
+			mov(d, lhs);
+			alu(mop, d, d, imm(iv));
 			signExtBits(d, bits);
 			return;
 		}
@@ -341,7 +266,7 @@ namespace rat {
 		VReg rhs = sseValue(n->getRHS());
 		VReg d = vregFor(n);
 		static const X86Op kFOps[] = {X86Op::FAdd, X86Op::FSub, X86Op::FMul, X86Op::FDiv};
-		twoAddrF(kFOps[idx], d, lhs, rhs, w, (I64)w);
+		farith(kFOps[idx], d, lhs, rhs, w, (I64)w);
 	}
 
 	void X86LowerPass::needVecScratch() {
@@ -408,7 +333,7 @@ namespace rat {
 		VReg lhs = sseValue(n->getLHS());
 		VReg rhs = sseValue(n->getRHS());
 		VReg d = vregFor(n);
-		twoAddrF(X86Op::VArith, d, lhs, rhs, 16, ((I64)(esc38 ? 1 : 0) << 16) | ((I64)pfx << 8) | opc);
+		varith(d, lhs, rhs, pfx, opc, esc38);
 	}
 
 	void X86LowerPass::emitSplat(SplatNode* n) {
@@ -416,21 +341,12 @@ namespace rat {
 		U32 esz = et->byteSize(ptrBytes);
 		B32 isInt = !et->isFloat();
 		VReg s = isInt ? gpValue(n->getScalar()) : sseValue(n->getScalar());
-		inst(X86Op::VSplat,
-				 detail::kFp,
-				 {MachineOperand::vr(vregFor(n), 16)},
-				 {isInt ? MachineOperand::vr(s) : MachineOperand::vr(s, esz)},
-				 (I64)esz,
-				 isInt ? 1 : 0);
+		vsplat(vregFor(n), s, esz, isInt);
 	}
 
 	void X86LowerPass::emitShuffle(ShuffleNode* n) {
 		VReg v = sseValue(n->getVector());
-		inst(X86Op::VShuf,
-				 detail::kFp,
-				 {MachineOperand::vr(vregFor(n), 16)},
-				 {MachineOperand::vr(v, 16)},
-				 (I64)n->getSelector());
+		vshuf(vregFor(n), v, n->getSelector());
 	}
 
 	void X86LowerPass::emitExtract(ExtractNode* n) {
@@ -440,12 +356,7 @@ namespace rat {
 		VReg v = sseValue(n->getVector());
 		if(isInt && n->getLane() != 0)
 			needVecScratch(); // staged through memory
-		inst(X86Op::VExtract,
-				 isInt ? detail::kGp : detail::kFp,
-				 {isInt ? MachineOperand::vr(vregFor(n)) : MachineOperand::vr(vregFor(n), esz)},
-				 {MachineOperand::vr(v, 16)},
-				 (I64)n->getLane(),
-				 ((I64)esz << 1) | (isInt ? 1 : 0));
+		vextract(vregFor(n), v, n->getLane(), esz, isInt);
 	}
 
 	void X86LowerPass::emitPack(PackNode* n) {
@@ -465,10 +376,7 @@ namespace rat {
 				for(U32 b = 0; b < esz; ++b)
 					bytes[i * esz + b] = (U8)(v >> (8 * b));
 			}
-			inst(X86Op::FLoad,
-					 detail::kFp,
-					 {MachineOperand::vr(vregFor(n), 16)},
-					 {MachineOperand::symbol(vecPoolSym(bytes))});
+			ldf(vregFor(n), 16, vecPoolSym(bytes));
 			return;
 		}
 
@@ -480,49 +388,34 @@ namespace rat {
 			op = X86Op::VPackReg;
 		else
 			needVecScratch();
-		List<MachineOperand> uses;
+		List<MachineOperand> lanes;
 		for(U32 i = 0; i < w; ++i) {
 			Node* lane = n->getLane(i);
 			if(isInt)
-				uses.push_back(MachineOperand::vr(gpValue(lane)));
+				lanes.push_back(MachineOperand::vr(gpValue(lane)));
 			else
-				uses.push_back(MachineOperand::vr(sseValue(lane), esz));
+				lanes.push_back(MachineOperand::vr(sseValue(lane), esz));
 		}
-		inst(op,
-				 detail::kFp,
-				 {MachineOperand::vr(vregFor(n), 16)},
-				 std::move(uses),
-				 (I64)esz,
-				 isInt ? 1 : 0);
+		vpack(op, vregFor(n), std::move(lanes), esz, isInt);
 	}
 
 	void X86LowerPass::emitX87Binary(BinaryNode* n, U32 idx) {
 		static const X86Op kOps[] = {X86Op::X87Add, X86Op::X87Sub, X86Op::X87Mul, X86Op::X87Div};
 		I32 lhs = x87Value(n->getLHS());
 		I32 rhs = x87Value(n->getRHS());
-		inst(kOps[idx],
-				 detail::kX87,
-				 {MachineOperand::frameSlot(x87SlotOf(n))},
-				 {MachineOperand::frameSlot(lhs), MachineOperand::frameSlot(rhs)});
+		x87Arith(kOps[idx], slot(x87SlotOf(n)), slot(lhs), slot(rhs));
 	}
 
 	// d OP= s
-	void X86LowerPass::gpAcc(X86Op op, VReg d, VReg s) {
-		inst(op, detail::kGp, {MachineOperand::vr(d)}, {MachineOperand::vr(d), MachineOperand::vr(s)});
-	}
+	void X86LowerPass::gpAcc(X86Op op, VReg d, VReg s) { alu(op, d, d, s); }
 
 	// d >>= cnt, logical
-	void X86LowerPass::gpShrImm(VReg d, U32 cnt) {
-		inst(X86Op::LShr,
-				 detail::kGp,
-				 {MachineOperand::vr(d)},
-				 {MachineOperand::vr(d), MachineOperand::immVal((I64)cnt)});
-	}
+	void X86LowerPass::gpShrImm(VReg d, U32 cnt) { shift(X86Op::LShr, d, imm((I64)cnt)); }
 
 	// a fresh register holding a constant too wide for an ALU immediate
 	VReg X86LowerPass::gpConst(I64 v) {
 		VReg t = fresh(detail::kGp);
-		def1(X86Op::LoadImm, t, detail::kGp, {MachineOperand::immVal(v)});
+		movi(t, v);
 		return t;
 	}
 
@@ -532,20 +425,13 @@ namespace rat {
 		VReg s = gpValue(n->getOperand());
 		VReg d = vregFor(n);
 		if(bits < w) {
-			copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
+			mov(d, s);
 			maskBits(d, bits);
 			s = d;
 		}
-		inst(reverse ? X86Op::BitScanR : X86Op::BitScanF,
-				 detail::kGp,
-				 {MachineOperand::vr(d)},
-				 {MachineOperand::vr(s)},
-				 (I64)w);
+		bitScan(reverse ? X86Op::BitScanR : X86Op::BitScanF, d, s, w);
 		if(reverse)
-			inst(X86Op::Xor,
-					 detail::kGp,
-					 {MachineOperand::vr(d)},
-					 {MachineOperand::vr(d), MachineOperand::immVal((I64)bits - 1)});
+			alu(X86Op::Xor, d, d, imm((I64)bits - 1));
 	}
 
 	void X86LowerPass::emitPopcnt(UnaryNode* n) {
@@ -557,22 +443,22 @@ namespace rat {
 		VReg s = gpValue(n->getOperand());
 		VReg d = vregFor(n);
 		VReg t = fresh(detail::kGp);
-		copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
+		mov(d, s);
 		maskBits(d, bits); // keep only its bits
 		// d -= (d >> 1) & k55
-		copy(MachineOperand::vr(t), MachineOperand::vr(d), detail::kGp);
+		mov(t, d);
 		gpShrImm(t, 1);
 		gpAcc(X86Op::And, t, gpConst(k55));
 		gpAcc(X86Op::Sub, d, t);
 		// d = (d & k33) + ((d >> 2) & k33)
 		VReg m33 = gpConst(k33);
-		copy(MachineOperand::vr(t), MachineOperand::vr(d), detail::kGp);
+		mov(t, d);
 		gpShrImm(t, 2);
 		gpAcc(X86Op::And, t, m33);
 		gpAcc(X86Op::And, d, m33);
 		gpAcc(X86Op::Add, d, t);
 		// d = (d + (d >> 4)) & k0f
-		copy(MachineOperand::vr(t), MachineOperand::vr(d), detail::kGp);
+		mov(t, d);
 		gpShrImm(t, 4);
 		gpAcc(X86Op::Add, d, t);
 		gpAcc(X86Op::And, d, gpConst(k0f));
@@ -585,12 +471,8 @@ namespace rat {
 		U32 bits = intBits(n->getType());
 		VReg s = gpValue(n->getOperand());
 		VReg d = vregFor(n);
-		copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
-		inst(X86Op::Bswap,
-				 detail::kGp,
-				 {MachineOperand::vr(d)},
-				 {MachineOperand::vr(d)},
-				 (I64)(bits > 32 ? 64 : 32));
+		mov(d, s);
+		bswap(d, bits > 32 ? 64 : 32);
 		signExtBits(d, bits); // bswap r32 zero-extends
 	}
 
@@ -611,34 +493,25 @@ namespace rat {
 		if(n->getOpcode() == Opcode::FNeg) {
 			if(isX87Ty(n->getType())) {
 				I32 s = x87Value(n->getOperand());
-				inst(X86Op::X87Neg,
-						 detail::kX87,
-						 {MachineOperand::frameSlot(x87SlotOf(n))},
-						 {MachineOperand::frameSlot(s)});
+				fchs(slot(x87SlotOf(n)), slot(s));
 				return;
 			}
 			U32 w = opWidth(n->getType());
 			VReg s = sseValue(n->getOperand());
 			needScratch();
-			// encoder builds 0-x via the top volatile xmm
-			inst(X86Op::FNeg,
-					 detail::kFp,
-					 {MachineOperand::vr(vregFor(n), w)},
-					 {MachineOperand::vr(s, w)},
-					 (I64)w)
-					.clobbers = {xmmReg(conv->sseVolatileCount - 1)};
+			fneg(vregFor(n), s, w);
 			return;
 		}
 		VReg s = gpValue(n->getOperand());
 		VReg d = vregFor(n);
-		B32 neg = uop == Opcode::Neg;
-		copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
-		inst(neg ? X86Op::Neg : X86Op::Not,
-				 detail::kGp,
-				 {MachineOperand::vr(d)},
-				 {MachineOperand::vr(d)});
-		if(neg)
+		B32 isNeg = uop == Opcode::Neg;
+		mov(d, s);
+		if(isNeg) {
+			neg(d);
 			signExtBits(d, intBits(n->getType())); // -INT_MIN carries out of the width
+		} else {
+			not_(d);
+		}
 	}
 
 	// flag-setting cmp only; the caller emits its own jcc/setcc consumer
@@ -646,10 +519,10 @@ namespace rat {
 		VReg lhs = gpValue(n->getLHS());
 		I64 iv;
 		if(immOf(n->getRHS(), iv)) {
-			inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(lhs), MachineOperand::immVal(iv)});
+			cmp(lhs, imm(iv));
 		} else {
 			VReg rhs = gpValue(n->getRHS());
-			inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(lhs), MachineOperand::vr(rhs)});
+			cmp(lhs, rhs);
 		}
 	}
 
@@ -661,7 +534,7 @@ namespace rat {
 		// materialize both arms before the compare
 		VReg f = gpValue(n->getFalse());
 		VReg t = gpValue(n->getTrue());
-		copy(MachineOperand::vr(d), MachineOperand::vr(f), detail::kGp);
+		mov(d, f);
 
 		U8 cc = CC_NE;
 		if(selectOnlyCompare(cond)) {
@@ -675,21 +548,12 @@ namespace rat {
 			cc = detail::kFpCc[idx];
 			VReg l = sseValue(c->getLHS());
 			VReg r = sseValue(c->getRHS());
-			inst(X86Op::FCmpFlags,
-					 detail::kFp,
-					 {},
-					 {MachineOperand::vr(l, w), MachineOperand::vr(r, w)},
-					 0,
-					 detail::kFpSwap[idx]);
+			ucomisFlags(l, r, w, detail::kFpSwap[idx]);
 		} else {
 			VReg cv = gpValue(cond);
-			inst(X86Op::Cmp, detail::kGp, {}, {MachineOperand::vr(cv), MachineOperand::immVal(0)});
+			cmp(cv, imm(0));
 		}
-		inst(X86Op::CMov,
-				 detail::kGp,
-				 {MachineOperand::vr(d)},
-				 {MachineOperand::vr(d), MachineOperand::vr(t)},
-				 (I64)cc);
+		cmov(d, t, cc);
 	}
 
 	void X86LowerPass::emitCompare(CompareNode* n) {
@@ -700,11 +564,7 @@ namespace rat {
 		}
 		emitIntCmp(n);
 		VReg d = vregFor(n);
-		inst(X86Op::SetCC,
-				 detail::kGp,
-				 {MachineOperand::vr(d)},
-				 {},
-				 (I64)detail::kIntCc[(U32)op - (U32)Opcode::Eq]);
+		setcc(d, detail::kIntCc[(U32)op - (U32)Opcode::Eq]);
 	}
 
 	void X86LowerPass::emitFloatCompare(CompareNode* n) {
@@ -715,24 +575,14 @@ namespace rat {
 		if(isX87Ty(n->getLHS()->getType())) {
 			I32 lhs = x87Value(n->getLHS());
 			I32 rhs = x87Value(n->getRHS());
-			inst(X86Op::X87Cmp,
-					 detail::kGp,
-					 {MachineOperand::vr(d)},
-					 {MachineOperand::frameSlot(lhs), MachineOperand::frameSlot(rhs)},
-					 (I64)cc,
-					 swap);
+			fucomi(d, slot(lhs), slot(rhs), cc, swap != 0);
 			unorderedFixup(n->getOpcode(), d);
 			return;
 		}
 		U32 w = opWidth(n->getLHS()->getType());
 		VReg lhs = sseValue(n->getLHS());
 		VReg rhs = sseValue(n->getRHS());
-		inst(X86Op::FCmp,
-				 detail::kGp,
-				 {MachineOperand::vr(d)},
-				 {MachineOperand::vr(lhs, w), MachineOperand::vr(rhs, w)},
-				 (I64)cc,
-				 swap);
+		ucomis(d, lhs, rhs, w, cc, swap != 0);
 		unorderedFixup(n->getOpcode(), d);
 	}
 
@@ -740,11 +590,7 @@ namespace rat {
 		if(op != Opcode::FEq && op != Opcode::FNe)
 			return;
 		VReg t = fresh(detail::kGp);
-		inst(X86Op::SetCC,
-				 detail::kGp,
-				 {MachineOperand::vr(t)},
-				 {},
-				 (I64)(op == Opcode::FEq ? CC_NP : CC_P));
+		setcc(t, op == Opcode::FEq ? CC_NP : CC_P);
 		gpAcc(op == Opcode::FEq ? X86Op::And : X86Op::Or, d, t);
 	}
 
@@ -766,7 +612,7 @@ namespace rat {
 			// values live sign-extended in 64-bit registers
 			VReg s = gpValue(src);
 			VReg d = vregFor(n);
-			copy(MachineOperand::vr(d), MachineOperand::vr(s), detail::kGp);
+			mov(d, s);
 			if(op == Opcode::Trunc) {
 				signExtBits(d, intBits(n->getType()));
 			} else if(op == Opcode::ZExt) {
@@ -788,15 +634,11 @@ namespace rat {
 			}
 			if(op == Opcode::UIToFP) {
 				VReg z = fresh(detail::kGp);
-				copy(MachineOperand::vr(z), MachineOperand::vr(s), detail::kGp);
+				mov(z, s);
 				maskBits(z, sb);
 				s = z;
 			}
-			inst(X86Op::Cvt,
-					 detail::kFp,
-					 {MachineOperand::vr(vregFor(n), w)},
-					 {MachineOperand::vr(s)},
-					 cvtDesc(Asm::ssePrefixByte(w), 0x2a, true));
+			cvtf(vregFor(n), w, s, 8, Asm::ssePrefixByte(w), 0x2a, true);
 			return;
 		}
 		case Opcode::FPToSI:
@@ -809,30 +651,18 @@ namespace rat {
 			VReg s = sseValue(src);
 			VReg d = vregFor(n);
 			B32 wide = op == Opcode::FPToUI || intBits(n->getType()) > 32;
-			inst(X86Op::Cvt,
-					 detail::kGp,
-					 {MachineOperand::vr(d)},
-					 {MachineOperand::vr(s, w)},
-					 cvtDesc(Asm::ssePrefixByte(w), 0x2c, wide));
+			cvti(d, s, w, Asm::ssePrefixByte(w), 0x2c, wide);
 			signExtBits(d, intBits(n->getType())); // cvtt writes a whole register; restore the convention
 			return;
 		}
 		case Opcode::FPExt: { // f32 -> f64: cvtss2sd
 			VReg s = sseValue(src);
-			inst(X86Op::Cvt,
-					 detail::kFp,
-					 {MachineOperand::vr(vregFor(n), 8)},
-					 {MachineOperand::vr(s, 4)},
-					 cvtDesc(0xf3, 0x5a, false));
+			cvtf(vregFor(n), 8, s, 4, 0xf3, 0x5a, false);
 			return;
 		}
 		case Opcode::FPTrunc: { // f64 -> f32: cvtsd2ss
 			VReg s = sseValue(src);
-			inst(X86Op::Cvt,
-					 detail::kFp,
-					 {MachineOperand::vr(vregFor(n), 4)},
-					 {MachineOperand::vr(s, 8)},
-					 cvtDesc(0xf2, 0x5a, false));
+			cvtf(vregFor(n), 4, s, 8, 0xf2, 0x5a, false);
 			return;
 		}
 		default:
@@ -842,58 +672,50 @@ namespace rat {
 
 	void X86LowerPass::emitU64ToFP(ConvertNode* n, VReg s, U32 w) {
 		VReg hi = fresh(detail::kGp);
-		copy(MachineOperand::vr(hi), MachineOperand::vr(s), detail::kGp);
+		mov(hi, s);
 		gpShrImm(hi, 32);
 		VReg lo = fresh(detail::kGp);
-		copy(MachineOperand::vr(lo), MachineOperand::vr(s), detail::kGp);
+		mov(lo, s);
 		maskBits(lo, 32);
 
-		I64 cvt = cvtDesc(Asm::ssePrefixByte(8), 0x2a, true); // cvtsi2sd
+		U8 pfx = Asm::ssePrefixByte(8); // cvtsi2sd
 		VReg dh = fresh(detail::kFp);
-		inst(X86Op::Cvt, detail::kFp, {MachineOperand::vr(dh, 8)}, {MachineOperand::vr(hi)}, cvt);
+		cvtf(dh, 8, hi, 8, pfx, 0x2a, true);
 		VReg dl = fresh(detail::kFp);
-		inst(X86Op::Cvt, detail::kFp, {MachineOperand::vr(dl, 8)}, {MachineOperand::vr(lo)}, cvt);
+		cvtf(dl, 8, lo, 8, pfx, 0x2a, true);
 
 		VReg scaled = fresh(detail::kFp);
-		twoAddrF(X86Op::FMul, scaled, dh, fpConst(0x41f0000000000000ull, 8), 8, 8); // * 2^32
+		farith(X86Op::FMul, scaled, dh, fpConst(0x41f0000000000000ull, 8), 8, 8); // * 2^32
 		if(w == 8) {
-			twoAddrF(X86Op::FAdd, vregFor(n), scaled, dl, 8, 8);
+			farith(X86Op::FAdd, vregFor(n), scaled, dl, 8, 8);
 			return;
 		}
 		VReg sum = fresh(detail::kFp);
-		twoAddrF(X86Op::FAdd, sum, scaled, dl, 8, 8);
-		inst(X86Op::Cvt,
-				 detail::kFp,
-				 {MachineOperand::vr(vregFor(n), 4)},
-				 {MachineOperand::vr(sum, 8)},
-				 cvtDesc(0xf2, 0x5a, false)); // cvtsd2ss
+		farith(X86Op::FAdd, sum, scaled, dl, 8, 8);
+		cvtf(vregFor(n), 4, sum, 8, 0xf2, 0x5a, false); // cvtsd2ss
 	}
 
 	void X86LowerPass::emitFPToU64(ConvertNode* n, Node* src) {
 		U32 w = opWidth(src->getType());
 		VReg x = sseValue(src);
 		VReg k = fpConst(w == 4 ? 0x5f000000ull : 0x43e0000000000000ull, w); // 2^63
-		I64 cvt = cvtDesc(Asm::ssePrefixByte(w), 0x2c, true);
+		U8 pfx = Asm::ssePrefixByte(w);
 
 		VReg lo = fresh(detail::kGp); // while x < 2^63
-		inst(X86Op::Cvt, detail::kGp, {MachineOperand::vr(lo)}, {MachineOperand::vr(x, w)}, cvt);
+		cvti(lo, x, w, pfx, 0x2c, true);
 
 		VReg biased = fresh(detail::kFp);
-		twoAddrF(X86Op::FSub, biased, x, k, w, (I64)w);
+		farith(X86Op::FSub, biased, x, k, w, (I64)w);
 		VReg hi = fresh(detail::kGp);
-		inst(X86Op::Cvt, detail::kGp, {MachineOperand::vr(hi)}, {MachineOperand::vr(biased, w)}, cvt);
+		cvti(hi, biased, w, pfx, 0x2c, true);
 		gpAcc(X86Op::Xor, hi, gpConst((I64)0x8000000000000000ull)); // undo the bias
 
 		VReg m = fresh(detail::kGp); // -(x >= 2^63)
-		inst(X86Op::FCmp,
-				 detail::kGp,
-				 {MachineOperand::vr(m)},
-				 {MachineOperand::vr(x, w), MachineOperand::vr(k, w)},
-				 (I64)CC_AE);
-		inst(X86Op::Neg, detail::kGp, {MachineOperand::vr(m)}, {MachineOperand::vr(m)});
+		ucomis(m, x, k, w, CC_AE, false);
+		neg(m);
 
 		VReg d = vregFor(n); // d = lo ^ ((lo ^ hi) & m)
-		copy(MachineOperand::vr(d), MachineOperand::vr(hi), detail::kGp);
+		mov(d, hi);
 		gpAcc(X86Op::Xor, d, lo);
 		gpAcc(X86Op::And, d, m);
 		gpAcc(X86Op::Xor, d, lo);
@@ -911,42 +733,28 @@ namespace rat {
 			U32 sw = opWidth(src->getType());
 			VReg s = sseValue(src);
 			needScratch();
-			inst(X86Op::X87FromSse,
-					 detail::kX87,
-					 {MachineOperand::frameSlot(x87SlotOf(n))},
-					 {MachineOperand::vr(s, sw)},
-					 (I64)sw);
+			fldSse(slot(x87SlotOf(n)), s, sw);
 			return;
 		}
 		case Opcode::FPTrunc: {
 			I32 s = x87Value(src);
 			U32 dw = opWidth(n->getType());
 			needScratch();
-			inst(X86Op::X87ToSse,
-					 detail::kFp,
-					 {MachineOperand::vr(vregFor(n), dw)},
-					 {MachineOperand::frameSlot(s)},
-					 (I64)dw);
+			fstpSse(vregFor(n), dw, slot(s));
 			return;
 		}
 		case Opcode::SIToFP:
 		case Opcode::UIToFP: {
 			VReg s = gpValue(src);
 			needScratch();
-			inst(X86Op::X87FromInt,
-					 detail::kX87,
-					 {MachineOperand::frameSlot(x87SlotOf(n))},
-					 {MachineOperand::vr(s)});
+			fild(slot(x87SlotOf(n)), s);
 			return;
 		}
 		case Opcode::FPToSI:
 		case Opcode::FPToUI: {
 			I32 s = x87Value(src);
 			needScratch();
-			inst(X86Op::X87ToInt,
-					 detail::kGp,
-					 {MachineOperand::vr(vregFor(n))},
-					 {MachineOperand::frameSlot(s)});
+			fistp(vregFor(n), slot(s));
 			return;
 		}
 		default:
