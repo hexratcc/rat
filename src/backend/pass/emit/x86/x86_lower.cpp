@@ -15,7 +15,7 @@
 #include "target/x86/x86_asm.h"
 
 namespace rat {
-	PhysReg X86LowerPass::gpReg(Reg r) { return X86Target::kGpBase + (PhysReg)r; }
+	PhysReg X86LowerPass::gpReg(Reg r) { return detail::gpPhys(r); }
 	U32 X86LowerPass::opWidth(const Type* t) {
 		if(!t)
 			return 8;
@@ -35,7 +35,7 @@ namespace rat {
 		return 8;
 	}
 
-	PhysReg X86LowerPass::xmmReg(U32 n) { return X86Target::kXmmBase + n; }
+	PhysReg X86LowerPass::xmmReg(U32 n) { return detail::xmmPhys(n); }
 	B32 X86LowerPass::isFloatTy(const Type* t) { return t && t->isFloat(); }
 	B32 X86LowerPass::isX87Ty(const Type* t) {
 		return t && t->isFloat() && t->getFloatWidth() == 128;
@@ -202,46 +202,25 @@ namespace rat {
 
 	void X86LowerPass::emit(MachineInstr in) { mb->insts.push_back(std::move(in)); }
 
-	MachineInstr& X86LowerPass::inst(
-			X86Op op, U32 cls, List<MachineOperand> defs, List<MachineOperand> uses, I64 imm, I64 imm2) {
-		MachineInstr m;
-		m.op = (MachineOpcode)op;
-		m.regClass = cls;
-		m.defs = std::move(defs);
-		m.uses = std::move(uses);
-		m.imm = imm;
-		m.imm2 = imm2;
-		mb->insts.push_back(std::move(m));
-		return mb->insts.back();
-	}
-
-	void X86LowerPass::copy(MachineOperand dst, MachineOperand src, U32 cls) {
-		inst(X86Op::Copy, cls, {dst}, {src});
-	}
-
-	MachineInstr& X86LowerPass::def1(X86Op op, VReg dst, U32 cls, List<MachineOperand> uses) {
-		return inst(op, cls, {MachineOperand::vr(dst)}, std::move(uses));
-	}
-
 	VReg X86LowerPass::gpValue(Node* n) {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
 			U64 v = (U64)c->getValue();
 			if(n->getType() && n->getType()->isInt())
 				v = (U64)signExtend((I64)c->getValue(), opWidth(n->getType()) * 8);
 			VReg d = fresh(detail::kGp);
-			def1(X86Op::LoadImm, d, detail::kGp, {MachineOperand::immVal((I64)v)});
+			movi(d, (I64)v);
 			return d;
 		}
 		if(GlobalNode* g = dyn_cast<GlobalNode>(n)) {
 			if(vregOf[n->getId()] != kNoVReg)
 				return vregOf[n->getId()]; // materialized once at its scheduled block
 			VReg d = fresh(detail::kGp);
-			def1(X86Op::LoadSym, d, detail::kGp, {MachineOperand::symbol(g->getSymbol())});
+			lea(d, g->getSymbol());
 			return d;
 		}
 		if(AllocNode* al = dyn_cast<AllocNode>(n)) {
 			VReg d = fresh(detail::kGp);
-			inst(X86Op::FrameAddr, detail::kGp, {MachineOperand::vr(d)}, {}, allocOff[al->getId()]);
+			leaFrame(d, allocOff[al->getId()]);
 			return d;
 		}
 		return vregFor(n);
@@ -433,18 +412,12 @@ namespace rat {
 	// rip-relative load from the constant pool
 	void X86LowerPass::fpConstLoad(ConstantNode* c, VReg dst) {
 		U32 w = opWidth(c->getType());
-		inst(X86Op::FLoad,
-				 detail::kFp,
-				 {MachineOperand::vr(dst, w)},
-				 {MachineOperand::symbol(fpPoolSym((U64)c->getValue(), w))});
+		ldf(dst, w, fpPoolSym((U64)c->getValue(), w));
 	}
 
 	VReg X86LowerPass::fpConst(U64 bits, U32 width) {
 		VReg d = fresh(detail::kFp);
-		inst(X86Op::FLoad,
-				 detail::kFp,
-				 {MachineOperand::vr(d, width)},
-				 {MachineOperand::symbol(fpPoolSym(bits, width))});
+		ldf(d, width, fpPoolSym(bits, width));
 		return d;
 	}
 
@@ -452,28 +425,19 @@ namespace rat {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
 			I32 s = x87SlotOf(n);
 			needScratch();
-			inst(X86Op::X87LoadImmD,
-					 detail::kX87,
-					 {MachineOperand::frameSlot(s)},
-					 {MachineOperand::immVal((I64)(U64)c->getValue())});
+			fldImm(slot(s), (U64)c->getValue());
 			return s;
 		}
 		return x87SlotOf(n);
 	}
 
-	void X86LowerPass::x87Move(I32 dst, I32 src) {
-		inst(X86Op::X87FromSse,
-				 detail::kX87,
-				 {MachineOperand::frameSlot(dst)},
-				 {MachineOperand::frameSlot(src)},
-				 detail::kX87MemBits);
-	}
+	void X86LowerPass::x87Move(I32 dst, I32 src) { fldSlot(slot(dst), slot(src)); }
 
 	void X86LowerPass::emitNode(Node* n) {
 		switch(n->getOpcode()) {
 		case Opcode::Global: {
 			GlobalNode* g = cast<GlobalNode>(n);
-			def1(X86Op::LoadSym, vregFor(n), detail::kGp, {MachineOperand::symbol(g->getSymbol())});
+			lea(vregFor(n), g->getSymbol());
 			return;
 		}
 		case Opcode::Constant: {
@@ -549,15 +513,15 @@ namespace rat {
 		}
 	}
 
-	void X86LowerPass::emitPhiCopies(I32 targetBlock, I32 predIdx) {
-		// parallel-move semantics
-		auto mov = [&](VReg dst, VReg src, U32 cls, U32 w) {
-			if(cls == detail::kFp)
-				copy(MachineOperand::vr(dst, w), MachineOperand::vr(src, w), detail::kFp);
-			else
-				copy(MachineOperand::vr(dst), MachineOperand::vr(src), detail::kGp);
-		};
+	void X86LowerPass::phiMove(VReg dst, VReg src, U32 cls, U32 w) {
+		if(cls == detail::kFp)
+			movaps(dst, src, w);
+		else
+			mov(dst, src);
+	}
 
+	// parallel-move semantics
+	void X86LowerPass::emitPhiCopies(I32 targetBlock, I32 predIdx) {
 		const Schedule::Block& tb = sched->block(targetBlock);
 		List<PhiNode*> live;
 		List<VReg> tmp;
@@ -573,14 +537,14 @@ namespace rat {
 				continue;
 			}
 			VReg t = fresh(cls);
-			mov(t, cls == detail::kFp ? sseValue(v) : gpValue(v), cls, opWidth(phi->getType()));
+			phiMove(t, cls == detail::kFp ? sseValue(v) : gpValue(v), cls, opWidth(phi->getType()));
 			live.push_back(phi);
 			tmp.push_back(t);
 		}
 		for(U32 i = 0; i < (U32)live.size(); ++i) {
 			PhiNode* phi = live[i];
 			U32 cls = classOf(phi->getType());
-			mov(vregFor(phi), tmp[i], cls, opWidth(phi->getType()));
+			phiMove(vregFor(phi), tmp[i], cls, opWidth(phi->getType()));
 		}
 	}
 
@@ -596,13 +560,9 @@ namespace rat {
 			if(isIntCompare(pred)) {
 				// fuse the compare into the branch: cmp lhs, rhs; jcc
 				CompareNode* c = cast<CompareNode>(pred);
+				U32 idx = (U32)c->getOpcode() - (U32)Opcode::Eq;
 				emitIntCmp(c);
-				inst(X86Op::Br,
-						 detail::kGp,
-						 {},
-						 {MachineOperand::blockRef(blk.thenB), MachineOperand::blockRef(blk.elseB)},
-						 (I64)detail::kIntCc[(U32)c->getOpcode() - (U32)Opcode::Eq],
-						 1); // imm2 = 1: condition code in imm, no predicate register
+				jcc(detail::kIntCc[idx], blk.thenB, blk.elseB);
 				return;
 			}
 			if(fusableFpCompare(pred)) {
@@ -612,41 +572,24 @@ namespace rat {
 				U32 idx = (U32)c->getOpcode() - (U32)Opcode::FEq;
 				VReg lhs = sseValue(c->getLHS());
 				VReg rhs = sseValue(c->getRHS());
-				inst(X86Op::FCmpFlags,
-						 detail::kFp,
-						 {},
-						 {MachineOperand::vr(lhs, w), MachineOperand::vr(rhs, w)},
-						 0,
-						 detail::kFpSwap[idx]);
-				inst(X86Op::Br,
-						 detail::kGp,
-						 {},
-						 {MachineOperand::blockRef(blk.thenB), MachineOperand::blockRef(blk.elseB)},
-						 (I64)detail::kFpCc[idx],
-						 1); // imm2 = 1: condition code in imm
+				ucomisFlags(lhs, rhs, w, detail::kFpSwap[idx]);
+				jcc(detail::kFpCc[idx], blk.thenB, blk.elseB);
 				return;
 			}
 			VReg p = gpValue(pred);
-			inst(X86Op::Br,
-					 detail::kGp,
-					 {},
-					 {MachineOperand::vr(p),
-						MachineOperand::blockRef(blk.thenB),
-						MachineOperand::blockRef(blk.elseB)});
+			br(p, blk.thenB, blk.elseB);
 			return;
 		}
 		case Schedule::TermKind::Switch: {
 			// per-edge trampoline blocks carry phi copies, so the table jump is direct
 			SwitchNode* sw = cast<SwitchNode>(blk.termNode);
-			List<MachineOperand> uses{MachineOperand::vr(gpValue(sw->getSelector()))};
-			for(I32 tb : blk.caseB)
-				uses.push_back(MachineOperand::blockRef(tb));
-			inst(X86Op::SwitchJump, detail::kGp, {}, std::move(uses)).clobbers = {gpReg(R10), gpReg(R11)};
+			VReg sel = gpValue(sw->getSelector());
+			switchJump(sel, blk.caseB);
 			return;
 		}
 		case Schedule::TermKind::Goto:
 			emitPhiCopies(blk.gotoB, blk.gotoPredIdx);
-			inst(X86Op::Jmp, detail::kGp, {}, {MachineOperand::blockRef(blk.gotoB)});
+			jmp(blk.gotoB);
 			return;
 		}
 	}
@@ -732,17 +675,15 @@ namespace rat {
 			fn.frameBytes = (fn.frameBytes + 7u) & ~7u;
 			return -(I32)fn.frameBytes;
 		};
-		hooks.isCopy = [](const MachineInstr& in) { return in.op == (MachineOpcode)X86Op::Copy; };
+		hooks.isCopy = [](const MachineInstr& in) {
+			return (x86OpInfo((X86Op)in.op).flags & kOpCopy) != 0;
+		};
 		hooks.isRemat = [](const MachineInstr& in) {
-			if(in.op == (MachineOpcode)X86Op::LoadImm || in.op == (MachineOpcode)X86Op::LoadSym)
+			if(x86OpInfo((X86Op)in.op).flags & kOpRemat)
 				return true;
-			if(in.op == (MachineOpcode)X86Op::FrameAddr)
-				return true; // static frame address
 			// constant-pool load
-			if(in.op == (MachineOpcode)X86Op::FLoad && in.uses.size() == 1 &&
-				 in.uses[0].kind == MachineOperand::Kind::Sym)
-				return true;
-			return false;
+			return in.op == (MachineOpcode)X86Op::FLoad && in.uses.size() == 1 &&
+						 in.uses[0].kind == MachineOperand::Kind::Sym;
 		};
 		return hooks;
 	}

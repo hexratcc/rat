@@ -36,6 +36,16 @@ namespace rat {
 		const C8* name() const override { return "x86-lower"; }
 		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;
 	private:
+		// matched address, after its base and index are in registers
+		struct AddrParts {
+			VReg base = 0;
+			VReg index = 0;
+			U32 scaleLog2 = 0;
+			I32 disp = 0;
+			B32 hasIndex = false;
+			B32 frameBase = false; // rbp-rel
+		};
+
 		U32 runOnMachineFunction(const Function& fn, MachineFunc& mf, const TargetInfo& target);
 
 		void reset(const Function& f, Schedule& s, MachineFunc& o, X86FrameLayout& layout);
@@ -65,14 +75,100 @@ namespace rat {
 		I32 x87SlotOf(const Node* n);
 		VReg vregFor(const Node* n);
 		void emit(MachineInstr in);
-		MachineInstr& inst(X86Op op,
-											 U32 cls,
-											 List<MachineOperand> defs,
-											 List<MachineOperand> uses,
-											 I64 imm = 0,
-											 I64 imm2 = 0);
-		void copy(MachineOperand dst, MachineOperand src, U32 cls);
-		MachineInstr& def1(X86Op op, VReg dst, U32 cls, List<MachineOperand> uses);
+		MachineInstr&
+		put(X86Op op, List<MachineOperand> defs, List<MachineOperand> uses, I64 imm = 0, I64 imm2 = 0);
+
+		// data movement
+		void mov(VReg d, VReg s);
+		void mov(Reg d, VReg s);
+		void mov(VReg d, Reg s);
+		void mov(Reg d, Reg s);
+		void mov(MachineOperand d, MachineOperand s, U32 cls);
+		void movaps(VReg d, VReg s, U32 w);
+		void movaps(VReg d, Xmm s);
+		void movaps(Xmm d, VReg s);
+		void movi(VReg d, I64 v);
+		void lea(VReg d, const String& s);
+		void lea(VReg d, const AddrParts& a);
+		void leaFrame(VReg d, I64 disp);
+		void retAddr(VReg d);
+		// integer memory
+		void ld(VReg d, VReg base);
+		void ld(VReg d, Slot s);
+		void ld(VReg d, U32 w, const AddrParts& a, B32 sign);
+		void ld(VReg d, U32 w, VReg base, B32 sign);
+		void st(VReg base, MachineOperand src);
+		void st(Slot d, Reg src);
+		void st(const AddrParts& a, MachineOperand src);
+		// dynamic stack
+		void stackAlloc(VReg d, VReg size);
+		void stackSave(VReg d);
+		void stackRestore(VReg sp);
+		// non-local goto
+		void setJmp();
+		void longJmp();
+		// integer ALU
+		void alu(X86Op op, VReg d, VReg a, VReg b); // Add..Xor
+		void alu(X86Op op, VReg d, VReg a, Imm b);
+		void imul(VReg d, VReg a, Imm b);
+		void neg(VReg d);
+		void not_(VReg d);
+		void shift(X86Op op, VReg d, Imm cnt); // Shl / AShr / LShr
+		void shift(X86Op op, VReg d, Reg cl);
+		void rot(X86Op op, VReg d, I64 cnt, U32 bits); // Rotl / Rotr
+		void idiv(X86Op op, U32 bits);
+		void bitScan(X86Op op, VReg d, VReg s, U32 w);
+		void cmp(VReg a, VReg b);
+		void cmp(VReg a, Imm b);
+		void setcc(VReg d, U8 cc);
+		void cmov(VReg d, VReg s, U8 cc);
+		void maskBitsOp(VReg d, U32 bits);
+		void signExtBitsOp(VReg d, U32 bits);
+		void bswap(VReg d, U32 w);
+		// sse scalar float
+		void ldf(VReg d, U32 w, VReg base);
+		void ldf(VReg d, U32 w, const String& s);
+		void ldf(VReg d, U32 w, const AddrParts& a);
+		void stf(const AddrParts& a, VReg s, U32 w);
+		void farith(X86Op op, VReg d, VReg a, VReg b, U32 w, I64 desc);
+		void fneg(VReg d, VReg s, U32 w);
+		void fsqrt(VReg d, VReg s, U32 w);
+		void fabs_(VReg d, VReg s, U32 w);
+		void ucomis(VReg d, VReg a, VReg b, U32 w, U8 cc, B32 swap);				 // FCmp
+		void ucomisFlags(VReg a, VReg b, U32 w, B32 swap);									 // FCmpFlags
+		void cvtf(VReg d, U32 dw, VReg s, U32 sw, U8 pfx, U8 opc, B32 wide); // Cvt, xmm dest
+		void cvti(VReg d, VReg s, U32 sw, U8 pfx, U8 opc, B32 wide);				 // Cvt, gp dest
+		// sse packed vector
+		void varith(VReg d, VReg a, VReg b, U8 pfx, U8 opc, B32 esc38);
+		void vsplat(VReg d, VReg s, U32 esz, B32 isInt);
+		void vextract(VReg d, VReg s, U32 lane, U32 esz, B32 isInt);
+		void vpack(X86Op op, VReg d, List<MachineOperand> lanes, U32 esz, B32 isInt);
+		void vshuf(VReg d, VReg s, U8 sel);
+		// x87
+		void fld(Slot d, VReg addr);
+		void fldPop(Slot s);
+		void fstp(VReg addr, Slot s);
+		void fstp(Slot d);
+		void fstpDiscard();
+		void fldImm(Slot d, U64 bits);
+		void fild(Slot d, VReg s);
+		void fistp(VReg d, Slot s);
+		void fldSse(Slot d, VReg s, U32 w);
+		void fldSlot(Slot d, Slot s);
+		void fstpSse(VReg d, U32 w, Slot s);
+		void x87Arith(X86Op op, Slot d, Slot a, Slot b);
+		void fchs(Slot d, Slot s);
+		void fucomi(VReg d, Slot a, Slot b, U8 cc, B32 swap);
+		// control
+		void jmp(I32 target);
+		void jcc(U8 cc, I32 thenB, I32 elseB);
+		void br(VReg pred, I32 thenB, I32 elseB);
+		void switchJump(VReg sel, const List<I32>& targets);
+		void vaStart(VReg ptr, U32 namedGp, U32 namedFp);
+		void vaArg(MachineOperand def, VReg ptr, VaArgKind kind, I64 desc, U32 cls);
+		void ud2();
+		void prefetch(VReg addr, U8 hint);
+
 		VReg gpValue(Node* n);
 
 		struct AddrMatch {
@@ -83,14 +179,6 @@ namespace rat {
 			I32 disp = 0;
 			B32 hasIndex = false;
 		};
-		struct AddrParts {
-			VReg base = 0;
-			VReg index = 0;
-			U32 scaleLog2 = 0;
-			I32 disp = 0;
-			B32 hasIndex = false;
-			B32 frameBase = false; // address is rbp-relative
-		};
 		B32 scaleOf(Node* n, Node*& idx, U32& scaleLog2);
 		AddrMatch decodeAddr(Node* ptr);
 		AddrParts matchAddr(Node* ptr);
@@ -98,6 +186,7 @@ namespace rat {
 		B32 addressOnlyScale(Node* n);
 		MachineOperand addrBase(const AddrParts& a);
 		I64 sibBits(I64 sign, const AddrParts& a);
+		List<MachineOperand> addrUses(const AddrParts& a);
 		VReg sseValue(Node* n);
 		String fpPoolSym(U64 bits, U32 width);
 		void fpConstLoad(ConstantNode* c, VReg dst);
@@ -110,7 +199,6 @@ namespace rat {
 		void emitStackSave(Node* n);
 		void emitStackRestore(Node* n);
 		void twoAddr(X86Op op, VReg d, VReg lhs, VReg rhs);
-		void twoAddrF(X86Op op, VReg d, VReg lhs, VReg rhs, U32 w, I64 imm);
 		VReg frameAddr(I64 disp);
 		void maskBits(VReg d, U32 bits);
 		void signExtBits(VReg d, U32 bits);
@@ -159,6 +247,7 @@ namespace rat {
 		void emitLongJmp(CallNode* c);
 		void emitNode(Node* n);
 		void emitReturn(ReturnNode* r);
+		void phiMove(VReg dst, VReg src, U32 cls, U32 w);
 		void emitPhiCopies(I32 targetBlock, I32 predIdx);
 		void emitTerminator(I32 b);
 	private:

@@ -12,6 +12,9 @@ namespace rat {
 		constexpr U32 kFp = X86Target::kFpClass;
 		constexpr U32 kX87 = X86Target::kX87Class;
 
+		inline PhysReg gpPhys(Reg r) { return X86Target::kGpBase + (PhysReg)r; }
+		inline PhysReg xmmPhys(U32 n) { return X86Target::kXmmBase + n; }
+
 		constexpr I64 kX87MemBits = 80;
 
 		constexpr U8 kAluAdd = 0x01;
@@ -121,6 +124,56 @@ namespace rat {
 	};
 
 	enum class VaArgKind : I64 { Int = 0, Sse = 1, X87 = 2 };
+
+	// what an opcode's imm / imm2 field carries, so a call site can name it and a
+	// reader can decode it
+	enum class ImmKind : U8 {
+		None,
+		Width, // operand width, in the unit the opcode expects (bits or bytes)
+		Cc,		 // x86 condition code
+		Disp,	 // address or frame displacement
+		Sib,	 // packed sign | hasIndex << 1 | scaleLog2 << 2
+		Cvt,	 // packed sse convert descriptor (prefix, opcode, wide)
+		Lane,	 // vector element size, lane index, or shuffle selector
+		Other, // op-specific packed bits
+	};
+
+	enum X86OpFlag : U8 {
+		kOpTerm = 1,	// block terminator
+		kOpCall = 2,	// clobbers registers and bounds live intervals
+		kOpCopy = 4,	// register-to-register move, coalescable
+		kOpRemat = 8, // cheaper to recompute than to reload
+		kOpMem = 16,	// address operand: base [+ index], displacement in imm
+	};
+
+	struct X86OpInfo {
+		const C8* mnemonic;
+		U8 cls;				 // default register class
+		I8 defs, uses; // expected operand counts, -1 = variadic
+		U8 flags;
+		ImmKind immKind, imm2Kind;
+	};
+
+	const X86OpInfo& x86OpInfo(X86Op op);
+	const C8* x86OpMnemonic(X86Op op);
+
+	// operand shorthands, for the cases where a raw type would be ambiguous with VReg
+	struct Imm {
+		I64 v;
+		U32 w = 8;
+	};
+	struct Slot {
+		I32 s;
+		U32 w = 8;
+	};
+	struct Xmm {
+		U32 n;
+		U32 w = 8;
+	};
+
+	inline Imm imm(I64 v, U32 w = 8) { return {v, w}; }
+	inline Slot slot(I32 s, U32 w = 8) { return {s, w}; }
+	inline Xmm xmm(U32 n, U32 w = 8) { return {n, w}; }
 
 	struct X86FrameLayout : MachineFuncAux {
 		I32 ldScratch = 0;
