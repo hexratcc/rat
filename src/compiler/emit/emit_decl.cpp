@@ -45,22 +45,21 @@ namespace rat::cc {
 
 	B32 Emitter::declareExtern(Function& fn, const Declarator& d) {
 		Node* addr = fn.global(*d.name);
+		CType type = d.type;
+		B32 isArray = d.isArray;
+		U32 count = 0;
 		auto g = globalVars.find(*d.name);
 		if(g != globalVars.end()) {
-			if(g->second.isArray)
-				declare(*d.name, Local::memArray(addr, g->second.type, g->second.count));
-			else if(isArrayType(g->second.type))
-				declare(*d.name, Local::memArray(addr, arrayElem(g->second.type)));
-			else
-				declare(*d.name, Local::mem(addr, g->second.type));
-			return true;
+			type = g->second.type;
+			isArray = g->second.isArray;
+			count = g->second.count;
 		}
-		if(d.isArray)
-			declare(*d.name, Local::memArray(addr, d.type));
-		else if(isArrayType(d.type))
-			declare(*d.name, Local::memArray(addr, arrayElem(d.type)));
+		if(isArray)
+			declare(*d.name, Local::memArray(addr, type, count));
+		else if(isArrayType(type))
+			declare(*d.name, Local::memArray(addr, arrayElem(type)));
 		else
-			declare(*d.name, Local::mem(addr, d.type));
+			declare(*d.name, Local::mem(addr, type));
 		return true;
 	}
 
@@ -187,20 +186,7 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::emitMultiDimArrayDecl(Function& fn, const Declarator& d) {
-		I64 count;
-		if(declIsVla(d, count)) {
-			if(d.init) {
-				fail("a variable-length array may not be initialized");
-				return false;
-			}
-			return emitVlaDecl(fn, d);
-		}
-		B32 haveLen = d.arrayLen != nullptr;
-		if(haveLen && count <= 0) {
-			failArrayCount();
-			return false;
-		}
+	B32 Emitter::emitMultiDimArrayDecl(Function& fn, const Declarator& d, I64 count, B32 haveLen) {
 		if(!haveLen) {
 			if(!d.init || d.init->kind != ExprKind::InitList) {
 				failArrayUnknownSize(*d.name);
@@ -222,8 +208,6 @@ namespace rat::cc {
 	B32 Emitter::emitArrayDecl(Function& fn, const Declarator& d) {
 		if(!d.isArray && isArrayType(d.type))
 			return emitTypedefArrayDecl(fn, d);
-		if(d.isArray && isArrayType(d.type))
-			return emitMultiDimArrayDecl(fn, d);
 		B32 haveLen = d.arrayLen != nullptr;
 		I64 count;
 		if(declIsVla(d, count)) {
@@ -237,6 +221,8 @@ namespace rat::cc {
 			failArrayCount();
 			return false;
 		}
+		if(isArrayType(d.type))
+			return emitMultiDimArrayDecl(fn, d, count, haveLen);
 		Type* elemTy = irType(d.type);
 		U32 elemSize = byteSize(d.type);
 

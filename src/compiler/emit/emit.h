@@ -7,11 +7,6 @@
 #include "ir/function.h"
 #include "ir/module.h"
 
-namespace rat {
-	struct Node;
-	struct Type;
-} // namespace rat
-
 namespace rat::cc {
 	namespace detail {
 		U32 alignedChunkWidth(U32 offset, U32 size);
@@ -87,7 +82,7 @@ namespace rat::cc {
 		B32 emitStructDecl(Function& fn, const Declarator& d);
 		B32 emitArrayDecl(Function& fn, const Declarator& d);
 		B32 emitTypedefArrayDecl(Function& fn, const Declarator& d);
-		B32 emitMultiDimArrayDecl(Function& fn, const Declarator& d);
+		B32 emitMultiDimArrayDecl(Function& fn, const Declarator& d, I64 count, B32 haveLen);
 		B32 declareStatic(Function& fn, const Declarator& d);
 		B32 declareExtern(Function& fn, const Declarator& d);
 		B32 emitVlaDecl(Function& fn, const Declarator& d);
@@ -101,7 +96,7 @@ namespace rat::cc {
 		B32 emitFor(Function& fn, const Stmt* stmt);
 		B32 emitSwitch(Function& fn, const Stmt* stmt);
 		B32 emitReturn(Function& fn, const Stmt* stmt);
-		B32 emitExprStmt(Function& fn, const Stmt* stmt);
+
 		B32 emitLabel(Function& fn, const Stmt* stmt);
 		B32 emitGoto(Function& fn, const Stmt* stmt);
 		B32 emitAsm(Function& fn, const Stmt* stmt);
@@ -172,7 +167,7 @@ namespace rat::cc {
 
 		Node* toBool(Function& fn, const Value& v);
 		Node* fromBool(Function& fn, Node* boolean);
-		Node* emitCondPred(Function& fn, const Expr* cond);
+
 		B32
 		emitCondBranch(Function& fn, const Expr* cond, Function::Block* trueB, Function::Block* falseB);
 
@@ -259,6 +254,12 @@ namespace rat::cc {
 
 		B32 resolveCallee(Function& fn, const Expr* e, Callee& out);
 		B32 emitCallArgs(Function& fn, const Expr* e, const Callee& c, U32 nparams, List<Node*>& args);
+		Node* callNode(Function& fn,
+									 const Callee& c,
+									 const String& sym,
+									 Type* retTy,
+									 const List<Node*>& args,
+									 B32 va);
 
 		CType funcPtrType(const FnSig& sig);
 		List<Reloc> relocs;
@@ -303,7 +304,6 @@ namespace rat::cc {
 
 		U32 strCounter = 0;
 		Map<String, String> strPool; // string-literal bytes -> interned symbol
-		Node* emitStringLiteral(Function& fn, const Expr* e);
 
 		Map<String, Function::Block*> labelBlocks;
 		void collectLabels(Function& fn, const Stmt* s);
@@ -321,8 +321,8 @@ namespace rat::cc {
 		B32 registerGlobalArrayOfStruct(const Declarator& d, const String& symbol, Function* fn);
 		B32 registerGlobalArrayOfScalar(const Declarator& d, const String& symbol, Function* fn);
 		void defineGlobal(const Declarator& d, const String& symbol, Type* ty, List<U8>&& img);
-		void bindArrayGlobal(const Declarator& d, const String& symbol, Function* fn, U32 count);
-		void bindScalarGlobal(const Declarator& d, const String& symbol, Function* fn);
+		void
+		bindGlobal(const Declarator& d, const String& symbol, Function* fn, B32 isArray, U32 count);
 		B32 registerGlobalStruct(const Declarator& d, const String& symbol, Function* fn);
 		B32 registerGlobalScalar(const Declarator& d, const String& symbol, Function* fn);
 		U32 staticCounter = 0;

@@ -120,11 +120,7 @@ namespace rat::cc {
 	}
 
 	Type* Emitter::irType(CType t) {
-		if(t.ptr > 0)
-			return mod.getPtr();
-		if(isArrayType(t))
-			return mod.getPtr();
-		if(isAggregate(t))
+		if(t.ptr > 0 || isArrayType(t) || isAggregate(t))
 			return mod.getPtr();
 		if(isFloating(t))
 			return mod.getFloat(t.bits);
@@ -294,16 +290,15 @@ namespace rat::cc {
 				return true;
 			}
 			auto g = globalVars.find(*e->ident.name);
-			if(g != globalVars.end() && !g->second.isArray) {
+			if(g != globalVars.end()) {
+				if(g->second.isArray) {
+					fail("array '" + *e->ident.name + "' is not assignable");
+					return false;
+				}
 				out.kind = LValue::Kind::Addr;
 				out.addr = fn.global(globalSymbol(*e->ident.name));
 				out.type = g->second.type;
 				return true;
-			}
-			auto gv = globalVars.find(*e->ident.name);
-			if(gv != globalVars.end() && gv->second.isArray) {
-				fail("array '" + *e->ident.name + "' is not assignable");
-				return false;
 			}
 			failUndeclared(*e->ident.name);
 			return false;
@@ -417,10 +412,6 @@ namespace rat::cc {
 		if(isVlaType(elem))
 			return emitArrayByteSize(fn, elem);
 		return constSize(fn, byteSize(elem));
-	}
-
-	Node* Emitter::emitStringLiteral(Function& fn, const Expr* e) {
-		return fn.global(internString(e));
 	}
 
 	B32 Emitter::emit(const TransUnit& unit) {

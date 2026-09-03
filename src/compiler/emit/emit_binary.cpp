@@ -264,9 +264,7 @@ namespace rat::cc {
 		// clang-format on
 		static_assert(sizeof(kCmp) / sizeof(kCmp[0]) == (U32)ExprOp::Ne - (U32)ExprOp::Lt + 1,
 									"kCmp must cover Lt..Ne");
-		U32 idx = (op >= ExprOp::Lt && op <= ExprOp::Ne) ? (U32)op - (U32)ExprOp::Lt
-																										 : (U32)ExprOp::Ne - (U32)ExprOp::Lt;
-		const Sel& sel = kCmp[idx];
+		const Sel& sel = kCmp[(U32)op - (U32)ExprOp::Lt]; // caller guarantees Lt..Ne
 		Node* cmp;
 		if(isFloating(ct))
 			cmp = fn.compare(sel.f, l, r);
@@ -293,19 +291,16 @@ namespace rat::cc {
 
 		if(isComplexType(lhs.type) || isComplexType(rhs.type)) {
 			ExprOp op = e->binary.op;
+			CType ct = completeComplex(usualArithmetic(lhs.type, rhs.type));
+			Value lc = toComplex(fn, lhs, ct);
+			Value rc = toComplex(fn, rhs, ct);
 			if(op == ExprOp::Eq || op == ExprOp::Ne) {
-				CType ct = completeComplex(usualArithmetic(lhs.type, rhs.type));
-				Value lc = toComplex(fn, lhs, ct);
-				Value rc = toComplex(fn, rhs, ct);
 				Node* re = fn.compare(Opcode::FEq, complexReal(fn, lc), complexReal(fn, rc));
 				Node* im = fn.compare(Opcode::FEq, complexImag(fn, lc), complexImag(fn, rc));
 				Node* eq = fn.and_(re, im);
 				Node* res = op == ExprOp::Eq ? eq : fn.eq(eq, fn.constInt(i32, 0));
 				return {fromBool(fn, res), ctInt()};
 			}
-			CType ct = completeComplex(usualArithmetic(lhs.type, rhs.type));
-			Value lc = toComplex(fn, lhs, ct);
-			Value rc = toComplex(fn, rhs, ct);
 			return emitComplexBinary(fn, op, lc, rc, ct);
 		}
 

@@ -1,13 +1,6 @@
 #include "emit/emit.h"
 
 namespace rat::cc {
-	Node* Emitter::emitCondPred(Function& fn, const Expr* cond) {
-		Value v = emitExpr(fn, cond);
-		if(!v.node)
-			return nullptr;
-		return toBool(fn, v);
-	}
-
 	B32 Emitter::emitCondBranch(Function& fn,
 															const Expr* e,
 															Function::Block* trueB,
@@ -23,10 +16,10 @@ namespace rat::cc {
 		}
 		if(e->kind == ExprKind::Unary && e->unary.op == ExprOp::Not)
 			return emitCondBranch(fn, e->unary.operand, falseB, trueB);
-		Node* pred = emitCondPred(fn, e);
-		if(!pred)
+		Value v = emitExpr(fn, e);
+		if(!v.node)
 			return false;
-		fn.jumpif(pred, trueB);
+		fn.jumpif(toBool(fn, v), trueB);
 		fn.jmp(falseB);
 		return true;
 	}
@@ -315,6 +308,7 @@ namespace rat::cc {
 				inLoop = true;
 				break;
 			}
+		B32 tabled = false;
 		if(!inLoop && n >= 6) {
 			I64 minV = caseValues[order[0]];
 			I64 maxV = caseValues[order[n - 1]];
@@ -341,24 +335,7 @@ namespace rat::cc {
 					fn.enterBlock(edges[sl]);
 					fn.jmp(slotTarget[sl]);
 				}
-				switches.push_back(std::move(blocks));
-				loops.push_back({exitB, nullptr, false, true, curSp});
-				B32 tok = emitStmt(fn, body);
-				LoopFrame tframe = loops.back();
-				loops.pop_back();
-				switches.pop_back();
-				if(!tok)
-					return false;
-				if(!fn.blockFinished()) {
-					fn.jmp(exitB);
-					tframe.exitReachable = true;
-				}
-				if(!defaultBlock)
-					tframe.exitReachable = true;
-				fn.seal(exitB);
-				if(tframe.exitReachable)
-					fn.setInsertBlock(exitB);
-				return true;
+				tabled = true;
 			}
 		}
 
@@ -380,7 +357,8 @@ namespace rat::cc {
 			fn.enterBlock(ltB);
 			self(self, lo, mid);
 		};
-		emitRange(emitRange, 0, (U32)order.size());
+		if(!tabled)
+			emitRange(emitRange, 0, (U32)order.size());
 		switches.push_back(std::move(blocks));
 		loops.push_back({exitB, nullptr, false, true, curSp});
 		B32 ok = emitStmt(fn, body);
@@ -456,8 +434,9 @@ namespace rat::cc {
 			curSp = mark;
 		}
 		for(const Stmt* child : s->body) {
-			if(fn.blockFinished() && child->kind != StmtKind::Label && child->kind != StmtKind::Case &&
-				 child->kind != StmtKind::Default && !containsLabel(child) &&
+			B32 labelLike = child->kind == StmtKind::Label || child->kind == StmtKind::Case ||
+											child->kind == StmtKind::Default;
+			if(fn.blockFinished() && !labelLike && !containsLabel(child) &&
 				 !(!switches.empty() && containsSwitchCase(child))) {
 				if(child->kind == StmtKind::Decl && !declareDead(fn, child)) {
 					popScope();
@@ -465,8 +444,7 @@ namespace rat::cc {
 				}
 				continue;
 			}
-			if(fn.blockFinished() && child->kind != StmtKind::Label && child->kind != StmtKind::Case &&
-				 child->kind != StmtKind::Default) {
+			if(fn.blockFinished() && !labelLike) {
 				Function::Block* dead = fn.createBlock("dead");
 				fn.enterBlock(dead);
 			}
@@ -482,16 +460,16 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitCaseLabel(Function& fn, const Stmt* s) {
-		if(switches.empty()) {
+		Function::Block* lbl = nullptr;
+		if(!switches.empty()) {
+			auto it = switches.back().find(s);
+			if(it != switches.back().end())
+				lbl = it->second;
+		}
+		if(!lbl) {
 			fail("'case'/'default' label not within a switch");
 			return false;
 		}
-		auto it = switches.back().find(s);
-		if(it == switches.back().end()) {
-			fail("'case'/'default' label not within a switch");
-			return false;
-		}
-		Function::Block* lbl = it->second;
 		if(!fn.blockFinished())
 			fn.jmp(lbl);
 		fn.enterBlock(lbl);
@@ -541,7 +519,7 @@ namespace rat::cc {
 		case StmtKind::Return:
 			return emitReturn(fn, s);
 		case StmtKind::Expr:
-			return emitExprStmt(fn, s);
+			return emitExpr(fn, s->expr).node != nullptr;
 		case StmtKind::Empty:
 			return true;
 		case StmtKind::Label:
@@ -556,11 +534,14 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitReturn(Function& fn, const Stmt* s) {
+		Value v;
+		if(s->expr) {
+			v = emitExpr(fn, s->expr);
+			if(!v.node)
+				return false;
+		}
 		if(sretSlot) {
-			if(s->expr) {
-				Value v = emitExpr(fn, s->expr);
-				if(!v.node)
-					return false;
+			if(v.node) {
 				if(isComplexType(curRet)) {
 					storeComplex(fn, sretSlot, completeComplex(curRet), v);
 				} else if(!isStruct(v.type) || v.type.strukt != curRet.strukt) {
@@ -574,34 +555,20 @@ namespace rat::cc {
 			return true;
 		}
 		if(isVoidType(curRet)) {
-			if(s->expr) {
-				Value v = emitExpr(fn, s->expr);
-				if(!v.node)
-					return false;
-				if(!isVoidType(v.type)) {
-					fail("return with a value in a function returning void");
-					return false;
-				}
+			if(v.node && !isVoidType(v.type)) {
+				fail("return with a value in a function returning void");
+				return false;
 			}
 			fn.retVoid();
 			return true;
 		}
 		Node* value;
-		if(s->expr) {
-			Value v = emitExpr(fn, s->expr);
-			if(!v.node)
-				return false;
+		if(v.node)
 			value = convert(fn, v.node, v.type, curRet);
-		} else {
+		else
 			value = fn.constInt(irType(curRet), 0);
-		}
 		fn.ret(value);
 		return true;
-	}
-
-	B32 Emitter::emitExprStmt(Function& fn, const Stmt* s) {
-		Value v = emitExpr(fn, s->expr);
-		return v.node != nullptr;
 	}
 
 	B32 Emitter::emitLabel(Function& fn, const Stmt* s) {
@@ -721,8 +688,6 @@ namespace rat::cc {
 					return false;
 				in = convert(fn, v.node, v.type, lvs[i].type);
 			}
-			if(!in)
-				return false;
 			args.push_back(in);
 			outTypes.push_back(irType(lvs[i].type));
 		}
