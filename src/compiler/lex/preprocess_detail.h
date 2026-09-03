@@ -79,7 +79,6 @@ namespace rat::cc {
 		struct PpSpan {
 			const PpToken* b = nullptr;
 			const PpToken* e = nullptr;
-			PpSpan() = default;
 			PpSpan(const List<PpToken>& v)
 			: b(v.data()),
 				e(v.data() + v.size()) {}
@@ -89,8 +88,6 @@ namespace rat::cc {
 			size_t size() const { return (size_t)(e - b); }
 			B32 empty() const { return b == e; }
 			const PpToken& operator[](size_t i) const { return b[i]; }
-			const PpToken* begin() const { return b; }
-			const PpToken* end() const { return e; }
 		};
 
 		struct LexResult {
@@ -108,6 +105,7 @@ namespace rat::cc {
 			B32 variadic = false;
 			const String* vaName = nullptr; // interned; set when variadic
 			List<const String*> params;			// named parameters (excl variadic)
+			List<const String*> formals;		// params plus vaName when variadic
 			List<PpToken> body;
 		};
 
@@ -209,8 +207,9 @@ namespace rat::cc {
 				idAliasMark = interner.intern("__rat_alias__");
 			}
 
-			B32 isBuiltinDynamic(const String* name) { return name == idLine || name == idFile; }
-			B32 isDefined(const String* name) { return macros.count(name) || isBuiltinDynamic(name); }
+			B32 isDefined(const String* name) {
+				return macros.count(name) || name == idLine || name == idFile;
+			}
 
 			void fail(const String& m);
 
@@ -228,10 +227,7 @@ namespace rat::cc {
 			void pasteInto(PpToken& dst, const PpToken& r);
 			PpToken stringize(const List<PpToken>& a, B32 spaceBefore);
 			void appendList(List<PpToken>& os, List<PpToken> src, B32 firstSpace);
-			List<PpToken> substitute(const Macro& m,
-															 const List<List<PpToken>>& args,
-															 const HideSet* hs,
-															 const List<const String*>& formals);
+			List<PpToken> substitute(const Macro& m, const List<List<PpToken>>& args, const HideSet* hs);
 			static U32 matchParen(const List<PpToken>& arg, U32 open);
 			// stack: next token is work.back()
 			B32 gatherArgs(List<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen);

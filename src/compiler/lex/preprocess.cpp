@@ -329,12 +329,12 @@ namespace rat::cc {
 					continue;
 
 				const PpToken& dir = toks[d];
+				// physical line after the directive, for #line
+				U32 phys = j < n ? toks[j].line : dir.line + 1;
 
 				if(dir.kind == Pk::Num) {
-					if(condActive(stack)) {
-						U32 phys = j < n ? toks[j].line : dir.line + 1;
+					if(condActive(stack))
 						doLine(PpSpan(toks.data() + d, toks.data() + j), phys);
-					}
 					continue;
 				}
 
@@ -377,7 +377,6 @@ namespace rat::cc {
 				} else if(name == "pragma") {
 					doPragma(rest, path);
 				} else if(name == "line") {
-					U32 phys = j < n ? toks[j].line : dir.line + 1;
 					doLine(rest, phys);
 				} else {
 					fail("invalid preprocessing directive #" + name);

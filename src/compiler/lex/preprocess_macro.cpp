@@ -1,5 +1,7 @@
 #include "lex/preprocess_detail.h"
 
+#include <algorithm>
+
 namespace rat::cc {
 	namespace detail {
 		// names arrive sorted+unique (kept by every ctor below), so interning
@@ -153,19 +155,16 @@ namespace rat::cc {
 			}
 		}
 
-		List<PpToken> Preprocessor::substitute(const Macro& m,
-																					 const List<List<PpToken>>& args,
-																					 const HideSet* hs,
-																					 const List<const String*>& formals) {
+		List<PpToken>
+		Preprocessor::substitute(const Macro& m, const List<List<PpToken>>& args, const HideSet* hs) {
 			List<PpToken> os;
 			const List<PpToken>& body = m.body;
 			auto idxOf = [&](const String* s) -> int {
-				for(size_t k = 0; k < formals.size(); ++k)
-					if(formals[k] == s)
+				for(size_t k = 0; k < m.formals.size(); ++k)
+					if(m.formals[k] == s)
 						return (int)k;
 				return -1;
 			};
-			auto isVa = [&](const String* s) { return m.variadic && s == m.vaName; };
 
 			size_t i = 0;
 			while(i < body.size()) {
@@ -190,7 +189,7 @@ namespace rat::cc {
 					if(p >= 0) {
 						const List<PpToken>& a = args[p];
 						// GNU comma elision
-						B32 commaVa = isVa(R.text) && isPunct(os.back(), ",");
+						B32 commaVa = m.variadic && R.text == m.vaName && isPunct(os.back(), ",");
 						if(commaVa) {
 							if(a.empty())
 								os.pop_back(); // drop the comma
@@ -413,7 +412,7 @@ namespace rat::cc {
 				const Macro& m = it->second;
 				if(!m.isFunc) {
 					const HideSet* hs = hideInsert(t.hide, t.text);
-					List<PpToken> r = substitute(m, {}, hs, {});
+					List<PpToken> r = substitute(m, {}, hs);
 					requeueExpansion(r, t, work);
 					continue;
 				}
@@ -463,11 +462,8 @@ namespace rat::cc {
 					}
 					continue;
 				}
-				List<const String*> formals = m.params;
-				if(m.variadic)
-					formals.push_back(m.vaName);
 				const HideSet* hs = hideInsert(hideIntersect(t.hide, rparen.hide), t.text);
-				List<PpToken> r = substitute(m, actuals, hs, formals);
+				List<PpToken> r = substitute(m, actuals, hs);
 				requeueExpansion(r, t, work);
 			}
 			return os;
@@ -523,6 +519,9 @@ namespace rat::cc {
 					return;
 				}
 				++i; // )
+				m.formals = m.params;
+				if(m.variadic)
+					m.formals.push_back(m.vaName);
 			}
 			for(; i < toks.size(); ++i) {
 				PpToken b = toks[i];
@@ -542,11 +541,7 @@ namespace rat::cc {
 					B32 okOperand = false;
 					if(k + 1 < m.body.size() && m.body[k + 1].kind == Pk::Id) {
 						const String* nm = m.body[k + 1].text;
-						if(m.variadic && nm == m.vaName)
-							okOperand = true;
-						for(const String* p : m.params)
-							if(p == nm)
-								okOperand = true;
+						okOperand = std::find(m.formals.begin(), m.formals.end(), nm) != m.formals.end();
 					}
 					if(!okOperand) {
 						fail("'#' is not followed by a macro parameter");
