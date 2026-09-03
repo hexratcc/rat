@@ -329,7 +329,7 @@ namespace rat::cc {
 		I64 fieldIndex(const StructType* st, const Designator& des);
 		const StructType* anonGroupType(const StructType* st, U32 firstIdx);
 
-		const Expr* wrapNested(const Designator* sub, const Expr* val);
+		Expr* wrapNested(const Designator* sub, const Expr* val);
 		static const Expr* peelAggregateCompound(const Expr* el);
 
 		struct InitSink {
@@ -364,8 +364,6 @@ namespace rat::cc {
 			Node* slot;
 		};
 
-		B32 storeScalar(Function& fn, Node* slot, U32 off, CType dt, const Expr* e);
-		B32 storeCharArray(Function& fn, Node* slot, U32 base, CType elem, U32 count, const Expr* e);
 		B32 unwrapScalarInit(const Expr*& e, B32& skip);
 
 		B32 initStructInit(InitSink& sink, U32 base, const StructType* st, const Expr* init);
@@ -383,7 +381,6 @@ namespace rat::cc {
 														const List<Designator>& des,
 														List<I64>& idx,
 														I64& maxIdx);
-		U32 scalarLeaves(CType ty);
 		B32 initFlatObject(InitSink& sink,
 											 U32 base,
 											 CType ty,

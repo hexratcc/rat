@@ -8,13 +8,12 @@ namespace rat::cc {
 		return el;
 	}
 
-	const Expr* Emitter::wrapNested(const Designator* sub, const Expr* val) {
+	Expr* Emitter::wrapNested(const Designator* sub, const Expr* val) {
 		Expr* list = arena.make<Expr>();
 		list->kind = ExprKind::InitList;
 		list->offset = val->offset;
-		Designator head = *sub;
 		list->args.push_back(const_cast<Expr*>(val));
-		list->designators.push_back(head);
+		list->designators.push_back(*sub);
 		return list;
 	}
 
@@ -43,34 +42,6 @@ namespace rat::cc {
 			return false;
 		}
 		e = e->args[0];
-		return true;
-	}
-
-	B32 Emitter::storeScalar(Function& fn, Node* slot, U32 off, CType dt, const Expr* e) {
-		B32 skip = false;
-		if(!unwrapScalarInit(e, skip))
-			return false;
-		if(skip)
-			return true;
-		Value v = emitExpr(fn, e);
-		if(!v.node)
-			return false;
-		Node* val = convert(fn, v.node, v.type, dt);
-		fn.store(offsetPtr(fn, slot, off), val);
-		return true;
-	}
-
-	B32 Emitter::storeCharArray(
-			Function& fn, Node* slot, U32 base, CType elem, U32 count, const Expr* e) {
-		if(!isCharType(elem)) {
-			failStringNeedsCharArray();
-			return false;
-		}
-		const String& bytes = *e->str.bytes;
-		Type* i8 = mod.getInt(8);
-		U32 n = bytes.size() < count ? (U32)bytes.size() : count;
-		for(U32 i = 0; i < n; ++i)
-			fn.store(offsetPtr(fn, slot, base + i), fn.constInt(i8, (U8)bytes[i]));
 		return true;
 	}
 
@@ -139,12 +110,7 @@ namespace rat::cc {
 														U32& i,
 														U32& cur) {
 		const List<Expr*>& els = init->args;
-		const Expr* el = els[i];
-		Expr* row = arena.make<Expr>();
-		row->kind = ExprKind::InitList;
-		row->offset = el->offset;
-		row->args.push_back(const_cast<Expr*>(el));
-		row->designators.push_back(*des.next);
+		Expr* row = wrapNested(des.next, els[i]);
 		U32 rowLen = elem.array->count;
 		U32 rowFree = (U32)des.next->index + 1 < rowLen ? rowLen - ((U32)des.next->index + 1) : 0;
 		U32 j = i + 1;

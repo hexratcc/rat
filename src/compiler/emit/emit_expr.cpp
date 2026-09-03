@@ -254,7 +254,7 @@ namespace rat::cc {
 			CType elemPtr;
 			elemPtr.bits = e->str.isWide ? e->str.charSize * 8 : 8;
 			elemPtr.ptr = 1;
-			return {emitStringLiteral(fn, e), elemPtr};
+			return {fn.global(internString(e)), elemPtr};
 		}
 
 		case ExprKind::Ident:
@@ -452,20 +452,10 @@ namespace rat::cc {
 			} else if(init->kind == ExprKind::StrLit) {
 				count = (I64)init->str.bytes->size() + 1;
 			} else if(init->kind == ExprKind::InitList) {
-				I64 cur = 0, maxIdx = -1;
-				for(U32 i = 0; i < init->args.size(); ++i) {
-					const Designator& des = init->designators[i];
-					if(des.isSet) {
-						if(!des.isIndex) {
-							failFieldInArray();
-							return {};
-						}
-						cur = des.index;
-					}
-					if(cur > maxIdx)
-						maxIdx = cur;
-					++cur;
-				}
+				List<I64> idx(init->args.size());
+				I64 maxIdx;
+				if(!resolveArrayIndices(init->args, init->designators, idx, maxIdx))
+					return {};
 				count = maxIdx + 1;
 			}
 			if(count <= 0) {
@@ -493,15 +483,11 @@ namespace rat::cc {
 			return {slot, ty};
 		}
 		const Expr* se = init;
-		if(se->kind == ExprKind::InitList) {
-			if(se->args.empty())
-				return {fn.constInt(irType(ty), 0), ty};
-			if(se->args.size() != 1 || se->designators[0].isSet) {
-				failScalarInit();
-				return {};
-			}
-			se = se->args[0];
-		}
+		B32 skip = false;
+		if(!unwrapScalarInit(se, skip))
+			return {};
+		if(skip)
+			return {fn.constInt(irType(ty), 0), ty};
 		Value v = emitExpr(fn, se);
 		if(!v.node)
 			return {};
