@@ -58,7 +58,7 @@ namespace rat {
 
 	U32 SlpPackPass::runOnFunction(Function& fn, const TargetInfo& target) {
 		U32 ptrBytes = target.getPointerSizeInBytes();
-		AliasAnalysis aa(fn, ptrBytes);
+		AliasAnalysis aa(ptrBytes);
 		return Slp(fn, aa, ptrBytes, target.hasSse41(), stats).run();
 	}
 } // namespace rat

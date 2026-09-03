@@ -4,46 +4,9 @@
 
 namespace rat::cc {
 	namespace detail {
-		// keyword spellings, aligned with TokKind::KwAuto..KwAlignas
-		// clang-format off
-		const char* const kKeywords[] = {
-				"auto",				"break",		"case",						"char",			"const",		"continue",
-				"default",		"do",				"double",					"else",			"enum",			"extern",
-				"float",			"for",			"goto",						"if",				"inline",		"int",
-				"long",				"register", "restrict",				"return",		"short",		"signed",
-				"sizeof",			"static",		"struct",					"switch",		"typedef",	"union",
-				"unsigned",		"void",			"volatile",				"while",		"_Bool",		"_Complex",
-				"_Imaginary", "_Generic", "_Static_assert", "__real__", "__imag__", "typeof",
-				"__rat_noinline__", "__rat_alias__", "asm", "_Alignof", "_Alignas",
-		};
-		// clang-format on
-		static_assert(sizeof(kKeywords) / sizeof(kKeywords[0]) ==
-											(U32)TokKind::KwAlignas - (U32)TokKind::KwAuto + 1,
-									"kKeywords must cover every keyword TokKind");
-
-		// punctuator spellings for TokKind::LParen..ShrEq
-		struct PunctSpelling {
-			const char* s;
-			TokKind kind;
-		};
-		const PunctSpelling kPunctKinds[] = {
-				{"(", TokKind::LParen},		 {")", TokKind::RParen},		 {"{", TokKind::LBrace},
-				{"}", TokKind::RBrace},		 {"[", TokKind::LBracket},	 {"]", TokKind::RBracket},
-				{";", TokKind::Semicolon}, {",", TokKind::Comma},			 {".", TokKind::Dot},
-				{"->", TokKind::Arrow},		 {"...", TokKind::Ellipsis}, {"+", TokKind::Plus},
-				{"-", TokKind::Minus},		 {"*", TokKind::Star},			 {"/", TokKind::Slash},
-				{"%", TokKind::Percent},	 {"++", TokKind::PlusPlus},	 {"--", TokKind::MinusMinus},
-				{"&", TokKind::Amp},			 {"|", TokKind::Pipe},			 {"^", TokKind::Caret},
-				{"~", TokKind::Tilde},		 {"!", TokKind::Bang},			 {"&&", TokKind::AmpAmp},
-				{"||", TokKind::PipePipe}, {"<", TokKind::Lt},				 {">", TokKind::Gt},
-				{"<=", TokKind::Le},			 {">=", TokKind::Ge},				 {"==", TokKind::EqEq},
-				{"!=", TokKind::BangEq},	 {"<<", TokKind::Shl},			 {">>", TokKind::Shr},
-				{"?", TokKind::Question},	 {":", TokKind::Colon},			 {"=", TokKind::Assign},
-				{"+=", TokKind::PlusEq},	 {"-=", TokKind::MinusEq},	 {"*=", TokKind::StarEq},
-				{"/=", TokKind::SlashEq},	 {"%=", TokKind::PercentEq}, {"&=", TokKind::AmpEq},
-				{"|=", TokKind::PipeEq},	 {"^=", TokKind::CaretEq},	 {"<<=", TokKind::ShlEq},
-				{">>=", TokKind::ShrEq},
-		};
+		// kTokNames doubles as the keyword/punct spelling table
+		static_assert((U32)TokKind::KwAlignas + 1 == (U32)TokKind::LParen,
+									"keywords and punctuators must be contiguous");
 
 		// classify a pp-number/literal by lexing its text (suffix validation)
 		TokKind classifySingle(const String& text, String& err) {
@@ -80,12 +43,10 @@ namespace rat::cc {
 		// pointer-keyed keyword/punct maps over the pp interner
 		Map<const String*, TokKind> kindOf;
 		kindOf.reserve(256);
-		for(U32 k = 0; k < sizeof(detail::kKeywords) / sizeof(detail::kKeywords[0]); ++k)
-			kindOf[pp.interner.intern(detail::kKeywords[k])] = (TokKind)((U32)TokKind::KwAuto + k);
+		for(U32 k = (U32)TokKind::KwAuto; k <= (U32)TokKind::ShrEq; ++k)
+			kindOf[pp.interner.intern(tokKindName((TokKind)k))] = (TokKind)k;
 		kindOf[pp.interner.intern("__typeof")] = TokKind::KwTypeof;
 		kindOf[pp.interner.intern("__typeof__")] = TokKind::KwTypeof;
-		for(const detail::PunctSpelling& p : detail::kPunctKinds)
-			kindOf[pp.interner.intern(p.s)] = p.kind;
 
 		ts.fileName = path;
 		ts.toks.reserve(pp.out.size() + 1);
@@ -98,16 +59,12 @@ namespace rat::cc {
 			Token t;
 			t.kind = kind;
 			t.offset = (U32)ts.toks.size();
-			t.length = (U32)text->size();
 			t.line = line;
-			t.col = 1;
 			ts.toks.push_back(t);
 			ts.texts.push_back(text);
 		};
 
 		for(const detail::PpToken& t : pp.out) {
-			if(t.kind == Pk::Placemarker || t.kind == Pk::Eof)
-				continue;
 			switch(t.kind) {
 			case Pk::Id: {
 				auto it = kindOf.find(t.text);

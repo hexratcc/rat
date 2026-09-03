@@ -12,13 +12,12 @@
 #include "core.h"
 
 namespace rat {
-	struct Function;
 	struct Node;
 
 	enum class AliasResult { NoAlias, MayAlias, MustAlias };
 
 	struct AliasAnalysis {
-		AliasAnalysis(const Function& fn, U32 pointerBytes);
+		AliasAnalysis(U32 pointerBytes);
 
 		AliasResult alias(Node* addrA, U32 sizeA, Node* addrB, U32 sizeB) const;
 
@@ -67,7 +66,6 @@ namespace rat {
 		const Address& decompose(Node* addr) const;
 		static Node* accessAddress(Node* n); // pointer operand of a Load/Store (else null)
 	private:
-		const Function& fn;
 		U32 ptrBytes;
 		mutable Map<Node*, Address> decomposeCache;
 	};

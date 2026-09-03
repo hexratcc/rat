@@ -65,6 +65,7 @@ namespace rat {
 		static B32 writesFlags(X86Op op);
 		static B32 flagSafeToDrop(const MachineBlock& b, U32 at);
 		static void transfer(const MachineInstr& in, U64* dem);
+		static void eraseMarked(MachineBlock& b, const List<B32>& drop);
 		U32 elimRedundantExt(MachineFunc& mf);
 
 		// dead-slot-store phase

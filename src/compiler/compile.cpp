@@ -2,9 +2,6 @@
 
 #include "rat.h"
 
-#include <cstdio>
-#include <cstdlib>
-
 namespace rat::cc {
 	void composePipeline(PassManager& pm, CompileOptions& opt, std::ostream& out) {
 		if(!opt.renameMain.empty())
@@ -30,12 +27,5 @@ namespace rat::cc {
 			pm.add<X86LayoutPass>();
 			pm.add<X86EncodePass>(out);
 		}
-	}
-
-	void
-	compileModule(Module& mod, const TargetInfo& target, CompileOptions& opt, std::ostream& out) {
-		PassManager pm(target);
-		composePipeline(pm, opt, out);
-		pm.run(mod);
 	}
 } // namespace rat::cc

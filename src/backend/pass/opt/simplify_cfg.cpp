@@ -1,7 +1,6 @@
 #include "pass/opt/simplify_cfg.h"
 
 #include "ir/function.h"
-#include "ir/module.h"
 #include "ir/node.h"
 #include "ir/type.h"
 

@@ -16,7 +16,6 @@
 
 namespace rat {
 	struct Function;
-	struct Module;
 	struct Node;
 	struct ConstantNode;
 	struct Type;
@@ -33,7 +32,6 @@ namespace rat {
 	Node* foldUnary(Function& fn, Opcode op, Node* operand);
 	Node* foldCompare(Function& fn, Opcode op, Node* lhs, Node* rhs);
 	Node* foldConvert(Function& fn, Opcode op, Node* operand, Type* destType);
-	Node* foldBinaryConst(Function& fn, Opcode op, Type* ty, U32 w, I64 a, I64 b);
 	Node* foldBinaryIdentity(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs);
 	Node* foldBinaryReassoc(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, ConstantNode* cr);
 	Node* foldBinaryStrength(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs);
@@ -56,7 +54,7 @@ namespace rat {
 
 	Node* buildUDivByConst(Function& fn, Type* ty, Node* x, U32 d);
 	Node* buildSDivByConst(Function& fn, Type* ty, Node* x, I32 d);
-	Node* buildSDivByPow2(Function& fn, Type* ty, Node* x, I32 k);
+	Node* buildSDivByPow2(Function& fn, Type* ty, Node* x, U32 w, I32 k);
 	Node* buildDivByConst(Function& fn, Opcode op, Type* ty, U32 w, Node* x, ConstantNode* c);
 
 	Node* simplify(Function& fn, Node* n); // dispatch to the matching fold*

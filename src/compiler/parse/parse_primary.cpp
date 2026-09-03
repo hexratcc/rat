@@ -80,17 +80,7 @@ namespace rat::cc {
 			List<Dim> dims;
 			while(accept(TokKind::LBracket)) {
 				Dim d{0, nullptr};
-				if(peek().kind != TokKind::RBracket) {
-					Expr* len = parseConditional();
-					if(!len)
-						return false;
-					I64 v = 0;
-					if(tryEvalIntConst(len, v) && v > 0)
-						d.count = (U64)v;
-					else
-						d.expr = len; // VLA
-				}
-				if(!expect(TokKind::RBracket, "']'"))
+				if(!parseArrayBound(d.count, d.expr))
 					return false;
 				dims.push_back(d);
 			}

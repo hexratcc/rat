@@ -1,35 +1,11 @@
 #include "target/object_file.h"
 
 #include "byte_io.h"
+#include "elf_file.h"
 
 namespace rat {
 	namespace detail {
 		constexpr U8 kElfMag[4] = {0x7f, 'E', 'L', 'F'};
-		constexpr U8 ELFCLASS64 = 2;
-		constexpr U8 ELFDATA2LSB = 1;
-		constexpr U8 EV_CURRENT = 1;
-		constexpr U16 ET_REL = 1;
-		constexpr U16 EM_X86_64 = 62;
-
-		constexpr U32 SHT_NULL = 0;
-		constexpr U32 SHT_PROGBITS = 1;
-		constexpr U32 SHT_SYMTAB = 2;
-		constexpr U32 SHT_STRTAB = 3;
-		constexpr U32 SHT_RELA = 4;
-		constexpr U32 SHT_NOBITS = 8;
-
-		constexpr U64 SHF_WRITE = 0x1;
-		constexpr U64 SHF_ALLOC = 0x2;
-		constexpr U64 SHF_EXECINSTR = 0x4;
-		constexpr U64 SHF_INFO_LINK = 0x40;
-
-		constexpr U8 STB_LOCAL = 0;
-		constexpr U8 STB_GLOBAL = 1;
-		constexpr U8 STT_NOTYPE = 0;
-		constexpr U8 STT_OBJECT = 1;
-		constexpr U8 STT_FUNC = 2;
-		constexpr U16 SHN_UNDEF = 0;
-
 		constexpr U64 kEhSize = 64;			 // Elf64_Ehdr
 		constexpr U64 kShEntSize = 64;	 // Elf64_Shdr
 		constexpr U64 kSymEntSize = 24;	 // Elf64_Sym
@@ -70,9 +46,9 @@ namespace rat {
 			U32 oi = order[i];
 			const Sym& s = syms[oi];
 			B32 placed = i != 0 && s.defined;
-			U8 bind = (i != 0 && s.global) ? detail::STB_GLOBAL : detail::STB_LOCAL;
-			U8 type = !placed ? detail::STT_NOTYPE : (s.isFunc ? detail::STT_FUNC : detail::STT_OBJECT);
-			U16 shndx = !placed ? detail::SHN_UNDEF : (U16)kSecShIndex[(U32)s.sec];
+			U8 bind = (i != 0 && s.global) ? elf::STB_GLOBAL : elf::STB_LOCAL;
+			U8 type = !placed ? elf::STT_NOTYPE : (s.isFunc ? elf::STT_FUNC : elf::STT_OBJECT);
+			U16 shndx = !placed ? elf::SHN_UNDEF : (U16)kSecShIndex[(U32)s.sec];
 
 			le::put32(symtab, i == 0 ? 0u : nameOff[oi]);				// st_name
 			le::put8(symtab, (U8)((bind << 4) | (type & 0xf))); // st_info
@@ -144,15 +120,15 @@ namespace rat {
 		out.reserve(offSh + shCount * detail::kShEntSize);
 		for(U8 c : detail::kElfMag)
 			le::put8(out, c);
-		le::put8(out, detail::ELFCLASS64);
-		le::put8(out, detail::ELFDATA2LSB);
-		le::put8(out, detail::EV_CURRENT);
+		le::put8(out, elf::ELFCLASS64);
+		le::put8(out, elf::ELFDATA2LSB);
+		le::put8(out, elf::EV_CURRENT);
 		le::put8(out, 0); // System V
 		for(U32 i = 0; i < 8; ++i)
 			le::put8(out, 0); // ABIVERSION + padding
-		le::put16(out, detail::ET_REL);
-		le::put16(out, detail::EM_X86_64);
-		le::put32(out, detail::EV_CURRENT);
+		le::put16(out, elf::ET_REL);
+		le::put16(out, elf::EM_X86_64);
+		le::put32(out, elf::EV_CURRENT);
 		le::put64(out, 0);											 // e_entry
 		le::put64(out, 0);											 // e_phoff
 		le::put64(out, offSh);									 // e_shoff
@@ -190,23 +166,23 @@ namespace rat {
 			U64 align;
 			U64 entSize;
 		};
-		const U64 alloc = detail::SHF_ALLOC;
-		const U64 rela = detail::SHF_INFO_LINK;
+		const U64 alloc = elf::SHF_ALLOC;
+		const U64 rela = elf::SHF_INFO_LINK;
 		const ShDesc headers[] = {
 				// clang-format off
-				// name        type                  flags                          offset         size               link      info         align entsize
-				{0,           detail::SHT_NULL,     0,                             0,             0,                 0,        0,           0,    0},                    // 0 null
-				{nText,       detail::SHT_PROGBITS, alloc | detail::SHF_EXECINSTR, offText,       bytesOf(Text).size(),        0,           0,    secAlign[Text],   0},              // 1 .text
-				{nRelaText,   detail::SHT_RELA,     rela,                          offRelaText,   relaText.size(),   shSymtab, shText,      8,    detail::kRelaEntSize}, // 2 .rela.text
-				{nRodata,     detail::SHT_PROGBITS, alloc,                         offRodata,     bytesOf(Rodata).size(),      0,           0,    secAlign[Rodata], 0},              // 3 .rodata
-				{nRelaRodata, detail::SHT_RELA,     rela,                          offRelaRodata, relaRodata.size(), shSymtab, shRodata,    8,    detail::kRelaEntSize}, // 4 .rela.rodata
-				{nData,       detail::SHT_PROGBITS, alloc | detail::SHF_WRITE,     offData,       bytesOf(Data).size(),        0,           0,    secAlign[Data],   0},              // 5 .data
-				{nRelaData,   detail::SHT_RELA,     rela,                          offRelaData,   relaData.size(),   shSymtab, shData,      8,    detail::kRelaEntSize}, // 6 .rela.data
-				{nBss,        detail::SHT_NOBITS,   alloc | detail::SHF_WRITE,     0,             bssSize,           0,        0,           secAlign[Bss],    0},                    // 7 .bss
-				{nSymtab,     detail::SHT_SYMTAB,   0,                             offSymtab,     symtab.size(),     shStrtab, firstGlobal, 8,    detail::kSymEntSize},  // 8 .symtab
-				{nStrtab,     detail::SHT_STRTAB,   0,                             offStrtab,     strtab.size(),     0,        0,           1,    0},                    // 9 .strtab
-				{nShstrtab,   detail::SHT_STRTAB,   0,                             offShstr,      shstr.size(),      0,        0,           1,    0},                    // 10 .shstrtab
-				{nNoteStack,  detail::SHT_PROGBITS, 0,                             0,             0,                 0,        0,           1,    0},                    // 11 .note.GNU-stack
+				// name        type               flags                       offset         size                    link      info         align             entsize
+				{0,           elf::SHT_NULL,     0,                          0,             0,                      0,        0,           0,                0},                    // 0 null
+				{nText,       elf::SHT_PROGBITS, alloc | elf::SHF_EXECINSTR, offText,       bytesOf(Text).size(),   0,        0,           secAlign[Text],   0},                    // 1 .text
+				{nRelaText,   elf::SHT_RELA,     rela,                       offRelaText,   relaText.size(),        shSymtab, shText,      8,                detail::kRelaEntSize}, // 2 .rela.text
+				{nRodata,     elf::SHT_PROGBITS, alloc,                      offRodata,     bytesOf(Rodata).size(), 0,        0,           secAlign[Rodata], 0},                    // 3 .rodata
+				{nRelaRodata, elf::SHT_RELA,     rela,                       offRelaRodata, relaRodata.size(),      shSymtab, shRodata,    8,                detail::kRelaEntSize}, // 4 .rela.rodata
+				{nData,       elf::SHT_PROGBITS, alloc | elf::SHF_WRITE,     offData,       bytesOf(Data).size(),   0,        0,           secAlign[Data],   0},                    // 5 .data
+				{nRelaData,   elf::SHT_RELA,     rela,                       offRelaData,   relaData.size(),        shSymtab, shData,      8,                detail::kRelaEntSize}, // 6 .rela.data
+				{nBss,        elf::SHT_NOBITS,   alloc | elf::SHF_WRITE,     0,             bssSize,                0,        0,           secAlign[Bss],    0},                    // 7 .bss
+				{nSymtab,     elf::SHT_SYMTAB,   0,                          offSymtab,     symtab.size(),          shStrtab, firstGlobal, 8,                detail::kSymEntSize},  // 8 .symtab
+				{nStrtab,     elf::SHT_STRTAB,   0,                          offStrtab,     strtab.size(),          0,        0,           1,                0},                    // 9 .strtab
+				{nShstrtab,   elf::SHT_STRTAB,   0,                          offShstr,      shstr.size(),           0,        0,           1,                0},                    // 10 .shstrtab
+				{nNoteStack,  elf::SHT_PROGBITS, 0,                          0,             0,                      0,        0,           1,                0},                    // 11 .note.GNU-stack
 				// clang-format on
 		};
 		static_assert(sizeof(headers) / sizeof(headers[0]) == shCount, "headers must match shCount");

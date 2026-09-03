@@ -32,6 +32,12 @@ namespace rat {
 			b.insert(b.end(), tmp, tmp + 8);
 		}
 
+		// store the low len bytes of v
+		inline void wr(U8* p, U64 v, U32 len) {
+			for(U32 i = 0; i < len; ++i)
+				p[i] = (U8)(v >> (i * 8));
+		}
+
 		inline void padTo(List<U8>& b, U64 to) {
 			if(b.size() < to)
 				b.insert(b.end(), to - b.size(), 0);

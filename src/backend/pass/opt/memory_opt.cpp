@@ -3,16 +3,11 @@
 #include "codegen/schedule.h"
 #include "analysis/alias_analysis.h"
 #include "ir/function.h"
-#include "ir/module.h"
 #include "ir/node.h"
 #include "target/target.h"
 
 namespace rat {
 	Node* MemoryOptPass::effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size) {
-		// cap the chain walk: unbounded it is O(loads * chain) and blows up on
-		// huge by-value struct copies; hitting the cap only forgoes forwarding,
-		// still sound
-		constexpr U32 kMaxStoreWalk = 512;
 		for(U32 steps = 0; steps < kMaxStoreWalk; ++steps) {
 			StoreNode* s = dyn_cast<StoreNode>(mem);
 			if(!s)
@@ -22,10 +17,6 @@ namespace rat {
 			mem = s->getMemory();
 		}
 		return mem;
-	}
-
-	Node* MemoryOptPass::effectiveDef(const AliasAnalysis& aa, LoadNode* l) {
-		return effectiveDef(aa, l->getMemory(), l->getPointer(), aa.getAccessSize(l));
 	}
 
 	U32 MemoryOptPass::forwardStores(const AliasAnalysis& aa) {
@@ -103,7 +94,6 @@ namespace rat {
 
 	MemoryOptPass::ChainScan
 	MemoryOptPass::scanPhiSide(const AliasAnalysis& aa, PhiNode* m, U32 side, LoadNode* l) {
-		constexpr U32 kMaxStoreWalk = 512;
 		ChainScan scan{nullptr, false, false};
 		U32 size = aa.getAccessSize(l);
 		Node* mem = m->getValue(side);
@@ -173,7 +163,7 @@ namespace rat {
 	U32 MemoryOptPass::runOnFunction(Function& fn, const TargetInfo& target) {
 		fn.eliminateDeadNodes();
 
-		AliasAnalysis aa(fn, target.getPointerSizeInBytes());
+		AliasAnalysis aa(target.getPointerSizeInBytes());
 
 		loads.clear();
 		for(Node* n : fn)
@@ -182,7 +172,7 @@ namespace rat {
 		defs.assign(fn.idBound(), nullptr);
 		for(LoadNode* l : loads)
 			if(l->hasUsers())
-				defs[l->getId()] = effectiveDef(aa, l);
+				defs[l->getId()] = effectiveDef(aa, l->getMemory(), l->getPointer(), aa.getAccessSize(l));
 
 		U32 removed = 0;
 		removed += forwardStores(aa);

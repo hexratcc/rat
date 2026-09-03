@@ -75,24 +75,16 @@ namespace rat::cc {
 		return true;
 	}
 
-	void
-	Emitter::bindArrayGlobal(const Declarator& d, const String& symbol, Function* fn, U32 count) {
-		if(fn) {
-			Local loc = Local::memArray(fn->global(symbol), d.type, count);
-			loc.staticSym = arena.make<String>(symbol);
-			declare(*d.name, loc);
-		} else {
-			globalVars[*d.name] = GlobalVar{d.type, true, count};
-		}
-	}
-
-	void Emitter::bindScalarGlobal(const Declarator& d, const String& symbol, Function* fn) {
+	void Emitter::bindGlobal(
+			const Declarator& d, const String& symbol, Function* fn, B32 isArray, U32 count) {
 		if(fn) {
 			Local loc = Local::mem(fn->global(symbol), d.type);
+			loc.isArray = isArray;
+			loc.count = count;
 			loc.staticSym = arena.make<String>(symbol);
 			declare(*d.name, loc);
 		} else {
-			globalVars[*d.name] = GlobalVar{d.type, false, 0};
+			globalVars[*d.name] = GlobalVar{d.type, isArray, count};
 		}
 	}
 
@@ -135,7 +127,7 @@ namespace rat::cc {
 				return false;
 		}
 		defineGlobal(d, symbol, byteArrayType(total), std::move(img));
-		bindArrayGlobal(d, symbol, fn, (U32)count);
+		bindGlobal(d, symbol, fn, true, (U32)count);
 		return true;
 	}
 
@@ -179,7 +171,7 @@ namespace rat::cc {
 				return false;
 		}
 		defineGlobal(d, symbol, byteArrayType(total), std::move(img));
-		bindArrayGlobal(d, symbol, fn, (U32)count);
+		bindGlobal(d, symbol, fn, true, (U32)count);
 		return true;
 	}
 
@@ -239,7 +231,7 @@ namespace rat::cc {
 		}
 
 		defineGlobal(d, symbol, mod.getArray(irType(d.type), (U32)count), std::move(init));
-		bindArrayGlobal(d, symbol, fn, (U32)count);
+		bindGlobal(d, symbol, fn, true, (U32)count);
 		return true;
 	}
 
@@ -263,22 +255,21 @@ namespace rat::cc {
 		List<U8> init;
 
 		flexCount = flex;
+		B32 ok = true;
 		if(sinit && sinit->kind == ExprKind::InitList) {
 			init.assign(total, 0);
 			ImageSink sink(*this, init);
-			if(!initStructInit(sink, 0, st, sinit)) {
-				flexCount = 0;
-				return false;
-			}
+			ok = initStructInit(sink, 0, st, sinit);
 		} else if(sinit) {
-			flexCount = 0;
 			fail("invalid initializer for struct '" + *d.name + "'");
-			return false;
+			ok = false;
 		}
 		flexCount = 0;
+		if(!ok)
+			return false;
 
 		defineGlobal(d, symbol, byteArrayType(total), std::move(init));
-		bindScalarGlobal(d, symbol, fn);
+		bindGlobal(d, symbol, fn, false, 0);
 		return true;
 	}
 
@@ -332,7 +323,7 @@ namespace rat::cc {
 				init.push_back((U8)(value >> (8 * i)));
 		}
 		defineGlobal(d, symbol, irType(d.type), std::move(init));
-		bindScalarGlobal(d, symbol, fn);
+		bindGlobal(d, symbol, fn, false, 0);
 		return true;
 	}
 

@@ -222,15 +222,10 @@ namespace rat {
 		return -1;
 	}
 
-	void Schedule::successorsInto(I32 b, List<I32>& out) const {
-		out.clear();
-		for(U32 i = 0, e = succCount(b); i < e; ++i)
-			out.push_back(succAt(b, i));
-	}
-
 	List<I32> Schedule::successors(I32 b) const {
 		List<I32> out;
-		successorsInto(b, out);
+		for(U32 i = 0, e = succCount(b); i < e; ++i)
+			out.push_back(succAt(b, i));
 		return out;
 	}
 
@@ -431,7 +426,6 @@ namespace rat {
 				return blockOf(prod); // call/asm value/control projection
 			return -1;
 		}
-		case Opcode::Constant:
 		default:
 			return -1; // no constraint
 		}
@@ -558,8 +552,7 @@ namespace rat {
 		}
 		TopoScratch scratch;
 		scratch.localOf.assign(fn.size(), -1);
-		scratch.memHead.assign(fn.size(), -1);
-		AliasAnalysis aa(fn, 8);
+		AliasAnalysis aa(8);
 		for(I32 b = 0; b < (I32)blocks.size(); ++b)
 			blocks[b].nodes = topoOrder(raw[b], aa, scratch);
 	}
@@ -578,13 +571,13 @@ namespace rat {
 		return nullptr;
 	}
 
-	namespace {
+	namespace detail {
 		B32 storeMayAliasLoad(const AliasAnalysis& aa, const StoreNode* st, const LoadNode* ld) {
 			return aa.alias(
 								 st->getPointer(), aa.getAccessSize(st), ld->getPointer(), aa.getAccessSize(ld)) !=
 						 AliasResult::NoAlias;
 		}
-	} // namespace
+	} // namespace detail
 
 	List<Node*>
 	Schedule::topoOrder(List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& s) const {
@@ -605,22 +598,6 @@ namespace rat {
 		s.succHead.assign(k, -1);
 		s.succNext.clear();
 		s.succTo.clear();
-		s.memNext.assign(k, -1);
-
-		for(U32 i = 0; i < k; ++i) {
-			Node* n = nodes[i];
-			if(!isa<LoadNode>(n))
-				continue;
-			Node* m = memoryInputOf(n);
-			if(!m)
-				continue;
-			U32 mid = m->getId();
-			I32 head = detail::idGet(s.memHead, mid);
-			if(head < 0)
-				s.touchedMem.push_back((I32)mid);
-			s.memNext[i] = head;
-			detail::idSet(s.memHead, mid, (I32)i);
-		}
 
 		// extra ordering edges
 		auto addEdge = [&](Node* before, Node* after) {
@@ -656,7 +633,7 @@ namespace rat {
 			for(I32 wi = state ? detail::idGet(s.stHead, state->getId()) : -1; wi >= 0; ++guard) {
 				Node* w = nodes[wi];
 				StoreNode* st = dyn_cast<StoreNode>(w);
-				if(!st || storeMayAliasLoad(aa, st, ld) || guard >= k) {
+				if(!st || detail::storeMayAliasLoad(aa, st, ld) || guard >= k) {
 					addEdge(ld, w); // call, aliasing store, or bound hit -> pin here
 					break;
 				}
@@ -735,9 +712,6 @@ namespace rat {
 
 		for(U32 i = 0; i < k; ++i)
 			s.localOf[nodes[i]->getId()] = -1;
-		for(I32 mid : s.touchedMem)
-			s.memHead[mid] = -1;
-		s.touchedMem.clear();
 		for(I32 sid : s.touchedSt)
 			s.stHead[sid] = -1;
 		s.touchedSt.clear();

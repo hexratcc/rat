@@ -141,8 +141,7 @@ namespace rat::cc {
 				fallback = a.result;
 				continue;
 			}
-			CType at = a.type;
-			if(genericTypesMatch(ctrl, at))
+			if(genericTypesMatch(ctrl, a.type))
 				return a.result;
 		}
 		if(fallback)

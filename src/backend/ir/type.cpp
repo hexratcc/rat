@@ -12,7 +12,6 @@ namespace rat {
 	B32 Type::isFloat() const { return kind == Float; }
 	B32 Type::isPtr() const { return kind == Ptr; }
 	B32 Type::isTuple() const { return kind == Tuple; }
-	B32 Type::isArray() const { return kind == Array; }
 	B32 Type::isVec() const { return kind == Vec; }
 	B32 Type::isData() const { return isInt() || isFloat() || isPtr() || isVec(); }
 

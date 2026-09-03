@@ -1,7 +1,6 @@
 #include "pass/opt/sccp.h"
 
 #include "ir/function.h"
-#include "ir/module.h"
 #include "ir/node.h"
 #include "pass/opt/fold.h"
 

@@ -7,19 +7,12 @@
 #include "ir/opcode.h"
 #include "ir/type.h"
 
-#include <algorithm>
-
 namespace rat {
 	using namespace slp;
 
-	SlpPackPass::Packer::Packer(Function& fn,
-															const AliasAnalysis& aa,
-															U32 ptrBytes,
-															B32 sse41,
-															ShapeHash& shapes,
-															SlpStats& st)
+	SlpPackPass::Packer::Packer(
+			Function& fn, U32 ptrBytes, B32 sse41, ShapeHash& shapes, SlpStats& st)
 	: fn(fn),
-		aa(aa),
 		ptrBytes(ptrBytes),
 		sse41(sse41),
 		shapes(shapes),

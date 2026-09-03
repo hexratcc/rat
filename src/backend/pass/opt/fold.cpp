@@ -1,7 +1,6 @@
 #include "pass/opt/fold.h"
 
 #include "ir/function.h"
-#include "ir/module.h"
 #include "ir/node.h"
 #include "ir/type.h"
 
@@ -223,20 +222,11 @@ namespace rat {
 		}
 	}
 
-	Node* foldBinaryConst(Function& fn, Opcode op, Type* ty, U32 w, I64 a, I64 b) {
-		I64 out;
-		if(!evalBinaryConst(op, w, a, b, out))
-			return nullptr;
-		return constant(fn, ty, out);
-	}
-
 	Node* foldBinaryIdentity(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs) {
 		switch(op) {
 		case Opcode::Add:
 			if(FoldPass::isZeroConst(rhs))
 				return lhs;
-			if(FoldPass::isZeroConst(lhs))
-				return rhs;
 			break;
 		case Opcode::Sub:
 			if(FoldPass::isZeroConst(rhs))
@@ -247,35 +237,29 @@ namespace rat {
 		case Opcode::Mul:
 			if(FoldPass::isOneConst(rhs))
 				return lhs;
-			if(FoldPass::isOneConst(lhs))
-				return rhs;
-			if(FoldPass::isZeroConst(rhs) || FoldPass::isZeroConst(lhs))
+			if(FoldPass::isZeroConst(rhs))
 				return constant(fn, ty, 0);
 			break;
 		case Opcode::And:
 			if(lhs == rhs)
 				return lhs;
-			if(FoldPass::isZeroConst(rhs) || FoldPass::isZeroConst(lhs))
+			if(FoldPass::isZeroConst(rhs))
 				return constant(fn, ty, 0);
 			if(FoldPass::isAllOnesConst(rhs, w))
 				return lhs;
-			if(FoldPass::isAllOnesConst(lhs, w))
-				return rhs;
-			for(U32 side = 0; side < 2; ++side) {
-				Node* ext = side ? rhs : lhs;
-				Node* mask = side ? lhs : rhs;
-				ConvertNode* cv = dyn_cast<ConvertNode>(ext);
-				if(!cv || cv->getOpcode() != Opcode::SExt)
-					continue;
+			// sext(x) & (2^sw-1) == zext(x)
+			if(ConvertNode* cv = dyn_cast<ConvertNode>(lhs)) {
+				if(cv->getOpcode() != Opcode::SExt)
+					break;
 				Type* srcTy = cv->getOperand()->getType();
 				if(!srcTy || !srcTy->isInt())
-					continue;
+					break;
 				U32 sw = srcTy->getIntWidth();
 				if(sw >= 64)
-					continue;
-				ConstantNode* mc = dyn_cast<ConstantNode>(mask);
+					break;
+				ConstantNode* mc = dyn_cast<ConstantNode>(rhs);
 				if(!mc || (U64)mc->getValue() != ((1ULL << sw) - 1))
-					continue;
+					break;
 				return fn.create<ConvertNode>(Opcode::ZExt, ty, cv->getOperand());
 			}
 			break;
@@ -284,9 +268,7 @@ namespace rat {
 				return lhs;
 			if(FoldPass::isZeroConst(rhs))
 				return lhs;
-			if(FoldPass::isZeroConst(lhs))
-				return rhs;
-			if(FoldPass::isAllOnesConst(rhs, w) || FoldPass::isAllOnesConst(lhs, w))
+			if(FoldPass::isAllOnesConst(rhs, w))
 				return constant(fn, ty, FoldPass::normalizeConst(-1, w));
 			// (x<<c)|(x>>(w-c)) == rotate (32/64-bit only, one rol/ror)
 			if(w == 32 || w == 64) {
@@ -310,8 +292,6 @@ namespace rat {
 		case Opcode::Xor:
 			if(FoldPass::isZeroConst(rhs))
 				return lhs;
-			if(FoldPass::isZeroConst(lhs))
-				return rhs;
 			if(lhs == rhs)
 				return constant(fn, ty, 0);
 			break;
@@ -567,8 +547,12 @@ namespace rat {
 		ConstantNode* cl = dyn_cast<ConstantNode>(lhs);
 		ConstantNode* cr = dyn_cast<ConstantNode>(rhs);
 
-		if(cl && cr)
-			return foldBinaryConst(fn, op, ty, w, cl->getValue(), cr->getValue());
+		if(cl && cr) {
+			I64 res;
+			if(!evalBinaryConst(op, w, cl->getValue(), cr->getValue(), res))
+				return nullptr;
+			return constant(fn, ty, res);
+		}
 
 		// normalize a lone constant to the RHS for commutative ops, so every rule
 		// below only has to look on one side
@@ -662,22 +646,10 @@ namespace rat {
 			return nullptr;
 		U32 srcW = operand->getType()->getIntWidth();
 		U32 dstW = destType->getIntWidth();
-		I64 x = c->getValue();
-		I64 res = 0;
-		switch(op) {
-		case Opcode::Trunc:
-			res = FoldPass::normalizeConst(x, dstW);
-			break;
-		case Opcode::SExt:
-			res = FoldPass::normalizeConst(signExtend(x, srcW), dstW);
-			break;
-		case Opcode::ZExt:
-			res = FoldPass::normalizeConst((I64)FoldPass::maskW(x, srcW), dstW);
-			break;
-		default:
+		I64 r;
+		if(!evalConvertConst(op, srcW, dstW, c->getValue(), r))
 			return nullptr;
-		}
-		return constant(fn, destType, res);
+		return constant(fn, destType, r);
 	}
 
 	Node* simplify(Function& fn, Node* n) {

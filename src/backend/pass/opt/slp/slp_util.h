@@ -8,9 +8,7 @@
 
 namespace rat {
 	struct Node;
-	struct StoreNode;
 	struct LoadNode;
-	struct BinaryNode;
 	struct Type;
 
 	namespace slp {

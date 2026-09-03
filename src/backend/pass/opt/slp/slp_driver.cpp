@@ -8,8 +8,6 @@
 #include "ir/opcode.h"
 #include "ir/type.h"
 
-#include <algorithm>
-
 namespace rat {
 	using namespace slp;
 

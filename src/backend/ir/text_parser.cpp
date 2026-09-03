@@ -5,7 +5,6 @@
 #include "ir/function.h"
 #include "ir/module.h"
 #include "ir/node.h"
-#include "ir/opcode.h"
 #include "ir/type.h"
 #include "string.h"
 
@@ -111,15 +110,14 @@ namespace rat {
 		}
 
 		Opcode opcodeForMnemonic(const String& m, B32& ok) {
-			static const Map<String, Opcode> table = [] {
-				Map<String, Opcode> t;
-				for(U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Select; ++i)
-					t.emplace(getOpcodeMnemonic((Opcode)i), (Opcode)i);
-				return t;
-			}();
-			auto it = table.find(m);
-			ok = it != table.end();
-			return ok ? it->second : Opcode::Start;
+			for(U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Select; ++i) {
+				if(m == getOpcodeMnemonic((Opcode)i)) {
+					ok = true;
+					return (Opcode)i;
+				}
+			}
+			ok = false;
+			return Opcode::Start;
 		}
 
 		Parser::Parser(Module& mod, std::ostream& err)
@@ -128,7 +126,6 @@ namespace rat {
 
 		B32 Parser::fail(const String& msg) {
 			err << "parse error (line " << lineNo << "): " << msg << "\n";
-			failed = true;
 			return false;
 		}
 
@@ -151,7 +148,7 @@ namespace rat {
 					return fail("expected a 'func', 'const' or 'var', got: " + t);
 				}
 			}
-			return !failed;
+			return true;
 		}
 
 		Type* Parser::parseType(const String& s) {
@@ -390,12 +387,10 @@ namespace rat {
 				if(errno == ERANGE || pj > 0xffffffffUL)
 					return fail("proj index out of range '" + toks[0] + "'");
 				pn.projIndex = (U32)pj;
-				U32 k = 1;
-				if(k < toks.size() && !toks[k].empty() && toks[k].front() == '"') {
-					String l = toks[k];
+				if(toks.size() > 1 && !toks[1].empty() && toks[1].front() == '"') {
+					const String& l = toks[1];
 					if(l.size() >= 2 && l.back() == '"')
 						pn.projLabel = l.substr(1, l.size() - 2);
-					++k;
 				}
 				List<U32> refs = parseVRefs(remainder);
 				if(refs.size() != 1)
@@ -505,8 +500,19 @@ namespace rat {
 			}
 		}
 
+		// fetches the first `count` operands of `pn`; false on a missing or undefined one
+		B32 Parser::operands(const ParsedNode& pn, U32 count, List<Node*>& out) {
+			for(U32 i = 0; i < count; ++i) {
+				Node* n = operand(pn, i);
+				if(!n)
+					return false;
+				out.push_back(n);
+			}
+			return true;
+		}
+
 		// constructs the single node described by `pn`, looking up its operands via
-		// operand(). Region / Phi are created with no inputs (wired later by
+		// operands(). Region / Phi are created with no inputs (wired later by
 		// wireDeferredInputs); returns null on a missing operand or unknown opcode.
 		Node* Parser::makeNode(Function* fn, const ParsedNode& pn) {
 			Opcode op = pn.op;
@@ -519,134 +525,73 @@ namespace rat {
 				return fn->create<PhiNode>(pn.ty, List<Node*>{});
 			if(op == Opcode::Constant)
 				return fn->create<ConstantNode>(pn.ty, pn.cval);
-			if(op == Opcode::If) {
-				Node* c = operand(pn, 0);
-				Node* p = operand(pn, 1);
-				if(!c || !p)
-					return nullptr;
-				return fn->create<IfNode>(pn.ty, c, p);
-			}
-			if(op == Opcode::Proj) {
-				Node* prod = operand(pn, 0);
-				if(!prod)
-					return nullptr;
-				if(prod == fn->getStart() && pn.projIndex == StartNode::controlProjIndex() && startCtrl)
-					return startCtrl;
-				if(prod == fn->getStart() && pn.projIndex == StartNode::memoryProjIndex() && startMem)
-					return startMem;
-				return fn->create<ProjNode>(pn.ty, prod, pn.projIndex, pn.projLabel);
-			}
-			if(op == Opcode::Load) {
-				Node* c = operand(pn, 0);
-				Node* m = operand(pn, 1);
-				Node* ptr = operand(pn, 2);
-				if(!c || !m || !ptr)
-					return nullptr;
-				return fn->create<LoadNode>(pn.ty, c, m, ptr);
-			}
-			if(op == Opcode::Store) {
-				Node* c = operand(pn, 0);
-				Node* m = operand(pn, 1);
-				Node* ptr = operand(pn, 2);
-				Node* v = operand(pn, 3);
-				if(!c || !m || !ptr || !v)
-					return nullptr;
-				return fn->create<StoreNode>(pn.ty, c, m, ptr, v);
-			}
-			if(op == Opcode::Call || op == Opcode::Return) {
-				List<Node*> ins;
-				for(U32 i = 0; i < pn.operands.size(); ++i) {
-					Node* a = operand(pn, i);
-					if(!a)
-						return nullptr;
-					ins.push_back(a);
-				}
-				if(op == Opcode::Return)
-					return fn->create<ReturnNode>(pn.ty, ins);
-				B32 rv = pn.ty->isTuple() && pn.ty->getTupleElementCount() == 3;
-				return fn->create<CallNode>(pn.ty, pn.callee, rv, ins);
-			}
-			if(op == Opcode::Asm) {
-				List<Node*> ins;
-				for(U32 i = 0; i < pn.operands.size(); ++i) {
-					Node* a = operand(pn, i);
-					if(!a)
-						return nullptr;
-					ins.push_back(a);
-				}
-				U32 outs = pn.ty->isTuple() ? pn.ty->getTupleElementCount() - 2 : 0;
-				return fn->create<AsmNode>(pn.ty, pn.asmText, outs, ins);
-			}
-			if(isBinaryOpcode(op) || isCompareOpcode(op)) {
-				Node* l = operand(pn, 0);
-				Node* rh = operand(pn, 1);
-				if(!l || !rh)
-					return nullptr;
-				if(isBinaryOpcode(op))
-					return fn->create<BinaryNode>(op, pn.ty, l, rh);
-				return fn->create<CompareNode>(op, pn.ty, l, rh);
-			}
-			if(isUnaryOpcode(op) || isConvertOpcode(op)) {
-				Node* v = operand(pn, 0);
-				if(!v)
-					return nullptr;
-				if(isUnaryOpcode(op))
-					return fn->create<UnaryNode>(op, pn.ty, v);
-				return fn->create<ConvertNode>(op, pn.ty, v);
-			}
 			if(op == Opcode::Global)
 				return fn->create<GlobalNode>(pn.ty, pn.symbol);
 			if(op == Opcode::Alloc)
 				return fn->create<AllocNode>(pn.ty, pn.allocType);
-			if(isStackOpcode(op)) {
-				Node* c = operand(pn, 0);
-				Node* m = operand(pn, 1);
-				if(!c || !m)
-					return nullptr;
-				if(op == Opcode::StackSave)
-					return fn->create<StackSaveNode>(pn.ty, c, m);
-				Node* x = operand(pn, 2);
-				if(!x)
-					return nullptr;
-				if(op == Opcode::StackAlloc)
-					return fn->create<StackAllocNode>(pn.ty, c, m, x);
-				return fn->create<StackRestoreNode>(pn.ty, c, m, x);
+
+			// fixed-arity ops take the table count (extra refs are ignored), variadic ones all refs
+			I8 maxInputs = getOpcodeInfo(op).maxInputs;
+			U32 count = (U32)maxInputs;
+			if(maxInputs < 0 || op == Opcode::Return)
+				count = (U32)pn.operands.size();
+			List<Node*> in;
+			if(!operands(pn, count, in))
+				return nullptr;
+
+			switch(op) {
+			case Opcode::If:
+				return fn->create<IfNode>(pn.ty, in[0], in[1]);
+			case Opcode::Proj:
+				if(in[0] == fn->getStart() && pn.projIndex == StartNode::controlProjIndex() && startCtrl)
+					return startCtrl;
+				if(in[0] == fn->getStart() && pn.projIndex == StartNode::memoryProjIndex() && startMem)
+					return startMem;
+				return fn->create<ProjNode>(pn.ty, in[0], pn.projIndex, pn.projLabel);
+			case Opcode::Load:
+				return fn->create<LoadNode>(pn.ty, in[0], in[1], in[2]);
+			case Opcode::Store:
+				return fn->create<StoreNode>(pn.ty, in[0], in[1], in[2], in[3]);
+			case Opcode::Return:
+				return fn->create<ReturnNode>(pn.ty, in);
+			case Opcode::Call: {
+				B32 rv = pn.ty->isTuple() && pn.ty->getTupleElementCount() == 3;
+				return fn->create<CallNode>(pn.ty, pn.callee, rv, in);
 			}
-			if(op == Opcode::Splat) {
-				Node* s = operand(pn, 0);
-				if(!s)
-					return nullptr;
-				return fn->create<SplatNode>(pn.ty, s);
+			case Opcode::Asm: {
+				U32 outs = pn.ty->isTuple() ? pn.ty->getTupleElementCount() - 2 : 0;
+				return fn->create<AsmNode>(pn.ty, pn.asmText, outs, in);
 			}
-			if(op == Opcode::Extract) {
-				Node* v = operand(pn, 0);
-				if(!v)
-					return nullptr;
-				return fn->create<ExtractNode>(pn.ty, v, pn.projIndex);
+			case Opcode::StackSave:
+				return fn->create<StackSaveNode>(pn.ty, in[0], in[1]);
+			case Opcode::StackAlloc:
+				return fn->create<StackAllocNode>(pn.ty, in[0], in[1], in[2]);
+			case Opcode::StackRestore:
+				return fn->create<StackRestoreNode>(pn.ty, in[0], in[1], in[2]);
+			case Opcode::Splat:
+				return fn->create<SplatNode>(pn.ty, in[0]);
+			case Opcode::Extract:
+				return fn->create<ExtractNode>(pn.ty, in[0], pn.projIndex);
+			case Opcode::Shuffle:
+				return fn->create<ShuffleNode>(pn.ty, in[0], (U8)pn.projIndex);
+			case Opcode::Select:
+				return fn->create<SelectNode>(pn.ty, in[0], in[1], in[2]);
+			case Opcode::Pack:
+				return fn->create<PackNode>(pn.ty, in);
+			default:
+				break;
 			}
-			if(op == Opcode::Shuffle) {
-				Node* v = operand(pn, 0);
-				if(!v)
-					return nullptr;
-				return fn->create<ShuffleNode>(pn.ty, v, (U8)pn.projIndex);
-			}
-			if(op == Opcode::Select) {
-				Node* c = operand(pn, 0);
-				Node* t = operand(pn, 1);
-				Node* f = operand(pn, 2);
-				if(!c || !t || !f)
-					return nullptr;
-				return fn->create<SelectNode>(pn.ty, c, t, f);
-			}
-			if(op == Opcode::Pack) {
-				List<Node*> lanes;
-				for(U32 i = 0; i < pn.operands.size(); ++i) {
-					Node* a = operand(pn, i);
-					if(!a)
-						return nullptr;
-					lanes.push_back(a);
-				}
-				return fn->create<PackNode>(pn.ty, lanes);
+			switch(getOpClass(op)) {
+			case OpClass::Binary:
+				return fn->create<BinaryNode>(op, pn.ty, in[0], in[1]);
+			case OpClass::Compare:
+				return fn->create<CompareNode>(op, pn.ty, in[0], in[1]);
+			case OpClass::Unary:
+				return fn->create<UnaryNode>(op, pn.ty, in[0]);
+			case OpClass::Convert:
+				return fn->create<ConvertNode>(op, pn.ty, in[0]);
+			case OpClass::None:
+				break;
 			}
 			fail(String("cannot construct opcode '") + getOpcodeMnemonic(op) + "'");
 			return nullptr;
@@ -719,12 +664,8 @@ namespace rat {
 		}
 	} // namespace detail
 
-	B32 parseText(std::istream& in, Module& module, std::ostream& errors) {
-		return detail::Parser(module, errors).parse(in);
-	}
-
 	B32 parseText(const String& text, Module& module, std::ostream& errors) {
 		std::istringstream ss(text);
-		return parseText(ss, module, errors);
+		return detail::Parser(module, errors).parse(ss);
 	}
 } // namespace rat

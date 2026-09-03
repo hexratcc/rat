@@ -17,7 +17,6 @@ namespace rat {
 		const char* extension;			// case file suffix
 		List<String> dirCandidates; // searched when no paths are given
 		CaseRunner run;							// executes a single case
-		Delegate<void()> prewarm;		// runs once before threads spawn
 	};
 
 	I32 runTestSuite(I32 argc, char** argv, const TestSuiteSpec& spec);

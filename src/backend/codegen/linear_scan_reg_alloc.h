@@ -73,13 +73,11 @@ namespace rat {
 		void resetState() override {
 			for(Interval& iv : intervals)
 				iv.reset();
-			pinsByPoint.clear();
 		}
 		void solve() override;
 		Assignment assignmentOf(VReg v) override;
 		void buildIntervals();
 		static void coalesceSegs(Interval& iv);
-		static B32 coversPoint(const Interval& iv, I32 pt);
 		static B32 overlapOnlyAt(const Interval& a, const Interval& b, const List<I32>& pts);
 		U64 forbidden(const Interval& iv) const;
 		void assignRegs();

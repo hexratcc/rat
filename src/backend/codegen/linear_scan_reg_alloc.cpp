@@ -27,8 +27,6 @@ namespace rat {
 
 		if(intervals.size() < fn->nextVReg)
 			intervals.resize(fn->nextVReg);
-		for(U32 i = 0; i < fn->nextVReg; ++i)
-			intervals[i].reset();
 
 		auto ivFor = [&](VReg v) -> Interval& {
 			Interval& iv = intervals[v];
@@ -114,16 +112,6 @@ namespace rat {
 		iv.segs.resize(w);
 		iv.start = iv.segs.front().start;
 		iv.end = iv.segs.back().end;
-	}
-
-	B32 LinearScanRegAllocPass::coversPoint(const Interval& iv, I32 pt) {
-		for(const Seg& sg : iv.segs) {
-			if(sg.start > pt)
-				return false;
-			if(pt <= sg.end)
-				return true;
-		}
-		return false;
 	}
 
 	B32 LinearScanRegAllocPass::overlapOnlyAt(const Interval& a,

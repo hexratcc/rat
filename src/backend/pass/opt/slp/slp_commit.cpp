@@ -23,7 +23,7 @@ namespace rat {
 		Set<const Node*> obsSet;
 		collectInterState(seg, i, w0.w, interWritten, obsSet);
 		RefinedAddr wkey = w0.byOff[0]->key;
-		Packer packer(fn, aa, ptrBytes, sse41, shapes, stats);
+		Packer packer(fn, ptrBytes, sse41, shapes, stats);
 		packer.bindWindow(seg[i].store->getMemory(), &wkey, &interWritten, &obsSet, &addrAnchors);
 		packer.profit += (I32)w0.w - 1; // the fused store itself
 		Node* vec = packer.packTuple(laneValues(w0), w0.elemTy, 0);
@@ -80,7 +80,7 @@ namespace rat {
 		Set<const Node*> obsSet;
 		collectInterState(seg, i, total, interWritten, obsSet);
 
-		Packer packer(fn, aa, ptrBytes, sse41, shapes, stats);
+		Packer packer(fn, ptrBytes, sse41, shapes, stats);
 		packer.bindWindow(memIn, &wkey, &interWritten, &obsSet, &addrAnchors);
 		List<Node*> vecs;
 		B32 treeOk = true;

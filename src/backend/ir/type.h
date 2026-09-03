@@ -25,7 +25,6 @@ namespace rat {
 		B32 isFloat() const;
 		B32 isPtr() const;
 		B32 isTuple() const;
-		B32 isArray() const;
 		B32 isVec() const;
 		B32 isData() const;
 

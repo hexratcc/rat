@@ -60,17 +60,6 @@ namespace rat::cc {
 		return acceptTrailingAlignas(objAlign);
 	}
 
-	B32 Parser::parseParamArray(CType& t) {
-		Declarator d;
-		d.type = t;
-		if(!parseArraySuffix(d))
-			return false;
-		CType decayed = d.type;
-		++decayed.ptr;
-		t = decayed;
-		return true;
-	}
-
 	void Parser::adjustParamType(CType& t, const Expr** vlaBound) {
 		if(t.func != nullptr && t.ptr == 0) {
 			t.ptr = 1;
@@ -180,6 +169,21 @@ namespace rat::cc {
 		return b;
 	}
 
+	// bound up to and including ']'; a non-constant bound is kept as a VLA expr
+	B32 Parser::parseArrayBound(U64& count, Expr*& expr) {
+		if(peek().kind != TokKind::RBracket) {
+			Expr* e = parseConditional();
+			if(!e)
+				return false;
+			I64 n = 0;
+			if(tryEvalIntConst(e, n) && n > 0)
+				count = (U64)n;
+			else
+				expr = e; // VLA
+		}
+		return expect(TokKind::RBracket, "']'");
+	}
+
 	B32 Parser::parseDeclaratorSuffixes(List<DeclOp>& ops) {
 		List<DeclOp> sfx;
 		for(;;) {
@@ -188,19 +192,9 @@ namespace rat::cc {
 				skipArrayQualifiers();
 				DeclOp op;
 				op.kind = DeclOp::Kind::Array;
-				if(peek().kind == TokKind::Star && peek2().kind == TokKind::RBracket) {
+				if(peek().kind == TokKind::Star && peek2().kind == TokKind::RBracket)
 					advance(); // [*]
-				} else if(peek().kind != TokKind::RBracket) {
-					Expr* e = parseConditional();
-					if(!e)
-						return false;
-					I64 n = 0;
-					if(tryEvalIntConst(e, n) && n > 0)
-						op.count = (U64)n;
-					else
-						op.countExpr = e; // VLA
-				}
-				if(!expect(TokKind::RBracket, "']'"))
+				if(!parseArrayBound(op.count, op.countExpr))
 					return false;
 				sfx.push_back(op);
 			} else if(peek().kind == TokKind::LParen) {

@@ -11,7 +11,6 @@
 #include <cstdint>
 
 namespace rat {
-	struct AllocNode;
 	struct BinaryNode;
 	struct CallNode;
 	struct AsmNode;
@@ -46,7 +45,7 @@ namespace rat {
 			B32 frameBase = false; // rbp-rel
 		};
 
-		U32 runOnMachineFunction(const Function& fn, MachineFunc& mf, const TargetInfo& target);
+		void runOnMachineFunction(const Function& fn, MachineFunc& mf, const TargetInfo& target);
 
 		void reset(const Function& f, Schedule& s, MachineFunc& o, X86FrameLayout& layout);
 		void lowerFunction();
@@ -60,6 +59,7 @@ namespace rat {
 		static B32 isIntCompare(Node* n);
 		static B32 immOf(Node* n, I64& out);
 		static B32 branchOnlyCompare(Node* n);
+		static B32 onlySelectCondUsers(Node* n);
 		static B32 selectOnlyCompare(Node* n);
 		static B32 fpSelectOnlyCompare(Node* n);
 		static B32 fusableFpCompare(Node* n);
@@ -224,7 +224,8 @@ namespace rat {
 		void emitBswap(UnaryNode* n);
 		B32 emitInlineIntrinsic(CallNode* n);
 		void emitUnary(UnaryNode* n);
-		void emitIntCmp(CompareNode* n);
+		U8 emitIntCmp(CompareNode* n);
+		U8 fusedFpCmp(CompareNode* n);
 		void emitCompare(CompareNode* n);
 		void emitFloatCompare(CompareNode* n);
 		void unorderedFixup(Opcode op, VReg d);

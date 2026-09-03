@@ -379,8 +379,7 @@ namespace rat {
 
 	void Asm::patchRel32(U32 dispAt, U32 target) {
 		U32 rel = (U32)((I32)target - (I32)(dispAt + 4));
-		for(U32 i = 0; i < 4; ++i)
-			code[dispAt + i] = (U8)(rel >> (i * 8));
+		le::wr(&code[dispAt], rel, 4);
 	}
 
 	void Asm::callSym(const String& sym) {

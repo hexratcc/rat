@@ -24,7 +24,6 @@ namespace rat {
 		const List<Reloc>& getRelocs() const;
 
 		enum class Linkage { External, Internal };
-		Linkage getLinkage() const { return linkage; }
 		void setLinkage(Linkage l) { linkage = l; }
 		B32 isInternal() const { return linkage == Linkage::Internal; }
 
@@ -62,15 +61,17 @@ namespace rat {
 		const List<Global*>& globals() const;
 
 		struct FunctionIterator {
-			Function* operator*() const;
-			FunctionIterator& operator++();
-			B32 operator!=(const FunctionIterator& other) const;
-
 			List<Function*>::const_iterator it;
+			Function* operator*() const { return *it; }
+			FunctionIterator& operator++() {
+				++it;
+				return *this;
+			}
+			B32 operator!=(const FunctionIterator& other) const { return it != other.it; }
 		};
 
-		FunctionIterator begin() const;
-		FunctionIterator end() const;
+		FunctionIterator begin() const { return {funcs.begin()}; }
+		FunctionIterator end() const { return {funcs.end()}; }
 	private:
 		String name;
 		List<Function*> funcs;

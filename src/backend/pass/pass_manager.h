@@ -37,7 +37,7 @@ namespace rat {
 		}
 		void gateLastOnChangesSinceSelf();
 		void markFixpointEnd() { fixpointEnd = (U32)passes.size(); }
-		B32 run(Module& module, std::ostream* log = nullptr);
+		void run(Module& module, std::ostream* log = nullptr);
 
 		void printTimingReport(std::ostream& os) const;
 	private:

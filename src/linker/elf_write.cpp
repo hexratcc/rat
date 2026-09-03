@@ -122,8 +122,7 @@ namespace rat {
 			if(id == 0) {
 				// cie: parse augmentation for 'R' fde ptr enc
 				U64 i = idOff + 4;
-				U8 ver = m[i++];
-				(void)ver;
+				++i; // version
 				const char* aug = (const char*)&m[i];
 				U64 augLen = 0;
 				while(m[i + augLen])
@@ -145,8 +144,6 @@ namespace rat {
 							i += detail::encSize(penc); // personality ptr
 						} else if(c == 'R') {
 							fdeEnc = m[i++];
-						} else if(c == 'S') {
-							// signal frame, no data
 						}
 					}
 				}
@@ -180,19 +177,15 @@ namespace rat {
 
 		std::sort(table.begin(), table.end());
 
-		auto put32 = [&](U32 v) {
-			for(U32 k = 0; k < 4; ++k)
-				ehFrameHdr.push_back((U8)(v >> (k * 8)));
-		};
 		ehFrameHdr.push_back(1);		// version
 		ehFrameHdr.push_back(0x1b); // eh_frame_ptr: pcrel sdata4
 		ehFrameHdr.push_back(0x03); // fde_count: udata4
 		ehFrameHdr.push_back(0x3b); // table: datarel sdata4
-		put32((U32)(I32)((I64)ehVa - (I64)(hdrVa + 4)));
-		put32((U32)table.size());
+		le::put32(ehFrameHdr, (U32)(I32)((I64)ehVa - (I64)(hdrVa + 4)));
+		le::put32(ehFrameHdr, (U32)table.size());
 		for(auto& e : table) {
-			put32((U32)(I32)((I64)e.first - (I64)hdrVa));
-			put32((U32)(I32)((I64)e.second - (I64)hdrVa));
+			le::put32(ehFrameHdr, (U32)(I32)((I64)e.first - (I64)hdrVa));
+			le::put32(ehFrameHdr, (U32)(I32)((I64)e.second - (I64)hdrVa));
 		}
 	}
 
@@ -334,13 +327,11 @@ namespace rat {
 			cursor = (cursor + a - 1) & ~(a - 1);
 		}
 		vaddr[OBss] = detail::kImageBase + cursor;
-		foff[OBss] = cursor;
 		size[OBss] = bucketSize[BBss];
 		// tls bss is loader-managed, park after bss
 		U64 tbssCur = cursor + size[OBss];
 		tbssCur = (tbssCur + 15) & ~15ull;
 		vaddr[OTbss] = detail::kImageBase + tbssCur;
-		foff[OTbss] = tbssCur;
 		size[OTbss] = bucketSize[BTbss];
 
 		// 5. bucket vaddrs + final addresses
@@ -463,21 +454,6 @@ namespace rat {
 	}
 
 	B32 Linker::applyRelocs() {
-		auto put16 = [&](U8 bucket, U64 off, U16 v) {
-			U8* p = &merged[bucket][off];
-			p[0] = (U8)v;
-			p[1] = (U8)(v >> 8);
-		};
-		auto put32 = [&](U8 bucket, U64 off, U32 v) {
-			U8* p = &merged[bucket][off];
-			for(U32 i = 0; i < 4; ++i)
-				p[i] = (U8)(v >> (i * 8));
-		};
-		auto put64 = [&](U8 bucket, U64 off, U64 v) {
-			U8* p = &merged[bucket][off];
-			for(U32 i = 0; i < 8; ++i)
-				p[i] = (U8)(v >> (i * 8));
-		};
 		U64 tlsBlockSize = size[OTdata] + size[OTbss];
 		U64 tlsAlignedSize = (tlsBlockSize + 15) & ~15ull;
 
@@ -489,6 +465,7 @@ namespace rat {
 				if(b == BBss || b == BTbss)
 					continue; // nobits carries no relocs
 				U64 patchOff = rsec.outOff + r.offset;
+				U8* patch = &merged[b][patchOff];
 				U64 P = bucketVaddr[b] + patchOff;
 				U64 S = 0;
 				B32 isFunc = false, isTls = false;
@@ -497,68 +474,55 @@ namespace rat {
 				I64 A = r.addend;
 				switch(r.type) {
 				case R_X86_64_64:
-					put64(b, patchOff, (U64)((I64)S + A));
+					le::wr(patch, (U64)((I64)S + A), 8);
 					break;
 				case R_X86_64_PC32:
 				case R_X86_64_PLT32:
 				case R_X86_64_GOT32: // pc-rel to symbol (small model)
-					put32(b, patchOff, (U32)(I32)((I64)S + A - (I64)P));
+					le::wr(patch, (U32)(I32)((I64)S + A - (I64)P), 4);
 					break;
 				case R_X86_64_PC64:
-					put64(b, patchOff, (U64)((I64)S + A - (I64)P));
+					le::wr(patch, (U64)((I64)S + A - (I64)P), 8);
 					break;
 				case R_X86_64_32:
-					put32(b, patchOff, (U32)((I64)S + A));
+					le::wr(patch, (U32)((I64)S + A), 4);
 					break;
 				case R_X86_64_32S:
-					put32(b, patchOff, (U32)(I32)((I64)S + A));
+					le::wr(patch, (U32)(I32)((I64)S + A), 4);
 					break;
 				case R_X86_64_16:
-					put16(b, patchOff, (U16)((I64)S + A));
+					le::wr(patch, (U16)((I64)S + A), 2);
 					break;
 				case R_X86_64_SIZE32:
-					put32(b, patchOff, (U32)((I64)obj.syms[r.sym].size + A));
+					le::wr(patch, (U32)((I64)obj.syms[r.sym].size + A), 4);
 					break;
 				case R_X86_64_SIZE64:
-					put64(b, patchOff, (U64)((I64)obj.syms[r.sym].size + A));
+					le::wr(patch, (U64)((I64)obj.syms[r.sym].size + A), 8);
 					break;
 				case R_X86_64_GOTPCREL:
 				case R_X86_64_GOTPCRELX:
 				case R_X86_64_REX_GOTPCRELX: {
-					const InSym& s = obj.syms[r.sym];
-					String key;
-					if(!s.undef && s.bind == STB_LOCAL)
-						key = "L:" + std::to_string(oi) + ":" + std::to_string(r.sym);
-					else
-						key = "G:" + s.name;
-					U32 slot = gotIndex[key];
+					U32 slot = gotIndex[gotKey(oi, r)];
 					if(!gotSlots[slot].isImport)
 						gotSlots[slot].addr = S; // defined: slot holds addr
 					U64 gAddr = vaddr[OGot] + (U64)slot * 8;
-					put32(b, patchOff, (U32)(I32)((I64)gAddr + A - (I64)P));
+					le::wr(patch, (U32)(I32)((I64)gAddr + A - (I64)P), 4);
 					break;
 				}
 				case R_X86_64_TPOFF32: {
 					// local-exec: neg offset from tp (end of tls block); S is block-relative
 					I64 tp = (I64)S + A - (I64)tlsAlignedSize;
-					put32(b, patchOff, (U32)(I32)tp);
+					le::wr(patch, (U32)(I32)tp, 4);
 					break;
 				}
 				case R_X86_64_GOTTPOFF: {
 					// initial-exec: got slot holds tpoff (local-exec offset), ref is pc-rel to slot
-					const InSym& s = obj.syms[r.sym];
-					String key;
-					if(!s.undef && s.bind == STB_LOCAL)
-						key = "L:" + std::to_string(oi) + ":" + std::to_string(r.sym);
-					else
-						key = "G:" + s.name;
-					U32 slot = gotIndex[key];
+					U32 slot = gotIndex[gotKey(oi, r)];
 					I64 tp = (I64)S - (I64)tlsAlignedSize;
 					gotSlots[slot].addr = (U64)tp;
-					gotSlots[slot].defined = true;
 					gotSlots[slot].isImport = false;
 					U64 gAddr = vaddr[OGot] + (U64)slot * 8;
-					put32(b, patchOff, (U32)(I32)((I64)gAddr + A - (I64)P));
+					le::wr(patch, (U32)(I32)((I64)gAddr + A - (I64)P), 4);
 					break;
 				}
 				default:
@@ -582,10 +546,8 @@ namespace rat {
 		I32 leaDisp = (I32)((I64)mainAddr - (I64)(leaVaddr + 4));
 		I32 callDisp = (I32)((I64)lsmAddr - (I64)(callVaddr + 4));
 		U64 startFileOff = size[OText] - startCode.size();
-		for(U32 i = 0; i < 4; ++i) {
-			merged[BText][startFileOff + startLeaDisp + i] = (U8)((U32)leaDisp >> (i * 8));
-			merged[BText][startFileOff + startCallDisp + i] = (U8)((U32)callDisp >> (i * 8));
-		}
+		le::wr(&merged[BText][startFileOff + startLeaDisp], (U32)leaDisp, 4);
+		le::wr(&merged[BText][startFileOff + startCallDisp], (U32)callDisp, 4);
 		return true;
 	}
 
@@ -719,8 +681,7 @@ namespace rat {
 				I32 disp = (I32)((I64)slot - (I64)(entry + 6));
 				plt.push_back(0xff);
 				plt.push_back(0x25);
-				for(U32 k = 0; k < 4; ++k)
-					plt.push_back((U8)((U32)disp >> (k * 8)));
+				le::put32(plt, (U32)disp);
 				while(plt.size() % detail::kPltEntSize)
 					plt.push_back(0x90);
 				++slotN;
@@ -872,8 +833,7 @@ namespace rat {
 			err = "write to '" + opt.output + "' failed";
 			return false;
 		}
-		if(opt.executable)
-			chmod(opt.output.c_str(), 0755);
+		chmod(opt.output.c_str(), 0755);
 		return true;
 	}
 } // namespace rat

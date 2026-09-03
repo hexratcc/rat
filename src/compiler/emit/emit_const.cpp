@@ -224,9 +224,6 @@ namespace rat::cc {
 		case ExprKind::FloatLit:
 			out = e->floatLit.value;
 			return true;
-		case ExprKind::IntLit:
-			out = (long double)e->intLit.value;
-			return true;
 		case ExprKind::Cast:
 			return evalFloatConst(e->cast.operand, out);
 		case ExprKind::Unary: {

@@ -1,14 +1,11 @@
 #include "pass/emit/x86/x86_lower.h"
 
 #include "codegen/machine_function.h"
-#include "codegen/machine_module.h"
-#include "codegen/schedule.h"
 #include "ir/function.h"
 #include "ir/module.h"
 #include "ir/node.h"
 #include "ir/opcode.h"
 #include "ir/type.h"
-#include "target/object_file.h"
 #include "target/target.h"
 #include "target/x86/x86_asm.h"
 

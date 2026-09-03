@@ -3,14 +3,10 @@
 
 #include "core.h"
 
-#include "target/target.h"
-
 namespace rat {
 	struct MachinePass;
-	struct Module;
 	struct Pass;
 	struct PassManager;
-	struct TargetInfo;
 } // namespace rat
 
 namespace rat::cc {
@@ -21,7 +17,6 @@ namespace rat::cc {
 	};
 
 	void composePipeline(PassManager& pm, CompileOptions& opt, std::ostream& out);
-	void compileModule(Module& mod, const TargetInfo& target, CompileOptions& opt, std::ostream& out);
 } // namespace rat::cc
 
 #endif

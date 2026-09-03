@@ -17,6 +17,7 @@ namespace rat {
 		constexpr U8 EV_CURRENT = 1;
 
 		// section types
+		constexpr U32 SHT_NULL = 0;
 		constexpr U32 SHT_PROGBITS = 1;
 		constexpr U32 SHT_SYMTAB = 2;
 		constexpr U32 SHT_STRTAB = 3;
@@ -31,9 +32,7 @@ namespace rat {
 		constexpr U64 SHF_WRITE = 0x1;
 		constexpr U64 SHF_ALLOC = 0x2;
 		constexpr U64 SHF_EXECINSTR = 0x4;
-		constexpr U64 SHF_MERGE = 0x10;
-		constexpr U64 SHF_STRINGS = 0x20;
-		constexpr U64 SHF_GROUP = 0x200;
+		constexpr U64 SHF_INFO_LINK = 0x40;
 		constexpr U64 SHF_TLS = 0x400;
 
 		// group flags
@@ -47,17 +46,11 @@ namespace rat {
 		constexpr U8 STT_NOTYPE = 0;
 		constexpr U8 STT_OBJECT = 1; // data import -> COPY; else PLT
 		constexpr U8 STT_FUNC = 2;
-		constexpr U8 STT_SECTION = 3;
-		constexpr U8 STT_FILE = 4;
-		constexpr U8 STT_COMMON = 5;
 		constexpr U8 STT_TLS = 6;
 		constexpr U8 STT_GNU_IFUNC = 10;
-		constexpr U8 STV_DEFAULT = 0;
-		constexpr U8 STV_HIDDEN = 2;
 		constexpr U16 SHN_UNDEF = 0;
 		constexpr U16 SHN_ABS = 0xfff1;
 		constexpr U16 SHN_COMMON = 0xfff2;
-		constexpr U16 SHN_XINDEX = 0xffff;
 
 		// program header
 		constexpr U32 PT_LOAD = 1;
@@ -68,7 +61,6 @@ namespace rat {
 		constexpr U32 PT_PHDR = 6;
 		constexpr U32 PT_GNU_EH_FRAME = 0x6474e550;
 		constexpr U32 PT_GNU_STACK = 0x6474e551;
-		constexpr U32 PT_GNU_RELRO = 0x6474e552;
 		constexpr U32 PF_X = 1;
 		constexpr U32 PF_W = 2;
 		constexpr U32 PF_R = 4;
@@ -86,26 +78,16 @@ namespace rat {
 		constexpr I64 DT_RELAENT = 9;
 		constexpr I64 DT_STRSZ = 10;
 		constexpr I64 DT_SYMENT = 11;
-		constexpr I64 DT_INIT = 12;
-		constexpr I64 DT_FINI = 13;
-		constexpr I64 DT_SONAME = 14;
 		constexpr I64 DT_PLTREL = 20;
 		constexpr I64 DT_JMPREL = 23;
-		constexpr I64 DT_BIND_NOW = 24;
 		constexpr I64 DT_INIT_ARRAY = 25;
 		constexpr I64 DT_FINI_ARRAY = 26;
 		constexpr I64 DT_INIT_ARRAYSZ = 27;
 		constexpr I64 DT_FINI_ARRAYSZ = 28;
 		constexpr I64 DT_RUNPATH = 29;
 		constexpr I64 DT_FLAGS = 30;
-		constexpr I64 DT_GNU_HASH = 0x6ffffef5;
-		constexpr I64 DT_VERSYM = 0x6ffffff0;
-		constexpr I64 DT_RELACOUNT = 0x6ffffff9;
 		constexpr I64 DT_FLAGS_1 = 0x6ffffffb;
-		constexpr I64 DT_VERNEED = 0x6ffffffe;
-		constexpr I64 DT_VERNEEDNUM = 0x6fffffff;
 		constexpr U64 DF_BIND_NOW = 0x8;
-		constexpr U64 DF_STATIC_TLS = 0x10;
 		constexpr U64 DF_1_NOW = 0x1;
 
 		// x86-64 relocation types
@@ -116,18 +98,10 @@ namespace rat {
 		constexpr U32 R_X86_64_COPY = 5;
 		constexpr U32 R_X86_64_GLOB_DAT = 6;
 		constexpr U32 R_X86_64_JUMP_SLOT = 7;
-		constexpr U32 R_X86_64_RELATIVE = 8;
 		constexpr U32 R_X86_64_GOTPCREL = 9;
 		constexpr U32 R_X86_64_32 = 10;
 		constexpr U32 R_X86_64_32S = 11;
 		constexpr U32 R_X86_64_16 = 12;
-		constexpr U32 R_X86_64_8 = 14;
-		constexpr U32 R_X86_64_DTPMOD64 = 16;
-		constexpr U32 R_X86_64_DTPOFF64 = 17;
-		constexpr U32 R_X86_64_TPOFF64 = 18;
-		constexpr U32 R_X86_64_TLSGD = 19;
-		constexpr U32 R_X86_64_TLSLD = 20;
-		constexpr U32 R_X86_64_DTPOFF32 = 21;
 		constexpr U32 R_X86_64_GOTTPOFF = 22;
 		constexpr U32 R_X86_64_TPOFF32 = 23;
 		constexpr U32 R_X86_64_PC64 = 24;

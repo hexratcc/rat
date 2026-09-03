@@ -83,10 +83,9 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
-	Lexer::Lexer(const char* src, U32 len, String fileName)
+	Lexer::Lexer(const char* src, U32 len)
 	: src(src),
-		len(len),
-		fileName(std::move(fileName)) {}
+		len(len) {}
 
 	void Lexer::bump() {
 		if(pos < len && src[pos] == '\n') {
@@ -136,7 +135,7 @@ namespace rat::cc {
 		return tok;
 	}
 
-	Token Lexer::scan() {
+	Token Lexer::next() {
 		skipTrivia();
 
 		Token tok;
@@ -406,37 +405,6 @@ namespace rat::cc {
 		default:
 			return fail(tok, String("unexpected character '") + c + "'");
 		}
-	}
-
-	Token Lexer::next() {
-		if(hasLookahead) {
-			Token t = lookahead;
-			if(hasLookahead2) {
-				lookahead = lookahead2;
-				hasLookahead2 = false;
-			} else {
-				hasLookahead = false;
-			}
-			return t;
-		}
-		return scan();
-	}
-
-	const Token& Lexer::peek() {
-		if(!hasLookahead) {
-			lookahead = scan();
-			hasLookahead = true;
-		}
-		return lookahead;
-	}
-
-	const Token& Lexer::peek2() {
-		peek();
-		if(!hasLookahead2) {
-			lookahead2 = scan();
-			hasLookahead2 = true;
-		}
-		return lookahead2;
 	}
 
 	String Lexer::text(const Token& tok) const { return String(src + tok.offset, tok.length); }

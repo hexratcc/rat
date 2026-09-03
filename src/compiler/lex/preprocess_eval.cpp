@@ -148,18 +148,15 @@ namespace rat::cc {
 					break;
 				String op = *cur().text;
 				++i;
-				if(op == "&&" || op == "||") {
-					B32 decide = (op == "&&") ? !left.truth() : left.truth();
-					B32 saved = live;
-					if(decide)
-						live = false;
-					Val right = parseBinary(p + 1);
-					live = saved;
-					left = apply(op, left, right);
-				} else {
-					Val right = parseBinary(p + 1);
-					left = apply(op, left, right);
-				}
+				// short-circuit: the dead operand is parsed but not diagnosed
+				B32 saved = live;
+				if(op == "&&")
+					live = saved && left.truth();
+				else if(op == "||")
+					live = saved && !left.truth();
+				Val right = parseBinary(p + 1);
+				live = saved;
+				left = apply(op, left, right);
 			}
 			return left;
 		}

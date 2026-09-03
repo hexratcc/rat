@@ -37,14 +37,10 @@ namespace rat {
 		static U32 toXmm(PhysReg p);
 		static Reg gpOf(const MachineOperand& o);
 		static U32 xmmOf(const MachineOperand& o);
-		static PhysReg gpReg11();
 		void readGp(const MachineOperand& o, Reg r);
 		void emitCopy(const MachineInstr& in);
 		void emitLoadImm(const MachineInstr& in);
-		void emitFrameAddr(const MachineInstr& in);
 		void emitStackAlloc(const MachineInstr& in);
-		void emitStackSave(const MachineInstr& in);
-		void emitStackRestore(const MachineInstr& in);
 		void emitSetJmp(const MachineInstr& in);
 		void emitLongJmp(const MachineInstr& in);
 		void emitLoad(const MachineInstr& in);
@@ -90,7 +86,7 @@ namespace rat {
 		void emitVaArgWin64(const MachineInstr& in);
 		void emitCall(const MachineInstr& in);
 		void recordFix(U32 dispAt, I32 targetBlock);
-		void emitRet(const MachineInstr&);
+		void emitRet();
 		void emitJmp(const MachineInstr& in, I32 fallthrough);
 		void emitSwitchJump(const MachineInstr& in);
 		void emitBr(const MachineInstr& in, I32 fallthrough);

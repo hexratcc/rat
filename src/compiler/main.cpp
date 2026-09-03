@@ -155,8 +155,8 @@ namespace detail {
 		return opt;
 	}
 
-	I32 emitTokens(const String& path, const String& source, std::ostream& os) {
-		Lexer lex(source.data(), (U32)source.size(), path);
+	I32 emitTokens(const String& source, std::ostream& os) {
+		Lexer lex(source.data(), (U32)source.size());
 		for(;;) {
 			Token tok = lex.next();
 			os << tok.line << ":" << tok.col << "\t" << tokKindName(tok.kind);
@@ -226,13 +226,12 @@ namespace detail {
 		return 0;
 	}
 
-	I32 emitOne(
-			const Options& opt, const String& path, const String& pped, TokenStream* ts, Emit kind) {
+	I32 emitOne(const Options& opt, const String& pped, TokenStream* ts, Emit kind) {
 		std::ofstream file;
 		if(!cli::openOutput(kTool, pathFor(opt, kind), file, kind == Emit::X86))
 			return 1;
 		if(kind == Emit::Tok)
-			return emitTokens(path, pped, file);
+			return emitTokens(pped, file);
 		if(kind == Emit::Ast)
 			return emitAstText(*ts, file);
 		return emitViaModule(opt, *ts, file);
@@ -282,7 +281,7 @@ static I32 run(I32 argc, C8** argv) {
 		return std::cout << pped, 0;
 
 	for(::detail::Emit kind : opt.emits)
-		if(I32 rc = ::detail::emitOne(opt, path, pped, needToks ? &ts : nullptr, kind))
+		if(I32 rc = ::detail::emitOne(opt, pped, needToks ? &ts : nullptr, kind))
 			return rc;
 	return 0;
 }

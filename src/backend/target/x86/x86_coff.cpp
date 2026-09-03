@@ -45,17 +45,13 @@ namespace rat {
 		List<const Rel*> relBySec[kNumSections];
 		partitionRelocs(relBySec);
 
-		auto patchField = [&](Section sec, U32 offset, U64 v, U32 len) {
-			List<U8>& b = bytesOf(sec);
-			for(U32 i = 0; i < len; ++i)
-				b[offset + i] = (U8)(v >> (i * 8));
-		};
 		for(U32 s = 0; s < kByteSections; ++s)
 			for(const Rel* r : relBySec[s]) {
+				U8* patch = &bytesOf(r->sec)[r->offset];
 				if(r->kind == RelocKind::Abs64)
-					patchField(r->sec, r->offset, (U64)r->addend, 8);
+					le::wr(patch, (U64)r->addend, 8);
 				else
-					patchField(r->sec, r->offset, (U64)(U32)(I32)(r->addend + 4), 4);
+					le::wr(patch, (U32)(I32)(r->addend + 4), 4);
 			}
 
 		// symbol table
@@ -112,8 +108,7 @@ namespace rat {
 		}
 
 		// patch the string table size prefix
-		for(U32 i = 0; i < 4; ++i)
-			strtab[i] = (U8)((U32)strtab.size() >> (i * 8));
+		le::wr(strtab.data(), (U32)strtab.size(), 4);
 
 		U32 off = detail::kFileHeaderSize + kNumSections * detail::kSectionHeaderSize;
 		U32 rawOff[kNumSections] = {};
@@ -144,7 +139,7 @@ namespace rat {
 			le::put32(out, 0); // virtual size
 			le::put32(out, 0); // virtual address
 			le::put32(out, sectionSize((Section)s));
-			le::put32(out, s + 1 < kNumSections ? rawOff[s] : 0);
+			le::put32(out, rawOff[s]); // 0 for .bss
 			le::put32(out, relOff[s]);
 			le::put32(out, 0); // line numbers
 			le::put16(out, (U16)relBySec[s].size());

@@ -166,21 +166,21 @@ namespace rat::cc {
 
 	B32 Emitter::emitBitCountBuiltin(Function& fn, const Expr* e, Value& out) {
 		const String& b = *e->call.callee;
+		struct Probe {
+			const C8* stem;
+			Opcode op;
+		};
+		static const Probe kProbes[] = {{"clz", Opcode::Clz},
+																		{"ctz", Opcode::Ctz},
+																		{"popcount", Opcode::Popcnt},
+																		{"ffs", Opcode::Ctz}};
 		Opcode op = Opcode::Clz;
 		B32 isFfs = false;
-		U32 bits = bitBuiltinWidth(b, "clz", lay.longBits);
-		if(bits == 0) {
-			bits = bitBuiltinWidth(b, "ctz", lay.longBits);
-			op = Opcode::Ctz;
-		}
-		if(bits == 0) {
-			bits = bitBuiltinWidth(b, "popcount", lay.longBits);
-			op = Opcode::Popcnt;
-		}
-		if(bits == 0) {
-			bits = bitBuiltinWidth(b, "ffs", lay.longBits);
-			op = Opcode::Ctz;
-			isFfs = bits != 0;
+		U32 bits = 0;
+		for(U32 i = 0; i < 4 && bits == 0; ++i) {
+			bits = bitBuiltinWidth(b, kProbes[i].stem, lay.longBits);
+			op = kProbes[i].op;
+			isFfs = i == 3 && bits != 0; // ffs is the last probe
 		}
 		if(bits == 0)
 			return false;
@@ -348,8 +348,7 @@ namespace rat::cc {
 			out = {fn.constInt(mod.getPtr(), 0), ctVoidPtr()};
 			return true;
 		}
-		List<Node*> args;
-		out = {fn.call(b, mod.getPtr(), args, false), ctVoidPtr()};
+		out = {fn.call(b, mod.getPtr(), {}, false), ctVoidPtr()};
 		return true;
 	}
 
@@ -390,9 +389,7 @@ namespace rat::cc {
 				args.push_back(n);
 			}
 			fn.call(b, nullptr, args);
-			CType v;
-			v.base = CType::Base::Void;
-			out = {fn.constInt(i32, 0), v};
+			out = {fn.constInt(i32, 0), ctVoid()};
 			return true;
 		}
 
@@ -404,20 +401,14 @@ namespace rat::cc {
 			Node* dst = vaListRef(fn, e->args[0]);
 			if(!dst)
 				return true;
-			if(lay.win64VaList) {
-				Value src = emitExpr(fn, e->args[1]);
-				if(!src.node)
-					return true;
+			Value src = emitExpr(fn, e->args[1]);
+			if(!src.node)
+				return true;
+			if(lay.win64VaList)
 				fn.store(dst, src.node);
-			} else {
-				Value src = emitExpr(fn, e->args[1]);
-				if(!src.node)
-					return true;
+			else
 				emitMemCopy(fn, dst, src.node, lay.ptrBytes * 3);
-			}
-			CType v;
-			v.base = CType::Base::Void;
-			out = {fn.constInt(i32, 0), v};
+			out = {fn.constInt(i32, 0), ctVoid()};
 			return true;
 		}
 
@@ -430,10 +421,7 @@ namespace rat::cc {
 			if(!n.node)
 				return true;
 			sawAlloca = true;
-			CType vp;
-			vp.base = CType::Base::Void;
-			vp.ptr = 1;
-			out = {fn.stackAlloc(convert(fn, n.node, n.type, ctSize())), vp};
+			out = {fn.stackAlloc(convert(fn, n.node, n.type, ctSize())), ctVoidPtr()};
 			return true;
 		}
 
@@ -451,9 +439,7 @@ namespace rat::cc {
 				return true;
 			}
 			fn.call(b, nullptr, {buf.node}, false); // the value is always 1
-			CType v;
-			v.base = CType::Base::Void;
-			out = {fn.constInt(i32, 0), v};
+			out = {fn.constInt(i32, 0), ctVoid()};
 			return true;
 		}
 
@@ -484,14 +470,11 @@ namespace rat::cc {
 			return true;
 		}
 		if(b == "__builtin_unreachable") {
-			CType vd;
-			vd.base = CType::Base::Void;
-			out = {fn.constInt(i32, 0), vd};
+			out = {fn.constInt(i32, 0), ctVoid()};
 			return true;
 		}
 		if(b == "__builtin_trap") {
-			List<Node*> args;
-			fn.call(b, nullptr, args, false);
+			fn.call(b, nullptr, {}, false);
 			out = {fn.constInt(i32, 0), ctVoid()};
 			return true;
 		}

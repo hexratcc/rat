@@ -26,7 +26,6 @@ namespace rat {
 		U32 append(Section sec, const U8* bytes, U32 len);
 		U32 appendZero(Section sec, U32 len);
 		U32 align(Section sec, U32 align);
-		U32 sectionAlign(Section sec) const { return secAlign[sec]; }
 		void defineSymbol(const String& name, Section sec, U32 offset, B32 global, B32 isFunc);
 		B32 defineAlias(const String& name, const String& target, B32 global);
 		void addReloc(Section sec, U32 offset, const String& symbol, RelocKind kind, I64 addend);

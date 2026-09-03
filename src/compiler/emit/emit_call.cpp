@@ -95,19 +95,20 @@ namespace rat::cc {
 
 		CType ret = c.direct ? c.sig.ret : c.ft->ret;
 		U32 nparams = c.direct ? (U32)c.sig.params.size() : (U32)c.ft->params.size();
-		B32 unproto = c.direct ? c.sig.unprototyped : (c.ft && c.ft->unprototyped);
+		B32 unproto = c.direct ? c.sig.unprototyped : c.ft->unprototyped;
+		B32 variadic = c.direct ? c.sig.isVarArgs : c.ft->isVarArgs;
+		B32 va = true;
 		if(c.prototyped && !unproto) {
-			B32 variadic = c.direct ? c.sig.isVarArgs : c.ft->isVarArgs;
+			va = variadic;
 			U32 nargs = (U32)e->args.size();
 			if(nargs < nparams || (!variadic && nargs > nparams)) {
-				fail(variadic ? "too few arguments to function call"
-											: "argument count does not match prototype");
+				if(variadic)
+					fail("too few arguments to function call");
+				else
+					fail("argument count does not match prototype");
 				return {};
 			}
 		}
-		B32 va = true;
-		if(c.prototyped && !unproto)
-			va = c.direct ? c.sig.isVarArgs : c.ft->isVarArgs;
 		String sym;
 		if(c.direct) {
 			sym = builtinLibcName(*e->call.callee);
@@ -123,23 +124,24 @@ namespace rat::cc {
 		if(!emitCallArgs(fn, e, c, nparams, args))
 			return {};
 		if(resultSlot) {
-			if(c.direct)
-				fn.call(sym, mod.getPtr(), args, va);
-			else
-				fn.callIndirect(c.target, mod.getPtr(), args, va);
+			callNode(fn, c, sym, mod.getPtr(), args, va);
 			return {resultSlot, ret};
 		}
-		if(c.direct) {
-			if(isVoidType(c.sig.ret)) {
-				fn.call(sym, nullptr, args, va);
-				return {fn.constInt(i32, 0), c.sig.ret};
-			}
-			return {fn.call(sym, irType(c.sig.ret), args, va), c.sig.ret};
-		}
 		if(isVoidType(ret)) {
-			fn.callIndirect(c.target, nullptr, args, va);
+			callNode(fn, c, sym, nullptr, args, va);
 			return {fn.constInt(i32, 0), ret};
 		}
-		return {fn.callIndirect(c.target, irType(ret), args, va), ret};
+		return {callNode(fn, c, sym, irType(ret), args, va), ret};
+	}
+
+	Node* Emitter::callNode(Function& fn,
+													const Callee& c,
+													const String& sym,
+													Type* retTy,
+													const List<Node*>& args,
+													B32 va) {
+		if(c.direct)
+			return fn.call(sym, retTy, args, va);
+		return fn.callIndirect(c.target, retTy, args, va);
 	}
 } // namespace rat::cc

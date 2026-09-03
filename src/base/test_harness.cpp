@@ -107,9 +107,6 @@ namespace rat {
 				record(path, ok, err);
 			}
 		} else {
-			if(spec.prewarm)
-				spec.prewarm();
-
 			std::atomic<U32> next{0};
 			auto worker = [&] {
 				for(;;) {

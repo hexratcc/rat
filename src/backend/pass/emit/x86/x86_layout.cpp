@@ -15,8 +15,7 @@ namespace rat {
 				return false;
 			for(U32 i = 0; i + 1 < (U32)b.insts.size(); ++i) {
 				const MachineInstr& in = b.insts[(U32)i];
-				X86Op op = (X86Op)in.op;
-				if(op != X86Op::Cmp && op != X86Op::FCmp)
+				if((X86Op)in.op != X86Op::Cmp)
 					return false;
 				if(!in.defs.empty() || in.isCall)
 					return false;

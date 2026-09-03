@@ -52,10 +52,7 @@ namespace rat {
 		writeVar(memVar, proj(start, StartNode::memoryProjIndex(), memTy(), "mem"));
 	}
 
-	Function::~Function() = default;
-
 	Node* Function::control() const { return cur->ctrl; }
-	Node* Function::memory() { return readVar(memVar); }
 	B32 Function::blockFinished() const { return cur && cur->finished; }
 
 	Node* Function::param(U32 index) {
@@ -104,9 +101,7 @@ namespace rat {
 	}
 	Node* Function::neg(Node* operand) { return unary(Opcode::Neg, operand); }
 	Node* Function::bitNot(Node* operand) { return unary(Opcode::Not, operand); }
-	Node* Function::clz(Node* operand) { return unary(Opcode::Clz, operand); }
 	Node* Function::ctz(Node* operand) { return unary(Opcode::Ctz, operand); }
-	Node* Function::popcnt(Node* operand) { return unary(Opcode::Popcnt, operand); }
 	Node* Function::bswap(Node* operand) { return unary(Opcode::Bswap, operand); }
 
 	Node* Function::compare(Opcode op, Node* lhs, Node* rhs) {
@@ -216,9 +211,6 @@ namespace rat {
 	ProjNode* Function::proj(Node* tuple, U32 index, Type* type, String label) {
 		return create<ProjNode>(type, tuple, index, std::move(label));
 	}
-	RegionNode* Function::region(const List<Node*>& preds) {
-		return create<RegionNode>(ctrlTy(), preds);
-	}
 	PhiNode* Function::phi(Type* type, RegionNode* region, const List<Node*>& values) {
 		List<Node*> ins{region};
 		for(Node* v : values)
@@ -228,8 +220,6 @@ namespace rat {
 
 	Function::Block* Function::makeBlock(B32 loopHeader) {
 		Block* b = arena.make<Block>();
-		b->loopHeader = loopHeader;
-		blocks.push_back(b);
 		if(loopHeader) {
 			b->region = create<RegionNode>(ctrlTy(), List<Node*>{});
 			b->region->setLoopHeader();
@@ -322,9 +312,9 @@ namespace rat {
 		setInsertBlock(fall);
 	}
 
-	Function::Var Function::newVar(String name, Type* type) {
-		varInfos.push_back({std::move(name), type});
-		return (Var)(varInfos.size() - 1);
+	Function::Var Function::newVar(String, Type* type) {
+		varTypes.push_back(type);
+		return (Var)(varTypes.size() - 1);
 	}
 
 	void Function::cacheDef(Block* block, Var var, Node* val) {
@@ -345,7 +335,7 @@ namespace rat {
 	}
 
 	PhiNode* Function::newIncompletePhi(Var var, Block* block) {
-		return create<PhiNode>(varInfos[var].ty, List<Node*>{block->region});
+		return create<PhiNode>(varTypes[var], List<Node*>{block->region});
 	}
 
 	Node* Function::readVariableRecursive(Var var, Block* block) {

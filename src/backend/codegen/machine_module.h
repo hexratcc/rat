@@ -13,9 +13,7 @@ namespace rat {
 			auto it = funcs.find(f);
 			if(it != funcs.end())
 				return it->second;
-			MachineFunc& mf = funcs[f];
-			mf.src = f;
-			return mf;
+			return funcs[f];
 		}
 	};
 } // namespace rat

@@ -178,8 +178,6 @@ namespace rat::cc {
 				os << "  ";
 		}
 
-		void dumpStmt(const Stmt* s, U32 depth, std::ostream& os);
-
 		void dumpExpr(const Expr* e, U32 depth, std::ostream& os) {
 			pad(os, depth);
 			switch(e->kind) {

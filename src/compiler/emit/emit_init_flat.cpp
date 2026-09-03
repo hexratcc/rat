@@ -104,7 +104,17 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::StoreSink::scalar(U32 off, CType dt, const Expr* e) {
-		return emit.storeScalar(fn, slot, off, dt, e);
+		B32 skip = false;
+		if(!emit.unwrapScalarInit(e, skip))
+			return false;
+		if(skip)
+			return true;
+		Value v = emit.emitExpr(fn, e);
+		if(!v.node)
+			return false;
+		Node* val = emit.convert(fn, v.node, v.type, dt);
+		fn.store(emit.offsetPtr(fn, slot, off), val);
+		return true;
 	}
 	B32 Emitter::StoreSink::bitfield(U32 off, CType dt, U32 width, U32 bitOff, const Expr* e) {
 		B32 skip = false;
@@ -126,13 +136,22 @@ namespace rat::cc {
 		return true;
 	}
 	B32 Emitter::StoreSink::charArray(U32 base, CType elem, U32 count, const Expr* e) {
-		return emit.storeCharArray(fn, slot, base, elem, count, e);
+		if(!isCharType(elem)) {
+			emit.failStringNeedsCharArray();
+			return false;
+		}
+		const String& bytes = *e->str.bytes;
+		Type* i8 = emit.mod.getInt(8);
+		U32 n = bytes.size() < count ? (U32)bytes.size() : count;
+		for(U32 i = 0; i < n; ++i)
+			fn.store(emit.offsetPtr(fn, slot, base + i), fn.constInt(i8, (U8)bytes[i]));
+		return true;
 	}
 	B32 Emitter::StoreSink::structCopy(U32 off, CType ty, const Expr* e) {
 		Value v = emit.emitExpr(fn, e);
 		if(!v.node)
 			return false;
-		Node* dst = off ? fn.add(slot, fn.constInt(emit.irType(emit.ctSize()), off)) : slot;
+		Node* dst = emit.offsetPtr(fn, slot, off);
 		emit.emitMemCopy(fn, dst, v.node, ty.strukt->size);
 		return true;
 	}
@@ -255,27 +274,6 @@ namespace rat::cc {
 		g->size = 0;
 		g->align = 1;
 		return g;
-	}
-
-	U32 Emitter::scalarLeaves(CType ty) {
-		if(isStruct(ty)) {
-			U32 n = 0;
-			for(U32 i = 0; i < ty.strukt->fields.size(); ++i) {
-				const Field& f = ty.strukt->fields[i];
-				if(f.anonMember() && !f.anonFirst())
-					continue;
-				if(f.isArray())
-					n += f.count * scalarLeaves(f.type);
-				else
-					n += scalarLeaves(f.type);
-				if(ty.strukt->isUnion)
-					break;
-			}
-			return n;
-		}
-		if(isArrayType(ty))
-			return ty.array->count * scalarLeaves(arrayElem(ty));
-		return 1;
 	}
 
 	void Emitter::flatConsumeObject(CType ty, const List<Expr*>& els, U32& pos) {

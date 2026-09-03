@@ -18,7 +18,6 @@ namespace rat {
 
 	struct Function {
 		Function(Module& module, String name, const List<Type*>& params, Type* ret);
-		~Function();
 
 		Module& getModule() const;
 		TypeContext& types() const;
@@ -61,8 +60,7 @@ namespace rat {
 			List<Block*> predBlocks; // source block per pred (parallel)
 			Node* ctrl = nullptr;		 // control anchor once active
 			B32 sealed = false;
-			B32 active = false; // ctrl established
-			B32 loopHeader = false;
+			B32 active = false;		// ctrl established
 			B32 finished = false; // ended in a terminator
 			List<Node*> defs;			// current SSA value per Var
 			List<std::pair<U32, PhiNode*>> incompletePhis;
@@ -76,7 +74,6 @@ namespace rat {
 		Type* memTy() const;
 		Type* ctrlTy() const;
 		Node* control() const;
-		Node* memory();
 		Node* param(U32 index);
 
 		Node* constInt(Type* type, I64 value);
@@ -98,9 +95,7 @@ namespace rat {
 		Node* unary(Opcode op, Node* operand);
 		Node* neg(Node* operand);
 		Node* bitNot(Node* operand);
-		Node* clz(Node* operand);
 		Node* ctz(Node* operand);
-		Node* popcnt(Node* operand);
 		Node* bswap(Node* operand);
 
 		Node* compare(Opcode op, Node* lhs, Node* rhs);
@@ -130,7 +125,6 @@ namespace rat {
 		// control
 		IfNode* iff(Node* predicate);
 		ProjNode* proj(Node* tuple, U32 index, Type* type, String label = "");
-		RegionNode* region(const List<Node*>& preds);
 		PhiNode* phi(Type* type, RegionNode* region, const List<Node*>& values);
 
 		// block api
@@ -235,14 +229,9 @@ namespace rat {
 		StartNode* start = nullptr;
 		StopNode* stop = nullptr;
 
-		List<Block*> blocks;	// every block
 		Block* cur = nullptr; // current insertion block
 
-		struct VarInfo {
-			String name;
-			Type* ty;
-		};
-		List<VarInfo> varInfos;
+		List<Type*> varTypes;
 		Var memVar = 0; // reserved variable carrying the memory token
 
 		List<Node*> paramCache;

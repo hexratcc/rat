@@ -44,7 +44,6 @@ namespace rat {
 		const C8* getMnemonic() const;
 		Type* getType() const { return ty; }
 		U32 getId() const { return id; }
-		Function& getFunction() const { return *fn; }
 
 		U32 getInputCount() const { return inputCount; }
 		Node* getInput(U32 index) const { return inputs[index]; }
@@ -275,7 +274,6 @@ namespace rat {
 		const String& getText() const;
 		Node* getControl() const;
 		Node* getMemory() const;
-		U32 getInputOperandCount() const;
 		Node* getInputOperand(U32 index) const;
 		U32 getOutputCount() const { return outputCount; }
 

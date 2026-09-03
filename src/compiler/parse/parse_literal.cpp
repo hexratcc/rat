@@ -56,8 +56,6 @@ namespace rat::cc {
 	B32 Parser::parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods) {
 		String s = lex.text(tok);
 		B32 isUnsigned = false;
-		B32 isLong = false;
-		B32 isLongLong = false;
 		U32 lCount = 0;
 
 		U32 end = (U32)s.size();
@@ -97,8 +95,8 @@ namespace rat::cc {
 		B32 fitsI32 = v <= 0x7fffffffULL;
 		B32 fitsU32 = v <= 0xffffffffULL;
 		B32 fitsI64 = v <= 0x7fffffffffffffffULL;
-		isLong = lCount >= 1;
-		isLongLong = lCount >= 2;
+		B32 isLong = lCount >= 1;
+		B32 isLongLong = lCount >= 2;
 		U64 longMax = lay.longBits >= 64 ? 0x7fffffffffffffffULL : 0x7fffffffULL;
 		U64 ulongMax = lay.longBits >= 64 ? 0xffffffffffffffffULL : 0xffffffffULL;
 		B32 fitsLong = v <= longMax;

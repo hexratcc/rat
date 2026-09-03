@@ -10,7 +10,6 @@
 #include "ir/node.h"
 #include "ir/opcode.h"
 #include "ir/type.h"
-#include "target/object_file.h"
 #include "target/target.h"
 #include "target/x86/x86_asm.h"
 
@@ -69,8 +68,9 @@ namespace rat {
 		return !isX87Ty(c->getLHS()->getType());
 	}
 
-	B32 X86LowerPass::selectOnlyCompare(Node* n) {
-		if(!isIntCompare(n) || n->getUsers().empty())
+	// every user is a select reading n as its condition only
+	B32 X86LowerPass::onlySelectCondUsers(Node* n) {
+		if(n->getUsers().empty())
 			return false;
 		for(Node* u : n->getUsers()) {
 			SelectNode* s = dyn_cast<SelectNode>(u);
@@ -81,20 +81,10 @@ namespace rat {
 		return true;
 	}
 
+	B32 X86LowerPass::selectOnlyCompare(Node* n) { return isIntCompare(n) && onlySelectCondUsers(n); }
+
 	B32 X86LowerPass::fpSelectOnlyCompare(Node* n) {
-		Opcode op = n->getOpcode();
-		if(op < Opcode::FLt || op > Opcode::FGe)
-			return false;
-		if(isX87Ty(cast<CompareNode>(n)->getLHS()->getType()))
-			return false;
-		if(n->getUsers().empty())
-			return false;
-		for(Node* u : n->getUsers()) {
-			SelectNode* s = dyn_cast<SelectNode>(u);
-			if(!s || s->getCondition() != n || s->getTrue() == n || s->getFalse() == n)
-				return false;
-		}
-		return true;
+		return fusableFpCompare(n) && onlySelectCondUsers(n);
 	}
 
 	B32 X86LowerPass::branchOnlyCompare(Node* n) {
@@ -559,21 +549,14 @@ namespace rat {
 			Node* pred = iff->getPredicate();
 			if(isIntCompare(pred)) {
 				// fuse the compare into the branch: cmp lhs, rhs; jcc
-				CompareNode* c = cast<CompareNode>(pred);
-				U32 idx = (U32)c->getOpcode() - (U32)Opcode::Eq;
-				emitIntCmp(c);
-				jcc(detail::kIntCc[idx], blk.thenB, blk.elseB);
+				U8 cc = emitIntCmp(cast<CompareNode>(pred));
+				jcc(cc, blk.thenB, blk.elseB);
 				return;
 			}
 			if(fusableFpCompare(pred)) {
-				// fuse: ucomis lhs, rhs; jcc (swap keeps lt/le NaN-correct)
-				CompareNode* c = cast<CompareNode>(pred);
-				U32 w = opWidth(c->getLHS()->getType());
-				U32 idx = (U32)c->getOpcode() - (U32)Opcode::FEq;
-				VReg lhs = sseValue(c->getLHS());
-				VReg rhs = sseValue(c->getRHS());
-				ucomisFlags(lhs, rhs, w, detail::kFpSwap[idx]);
-				jcc(detail::kFpCc[idx], blk.thenB, blk.elseB);
+				// fuse: ucomis lhs, rhs; jcc
+				U8 cc = fusedFpCmp(cast<CompareNode>(pred));
+				jcc(cc, blk.thenB, blk.elseB);
 				return;
 			}
 			VReg p = gpValue(pred);
@@ -630,30 +613,30 @@ namespace rat {
 	}
 
 	B32 X86LowerPass::run(Module& module, MachineModule& mm, const TargetInfo& target) {
-		U32 changed = 0;
+		B32 changed = false;
 		mod = &module;
-		for(const Function* fn : module)
-			changed += runOnMachineFunction(*fn, mm.get(fn), target);
-		return changed != 0;
+		for(const Function* fn : module) {
+			runOnMachineFunction(*fn, mm.get(fn), target);
+			changed = true;
+		}
+		return changed;
 	}
 
-	U32 X86LowerPass::runOnMachineFunction(const Function& fn,
-																				 MachineFunc& mf,
-																				 const TargetInfo& target) {
+	void X86LowerPass::runOnMachineFunction(const Function& fn,
+																					MachineFunc& mf,
+																					const TargetInfo& target) {
 		conv = &x86CallConv(target.getTriple().os);
 		regs = target.registers();
 		ptrBytes = target.getPointerSizeInBytes();
 		sse41 = target.hasSse41();
 		Schedule sched(fn);
 		X86FrameLayout fl;
-		mf.src = &fn;
 		reset(fn, sched, mf, fl);
 		lowerFunction();
 		mf.aux = std::make_unique<X86FrameLayout>(fl); // the layout rides along on mf.aux
-		return 1;
 	}
 
-	RegAllocHooks x86RegAllocHooks() {
+	RegAllocHooks X86Target::regAllocHooks() const {
 		RegAllocHooks hooks;
 		hooks.makeReload = [](PhysReg dst, I32 slot, U32 cls, U32 width) {
 			MachineInstr m;

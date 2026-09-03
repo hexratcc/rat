@@ -48,26 +48,6 @@ namespace rat {
 		}
 	} // namespace detail
 
-	const C8* TargetTriple::archName() const {
-		switch(arch) {
-		case Arch::X86_64:
-			return "x86_64";
-		}
-		return "unknown";
-	}
-
-	const C8* TargetTriple::osName() const {
-		switch(os) {
-		case OS::Linux:
-			return "linux";
-		case OS::Windows:
-			return "windows";
-		}
-		return "unknown";
-	}
-
-	String TargetTriple::str() const { return String(archName()) + "-" + osName(); }
-
 	B32 TargetTriple::parse(const String& spec, TargetTriple& out, String& err) {
 		U32 dash = (U32)spec.find('-');
 		// accept "x86-64"

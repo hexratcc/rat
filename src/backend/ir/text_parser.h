@@ -37,7 +37,6 @@ namespace rat {
 			Module& mod;
 			std::ostream& err;
 			U32 lineNo = 0;
-			B32 failed = false;
 
 			Parser(Module& mod, std::ostream& err);
 
@@ -57,6 +56,7 @@ namespace rat {
 			B32 wireDeferredInputs(const List<ParsedNode>& nodes);
 
 			Node* operand(const ParsedNode& pn, U32 index);
+			B32 operands(const ParsedNode& pn, U32 count, List<Node*>& out);
 
 			Map<U32, Node*> byId;			 // parsed id -> materialized node
 			Node* startCtrl = nullptr; // start control projection, if present
@@ -65,7 +65,6 @@ namespace rat {
 	} // namespace detail
 
 	// parse the textual IR form back into a module
-	B32 parseText(std::istream& in, Module& module, std::ostream& errors);
 	B32 parseText(const String& text, Module& module, std::ostream& errors);
 } // namespace rat
 

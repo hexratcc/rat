@@ -14,6 +14,7 @@ namespace rat {
 
 		// linker.cpp
 		B32 isLinkerSym(const String& n);
+		B32 isGotReloc(U32 t);
 	} // namespace detail
 
 	struct Linker {
@@ -107,6 +108,7 @@ namespace rat {
 		void collectGlobals();
 		B32 resolveExternals();
 		Import& intern(const String& name, Import::Kind kind);
+		String gotKey(U32 oi, const InRel& r) const;
 		void assignGot();
 		void buildStart();
 		U32 countFdes();
