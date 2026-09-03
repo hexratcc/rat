@@ -83,33 +83,18 @@ namespace rat::cc {
 		DepthScope scope(*this);
 		if(!enterDepth())
 			return nullptr;
-		if(peek().kind == TokKind::KwSizeof) {
-			Token kw = advance(); // sizeof
-			Expr* e = makeExpr(ExprKind::Sizeof, kw.offset);
+		if(peek().kind == TokKind::KwSizeof || peek().kind == TokKind::KwAlignof) {
+			Token kw = advance(); // sizeof / _Alignof
+			ExprKind kind;
+			if(kw.kind == TokKind::KwSizeof)
+				kind = ExprKind::Sizeof;
+			else
+				kind = ExprKind::AlignOf;
+			Expr* e = makeExpr(kind, kw.offset);
 			if(peek().kind == TokKind::LParen && startsType(peek2())) {
 				advance(); // (
 				CType ty;
 				if(!parseTypeName(ty)) // sizeof(typename)
-					return nullptr;
-				if(!expect(TokKind::RParen, "')'"))
-					return nullptr;
-				e->sizeOf.type = ty;
-				e->sizeOf.operand = nullptr;
-			} else {
-				Expr* operand = parseUnary();
-				if(!operand)
-					return nullptr;
-				e->sizeOf.operand = operand;
-			}
-			return e;
-		}
-		if(peek().kind == TokKind::KwAlignof) {
-			Token kw = advance();
-			Expr* e = makeExpr(ExprKind::AlignOf, kw.offset);
-			if(peek().kind == TokKind::LParen && startsType(peek2())) {
-				advance(); // (
-				CType ty;
-				if(!parseTypeName(ty))
 					return nullptr;
 				if(!expect(TokKind::RParen, "')'"))
 					return nullptr;

@@ -12,13 +12,12 @@ namespace rat::cc {
 		U32 longBits = 64;
 		U32 wcharBytes = 4;
 		B32 win64VaList = false;
-		B32 isWindows = false;
 
 		static TargetLayout forTriple(const TargetTriple& t) {
 			TargetLayout l;
-			l.isWindows = t.isWindows();
-			l.longBits = l.isWindows ? 32 : 64;
-			l.wcharBytes = l.isWindows ? 2 : 4;
+			B32 win = t.isWindows();
+			l.longBits = win ? 32 : 64;
+			l.wcharBytes = win ? 2 : 4;
 			l.win64VaList = x86CallConv(t.os).vaList == X86VaList::CharPtr;
 			return l;
 		}

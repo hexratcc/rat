@@ -264,9 +264,8 @@ namespace rat::cc {
 		return true;
 	}
 
-	Stmt* Parser::parseGlobalRest(CType base, Declarator first, const Token& start) {
+	Stmt* Parser::parseGlobalRest(CType base, Declarator d, const Token& start) {
 		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
-		Declarator d = first;
 		for(;;) {
 			CType raw = d.type;
 			if(!parseArraySuffix(d))

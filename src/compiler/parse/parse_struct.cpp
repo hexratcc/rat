@@ -107,7 +107,7 @@ namespace rat::cc {
 						fail(peek(), "bitfield width must be a non-negative constant");
 						return false;
 					}
-					U32 unitBytes = fieldByteSize(ft);
+					U32 unitBytes = typeSizeBytes(ft);
 					if(unitBytes == 0)
 						unitBytes = 4;
 					U32 falign = fieldAlign(ft);
@@ -163,15 +163,14 @@ namespace rat::cc {
 						fail(nameTok, "flexible array member in struct with no other members");
 						return false;
 					}
-					if(peek().kind == TokKind::Comma ||
-						 !(peek().kind == TokKind::Semicolon && peek2().kind == TokKind::RBrace)) {
+					if(!(peek().kind == TokKind::Semicolon && peek2().kind == TokKind::RBrace)) {
 						fail(nameTok, "flexible array member must be the last member");
 						return false;
 					}
 				}
 				if(!acceptTrailingAlignas(memberAlign)) // trailing form: int a __attribute__(...)
 					return false;
-				U64 esize = fieldByteSize(ft);
+				U64 esize = typeSizeBytes(ft);
 				U32 falign = fieldAlign(ft);
 				if(memberAlign > falign)
 					falign = memberAlign;

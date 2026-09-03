@@ -11,7 +11,6 @@ namespace rat::cc {
 
 		TransUnit* parseUnit();
 
-		B32 ok() const { return !failed; }
 		const String& error() const { return errMsg; }
 	private:
 		// token cursor
@@ -39,7 +38,7 @@ namespace rat::cc {
 															 const Token& start,
 															 B32* moreDeclarators = nullptr);
 		B32 parseOldStyleParams(FuncDef* fn);
-		Stmt* parseGlobalRest(CType base, Declarator first, const Token& start);
+		Stmt* parseGlobalRest(CType base, Declarator d, const Token& start);
 		B32 parseSharedDeclarators(CType base, TransUnit* unit, const Token& start);
 		struct Dim {
 			U64 count;
@@ -48,7 +47,6 @@ namespace rat::cc {
 		CType wrapArrayDims(CType base, const List<Dim>& dims);
 		B32 parseArraySuffix(Declarator& d, U32* align = nullptr);
 		void skipArrayQualifiers();
-		B32 parseParamArray(CType& t);
 		void bindDeclaratorType(Declarator& d, CType t, U32 offset);
 		struct DeclOp {
 			enum class Kind : U8 { Pointer, Array, Func };
@@ -61,6 +59,7 @@ namespace rat::cc {
 		B32 parseDeclaratorType(CType base, Token& nameOut, B32& haveName, CType& out);
 		B32 parseDeclaratorOps(List<DeclOp>& ops, Token& nameOut, B32& haveName);
 		B32 parseDirectDeclarator(List<DeclOp>& ops, Token& nameOut, B32& haveName);
+		B32 parseArrayBound(U64& count, Expr*& expr);
 		B32 parseDeclaratorSuffixes(List<DeclOp>& ops);
 		B32 looksLikeGroupingParen();
 		void adjustParamType(CType& t, const Expr** vlaBound = nullptr);
@@ -138,7 +137,6 @@ namespace rat::cc {
 		B32 startsType(const Token& tok);
 		U64 typeSizeBytes(CType t) const { return typeSize(t, lay.ptrBytes); }
 		U32 typeAlignBytes(CType t) const { return typeAlign(t, lay.ptrBytes); }
-		U64 fieldByteSize(CType t) const { return isAggregate(t) ? t.strukt->size : typeSizeBytes(t); }
 		U32 fieldAlign(CType t) const {
 			return isAggregate(t) ? t.strukt->align : (U32)typeSizeBytes(t);
 		}
