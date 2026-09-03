@@ -94,30 +94,10 @@ namespace rat {
 		if(!globIndexValid)
 			rebuildGlobIndex();
 		auto it = globIndex.find(name);
-		if(it != globIndex.end() && it->second->getName() == name)
-			return it->second;
-		for(Global* g : globs) {
-			if(g->getName() == name) {
-				rebuildGlobIndex();
-				return g;
-			}
-		}
-		return nullptr;
+		if(it == globIndex.end())
+			return nullptr;
+		return it->second;
 	}
 
 	const List<Global*>& Module::globals() const { return globs; }
-
-	Function* Module::FunctionIterator::operator*() const { return *it; }
-
-	Module::FunctionIterator& Module::FunctionIterator::operator++() {
-		++it;
-		return *this;
-	}
-
-	B32 Module::FunctionIterator::operator!=(const FunctionIterator& other) const {
-		return it != other.it;
-	}
-
-	Module::FunctionIterator Module::begin() const { return {funcs.begin()}; }
-	Module::FunctionIterator Module::end() const { return {funcs.end()}; }
 } // namespace rat

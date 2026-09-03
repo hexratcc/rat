@@ -40,12 +40,6 @@ namespace rat {
 		errs.push_back(os.str());
 	}
 
-	B32 VerifyPass::FunctionVerifier::check(B32 cond, const Node* n, const String& msg) {
-		if(!cond)
-			err(n, msg);
-		return cond;
-	}
-
 	B32 VerifyPass::FunctionVerifier::isCtrl(const Node* n) { return n && n->getType()->isControl(); }
 	B32 VerifyPass::FunctionVerifier::isMem(const Node* n) { return n && n->getType()->isMemory(); }
 	B32 VerifyPass::FunctionVerifier::isData(const Node* n) { return n && n->getType()->isData(); }
@@ -495,14 +489,6 @@ namespace rat {
 					errors.push_back(fn->getName() + ": " + s);
 			}
 		}
-		return ok;
-	}
-
-	B32 verify(const Function& fn, std::ostream& os) {
-		List<String> errors;
-		B32 ok = verify(fn, errors);
-		for(const String& s : errors)
-			os << s << "\n";
 		return ok;
 	}
 

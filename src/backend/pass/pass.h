@@ -5,7 +5,6 @@
 
 namespace rat {
 	struct Function;
-	struct MachineFunc;
 	struct MachineModule;
 	struct Module;
 	struct TargetInfo;

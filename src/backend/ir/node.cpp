@@ -269,7 +269,6 @@ namespace rat {
 	const String& AsmNode::getText() const { return text; }
 	Node* AsmNode::getControl() const { return getInput(0); }
 	Node* AsmNode::getMemory() const { return getInput(1); }
-	U32 AsmNode::getInputOperandCount() const { return getInputCount() - 2; }
 	Node* AsmNode::getInputOperand(U32 index) const { return getInput(2 + index); }
 
 	GlobalNode::GlobalNode(Function& fn, Type* ptrType, String symbol)

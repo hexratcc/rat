@@ -29,9 +29,8 @@ namespace rat {
 		timing.push_back({name, nanos, 1});
 	}
 
-	B32 PassManager::run(Module& module, std::ostream* log) {
+	void PassManager::run(Module& module, std::ostream* log) {
 		using Clock = std::chrono::steady_clock;
-		B32 changed = false;
 		List<B32> changedAt(passes.size(), false);
 		auto runOne = [&](const C8* name, auto&& fn) -> B32 {
 			auto start = Clock::now();
@@ -41,7 +40,6 @@ namespace rat {
 			record(name, nanos);
 			if(log)
 				*log << "; " << name << (c ? " : changed\n" : " : unchanged\n");
-			changed = changed || c;
 			return c;
 		};
 		auto runAt = [&](U32 i) {
@@ -85,7 +83,6 @@ namespace rat {
 			runAt(i);
 		for(auto& pass : machinePasses)
 			runOne(pass->name(), [&] { return pass->run(module, mm, *target); });
-		return changed;
 	}
 
 	void PassManager::printTimingReport(std::ostream& os) const {
