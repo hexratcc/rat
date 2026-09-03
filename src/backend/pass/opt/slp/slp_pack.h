@@ -68,7 +68,6 @@ namespace rat {
 		// grows one vector value per store window
 		struct Packer {
 			Function& fn;
-			const AliasAnalysis& aa;
 			U32 ptrBytes;
 			B32 sse41;
 			ShapeHash& shapes;
@@ -100,12 +99,7 @@ namespace rat {
 			I32 profit = 0;
 			U32 interior = 0; // vector arithmetic / wide loads created
 
-			Packer(Function& fn,
-						 const AliasAnalysis& aa,
-						 U32 ptrBytes,
-						 B32 sse41,
-						 ShapeHash& shapes,
-						 SlpStats& st);
+			Packer(Function& fn, U32 ptrBytes, B32 sse41, ShapeHash& shapes, SlpStats& st);
 
 			void addGuard(const RefinedAddr& k, Node* lane0Ptr, U32 bytes);
 			void bindWindow(Node* memIn,

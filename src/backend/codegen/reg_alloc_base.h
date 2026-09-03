@@ -85,9 +85,6 @@ namespace rat {
 		// program points of copies connecting two move partners
 		List<I32> copyPointsBetween(VReg a, VReg b) const;
 
-		// whether the pin of p at pt is a hint copy for v
-		B32 pinExempt(VReg v, I32 pt, PhysReg p) const;
-
 		// spill-slot pool
 		I32 takeSpillSlot(U32 cls, I32 start, I32 end);
 		U32 classOf(VReg v) const;

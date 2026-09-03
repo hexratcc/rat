@@ -19,7 +19,6 @@
 namespace rat {
 	struct Function;
 	struct LoadNode;
-	struct Module;
 	struct Node;
 	struct PhiNode;
 	struct StoreNode;
@@ -33,9 +32,13 @@ namespace rat {
 		U32 cseLoads(Function& fn, const AliasAnalysis& aa);
 		U32 forwardLoopCarried(Function& fn, const AliasAnalysis& aa);
 
+		// store-chain walk cap: unbounded it is O(loads * chain) and blows up on
+		// huge by-value struct copies; hitting the cap only forgoes forwarding,
+		// still sound
+		static constexpr U32 kMaxStoreWalk = 512;
+
 		// skip back over stores that provably do not alias [addr, addr+size)
 		static Node* effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size);
-		static Node* effectiveDef(const AliasAnalysis& aa, LoadNode* l);
 
 		struct ChainScan {
 			StoreNode* store; // last must-alias store of matching size and type

@@ -14,7 +14,6 @@
 
 namespace rat {
 	struct Function;
-	struct Module;
 	struct Node;
 
 	namespace detail {

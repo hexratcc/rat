@@ -81,14 +81,6 @@ namespace rat {
 			}
 	}
 
-	B32 RegAllocBase::pinExempt(VReg v, I32 pt, PhysReg p) const {
-		auto vt = copyPinAt.find(v);
-		if(vt == copyPinAt.end())
-			return false;
-		auto it = vt->second.find(pt);
-		return it != vt->second.end() && it->second == p;
-	}
-
 	List<PhysReg> RegAllocBase::hintedRegs(VReg v, const Delegate<PhysReg(VReg)>& colorOf) const {
 		List<PhysReg> hints;
 		if(auto it = physHints.find(v); it != physHints.end())

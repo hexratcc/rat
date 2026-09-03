@@ -17,7 +17,6 @@
 
 namespace rat {
 	struct Function;
-	struct Module;
 	struct Node;
 	struct PhiNode;
 	struct RegionNode;

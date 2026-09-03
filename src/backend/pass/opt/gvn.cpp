@@ -1,7 +1,6 @@
 #include "pass/opt/gvn.h"
 
 #include "ir/function.h"
-#include "ir/module.h"
 #include "ir/node.h"
 
 namespace rat {

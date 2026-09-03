@@ -14,14 +14,17 @@
 namespace rat {
 	struct AliasAnalysis;
 	struct Function;
+	struct LoadNode;
 	struct Node;
 	struct PhiNode;
+	struct StoreNode;
 
 	namespace detail {
 		I32 idGet(const List<I32>& v, U32 id);
 		void idSet(List<I32>& v, U32 id, I32 val);
 		Node* nodeGet(const List<Node*>& v, U32 id);
 		void nodeSet(List<Node*>& v, U32 id, Node* val);
+		B32 storeMayAliasLoad(const AliasAnalysis& aa, const StoreNode* st, const LoadNode* ld);
 	} // namespace detail
 
 	struct Schedule {
@@ -59,7 +62,6 @@ namespace rat {
 		I32 blockOf(const Node* n) const;
 
 		List<I32> successors(I32 b) const;
-		void successorsInto(I32 b, List<I32>& out) const;
 		B32 dominates(I32 a, I32 b) const;
 
 		static B32 isFloating(const Node* n);
@@ -90,17 +92,14 @@ namespace rat {
 		I32 homeBlock(Node* n) const;
 
 		struct TopoScratch {
-			List<I32> localOf;		// node id -> local index in the current block (-1)
-			List<I32> inDeg;			// per local index
-			List<I32> memHead;		// memory node id -> local index of a load on it (-1)
-			List<I32> memNext;		// per local index: next load sharing that memory
-			List<I32> touchedMem; // memory node ids to reset after the block
-			List<I32> stHead;     // memory-state node id -> local index of the store/call consuming it (-1)
-			List<I32> touchedSt;  // state node ids to reset after the block
-			List<I32> succHead;	  // per local index: head of the extra-edge chain (-1)
-			List<I32> succNext;	  // edge -> next edge in the chain
-			List<I32> succTo;		  // edge -> target local index
-			List<Node*> ready;	  // binary heap of ready nodes
+			List<I32> localOf; // node id -> local index in the current block (-1)
+			List<I32> inDeg;	 // per local index
+			List<I32> stHead;	 // memory-state node id -> local index of the store/call consuming it (-1)
+			List<I32> touchedSt; // state node ids to reset after the block
+			List<I32> succHead;	 // per local index: head of the extra-edge chain (-1)
+			List<I32> succNext;	 // edge -> next edge in the chain
+			List<I32> succTo;		 // edge -> target local index
+			List<Node*> ready;	 // binary heap of ready nodes
 		};
 		List<Node*> topoOrder(List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& scratch) const;
 
