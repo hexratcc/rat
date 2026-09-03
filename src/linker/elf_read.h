@@ -31,8 +31,6 @@ namespace rat {
 
 	struct InSection {
 		String name;
-		U32 type = 0;
-		U64 flags = 0;
 		U64 align = 1;
 		U64 fileOff = 0; // offset in image
 		U64 size = 0;
@@ -48,7 +46,6 @@ namespace rat {
 		U64 size = 0;
 		U8 type = elf::STT_NOTYPE;
 		U8 bind = elf::STB_LOCAL;
-		U8 other = elf::STV_DEFAULT;
 		B32 undef = true;
 		B32 common = false;
 		B32 abs = false;
@@ -98,7 +95,6 @@ namespace rat {
 		B32 isImport = false; // needs GLOB_DAT
 		U32 dynIndex = 0;			// imports
 		U64 addr = 0;					// defined targets, filled at write
-		B32 defined = false;
 	};
 
 	B32 readWhole(const String& path, List<U8>& out);

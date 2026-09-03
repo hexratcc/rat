@@ -17,7 +17,6 @@ namespace rat {
 		String interp;
 		List<String> rpaths;	 // DT_RUNPATH dirs
 		String entry = "main";
-		B32 executable = true;
 		LinkTarget target = LinkTarget::LinuxX64;
 	};
 

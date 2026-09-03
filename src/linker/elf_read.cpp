@@ -102,8 +102,6 @@ namespace rat {
 			const detail::Shdr& sh = shdrs[i];
 			InSection& s = obj.sections[i];
 			s.name = (const char*)(shstr + sh.name);
-			s.type = sh.type;
-			s.flags = sh.flags;
 			s.align = sh.addralign ? sh.addralign : 1;
 			s.fileOff = sh.offset;
 			s.size = sh.size;
@@ -113,12 +111,13 @@ namespace rat {
 			s.keep = s.bucket != BNone;
 		}
 
+		U32 symSec = 0;
+		for(U32 i = 0; i < shdrs.size(); ++i)
+			if(shdrs[i].type == SHT_SYMTAB)
+				symSec = i;
+
 		// comdat dup: drop only later copies' init/fini members (dup ctors corrupt state)
 		{
-			U32 gsymSec = 0;
-			for(U32 i = 0; i < shdrs.size(); ++i)
-				if(shdrs[i].type == SHT_SYMTAB)
-					gsymSec = i;
 			for(U32 i = 0; i < shdrs.size(); ++i) {
 				const detail::Shdr& sh = shdrs[i];
 				if(sh.type != SHT_GROUP)
@@ -127,7 +126,7 @@ namespace rat {
 				if(!(rd32(g) & GRP_COMDAT))
 					continue;
 				String sig;
-				if(gsymSec && sh.link == gsymSec) {
+				if(symSec && sh.link == symSec) {
 					const detail::Shdr& st = shdrs[sh.link];
 					const U8* sp = &im[st.offset + (U64)sh.info * 24];
 					const U8* gstr = &im[shdrs[st.link].offset];
@@ -148,10 +147,6 @@ namespace rat {
 		}
 
 		// symbols
-		U32 symSec = 0;
-		for(U32 i = 0; i < shdrs.size(); ++i)
-			if(shdrs[i].type == SHT_SYMTAB)
-				symSec = i;
 		if(!symSec) {
 			err = "'" + path + "' has no symbol table";
 			return false;
@@ -167,7 +162,6 @@ namespace rat {
 			U8 info = p[4];
 			s.bind = (U8)(info >> 4);
 			s.type = (U8)(info & 0xf);
-			s.other = (U8)(p[5] & 0x3);
 			U16 shndx = rd16(p + 6);
 			s.shndx = shndx;
 			s.value = rd64(p + 8);

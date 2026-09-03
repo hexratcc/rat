@@ -10,6 +10,11 @@ namespace rat {
 	namespace detail {
 		constexpr const char* kInterp = "/lib64/ld-linux-x86-64.so.2";
 
+		B32 isGotReloc(U32 t) {
+			return t == R_X86_64_GOTPCREL || t == R_X86_64_GOTPCRELX || t == R_X86_64_REX_GOTPCRELX ||
+						 t == R_X86_64_GOTTPOFF;
+		}
+
 		B32 isLinkerSym(const String& n) {
 			static const char* names[] = {"__dso_handle",
 																		"_GLOBAL_OFFSET_TABLE_",
@@ -298,44 +303,35 @@ namespace rat {
 		return true;
 	}
 
+	// "L:obj:sym" for a local def, "G:name" otherwise
+	String Linker::gotKey(U32 oi, const InRel& r) const {
+		const InSym& s = objs[oi].syms[r.sym];
+		if(!s.undef && s.bind == STB_LOCAL)
+			return "L:" + std::to_string(oi) + ":" + std::to_string(r.sym);
+		return "G:" + s.name;
+	}
+
+	// got slot per gotpcrel-family ref
 	void Linker::assignGot() {
-		// got slot per gotpcrel-family ref
-		auto want = [](U32 t) {
-			return t == R_X86_64_GOTPCREL || t == R_X86_64_GOTPCRELX || t == R_X86_64_REX_GOTPCRELX ||
-						 t == R_X86_64_GOTTPOFF;
-		};
 		for(U32 oi = 0; oi < objs.size(); ++oi) {
 			const InObject& obj = objs[oi];
 			for(const InRel& r : obj.rels) {
-				if(!want(r.type))
+				if(!detail::isGotReloc(r.type))
 					continue;
-				const InSym& s = obj.syms[r.sym];
-				String key;
-				B32 isImport = false;
-				U32 dynIdx = 0;
-				if(!s.undef && s.bind == STB_LOCAL) {
-					key = "L:" + std::to_string(oi) + ":" + std::to_string(r.sym);
-				} else if(globals.count(s.name)) {
-					key = "G:" + s.name;
-				} else {
-					auto im = importIndex.find(s.name);
-					if(im != importIndex.end()) {
-						key = "G:" + s.name;
-						isImport = true;
-						dynIdx = im->second; // dynindex resolved after layout
-					} else {
-						key = "G:" + s.name; // unresolved weak, defined 0
-					}
-				}
+				String key = gotKey(oi, r);
 				if(gotIndex.count(key))
 					continue;
-				U32 idx = (U32)gotSlots.size();
-				gotIndex.emplace(key, idx);
+				const InSym& s = obj.syms[r.sym];
 				GotSlot g;
-				g.isImport = isImport;
-				g.defined = !isImport;
-				if(isImport)
-					g.dynIndex = dynIdx; // patched in write()
+				// a local or resolved global holds its own address; an import needs GLOB_DAT
+				if(key[0] == 'G' && !globals.count(s.name)) {
+					auto im = importIndex.find(s.name);
+					if(im != importIndex.end()) {
+						g.isImport = true;
+						g.dynIndex = im->second; // patched in write()
+					}
+				}
+				gotIndex.emplace(key, (U32)gotSlots.size());
 				gotSlots.push_back(g);
 			}
 		}
