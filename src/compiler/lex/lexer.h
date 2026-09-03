@@ -129,18 +129,14 @@ namespace rat::cc {
 	} // namespace detail
 
 	struct Lexer {
-		Lexer(const char* src, U32 len, String fileName = "<input>");
+		Lexer(const char* src, U32 len);
 
 		Token next();
-		const Token& peek();
-		const Token& peek2();
 
 		String text(const Token& tok) const;
 
-		const String& file() const { return fileName; }
 		const String& error() const { return errMsg; }
 	private:
-		Token scan();
 		void skipTrivia();
 		void bump();
 
@@ -171,13 +167,7 @@ namespace rat::cc {
 		U32 line = 1;
 		U32 lineStart = 0;
 
-		String fileName;
 		String errMsg;
-
-		Token lookahead;
-		B32 hasLookahead = false;
-		Token lookahead2;
-		B32 hasLookahead2 = false;
 	};
 
 	const char* tokKindName(TokKind kind);
