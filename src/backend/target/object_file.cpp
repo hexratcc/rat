@@ -21,8 +21,6 @@ namespace rat {
 	}
 
 	U32 ObjectFile::append(Section sec, const U8* bytes, U32 len) {
-		if(sec == Bss)
-			return appendZero(sec, len);
 		List<U8>& b = bytesOf(sec);
 		U32 off = (U32)b.size();
 		b.insert(b.end(), bytes, bytes + len);

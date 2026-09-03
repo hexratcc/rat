@@ -1,15 +1,6 @@
 #include "pass/emit/x86/x86_encode.h"
 
 #include "codegen/machine_function.h"
-#include "codegen/machine_module.h"
-#include "codegen/schedule.h"
-#include "ir/function.h"
-#include "ir/module.h"
-#include "ir/node.h"
-#include "ir/opcode.h"
-#include "ir/type.h"
-#include "target/object_file.h"
-#include "target/target.h"
 #include "target/x86/x86_asm.h"
 
 namespace rat {
@@ -50,10 +41,6 @@ namespace rat {
 			a->movRegImm64(d, (U64)v);
 	}
 
-	void X86EncodePass::emitFrameAddr(const MachineInstr& in) {
-		a->leaMem(gpOf(in.defs[0]), RBP, (I32)in.imm);
-	}
-
 	void X86EncodePass::emitStackAlloc(const MachineInstr& in) {
 		readGp(in.uses[0], R10);
 		a->movRegImm64(R11, ~(U64)15);
@@ -62,13 +49,6 @@ namespace rat {
 		a->subRR(RSP, R10);
 		a->andRR(RSP, R11);
 		a->movRR(gpOf(in.defs[0]), RSP);
-	}
-
-	void X86EncodePass::emitStackSave(const MachineInstr& in) { a->movRR(gpOf(in.defs[0]), RSP); }
-
-	void X86EncodePass::emitStackRestore(const MachineInstr& in) {
-		readGp(in.uses[0], R10);
-		a->movRR(RSP, R10);
 	}
 
 	// buf[0] = rbp, buf[1] = resume address, buf[2] = rsp

@@ -385,15 +385,7 @@ namespace rat {
 				const MachineBlock& b = mf.blocks[bi];
 				if(b.id < 0)
 					continue;
-				// no successors and no return
-				B32 open = b.succs.empty() && !b.insts.empty() && (X86Op)b.insts.back().op != X86Op::Ret &&
-									 (X86Op)b.insts.back().op != X86Op::Ud2;
-				for(U32 i = 0; i < kMaxPhys; ++i)
-					cur[i] = open ? kAllBits : 0;
-				for(I32 s : b.succs)
-					if(s >= 0 && s < (I32)nb)
-						for(U32 i = 0; i < kMaxPhys; ++i)
-							cur[i] |= demIn[(U32)s][i];
+				slotBlockOut(b, demIn, cur);
 				for(U32 i = (U32)b.insts.size(); i-- > 0;)
 					transfer(b.insts[i], cur.data());
 				for(U32 i = 0; i < kMaxPhys; ++i)
@@ -408,16 +400,7 @@ namespace rat {
 		for(MachineBlock& b : mf.blocks) {
 			if(b.id < 0 || b.insts.empty())
 				continue;
-			for(U32 i = 0; i < kMaxPhys; ++i)
-				cur[i] = 0;
-			for(I32 s : b.succs)
-				if(s >= 0 && s < (I32)nb)
-					for(U32 i = 0; i < kMaxPhys; ++i)
-						cur[i] |= demIn[(U32)s][i];
-			if(b.succs.empty() && (X86Op)b.insts.back().op != X86Op::Ret &&
-				 (X86Op)b.insts.back().op != X86Op::Ud2)
-				for(U32 i = 0; i < kMaxPhys; ++i)
-					cur[i] = kAllBits;
+			slotBlockOut(b, demIn, cur);
 
 			List<B32> drop(b.insts.size(), false);
 			U32 here = 0;
@@ -437,14 +420,19 @@ namespace rat {
 			if(!here)
 				continue;
 			removed += here;
-			List<MachineInstr> out;
-			out.reserve(b.insts.size());
-			for(U32 i = 0; i < (U32)b.insts.size(); ++i)
-				if(!drop[i])
-					out.push_back(std::move(b.insts[i]));
-			b.insts = std::move(out);
+			eraseMarked(b, drop);
 		}
 		return removed;
+	}
+
+	// drop the flagged instructions
+	void X86PeepholePass::eraseMarked(MachineBlock& b, const List<B32>& drop) {
+		List<MachineInstr> out;
+		out.reserve(b.insts.size());
+		for(U32 i = 0; i < (U32)b.insts.size(); ++i)
+			if(!drop[i])
+				out.push_back(std::move(b.insts[i]));
+		b.insts = std::move(out);
 	}
 
 	// uses[0] = frame slot, uses[1] = source
@@ -463,9 +451,10 @@ namespace rat {
 	}
 
 	// union of successor live-ins, everything for open blocks
-	void X86PeepholePass::slotBlockOut(const MachineBlock& b,
-																		 const List<List<U64>>& liveIn,
-																		 List<U64>& cur) {
+	// inline: called per block in the demand fixpoints
+	inline void X86PeepholePass::slotBlockOut(const MachineBlock& b,
+																						const List<List<U64>>& liveIn,
+																						List<U64>& cur) {
 		B32 open = b.succs.empty() && !b.insts.empty() && (X86Op)b.insts.back().op != X86Op::Ret &&
 							 (X86Op)b.insts.back().op != X86Op::Ud2;
 		for(U32 i = 0; i < (U32)cur.size(); ++i)
@@ -588,12 +577,7 @@ namespace rat {
 			if(!here)
 				continue;
 			removed += here;
-			List<MachineInstr> out;
-			out.reserve(b.insts.size());
-			for(U32 i = 0; i < (U32)b.insts.size(); ++i)
-				if(!drop[i])
-					out.push_back(std::move(b.insts[i]));
-			b.insts = std::move(out);
+			eraseMarked(b, drop);
 		}
 		return removed;
 	}

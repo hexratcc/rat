@@ -73,7 +73,6 @@ namespace rat {
 	};
 
 	struct MachineFunc {
-		const Function* src = nullptr;
 		List<MachineBlock> blocks;
 		U32 nextVReg = 1;
 		List<U32> vregClass;

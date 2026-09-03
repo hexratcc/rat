@@ -185,8 +185,6 @@ namespace rat {
 		U32 namedFp = 0;
 		I32 sretSlot = 0;
 	};
-
-	RegAllocHooks x86RegAllocHooks();
 } // namespace rat
 
 #endif

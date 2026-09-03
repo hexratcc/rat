@@ -1,14 +1,11 @@
 #include "pass/emit/x86/x86_lower.h"
 
 #include "codegen/machine_function.h"
-#include "codegen/machine_module.h"
-#include "codegen/schedule.h"
 #include "ir/function.h"
 #include "ir/module.h"
 #include "ir/node.h"
 #include "ir/opcode.h"
 #include "ir/type.h"
-#include "target/object_file.h"
 #include "target/target.h"
 #include "target/x86/x86_asm.h"
 
@@ -515,7 +512,8 @@ namespace rat {
 	}
 
 	// flag-setting cmp only; the caller emits its own jcc/setcc consumer
-	void X86LowerPass::emitIntCmp(CompareNode* n) {
+	// cmp lhs, rhs; returns the cc that tests the compare
+	U8 X86LowerPass::emitIntCmp(CompareNode* n) {
 		VReg lhs = gpValue(n->getLHS());
 		I64 iv;
 		if(immOf(n->getRHS(), iv)) {
@@ -524,6 +522,17 @@ namespace rat {
 			VReg rhs = gpValue(n->getRHS());
 			cmp(lhs, rhs);
 		}
+		return detail::kIntCc[(U32)n->getOpcode() - (U32)Opcode::Eq];
+	}
+
+	// ucomis lhs, rhs (swap keeps lt/le NaN-correct); returns the cc that tests the compare
+	U8 X86LowerPass::fusedFpCmp(CompareNode* n) {
+		U32 w = opWidth(n->getLHS()->getType());
+		U32 idx = (U32)n->getOpcode() - (U32)Opcode::FEq;
+		VReg lhs = sseValue(n->getLHS());
+		VReg rhs = sseValue(n->getRHS());
+		ucomisFlags(lhs, rhs, w, detail::kFpSwap[idx]);
+		return detail::kFpCc[idx];
 	}
 
 	// dst starts as the else-value, then cmov overwrites it when the flags say so
@@ -538,17 +547,9 @@ namespace rat {
 
 		U8 cc = CC_NE;
 		if(selectOnlyCompare(cond)) {
-			CompareNode* c = cast<CompareNode>(cond);
-			cc = detail::kIntCc[(U32)c->getOpcode() - (U32)Opcode::Eq];
-			emitIntCmp(c);
+			cc = emitIntCmp(cast<CompareNode>(cond));
 		} else if(fpSelectOnlyCompare(cond)) {
-			CompareNode* c = cast<CompareNode>(cond);
-			U32 w = opWidth(c->getLHS()->getType());
-			U32 idx = (U32)c->getOpcode() - (U32)Opcode::FEq;
-			cc = detail::kFpCc[idx];
-			VReg l = sseValue(c->getLHS());
-			VReg r = sseValue(c->getRHS());
-			ucomisFlags(l, r, w, detail::kFpSwap[idx]);
+			cc = fusedFpCmp(cast<CompareNode>(cond));
 		} else {
 			VReg cv = gpValue(cond);
 			cmp(cv, imm(0));
@@ -562,9 +563,9 @@ namespace rat {
 			emitFloatCompare(n);
 			return;
 		}
-		emitIntCmp(n);
+		U8 cc = emitIntCmp(n);
 		VReg d = vregFor(n);
-		setcc(d, detail::kIntCc[(U32)op - (U32)Opcode::Eq]);
+		setcc(d, cc);
 	}
 
 	void X86LowerPass::emitFloatCompare(CompareNode* n) {

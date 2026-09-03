@@ -2,10 +2,8 @@
 
 #include "codegen/machine_function.h"
 #include "codegen/machine_module.h"
-#include "codegen/schedule.h"
 #include "ir/function.h"
 #include "ir/module.h"
-#include "ir/node.h"
 #include "ir/opcode.h"
 #include "ir/type.h"
 #include "target/object_file.h"
@@ -17,7 +15,6 @@ namespace rat {
 	U32 X86EncodePass::toXmm(PhysReg p) { return p - X86Target::kXmmBase; }
 	Reg X86EncodePass::gpOf(const MachineOperand& o) { return toGp(o.phys); }
 	U32 X86EncodePass::xmmOf(const MachineOperand& o) { return toXmm(o.phys); }
-	PhysReg X86EncodePass::gpReg11() { return X86Target::kGpBase + (PhysReg)R11; }
 
 	void X86EncodePass::reset(const MachineFunc& f,
 														const X86FrameLayout& layout,
@@ -141,7 +138,7 @@ namespace rat {
 			const MachineOperand& u = in.uses[i];
 			if(!indirect && u.kind == MachineOperand::Kind::Sym)
 				targetIdx = i;
-			else if(indirect && u.kind == MachineOperand::Kind::Phys && u.phys == gpReg11())
+			else if(indirect && u.kind == MachineOperand::Kind::Phys && u.phys == detail::gpPhys(R11))
 				targetIdx = i;
 		}
 
@@ -191,7 +188,7 @@ namespace rat {
 		fixes.push_back({dispAt, targetBlock});
 	}
 
-	void X86EncodePass::emitRet(const MachineInstr&) {
+	void X86EncodePass::emitRet() {
 		if(omitFrame) {
 			a->ret();
 			return;
@@ -263,15 +260,16 @@ namespace rat {
 		case X86Op::LoadSym:
 			return a->leaRipSym(gpOf(in.defs[0]), in.uses[0].sym(), 0);
 		case X86Op::FrameAddr:
-			return emitFrameAddr(in);
+			return a->leaMem(gpOf(in.defs[0]), RBP, (I32)in.imm);
 		case X86Op::RetAddr:
 			return a->load64(gpOf(in.defs[0]), RBP, 8);
 		case X86Op::StackAlloc:
 			return emitStackAlloc(in);
 		case X86Op::StackSave:
-			return emitStackSave(in);
+			return a->movRR(gpOf(in.defs[0]), RSP);
 		case X86Op::StackRestore:
-			return emitStackRestore(in);
+			readGp(in.uses[0], R10);
+			return a->movRR(RSP, R10);
 		case X86Op::SetJmp:
 			return emitSetJmp(in);
 		case X86Op::LongJmp:
@@ -399,7 +397,7 @@ namespace rat {
 		case X86Op::Call:
 			return emitCall(in);
 		case X86Op::Ret:
-			return emitRet(in);
+			return emitRet();
 		case X86Op::Jmp:
 			return emitJmp(in, fallthrough);
 		case X86Op::SwitchJump:
@@ -587,6 +585,4 @@ namespace rat {
 		obj->write(*os);
 		return false;
 	}
-
-	RegAllocHooks X86Target::regAllocHooks() const { return x86RegAllocHooks(); }
 } // namespace rat

@@ -24,11 +24,6 @@ namespace rat {
 			os(o) {}
 
 		B32 isWindows() const { return os == OS::Windows; }
-		B32 isLinux() const { return os == OS::Linux; }
-
-		const C8* archName() const;
-		const C8* osName() const;
-		String str() const;
 
 		static B32 parse(const String& spec, TargetTriple& out, String& err);
 	};
@@ -63,8 +58,6 @@ namespace rat {
 	struct TargetInfo {
 		virtual ~TargetInfo() = default;
 
-		virtual const C8* getName() const = 0;
-		virtual U32 getPointerSizeInBits() const = 0;
 		virtual const TargetTriple& getTriple() const;
 		virtual const RegisterInfo* registers() const { return nullptr; }
 		virtual RegAllocHooks regAllocHooks() const;
@@ -74,10 +67,7 @@ namespace rat {
 		U32 getPointerSizeInBytes() const { return kPointerSizeInBits / 8; }
 	};
 
-	struct Generic64 final : TargetInfo {
-		const C8* getName() const override { return "generic64"; }
-		U32 getPointerSizeInBits() const override { return 64; }
-	};
+	struct Generic64 final : TargetInfo {};
 
 	struct X86Target final : TargetInfo {
 		enum : PhysReg {
@@ -92,16 +82,10 @@ namespace rat {
 			kX87Class = 2,
 		};
 
-		explicit X86Target(OS os = OS::Linux)
-		: triple(Arch::X86_64, os),
-			info(build(os)) {}
-
 		explicit X86Target(const TargetTriple& t)
 		: triple(t),
 			info(build(t.os)) {}
 
-		const C8* getName() const override { return "x86-64"; }
-		U32 getPointerSizeInBits() const override { return 64; }
 		const TargetTriple& getTriple() const override { return triple; }
 
 		const RegisterInfo* registers() const override { return &info; }
