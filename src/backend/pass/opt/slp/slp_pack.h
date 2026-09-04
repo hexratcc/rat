@@ -37,6 +37,7 @@ namespace rat {
 		static constexpr U32 kMaxGuards = 4;			 // runtime checks per guarded run
 		static constexpr I32 kGuardCheckCost = 6;	 // ops per runtime disjointness check
 		static constexpr I32 kGuardBranchCost = 6; // branch + else-arm bloat per guarded run
+		static constexpr U32 kMaxHops = 64;				 // store-chain hops a reachability query may cover
 
 		struct StoreInfo {
 			StoreNode* store = nullptr;
@@ -138,6 +139,7 @@ namespace rat {
 			const StoreAddr& storeAddr(StoreNode* s);
 			B32 disjointStores(StoreNode* a, StoreNode* b);
 			Node* skipDisjointRun(StoreNode* s, Node* loadBase);
+			B32 reachesUp(Node* from, Node* to);
 			void normalizeLoadEdges();
 			void normalizeStoreChains();
 			void sortDisjointRuns();

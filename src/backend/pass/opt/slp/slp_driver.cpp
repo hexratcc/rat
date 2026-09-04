@@ -152,6 +152,17 @@ namespace rat {
 		return endpoint;
 	}
 
+	// 'to' is at most kMaxHops stores up the chain from 'from'
+	B32 SlpPackPass::Slp::reachesUp(Node* from, Node* to) {
+		for(U32 hop = 0; from != to; ++hop) {
+			StoreNode* s = dyn_cast<StoreNode>(from);
+			if(!s || hop == kMaxHops)
+				return false;
+			from = s->getMemory();
+		}
+		return true;
+	}
+
 	void SlpPackPass::Slp::normalizeLoadEdges() {
 		for(Node* n : fn) {
 			LoadNode* l = dyn_cast<LoadNode>(n);
@@ -173,7 +184,7 @@ namespace rat {
 			RefinedAddr lk = refineAddr(l->getPointer(), lsz);
 			// the object-identity fast path is exact only when the address is a plain object
 			// reference (no loads in its cone, so the addrReadsState check cannot fire)
-			B32 fastPath = lk.base != nullptr && coneLoads.empty() && identifiedBase(lk.base);
+			B32 fastPath = coneLoads.empty() && AliasAnalysis::isIdentified(lk.base);
 
 			Node* m = l->getMemory();
 			while(StoreNode* s = dyn_cast<StoreNode>(m)) {
@@ -190,10 +201,12 @@ namespace rat {
 				RefinedAddr sk = refineAddr(s->getPointer(), ssz);
 				if(!provablyDisjoint(aa, l->getPointer(), lk, lsz, s->getPointer(), sk, ssz))
 					break;
-				B32 addrReadsState = false;
+				// a load feeding the address must not sit at or below s: it would be ordered
+				// after s while the hoisted load is ordered before it, which is a schedule cycle
+				B32 addrPinned = false;
 				for(const Node* cl : coneLoads)
-					addrReadsState |= cast<LoadNode>(cl)->getMemory() == s;
-				if(addrReadsState)
+					addrPinned |= reachesUp(cast<LoadNode>(cl)->getMemory(), s);
+				if(addrPinned)
 					break;
 				m = s->getMemory();
 			}
