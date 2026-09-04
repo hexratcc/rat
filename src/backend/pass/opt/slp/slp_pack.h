@@ -26,14 +26,6 @@ namespace rat {
 		U32 rejectedProfit = 0;	 // cost model said no
 		U32 rejectedGuarded = 0; // guarded gates (budget/escape/contamination)
 		U32 rejectedOverlap = 0; // load range straddles the store window (store-forward trap)
-		U32 packSplat = 0;
-		U32 packConst = 0;
-		U32 packWideLoad = 0;
-		U32 splatGrouped = 0; // splat sources folded into a shared wide load
-		U32 packBinary = 0;
-		U32 packFrontier = 0;
-		U32 orientSwaps = 0; // commutative lanes reordered by shape key
-		U32 memoHits = 0;		 // shared subtrees packed once
 	};
 
 	struct SlpPackPass : FunctionPass {

@@ -47,11 +47,7 @@ namespace rat {
 								<< " reductions " << s.packedReduction << " rejected "
 								<< (s.rejectedTree + s.rejectedProfit + s.rejectedGuarded + s.rejectedOverlap)
 								<< " (tree " << s.rejectedTree << ", profit " << s.rejectedProfit << ", guard "
-								<< s.rejectedGuarded << ", overlap " << s.rejectedOverlap << ")\n"
-								<< "slp[" << module.getName() << "]: nodes: wload " << s.packWideLoad << " vbin "
-								<< s.packBinary << " splat " << s.packSplat << " (grouped " << s.splatGrouped
-								<< ") const " << s.packConst << " frontier " << s.packFrontier << " | orient-swaps "
-								<< s.orientSwaps << " memo-hits " << s.memoHits << "\n";
+								<< s.rejectedGuarded << ", overlap " << s.rejectedOverlap << ")\n";
 		}
 		return changed;
 	}

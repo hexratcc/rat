@@ -97,15 +97,12 @@ namespace rat {
 			}
 		if(allSame && !isa<ConstantNode>(lanes[0]) && !coneTouchesObserver(lanes[0])) {
 			profit -= 1; // one broadcast
-			++st.packSplat;
 			return fn.create<SplatNode>(vecTy, lanes[0]);
 		}
 
 		String key = tupleKey(lanes);
-		if(auto it = memo.find(key); it != memo.end()) {
-			++st.memoHits;
+		if(auto it = memo.find(key); it != memo.end())
 			return it->second;
-		}
 
 		Node* built = packTupleUncached(lanes, elemTy, vecTy, depth);
 		memo.emplace(std::move(key), built);
@@ -127,7 +124,6 @@ namespace rat {
 			}
 		if(allConst) {
 			profit -= 1;
-			++st.packConst;
 			return fn.create<PackNode>(vecTy, lanes);
 		}
 
@@ -152,7 +148,6 @@ namespace rat {
 			if(coneTouchesObserver(n))
 				return nullptr;
 		profit -= (I32)w + 1;
-		++st.packFrontier;
 		return fn.create<PackNode>(vecTy, lanes);
 	}
 
@@ -183,10 +178,8 @@ namespace rat {
 			Node* r = b->getRHS();
 			if(b->isCommutative() && sl0 != sr0 && !shapesDisabled()) {
 				U64 sl = shapes(l), sr = shapes(r);
-				if(sl != sl0 && sr == sl0 && sl == sr0) {
+				if(sl != sl0 && sr == sl0 && sl == sr0)
 					std::swap(l, r);
-					++st.orientSwaps;
-				}
 			}
 			ls.push_back(l);
 			rs.push_back(r);
@@ -200,7 +193,6 @@ namespace rat {
 		}
 		profit += (I32)w - 1;
 		++interior;
-		++st.packBinary;
 		return fn.create<BinaryNode>(op, vecTy, lv, rv);
 	}
 
@@ -290,7 +282,6 @@ namespace rat {
 		Node* ptr = anchorPtr(first->getPointer(), k0);
 		if(equal) {
 			profit += (I32)w - 2; // w scalar loads become one load and one broadcast
-			++st.packSplat;
 			Node* ld = fn.create<LoadNode>(elemTy, first->getControl(), mem, ptr);
 			Node* sp = fn.create<SplatNode>(vecTy, ld);
 			splatLoads.push_back({sp, cast<LoadNode>(ld)});
@@ -298,7 +289,6 @@ namespace rat {
 		}
 		profit += (I32)w - 1;
 		++interior;
-		++st.packWideLoad;
 		return fn.create<LoadNode>(vecTy, first->getControl(), mem, ptr);
 	}
 
@@ -357,7 +347,6 @@ namespace rat {
 				else
 					sel = 0x44;
 				cs[i + j].splat->replaceAllUsesWith(fn.create<ShuffleNode>(vecTy, wide, sel));
-				++st.splatGrouped;
 			}
 			i += w;
 		}
