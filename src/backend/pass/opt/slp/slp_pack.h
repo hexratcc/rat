@@ -71,6 +71,7 @@ namespace rat {
 			Set<const Node*> runStores; // the scalar stores being fused
 			Map<const Node*, List<I64>> interWritten; // inner store -> lane offsets stored before it
 			Set<const Node*> observers;								// loads reading an inner store's state
+			B32 dead = false; // a matched strategy could not be built, the window is rejected
 
 			// runtime disjointness guards
 			struct GuardGroup {
@@ -102,9 +103,8 @@ namespace rat {
 			static String tupleKey(const List<Node*>& lanes);
 			Node* packTuple(const List<Node*>& lanes, Type* elemTy, U32 depth);
 			Node* packTupleUncached(const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth);
-			Node* packLoads(const List<Node*>& lanes, Type* elemTy, Type* vecTy, B32& hardFail);
-			Node* packBinaryLanes(
-					const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth, B32& hardFail);
+			Node* packLoads(const List<Node*>& lanes, Type* elemTy, Type* vecTy);
+			Node* packBinaryLanes(const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth);
 			Node* packWideOrSplat(Node* mem,
 														LoadNode* first,
 														const RefinedAddr& k0,

@@ -108,6 +108,7 @@ namespace rat {
 		return built;
 	}
 
+	// strategies in order
 	Node* SlpPackPass::Packer::packTupleUncached(const List<Node*>& lanes,
 																							 Type* elemTy,
 																							 Type* vecTy,
@@ -127,18 +128,16 @@ namespace rat {
 		}
 
 		// adjacent loads: a single wide load
-		B32 loadFail = false;
-		if(Node* wide = packLoads(lanes, elemTy, vecTy, loadFail))
+		if(Node* wide = packLoads(lanes, elemTy, vecTy))
 			return wide;
-		if(loadFail)
+		if(dead)
 			return nullptr;
 
+		// isomorphic binary lanes: one vector op over the two recursed operand tuples
 		if(depth < kMaxDepth) {
-			// isomorphic binary lanes: one vector op over the two recursed operand tuples
-			B32 binFail = false;
-			if(Node* vbin = packBinaryLanes(lanes, elemTy, vecTy, depth, binFail))
+			if(Node* vbin = packBinaryLanes(lanes, elemTy, vecTy, depth))
 				return vbin;
-			if(binFail)
+			if(dead)
 				return nullptr;
 		}
 
@@ -150,19 +149,17 @@ namespace rat {
 		return fn.create<PackNode>(vecTy, lanes);
 	}
 
-	// isomorphic binary lanes: recurse into the two operand tuples and rebuild the op.
-	// hardFail signals "matched but a sub-tuple could not be built" so the caller stops.
-	Node* SlpPackPass::Packer::packBinaryLanes(
-			const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth, B32& hardFail) {
+	// isomorphic binary lanes, recurse into the two operand tuples and rebuild the op
+	Node* SlpPackPass::Packer::packBinaryLanes(const List<Node*>& lanes,
+																						 Type* elemTy,
+																						 Type* vecTy,
+																						 U32 depth) {
 		U32 w = (U32)lanes.size();
 		Opcode op = lanes[0]->getOpcode();
-		B32 allBin = true;
 		for(Node* n : lanes)
-			if(!isa<BinaryNode>(n) || n->getOpcode() != op || n->getType() != elemTy) {
-				allBin = false;
-				break;
-			}
-		if(!allBin || !packableBinary(op, elemTy) || (op == Opcode::Mul && !drv.sse41))
+			if(!isa<BinaryNode>(n) || n->getOpcode() != op || n->getType() != elemTy)
+				return nullptr;
+		if(!packableBinary(op, elemTy) || (op == Opcode::Mul && !drv.sse41))
 			return nullptr;
 
 		List<Node*> ls, rs;
@@ -187,7 +184,7 @@ namespace rat {
 		Node* lv = packTuple(ls, elemTy, depth + 1);
 		Node* rv = packTuple(rs, elemTy, depth + 1);
 		if(!lv || !rv) {
-			hardFail = true;
+			dead = true; // matched, but an operand tuple could not be built
 			return nullptr;
 		}
 		profit += (I32)w - 1;
@@ -195,10 +192,7 @@ namespace rat {
 		return fn.create<BinaryNode>(op, vecTy, lv, rv);
 	}
 
-	Node* SlpPackPass::Packer::packLoads(const List<Node*>& lanes,
-																			 Type* elemTy,
-																			 Type* vecTy,
-																			 B32& hardFail) {
+	Node* SlpPackPass::Packer::packLoads(const List<Node*>& lanes, Type* elemTy, Type* vecTy) {
 		U32 w = (U32)lanes.size();
 		U32 esz = elemTy->byteSize(drv.ptrBytes);
 		for(Node* n : lanes)
@@ -230,7 +224,7 @@ namespace rat {
 			I64 lLo = k0.constant, lHi = lLo + (I64)(w * esz);
 			if(lLo != sLo && lLo < sHi && sLo < lHi) {
 				++drv.stats.rejectedOverlap;
-				hardFail = true;
+				dead = true;
 				return nullptr;
 			}
 		}
@@ -257,7 +251,7 @@ namespace rat {
 				I64 ssz = (I64)windowKey->size;
 				for(I64 written : it->second)
 					if(written < c + (I64)esz && c < written + ssz) {
-						hardFail = true; // scalar reads a freshly stored lane
+						dead = true; // scalar reads a freshly stored lane
 						return nullptr;
 					}
 			}
