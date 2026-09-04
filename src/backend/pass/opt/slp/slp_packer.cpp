@@ -288,11 +288,14 @@ namespace rat {
 			Node* ld = fn.create<LoadNode>(elemTy, first->getControl(), mem, ptr);
 			Node* sp = fn.create<SplatNode>(vecTy, ld);
 			splatLoads.push_back({sp, cast<LoadNode>(ld)});
+			madeLoads.insert(ld);
 			return sp;
 		}
 		profit += (I32)w - 1;
 		++interior;
-		return fn.create<LoadNode>(vecTy, first->getControl(), mem, ptr);
+		Node* wide = fn.create<LoadNode>(vecTy, first->getControl(), mem, ptr);
+		madeLoads.insert(wide);
+		return wide;
 	}
 
 	// splat reloads at consecutive addresses fold into one wide load

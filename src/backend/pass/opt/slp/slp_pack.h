@@ -83,6 +83,9 @@ namespace rat {
 
 			List<GuardGroup> guardGroups;
 
+			// loads this packer created; only these may be sunk into a speculative arm
+			Set<const Node*> madeLoads;
+
 			// splat reloads kept for post-commit coalescing into wide loads
 			List<Pair<Node*, LoadNode*>> splatLoads;
 
