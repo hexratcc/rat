@@ -252,9 +252,12 @@ namespace rat {
 				I64 laneOff = 0;
 				if(adjacent)
 					laneOff = (I64)(i * esz);
+				// this lane reads [c, c + esz), a lane stored before it covers [written, written + ssz).
+				// any overlap, not just an exact hit, means the scalar sees a freshly stored byte
 				I64 c = k0.constant + laneOff;
+				I64 ssz = (I64)windowKey->size;
 				for(I64 written : it->second)
-					if(written == c) {
+					if(written < c + (I64)esz && c < written + ssz) {
 						hardFail = true; // scalar reads a freshly stored lane
 						return nullptr;
 					}

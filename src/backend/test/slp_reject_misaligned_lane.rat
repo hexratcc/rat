@@ -1,0 +1,105 @@
+@name slp: a lane load that straddles a freshly stored lane must veto the window
+@passes slp
+
+@input
+func t(ptr) -> void {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v300
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "c" of v0
+	v5 = const : i64  2
+	v6 = add : ptr v4, v5
+	v10 = load : i32 v2, v3, v6
+	v11 = const : i32  1
+	v12 = add : i32 v10, v11
+	v13 = store : mem v2, v3, v4, v12
+	v14 = const : i64  4
+	v15 = add : ptr v4, v14
+	v16 = load : i32 v2, v13, v6
+	v17 = const : i32  2
+	v18 = add : i32 v16, v17
+	v19 = store : mem v2, v13, v15, v18
+	v20 = const : i64  8
+	v21 = add : ptr v4, v20
+	v22 = load : i32 v2, v19, v6
+	v23 = const : i32  3
+	v24 = add : i32 v22, v23
+	v25 = store : mem v2, v19, v21, v24
+	v26 = const : i64  12
+	v27 = add : ptr v4, v26
+	v28 = load : i32 v2, v25, v6
+	v29 = const : i32  4
+	v30 = add : i32 v28, v29
+	v31 = store : mem v2, v25, v27, v30
+	v32 = const : i64  16
+	v33 = add : ptr v4, v32
+	v34 = load : i32 v2, v31, v6
+	v35 = const : i32  5
+	v36 = add : i32 v34, v35
+	v37 = store : mem v2, v31, v33, v36
+	v38 = const : i64  20
+	v39 = add : ptr v4, v38
+	v40 = load : i32 v2, v37, v6
+	v41 = const : i32  6
+	v42 = add : i32 v40, v41
+	v43 = store : mem v2, v37, v39, v42
+	v44 = const : i64  24
+	v45 = add : ptr v4, v44
+	v46 = load : i32 v2, v43, v6
+	v47 = const : i32  7
+	v48 = add : i32 v46, v47
+	v49 = store : mem v2, v43, v45, v48
+	v50 = const : i64  28
+	v51 = add : ptr v4, v50
+	v52 = load : i32 v2, v49, v6
+	v53 = const : i32  8
+	v54 = add : i32 v52, v53
+	v55 = store : mem v2, v49, v51, v54
+	v300 = return : ctrl v2, v55
+}
+
+@expect
+func t(ptr) -> void {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v53
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "c" of v0
+	v5 = const : i64  2
+	v6 = add : ptr v4, v5
+	v7 = load : i32 v2, v3, v6
+	v8 = const : i32  1
+	v9 = add : i32 v7, v8
+	v10 = store : mem v2, v3, v4, v9
+	v11 = const : i64  4
+	v12 = add : ptr v4, v11
+	v13 = load : i32 v2, v10, v6
+	v14 = const : i32  2
+	v15 = add : i32 v13, v14
+	v16 = store : mem v2, v10, v12, v15
+	v20 = const : i32  3
+	v26 = const : i32  4
+	v32 = const : i32  5
+	v38 = const : i32  6
+	v41 = const : i64  24
+	v42 = add : ptr v4, v41
+	v43 = load : i32 v2, v16, v6
+	v44 = const : i32  7
+	v45 = add : i32 v43, v44
+	v46 = store : mem v2, v62, v42, v45
+	v47 = const : i64  28
+	v48 = add : ptr v4, v47
+	v49 = load : i32 v2, v16, v6
+	v50 = const : i32  8
+	v51 = add : i32 v49, v50
+	v52 = store : mem v2, v46, v48, v51
+	v53 = return : ctrl v2, v52
+	v56 = load : i32 v2, v16, v6
+	v57 = splat : <4 x i32> v56
+	v58 = pack : <4 x i32> v20, v26, v32, v38
+	v59 = add : <4 x i32> v57, v58
+	v60 = const : i64  6
+	v61 = add : ptr v6, v60
+	v62 = store : mem v2, v16, v61, v59
+}
