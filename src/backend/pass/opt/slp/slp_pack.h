@@ -147,14 +147,11 @@ namespace rat {
 			List<Segment> buildSegments(const Map<Node*, StoreInfo>& cand);
 			U32 tryStaticWindow(Segment& seg, U32 i, const WindowShape& w0);
 			U32 tryGuardedRun(Segment& seg, U32 i, const WindowShape& w0);
-			B32
-			observersConfined(const Segment& seg, U32 i, U32 total, const Set<const Node*>& obsSet) const;
 			void commitGuardedRun(Segment& seg,
 														U32 i,
 														const List<WindowShape>& run,
 														const List<Node*>& vecs,
-														Packer& packer,
-														const Map<const Node*, List<I64>>& interWritten);
+														Packer& packer);
 			// build the disjointness-guard branch cascade; returns the speculating
 			// then-control and fills iff (first branch) and fails (else-arm controls)
 			Node* emitGuardCascade(const List<Packer::GuardGroup>& groups,
@@ -164,16 +161,10 @@ namespace rat {
 														 Node*& iff,
 														 List<Node*>& fails);
 			// states the incoming window state transitively derives from
-			static void collectPreStates(Node* memIn, Set<const Node*>& preSet);
+			static Set<const Node*> preStates(Node* memIn);
 			// steer every other user of the pre-branch control to the right arm
-			void rerouteBlock(Node* startCtrl,
-												Node* iff,
-												Node* region,
-												Node* elseP,
-												const Set<const Node*>& wideStores,
-												const Set<const Node*>& runStores,
-												const Set<const Node*>& preSet,
-												const Map<const Node*, List<I64>>& interWritten);
+			void
+			rerouteBlock(Node* startCtrl, Node* iff, Node* region, Node* elseP, const Packer& packer);
 			U32 processSegment(Segment& seg);
 			U32 packReduction(BinaryNode* root);
 			U32 packReductions();
