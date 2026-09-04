@@ -306,6 +306,45 @@ namespace rat {
 		return p && p->getLabel() && String(p->getLabel()) == "slp.else";
 	}
 
+	Map<Node*, SlpPackPass::StoreInfo> SlpPackPass::Slp::collectCandidates() {
+		Map<Node*, StoreInfo> cand;
+		for(Node* n : fn) {
+			StoreNode* s = dyn_cast<StoreNode>(n);
+			if(!s || !packableElem(s->getValue()->getType()))
+				continue;
+			const RefinedAddr& k = storeAddr(s).key;
+			if(k.valid())
+				cand[s] = {s, k, {}};
+		}
+		return cand;
+	}
+
+	List<SlpPackPass::Segment> SlpPackPass::Slp::buildSegments(const Map<Node*, StoreInfo>& cand) {
+		List<Segment> segments;
+		for(Node* n : fn) {
+			auto headIt = cand.find(n);
+			if(headIt == cand.end())
+				continue;
+			StoreNode* s = headIt->second.store;
+			Node* m = s->getMemory();
+			if(m && m->getOpcode() == Opcode::Store && cand.count(m))
+				continue; // not a head
+			Segment seg;
+			StoreNode* cur = s;
+			while(cur) {
+				auto it = cand.find(cur);
+				if(it == cand.end())
+					break;
+				StoreInfo info = it->second;
+				cur = soleChainSuccessor(cur, info.observers);
+				seg.push_back(std::move(info));
+			}
+			if(seg.size() >= 2)
+				segments.push_back(std::move(seg));
+		}
+		return segments;
+	}
+
 	U32 SlpPackPass::Slp::processSegment(Segment& seg) {
 		U32 changed = 0;
 		U32 i = 0;
@@ -353,56 +392,12 @@ namespace rat {
 		normalizeLoadEdges();
 		normalizeStoreChains();
 		sortDisjointRuns();
-		Map<Node*, StoreInfo> cand = collectCandidates();
 		U32 changed = 0;
-		if(!cand.empty()) {
-			List<Segment> segments = buildSegments(cand);
-			for(Segment& seg : segments)
-				changed += processSegment(seg);
-		}
+		for(Segment& seg : buildSegments(collectCandidates()))
+			changed += processSegment(seg);
 		changed += packReductions();
 		// sweep replaced scalars and any speculative, unprofitable trees
 		fn.eliminateDeadNodes();
 		return changed;
-	}
-
-	Map<Node*, SlpPackPass::StoreInfo> SlpPackPass::Slp::collectCandidates() {
-		Map<Node*, StoreInfo> cand;
-		for(Node* n : fn) {
-			StoreNode* s = dyn_cast<StoreNode>(n);
-			if(!s || !packableElem(s->getValue()->getType()))
-				continue;
-			RefinedAddr k = refineAddr(s->getPointer(), s->getValue()->getType()->byteSize(ptrBytes));
-			if(!k.valid())
-				continue;
-			cand[s] = {s, std::move(k), {}};
-		}
-		return cand;
-	}
-
-	List<SlpPackPass::Segment> SlpPackPass::Slp::buildSegments(const Map<Node*, StoreInfo>& cand) {
-		List<Segment> segments;
-		for(Node* n : fn) {
-			auto headIt = cand.find(n);
-			if(headIt == cand.end())
-				continue;
-			StoreNode* s = headIt->second.store;
-			Node* m = s->getMemory();
-			if(m && m->getOpcode() == Opcode::Store && cand.count(m))
-				continue; // not a head
-			Segment seg;
-			StoreNode* cur = s;
-			while(cur) {
-				auto it = cand.find(cur);
-				if(it == cand.end())
-					break;
-				StoreInfo info = it->second;
-				cur = soleChainSuccessor(cur, info.observers);
-				seg.push_back(std::move(info));
-			}
-			if(seg.size() >= 2)
-				segments.push_back(std::move(seg));
-		}
-		return segments;
 	}
 } // namespace rat
