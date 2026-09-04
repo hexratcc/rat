@@ -126,21 +126,21 @@ namespace rat {
 			SlpStats& stats;
 			ShapeHash shapes;
 			Map<String, Pair<Node*, I64>> addrAnchors;
-			Map<const Node*, RefinedAddr> keyCache; // store -> refined address (refineAddr is not free)
-			Map<const Node*, String> sigCache;			// store -> group signature (groupSig builds a String)
+			struct StoreAddr {
+				RefinedAddr key; // invalid when the pointer does not refine
+				String sig;			 // groupSig(key), empty when invalid
+			};
+			Map<const Node*, StoreAddr> addrCache;							// refineAddr is not free
+			Map<const Node*, Map<const Node*, Node*>> skipMemo; // load base -> store -> run end
 
 			Slp(Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats);
 
+			const StoreAddr& storeAddr(StoreNode* s);
+			B32 disjointStores(StoreNode* a, StoreNode* b);
+			Node* skipDisjointRun(StoreNode* s, Node* loadBase);
 			void normalizeLoadEdges();
-			Node* storeBaseObj(StoreNode* s, Map<const Node*, Node*>& cache);
-			Node* skipDisjointRun(StoreNode* s,
-														Node* loadBase,
-														Map<const Node*, Node*>& storeBase,
-														Map<const Node*, Map<const Node*, Node*>>& skipMemo);
 			void normalizeStoreChains();
 			void sortDisjointRuns();
-			B32 storeKey(StoreNode* s, RefinedAddr& out);
-			const String& storeSig(StoreNode* s); // cached groupSig of a store's address
 			B32 trySwapAdjacentStores(StoreNode* s, StoreNode* p);
 			// thin fn.create wrappers for the guard cascade
 			Node* guardBranch(Node* ctrl, Node* pred);

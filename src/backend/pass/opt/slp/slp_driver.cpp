@@ -104,27 +104,27 @@ namespace rat {
 		sse41(sse41),
 		stats(stats) {}
 
-	// base object of a store, computed once per store (refineAddr is not free)
-	Node* SlpPackPass::Slp::storeBaseObj(StoreNode* s, Map<const Node*, Node*>& cache) {
-		auto it = cache.find(s);
-		if(it != cache.end())
+	const SlpPackPass::Slp::StoreAddr& SlpPackPass::Slp::storeAddr(StoreNode* s) {
+		auto it = addrCache.find(s);
+		if(it != addrCache.end())
 			return it->second;
-		Node* b = nullptr;
-		U32 ssz = aa.getAccessSize(s);
-		if(ssz) {
-			RefinedAddr sk = refineAddr(s->getPointer(), ssz);
-			if(sk.valid())
-				b = sk.base;
-		}
-		cache.emplace(s, b);
-		return b;
+		StoreAddr a;
+		U32 sz = aa.getAccessSize(s);
+		if(sz)
+			a.key = refineAddr(s->getPointer(), sz);
+		if(a.key.valid())
+			a.sig = groupSig(a.key);
+		return addrCache.emplace(s, std::move(a)).first->second;
+	}
+
+	B32 SlpPackPass::Slp::disjointStores(StoreNode* a, StoreNode* b) {
+		const RefinedAddr& ka = storeAddr(a).key;
+		const RefinedAddr& kb = storeAddr(b).key;
+		return provablyDisjoint(aa, a->getPointer(), ka, ka.size, b->getPointer(), kb, kb.size);
 	}
 
 	// skip the maximal run of stores that are disjoint from loadBase purely by object identity
-	Node* SlpPackPass::Slp::skipDisjointRun(StoreNode* s,
-																					Node* loadBase,
-																					Map<const Node*, Node*>& storeBase,
-																					Map<const Node*, Map<const Node*, Node*>>& skipMemo) {
+	Node* SlpPackPass::Slp::skipDisjointRun(StoreNode* s, Node* loadBase) {
 		Map<const Node*, Node*>& memo = skipMemo[loadBase];
 		List<const Node*> run;
 		Node* cur = s;
@@ -140,7 +140,7 @@ namespace rat {
 				endpoint = it->second;
 				break;
 			}
-			if(!AliasAnalysis::distinctObjects(loadBase, storeBaseObj(cs, storeBase))) {
+			if(!AliasAnalysis::distinctObjects(loadBase, storeAddr(cs).key.base)) {
 				endpoint = cur; // barrier candidate: needs the exact per-offset check
 				break;
 			}
@@ -153,9 +153,6 @@ namespace rat {
 	}
 
 	void SlpPackPass::Slp::normalizeLoadEdges() {
-		Map<const Node*, Node*> storeBase;
-		Map<const Node*, Map<const Node*, Node*>> skipMemo;
-
 		for(Node* n : fn) {
 			LoadNode* l = dyn_cast<LoadNode>(n);
 			if(!l)
@@ -181,7 +178,7 @@ namespace rat {
 			Node* m = l->getMemory();
 			while(StoreNode* s = dyn_cast<StoreNode>(m)) {
 				if(fastPath) {
-					Node* jumped = skipDisjointRun(s, lk.base, storeBase, skipMemo);
+					Node* jumped = skipDisjointRun(s, lk.base);
 					if(jumped != m) {
 						m = jumped; // skipped a run
 						continue;
@@ -222,32 +219,6 @@ namespace rat {
 		return true;
 	}
 
-	const String& SlpPackPass::Slp::storeSig(StoreNode* s) {
-		auto it = sigCache.find(s);
-		if(it != sigCache.end())
-			return it->second;
-		RefinedAddr k;
-		String sig;
-		if(storeKey(s, k))
-			sig = groupSig(k);
-		return sigCache.emplace(s, std::move(sig)).first->second;
-	}
-
-	B32 SlpPackPass::Slp::storeKey(StoreNode* s, RefinedAddr& out) {
-		auto it = keyCache.find(s);
-		if(it != keyCache.end()) {
-			out = it->second;
-			return out.valid();
-		}
-		RefinedAddr k;
-		U32 sz = aa.getAccessSize(s);
-		if(sz)
-			k = refineAddr(s->getPointer(), sz);
-		keyCache.emplace(s, k);
-		out = k;
-		return out.valid();
-	}
-
 	void SlpPackPass::Slp::normalizeStoreChains() {
 		B32 progress = true;
 		for(U32 round = 0; progress && round < 8; ++round) {
@@ -256,22 +227,20 @@ namespace rat {
 				StoreNode* s = dyn_cast<StoreNode>(n);
 				if(!s)
 					continue;
-				RefinedAddr ks;
-				if(!storeKey(s, ks))
+				const StoreAddr& as = storeAddr(s);
+				if(!as.key.valid())
 					continue;
-				const String& sig = storeSig(s);
 				U32 hops = 0;
 				while(hops++ < 16) {
 					StoreNode* p = dyn_cast<StoreNode>(s->getMemory());
 					if(!p || p->getControl() != s->getControl())
 						break;
-					RefinedAddr kp;
-					if(!storeKey(p, kp))
+					const StoreAddr& ap = storeAddr(p);
+					if(!ap.key.valid())
 						break;
-					const String& psig = storeSig(p);
-					if(sig >= psig)
+					if(as.sig >= ap.sig)
 						break; // same group, or already canonically ordered
-					if(!provablyDisjoint(aa, s->getPointer(), ks, ks.size, p->getPointer(), kp, kp.size))
+					if(!disjointStores(s, p))
 						break;
 					if(!trySwapAdjacentStores(s, p))
 						break; // p has another observer
@@ -291,17 +260,16 @@ namespace rat {
 			StoreNode* h = dyn_cast<StoreNode>(n);
 			if(!h)
 				continue;
-			RefinedAddr kh;
-			if(!storeKey(h, kh))
+			const StoreAddr& ah = storeAddr(h);
+			if(!ah.key.valid())
 				continue;
-			const String& sig = storeSig(h);
 			StoreNode* pred = dyn_cast<StoreNode>(h->getMemory());
-			if(pred && pred->getControl() == h->getControl() && storeSig(pred) == sig && !sig.empty())
+			if(pred && pred->getControl() == h->getControl() && storeAddr(pred).sig == ah.sig)
 				continue; // not a run head
 			List<StoreNode*> run;
 			List<RefinedAddr> keys;
 			StoreNode* cur = h;
-			RefinedAddr kc = kh;
+			RefinedAddr kc = ah.key;
 			while(true) {
 				run.push_back(cur);
 				keys.push_back(kc);
@@ -309,11 +277,11 @@ namespace rat {
 				StoreNode* nx = soleChainSuccessor(cur, obs);
 				if(!obs.empty() || !nx || nx->getControl() != cur->getControl())
 					break;
-				RefinedAddr kn;
-				if(storeSig(nx) != sig || !storeKey(nx, kn))
+				const StoreAddr& an = storeAddr(nx);
+				if(an.sig != ah.sig || !an.key.valid())
 					break;
 				cur = nx;
-				kc = kn;
+				kc = an.key;
 			}
 			if(run.size() < 3)
 				continue;
