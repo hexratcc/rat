@@ -219,6 +219,7 @@ namespace rat {
 		return true;
 	}
 
+	// bubble each store up past disjoint predecessors until the chain is in canonical group order
 	void SlpPackPass::Slp::normalizeStoreChains() {
 		B32 progress = true;
 		for(U32 round = 0; progress && round < 8; ++round) {
@@ -236,22 +237,14 @@ namespace rat {
 					if(!p || p->getControl() != s->getControl())
 						break;
 					const StoreAddr& ap = storeAddr(p);
-					if(!ap.key.valid())
-						break;
-					if(as.sig >= ap.sig)
+					if(!ap.key.valid() || as.sig >= ap.sig)
 						break; // same group, or already canonically ordered
-					if(!disjointStores(s, p))
+					if(!disjointStores(s, p) || !trySwapAdjacentStores(s, p))
 						break;
-					if(!trySwapAdjacentStores(s, p))
-						break; // p has another observer
 					progress = true;
 				}
 			}
 		}
-	}
-
-	static B32 byStoreOffset(const Pair<I64, StoreNode*>& a, const Pair<I64, StoreNode*>& b) {
-		return a.first < b.first;
 	}
 
 	// reorder a maximal same-group, same-control, observer-free store run into byte-offset order
@@ -266,58 +259,44 @@ namespace rat {
 			StoreNode* pred = dyn_cast<StoreNode>(h->getMemory());
 			if(pred && pred->getControl() == h->getControl() && storeAddr(pred).sig == ah.sig)
 				continue; // not a run head
-			List<StoreNode*> run;
-			List<RefinedAddr> keys;
-			StoreNode* cur = h;
-			RefinedAddr kc = ah.key;
+			List<StoreNode*> run = {h};
 			while(true) {
-				run.push_back(cur);
-				keys.push_back(kc);
 				List<LoadNode*> obs;
-				StoreNode* nx = soleChainSuccessor(cur, obs);
-				if(!obs.empty() || !nx || nx->getControl() != cur->getControl())
+				StoreNode* nx = soleChainSuccessor(run.back(), obs);
+				if(!obs.empty() || !nx || nx->getControl() != h->getControl())
 					break;
-				const StoreAddr& an = storeAddr(nx);
-				if(an.sig != ah.sig || !an.key.valid())
+				if(storeAddr(nx).sig != ah.sig)
 					break;
-				cur = nx;
-				kc = an.key;
+				run.push_back(nx);
 			}
 			if(run.size() < 3)
 				continue;
 			StoreNode* tail = run.back();
 			if(tail->getUsers().size() != 1)
 				continue; // tail must have a single memory successor for the rewire to be sound
+			List<Pair<I64, StoreNode*>> ord;
+			for(StoreNode* s : run)
+				ord.push_back({storeAddr(s).key.constant, s});
 			B32 sorted = true;
-			for(U32 i = 1; i < run.size(); ++i)
-				if(keys[i].constant < keys[i - 1].constant)
+			for(U32 i = 1; i < ord.size(); ++i)
+				if(ord[i].first < ord[i - 1].first)
 					sorted = false;
 			if(sorted)
 				continue;
 			B32 disjoint = true;
 			for(U32 i = 0; i < run.size() && disjoint; ++i)
-				for(U32 j = i + 1; j < run.size(); ++j)
-					if(!provablyDisjoint(aa,
-															 run[i]->getPointer(),
-															 keys[i],
-															 keys[i].size,
-															 run[j]->getPointer(),
-															 keys[j],
-															 keys[j].size)) {
-						disjoint = false;
-						break;
-					}
+				for(U32 j = i + 1; j < run.size() && disjoint; ++j)
+					disjoint = disjointStores(run[i], run[j]);
 			if(!disjoint)
 				continue;
-			List<Pair<I64, StoreNode*>> ord;
-			for(U32 i = 0; i < run.size(); ++i)
-				ord.push_back({keys[i].constant, run[i]});
-			std::sort(ord.begin(), ord.end(), byStoreOffset);
+			std::sort(ord.begin(), ord.end());
 			Node* after = tail->getUsers()[0];
-			Node* mIn = run[0]->getMemory();
-			for(U32 i = 0; i < ord.size(); ++i)
-				ord[i].second->setInput(1, i == 0 ? mIn : (Node*)ord[i - 1].second);
-			rewriteInput(after, tail, ord.back().second);
+			Node* prev = run[0]->getMemory();
+			for(auto& [c, s] : ord) {
+				s->setInput(1, prev);
+				prev = s;
+			}
+			rewriteInput(after, tail, prev);
 		}
 	}
 
