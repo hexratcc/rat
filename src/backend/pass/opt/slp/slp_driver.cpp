@@ -29,10 +29,6 @@ namespace rat {
 		return succ;
 	}
 
-	static bool storeByOffset(const SlpPackPass::StoreInfo* a, const SlpPackPass::StoreInfo* b) {
-		return a->key.constant < b->key.constant;
-	}
-
 	B32 SlpPackPass::windowAt(const Segment& seg, U32 at, WindowShape& out) {
 		if(at >= seg.size())
 			return false;
@@ -55,26 +51,19 @@ namespace rat {
 				return false;
 			lo = std::min(lo, si.key.constant);
 		}
-		U64 seenLanes = 0;
+		// the byte offsets must fill the w lanes above lo exactly once each
+		out.byOff.assign(w, nullptr);
 		for(U32 j = 0; j < w; ++j) {
-			I64 d = seg[at + j].key.constant - lo;
-			if(d < 0 || d % esz != 0 || (U64)d / esz >= w)
+			U64 d = (U64)(seg[at + j].key.constant - lo);
+			if(d % esz != 0 || d / esz >= w || out.byOff[d / esz])
 				return false;
-			U64 bit = 1ull << ((U64)d / esz);
-			if(seenLanes & bit)
-				return false;
-			seenLanes |= bit;
+			out.byOff[d / esz] = &seg[at + j];
 		}
 		out.begin = at;
 		out.w = w;
-		out.esz = esz;
 		out.elemTy = elemTy;
 		out.ctrl = ctrl;
 		out.lo = lo;
-		out.byOff.clear();
-		for(U32 j = 0; j < w; ++j)
-			out.byOff.push_back(&seg[at + j]);
-		std::sort(out.byOff.begin(), out.byOff.end(), storeByOffset);
 		return true;
 	}
 

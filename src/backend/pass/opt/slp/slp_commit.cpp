@@ -65,8 +65,7 @@ namespace rat {
 				break;
 			B32 sameGroup = wn.byOff[0]->key.sameGroup(w0.byOff[0]->key);
 			B32 contiguous = wn.lo == w0.lo + (I64)(run.size() * kVecBytes);
-			B32 sameShape = wn.ctrl == w0.ctrl && wn.esz == w0.esz;
-			if(!sameGroup || !contiguous || !sameShape)
+			if(!sameGroup || !contiguous || wn.ctrl != w0.ctrl)
 				break;
 			run.push_back(std::move(wn));
 		}

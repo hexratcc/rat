@@ -50,7 +50,6 @@ namespace rat {
 		struct WindowShape {
 			U32 begin = 0;
 			U32 w = 0;
-			U32 esz = 0;
 			Type* elemTy = nullptr;
 			Node* ctrl = nullptr;
 			I64 lo = 0;
