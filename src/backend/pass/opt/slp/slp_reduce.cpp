@@ -64,10 +64,7 @@ namespace rat {
 			wkey = refineAddr(l->getPointer(), esz);
 		}
 
-		Map<const Node*, List<I64>> emptyIw;
-		Set<const Node*> emptyObs;
-		Packer packer(fn, ptrBytes, sse41, shapes, stats);
-		packer.bindWindow(memIn, &wkey, &emptyIw, &emptyObs, &addrAnchors, /*storeWindow=*/false);
+		Packer packer(*this, memIn, &wkey, /*storeWindow=*/false);
 
 		U32 k = n / w;
 		List<Node*> vecs;

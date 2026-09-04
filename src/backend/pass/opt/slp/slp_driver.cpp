@@ -81,21 +81,6 @@ namespace rat {
 		return vals;
 	}
 
-	void SlpPackPass::collectInterState(const Segment& seg,
-																			U32 begin,
-																			U32 count,
-																			Map<const Node*, List<I64>>& interWritten,
-																			Set<const Node*>& obsSet) {
-		// each store maps to the prefix of lane offsets stored before it in the window
-		List<I64> written;
-		for(U32 j = 0; j + 1 < count; ++j) {
-			written.push_back(seg[begin + j].key.constant);
-			interWritten.emplace(seg[begin + j].store, written);
-			for(LoadNode* L : seg[begin + j].observers)
-				obsSet.insert(L);
-		}
-	}
-
 	SlpPackPass::Slp::Slp(
 			Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats)
 	: fn(fn),

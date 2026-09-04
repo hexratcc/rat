@@ -10,27 +10,26 @@
 namespace rat {
 	using namespace slp;
 
-	SlpPackPass::Packer::Packer(
-			Function& fn, U32 ptrBytes, B32 sse41, ShapeHash& shapes, SlpStats& st)
-	: fn(fn),
-		ptrBytes(ptrBytes),
-		sse41(sse41),
-		shapes(shapes),
-		st(st) {}
+	SlpPackPass::Packer::Packer(Slp& drv, Node* memIn, const RefinedAddr* windowKey, B32 storeWindow)
+	: drv(drv),
+		fn(drv.fn),
+		memIn(memIn),
+		windowKey(windowKey),
+		storeWindow(storeWindow) {}
 
-	// point the packer at one store window's memory state and observer context
-	void SlpPackPass::Packer::bindWindow(Node* memIn,
-																			 const RefinedAddr* windowKey,
-																			 const Map<const Node*, List<I64>>* interWritten,
-																			 const Set<const Node*>* observers,
-																			 Map<String, Pair<Node*, I64>>* addrAnchors,
-																			 B32 storeWindow) {
-		this->memIn = memIn;
-		this->windowKey = windowKey;
-		this->interWritten = interWritten;
-		this->observers = observers;
-		this->addrAnchors = addrAnchors;
-		this->storeWindow = storeWindow;
+	// each inner store maps to the lane offsets stored before it
+	void SlpPackPass::Packer::collectRun(const Segment& seg, U32 begin, U32 count) {
+		List<I64> written;
+		for(U32 j = 0; j < count; ++j) {
+			const StoreInfo& si = seg[begin + j];
+			runStores.insert(si.store);
+			if(j + 1 == count)
+				break;
+			written.push_back(si.key.constant);
+			interWritten.emplace(si.store, written);
+			for(LoadNode* l : si.observers)
+				observers.insert(l);
+		}
 	}
 
 	void SlpPackPass::Packer::addGuard(const RefinedAddr& k, Node* lane0Ptr, U32 bytes) {
@@ -50,9 +49,9 @@ namespace rat {
 	// rewrite same-group wide-access pointers as anchor + byte delta so lowering
 	// folds a displacement (window formation already trusts the refined deltas)
 	Node* SlpPackPass::Packer::anchorPtr(Node* ptr, const RefinedAddr& k) {
-		if(!addrAnchors || !k.valid())
+		if(!k.valid())
 			return ptr;
-		auto [it, inserted] = addrAnchors->try_emplace(groupSig(k), ptr, k.constant);
+		auto [it, inserted] = drv.addrAnchors.try_emplace(groupSig(k), ptr, k.constant);
 		auto [anchor, anchorC] = it->second;
 		if(inserted)
 			return ptr;
@@ -64,13 +63,13 @@ namespace rat {
 	}
 
 	B32 SlpPackPass::Packer::coneTouchesObserver(const Node* n) const {
-		if(observers->empty())
+		if(observers.empty())
 			return false;
 		List<const Node*> cone;
 		if(!dataCone(n, 64, cone))
 			return true; // unbounded cone: be conservative
 		for(const Node* c : cone)
-			if(observers->count(c))
+			if(observers.count(c))
 				return true;
 		return false;
 	}
@@ -163,7 +162,7 @@ namespace rat {
 				allBin = false;
 				break;
 			}
-		if(!allBin || !packableBinary(op, elemTy) || (op == Opcode::Mul && !sse41))
+		if(!allBin || !packableBinary(op, elemTy) || (op == Opcode::Mul && !drv.sse41))
 			return nullptr;
 
 		List<Node*> ls, rs;
@@ -171,13 +170,13 @@ namespace rat {
 		ls.push_back(b0->getLHS());
 		rs.push_back(b0->getRHS());
 		// commutative lanes orient their operands by shape key
-		U64 sl0 = shapes(b0->getLHS()), sr0 = shapes(b0->getRHS());
+		U64 sl0 = drv.shapes(b0->getLHS()), sr0 = drv.shapes(b0->getRHS());
 		for(U32 i = 1; i < w; ++i) {
 			BinaryNode* b = cast<BinaryNode>(lanes[i]);
 			Node* l = b->getLHS();
 			Node* r = b->getRHS();
 			if(b->isCommutative() && sl0 != sr0 && !shapesDisabled()) {
-				U64 sl = shapes(l), sr = shapes(r);
+				U64 sl = drv.shapes(l), sr = drv.shapes(r);
 				if(sl != sl0 && sr == sl0 && sl == sr0)
 					std::swap(l, r);
 			}
@@ -201,7 +200,7 @@ namespace rat {
 																			 Type* vecTy,
 																			 B32& hardFail) {
 		U32 w = (U32)lanes.size();
-		U32 esz = elemTy->byteSize(ptrBytes);
+		U32 esz = elemTy->byteSize(drv.ptrBytes);
 		for(Node* n : lanes)
 			if(!isa<LoadNode>(n) || n->getType() != elemTy)
 				return nullptr;
@@ -230,14 +229,14 @@ namespace rat {
 			I64 sLo = windowKey->constant, sHi = sLo + (I64)(w * esz);
 			I64 lLo = k0.constant, lHi = lLo + (I64)(w * esz);
 			if(lLo != sLo && lLo < sHi && sLo < lHi) {
-				++st.rejectedOverlap;
+				++drv.stats.rejectedOverlap;
 				hardFail = true;
 				return nullptr;
 			}
 		}
 
 		// all lanes read one pre-window state: a single wide load (or splat)
-		if(sharedState && !interWritten->count(first->getMemory()))
+		if(sharedState && !interWritten.count(first->getMemory()))
 			return packWideOrSplat(first->getMemory(), first, k0, elemTy, vecTy, w, equal);
 
 		for(U32 i = 0; i < w; ++i) {
@@ -245,8 +244,8 @@ namespace rat {
 			Node* m = l->getMemory();
 			if(m == memIn)
 				continue;
-			auto it = interWritten->find(m);
-			if(it == interWritten->end())
+			auto it = interWritten.find(m);
+			if(it == interWritten.end())
 				return nullptr; // some other state, not this window's business
 			if(k0.sameGroup(*windowKey)) {
 				I64 laneOff = 0;
@@ -314,7 +313,7 @@ namespace rat {
 		};
 		List<Cand> cs;
 		for(auto& [splat, load] : splatLoads) {
-			U32 esz = load->getType()->byteSize(ptrBytes);
+			U32 esz = load->getType()->byteSize(drv.ptrBytes);
 			RefinedAddr k = refineAddr(load->getPointer(), esz);
 			if(!supportedEsz(esz) || !k.valid())
 				continue;
@@ -327,7 +326,7 @@ namespace rat {
 		}
 		std::sort(cs.begin(), cs.end());
 		for(U32 i = 0; i < cs.size();) {
-			U32 esz = cs[i].load->getType()->byteSize(ptrBytes);
+			U32 esz = cs[i].load->getType()->byteSize(drv.ptrBytes);
 			U32 w = laneCountFor(esz);
 			Type* vecTy = fn.types().getVec(cs[i].load->getType(), w);
 			B32 run = i + w <= (U32)cs.size() && cs[i].splat->getType() == vecTy;

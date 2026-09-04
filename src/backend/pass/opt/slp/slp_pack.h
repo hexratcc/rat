@@ -57,22 +57,20 @@ namespace rat {
 			List<const StoreInfo*> byOff; // lane order
 		};
 
+		struct Slp;
+
 		// grows one vector value per store window
 		struct Packer {
+			Slp& drv;
 			Function& fn;
-			U32 ptrBytes;
-			B32 sse41;
-			ShapeHash& shapes;
-			SlpStats& st;
 
 			// window context
-			Node* memIn = nullptr;
-			B32 storeWindow = true; // windowKey is a real store window (false for reductions)
-			const RefinedAddr* windowKey = nullptr;
-			const Map<const Node*, List<I64>>* interWritten = nullptr;
-			const Set<const Node*>* observers = nullptr;
-			// group sig -> (anchor ptr, its refined constant), shared across windows
-			Map<String, Pair<Node*, I64>>* addrAnchors = nullptr;
+			Node* memIn;
+			const RefinedAddr* windowKey;
+			B32 storeWindow;						// windowKey is a real store window (false for reductions)
+			Set<const Node*> runStores; // the scalar stores being fused
+			Map<const Node*, List<I64>> interWritten; // inner store -> lane offsets stored before it
+			Set<const Node*> observers;								// loads reading an inner store's state
 
 			// runtime disjointness guards
 			struct GuardGroup {
@@ -94,15 +92,10 @@ namespace rat {
 			I32 profit = 0;
 			U32 interior = 0; // vector arithmetic / wide loads created
 
-			Packer(Function& fn, U32 ptrBytes, B32 sse41, ShapeHash& shapes, SlpStats& st);
+			Packer(Slp& drv, Node* memIn, const RefinedAddr* windowKey, B32 storeWindow = true);
 
+			void collectRun(const Segment& seg, U32 begin, U32 count);
 			void addGuard(const RefinedAddr& k, Node* lane0Ptr, U32 bytes);
-			void bindWindow(Node* memIn,
-											const RefinedAddr* windowKey,
-											const Map<const Node*, List<I64>>* interWritten,
-											const Set<const Node*>* observers,
-											Map<String, Pair<Node*, I64>>* addrAnchors,
-											B32 storeWindow = true);
 			Node* anchorPtr(Node* ptr, const RefinedAddr& k);
 			void coalesceSplats();
 			B32 coneTouchesObserver(const Node* n) const;
@@ -204,11 +197,6 @@ namespace rat {
 		static B32 windowHasObs(const Segment& seg, const WindowShape& ws);
 		static List<Node*> flattenAddChain(BinaryNode* root, Opcode addOp, Type* t);
 		static List<Node*> laneValues(const WindowShape& w);
-		static void collectInterState(const Segment& seg,
-																	U32 begin,
-																	U32 count,
-																	Map<const Node*, List<I64>>& interWritten,
-																	Set<const Node*>& obsSet);
 	private:
 		SlpStats stats;
 	};

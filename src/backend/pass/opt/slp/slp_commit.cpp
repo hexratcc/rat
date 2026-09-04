@@ -19,12 +19,9 @@ namespace rat {
 	}
 
 	U32 SlpPackPass::Slp::tryStaticWindow(Segment& seg, U32 i, const WindowShape& w0) {
-		Map<const Node*, List<I64>> interWritten;
-		Set<const Node*> obsSet;
-		collectInterState(seg, i, w0.w, interWritten, obsSet);
-		RefinedAddr wkey = w0.byOff[0]->key;
-		Packer packer(fn, ptrBytes, sse41, shapes, stats);
-		packer.bindWindow(seg[i].store->getMemory(), &wkey, &interWritten, &obsSet, &addrAnchors);
+		const RefinedAddr& wkey = w0.byOff[0]->key;
+		Packer packer(*this, seg[i].store->getMemory(), &wkey);
+		packer.collectRun(seg, i, w0.w);
 		packer.profit += (I32)w0.w - 1; // the fused store itself
 		Node* vec = packer.packTuple(laneValues(w0), w0.elemTy, 0);
 
@@ -72,15 +69,10 @@ namespace rat {
 		U32 n = (U32)run.size();
 		U32 total = n * w0.w;
 		stats.windowsSeen += n - 1; // run extensions
-		Node* memIn = seg[i].store->getMemory();
 		Node* wPtr = w0.byOff[0]->store->getPointer();
-		RefinedAddr wkey = w0.byOff[0]->key;
-		Map<const Node*, List<I64>> interWritten;
-		Set<const Node*> obsSet;
-		collectInterState(seg, i, total, interWritten, obsSet);
 
-		Packer packer(fn, ptrBytes, sse41, shapes, stats);
-		packer.bindWindow(memIn, &wkey, &interWritten, &obsSet, &addrAnchors);
+		Packer packer(*this, seg[i].store->getMemory(), &w0.byOff[0]->key);
+		packer.collectRun(seg, i, total);
 		List<Node*> vecs;
 		B32 treeOk = true;
 		for(U32 k = 0; k < n && treeOk; ++k) {
@@ -100,7 +92,7 @@ namespace rat {
 		for(const auto& g : packer.guardGroups)
 			accept = accept && !packer.coneTouchesObserver(g.ptr);
 		if(accept)
-			accept = observersConfined(seg, i, total, obsSet);
+			accept = observersConfined(seg, i, total, packer.observers);
 		if(!accept) {
 			if(!treeOk)
 				++stats.rejectedTree;
@@ -109,7 +101,7 @@ namespace rat {
 			return 0;
 		}
 
-		commitGuardedRun(seg, i, run, vecs, packer, interWritten);
+		commitGuardedRun(seg, i, run, vecs, packer, packer.interWritten);
 		packer.coalesceSplats();
 		stats.packedGuarded += n;
 		++stats.guardedRuns;
