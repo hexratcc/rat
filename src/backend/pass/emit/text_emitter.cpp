@@ -106,7 +106,7 @@ namespace rat {
 			fn.getReturnType()->print(*os);
 		else
 			*os << "void";
-		if(fn.isNoInline())
+		if(fn.getAttrs().noInline)
 			*os << " noinline";
 		*os << " {\n";
 

@@ -217,7 +217,7 @@ namespace rat {
 	B32 InlinePass::shouldInline(const Function& caller, CallNode* call, Function* callee) {
 		if(!callee || callee == &caller)
 			return false; // missing or directly recursive
-		if(callee->isNoInline())
+		if(callee->getAttrs().noInline)
 			return false; // opted out via __attribute__((noinline))
 		if(isCyclic(callee))
 			return false; // participates in a recursive cycle

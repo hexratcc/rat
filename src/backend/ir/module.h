@@ -23,7 +23,7 @@ namespace rat {
 		const List<U8>& getInit() const;
 		const List<Reloc>& getRelocs() const;
 
-		enum class Linkage { External, Internal };
+		using Linkage = rat::Linkage;
 		void setLinkage(Linkage l) { linkage = l; }
 		B32 isInternal() const { return linkage == Linkage::Internal; }
 

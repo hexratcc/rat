@@ -134,7 +134,7 @@ namespace rat {
 		}
 		if(conv->x87ByRef && isX87Ty(fn->getReturnType()))
 			fl->sretSlot = reserve(8); // stash for the hidden x87 sret pointer
-		fl->variadic = fn->isVariadic();
+		fl->variadic = fn->getAttrs().variadic;
 		if(fl->variadic) {
 			needScratch(); // va_arg fetch sequences stash through the scratch slot
 			layoutVariadic();

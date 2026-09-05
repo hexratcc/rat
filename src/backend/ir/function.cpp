@@ -13,8 +13,8 @@ namespace rat {
 	Type* Function::getReturnType() const { return retType; }
 	B32 Function::returnsValue() const { return retType != nullptr; }
 
-	B32 Function::isVariadic() const { return variadic; }
-	void Function::setVariadic(B32 v) { variadic = v; }
+	const FunctionAttrs& Function::getAttrs() const { return attrs; }
+	FunctionAttrs& Function::getAttrs() { return attrs; }
 
 	StartNode* Function::getStart() const { return start; }
 	StopNode* Function::getStop() const { return stop; }
@@ -429,14 +429,12 @@ namespace rat {
 	}
 
 	U32 Function::eliminateDeadNodes(B32 includeControl) {
-		Set<Node*> dead;
-		List<Node*> work;
-		work.reserve(nodes.size());
-		for(Node* n : nodes)
-			work.push_back(n);
+		List<U8> deadMark(nextId, 0); // id-indexed
+		List<Node*> work(nodes.begin(), nodes.end());
+		U32 count = 0;
 
 		auto isDead = [&](Node* n) -> B32 {
-			if(dead.count(n))
+			if(deadMark[n->getId()])
 				return false; // already processed
 			B32 d = !n->hasUsers() && !n->hasSideEffects() && (includeControl || !n->isCFG()) &&
 							n != start && n != stop;
@@ -450,20 +448,21 @@ namespace rat {
 			work.pop_back();
 			if(!isDead(n))
 				continue;
-			dead.insert(n);
+			deadMark[n->getId()] = 1;
+			++count;
 			for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
 				if(Node* in = n->getInput(i))
 					work.push_back(in);
 			n->clearInputs();
 		}
 
-		if(dead.empty())
+		if(!count)
 			return 0;
 		touch();
-		nodes.erase(
-				std::remove_if(nodes.begin(), nodes.end(), [&](Node* n) { return dead.count(n) != 0; }),
-				nodes.end());
-		return (U32)dead.size();
+		nodes.erase(std::remove_if(
+										nodes.begin(), nodes.end(), [&](Node* n) { return deadMark[n->getId()] != 0; }),
+								nodes.end());
+		return count;
 	}
 
 	U32 Function::pruneUnreachable() {

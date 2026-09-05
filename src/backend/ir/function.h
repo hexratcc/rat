@@ -16,6 +16,18 @@
 namespace rat {
 	struct Module;
 
+	// symbol linkage, shared by functions and globals
+	enum class Linkage { External, Internal };
+
+	struct FunctionAttrs {
+		Linkage linkage = Linkage::External;
+		U32 align = 0; // 0 = target default
+		B32 variadic = false;
+		B32 noInline = false;
+
+		B32 isInternal() const { return linkage == Linkage::Internal; }
+	};
+
 	struct Function {
 		Function(Module& module, String name, const List<Type*>& params, Type* ret);
 
@@ -29,20 +41,8 @@ namespace rat {
 		Type* getReturnType() const;
 		B32 returnsValue() const;
 
-		B32 isVariadic() const;
-		void setVariadic(B32 v);
-
-		B32 isNoInline() const { return noInline; }
-		void setNoInline(B32 v) { noInline = v; }
-
-		U32 getAlign() const { return align; }
-		void setAlign(U32 v) { align = v; }
-
-		// symbol linkage
-		enum class Linkage { External, Internal };
-		Linkage getLinkage() const { return linkage; }
-		void setLinkage(Linkage l) { linkage = l; }
-		B32 isInternal() const { return linkage == Linkage::Internal; }
+		const FunctionAttrs& getAttrs() const;
+		FunctionAttrs& getAttrs();
 
 		StartNode* getStart() const;
 		StopNode* getStop() const;
@@ -211,30 +211,29 @@ namespace rat {
 		Type* callTupleType(Type* retType);
 		Node* attachCallProjections(CallNode* c, Type* retType);
 	private:
+		// signature
 		Module* mod;
 		String name;
 		List<Type*> paramTypes;
 		Type* retType; // null for a void function
-		B32 variadic = false;
-		B32 noInline = false;
-		U32 align = 0;
-		Linkage linkage = Linkage::External;
+		FunctionAttrs attrs;
 
+		// graph
 		Arena arena;
 		List<Node*> nodes; // in creation order
 		U32 nextId = 0;
-		U64 version = 0;
-		Map<const void*, U64> cleanAt; // pass -> version it last found nothing to do
-
 		StartNode* start = nullptr;
 		StopNode* stop = nullptr;
+		List<Node*> paramCache;
 
+		// pass state
+		U64 version = 0; // bumped on every mutation
+		Map<const void*, U64> cleanAt;
+
+		// builder state
 		Block* cur = nullptr; // current insertion block
-
 		List<Type*> varTypes;
 		Var memVar = 0; // reserved variable carrying the memory token
-
-		List<Node*> paramCache;
 	};
 } // namespace rat
 
