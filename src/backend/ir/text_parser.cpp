@@ -305,7 +305,7 @@ namespace rat {
 			}
 
 			Function* fn = mod.createFunction(name, params, ret);
-			fn->setNoInline(noInline);
+			fn->getAttrs().noInline = noInline;
 
 			List<ParsedNode> parsed;
 			String line;

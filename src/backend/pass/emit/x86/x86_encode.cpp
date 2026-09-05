@@ -565,9 +565,10 @@ namespace rat {
 			reset(mf, fl, a, mf.usedCalleeSaved);
 			encodeFunction();
 
-			obj->align(ObjectFile::Text, fn->getAlign() > 16 ? fn->getAlign() : 16u);
+			U32 align = fn->getAttrs().align;
+			obj->align(ObjectFile::Text, align > 16 ? align : 16u);
 			U32 off = obj->append(ObjectFile::Text, code.data(), (U32)code.size());
-			B32 global = fn->getLinkage() == Function::Linkage::External;
+			B32 global = !fn->getAttrs().isInternal();
 			obj->defineSymbol(fn->getName(), ObjectFile::Text, off, global, true);
 			for(const AsmReloc& r : relocs)
 				obj->addReloc(ObjectFile::Text, off + r.offset, r.symbol, r.kind, r.addend);

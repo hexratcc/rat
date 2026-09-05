@@ -507,10 +507,11 @@ namespace rat::cc {
 									: isVoidType(def->retType) ? nullptr
 																						 : irType(def->retType);
 		Function* fn = mod.createFunction(def->name, paramTypes, retTy);
-		fn->setVariadic(def->isVarArgs);
-		fn->setNoInline(def->isNoInline || funcs[def->name].noInline);
-		fn->setAlign(funcs[def->name].align);
-		fn->setLinkage(def->isStatic ? Function::Linkage::Internal : Function::Linkage::External);
+		FunctionAttrs& attrs = fn->getAttrs();
+		attrs.variadic = def->isVarArgs;
+		attrs.noInline = def->isNoInline || funcs[def->name].noInline;
+		attrs.align = funcs[def->name].align;
+		attrs.linkage = def->isStatic ? Linkage::Internal : Linkage::External;
 
 		curRet = def->retType;
 		sretSlot = sretReturn ? fn->param(0) : nullptr;

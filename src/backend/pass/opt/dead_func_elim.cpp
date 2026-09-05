@@ -56,7 +56,7 @@ namespace rat {
 		List<B32> removed(n, false);
 		List<U32> work;
 		for(U32 i = 0; i < n; ++i)
-			if(funcs[i]->isInternal() && countOf(funcs[i]->getName()) == 0)
+			if(funcs[i]->getAttrs().isInternal() && countOf(funcs[i]->getName()) == 0)
 				work.push_back(i);
 
 		B32 changed = false;
@@ -77,7 +77,7 @@ namespace rat {
 				if(bn == byName.end())
 					continue;
 				for(U32 j : bn->second)
-					if(!removed[j] && funcs[j]->isInternal())
+					if(!removed[j] && funcs[j]->getAttrs().isInternal())
 						work.push_back(j);
 			}
 			refCache.erase(funcs[i]);
