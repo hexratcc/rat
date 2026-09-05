@@ -166,6 +166,7 @@ namespace rat {
 			void
 			rerouteBlock(Node* startCtrl, Node* iff, Node* region, Node* elseP, const Packer& packer);
 			U32 processSegment(Segment& seg);
+			B32 packRun(Packer& packer, const List<WindowShape>& run, List<Node*>& vecs);
 			U32 packReduction(BinaryNode* root);
 			U32 packReductions();
 			U32 run();

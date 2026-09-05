@@ -18,25 +18,36 @@ namespace rat {
 		return true;
 	}
 
+	// one vector per window
+	B32 SlpPackPass::Slp::packRun(Packer& packer, const List<WindowShape>& run, List<Node*>& vecs) {
+		for(const WindowShape& w : run) {
+			packer.profit += (I32)w.w - 1; // the fused store itself
+			Node* v = packer.packTuple(laneValues(w), w.elemTy, 0);
+			if(!v) {
+				++stats.rejectedTree;
+				return false; // lane tuple could not be built
+			}
+			vecs.push_back(v);
+		}
+		return true;
+	}
+
 	U32 SlpPackPass::Slp::tryStaticWindow(Segment& seg, U32 i, const WindowShape& w0) {
 		const RefinedAddr& wkey = w0.byOff[0]->key;
 		Packer packer(*this, seg[i].store->getMemory(), &wkey);
 		packer.collectRun(seg, i, w0.w);
-		packer.profit += (I32)w0.w - 1; // the fused store itself
-		Node* vec = packer.packTuple(laneValues(w0), w0.elemTy, 0);
+		List<Node*> vecs;
+		if(!packRun(packer, {w0}, vecs))
+			return 0;
+		Node* vec = vecs[0];
 
 		// a splat or an all-constant pack needs no scalar setup, so it is worth fusing
 		// even with no interior vector arithmetic
-		B32 splat = vec && vec->getOpcode() == Opcode::Splat;
-		B32 constPack = vec && vec->getOpcode() == Opcode::Pack && allInputsConst(vec);
+		B32 splat = vec->getOpcode() == Opcode::Splat;
+		B32 constPack = vec->getOpcode() == Opcode::Pack && allInputsConst(vec);
 		B32 cheapFill = splat || constPack;
-
-		B32 profitable = packer.profit >= kMinProfit && (packer.interior > 0 || cheapFill);
-		if(!vec || !packer.guardGroups.empty() || !profitable) {
-			if(!vec)
-				++stats.rejectedTree;
-			else
-				++stats.rejectedProfit;
+		if(packer.profit < kMinProfit || (packer.interior == 0 && !cheapFill)) {
+			++stats.rejectedProfit;
 			return 0;
 		}
 
@@ -74,31 +85,22 @@ namespace rat {
 		Packer packer(*this, seg[i].store->getMemory(), &w0.byOff[0]->key);
 		packer.collectRun(seg, i, total);
 		List<Node*> vecs;
-		B32 treeOk = true;
-		for(U32 k = 0; k < n && treeOk; ++k) {
-			packer.profit += (I32)w0.w - 1; // each fused store
-			if(Node* v = packer.packTuple(laneValues(run[k]), w0.elemTy, 0))
-				vecs.push_back(v);
-			else
-				treeOk = false;
-		}
+		if(!packRun(packer, run, vecs))
+			return 0;
 
 		I32 guardCost = 0;
 		if(!guardCostDisabled())
 			guardCost = (I32)packer.guardGroups.size() * kGuardCheckCost + kGuardBranchCost;
 		B32 profitable = packer.profit - guardCost >= (I32)(kMinProfit * n) && packer.interior >= n;
 		B32 withinBudget = packer.guardGroups.size() <= kMaxGuards;
-		B32 accept = treeOk && profitable && withinBudget && !packer.coneTouchesObserver(wPtr);
+		B32 accept = profitable && withinBudget && !packer.coneTouchesObserver(wPtr);
 		for(const Packer::GuardGroup& g : packer.guardGroups)
 			accept = accept && !packer.coneTouchesObserver(g.ptr);
 		// every observer must feed only the scalar stores of this run
 		for(const Node* obs : packer.observers)
 			accept = accept && coneEndsInStores(obs, packer.runStores, 128);
 		if(!accept) {
-			if(!treeOk)
-				++stats.rejectedTree;
-			else
-				++stats.rejectedGuarded;
+			++stats.rejectedGuarded;
 			return 0;
 		}
 
