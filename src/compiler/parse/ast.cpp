@@ -160,8 +160,8 @@ namespace rat::cc {
 		return s;
 	}
 
-	const char* exprOpName(ExprOp op) {
-		static const char* const kNames[] = {
+	const C8* exprOpName(ExprOp op) {
+		static const C8* const kNames[] = {
 				"+",	"-",	"!",	"~",	 "&",		"*",	"__real__", "__imag__", "++", "--", "++",
 				"--", "+",	"-",	"*",	 "/",		"%",	"<<",				">>",				"<",	">",	"<=",
 				">=", "==", "!=", "&",	 "|",		"^",	"&&",				"||",				"=",	"+=", "-=",

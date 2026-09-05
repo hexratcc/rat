@@ -78,7 +78,7 @@ namespace rat {
 		f.seekg(0, std::ios::beg);
 		out.resize((U64)n);
 		if(n > 0)
-			f.read((char*)out.data(), n);
+			f.read((C8*)out.data(), n);
 		return (B32)f.good() || f.eof();
 	}
 
@@ -101,7 +101,7 @@ namespace rat {
 		for(U32 i = 0; i < shdrs.size(); ++i) {
 			const detail::Shdr& sh = shdrs[i];
 			InSection& s = obj.sections[i];
-			s.name = (const char*)(shstr + sh.name);
+			s.name = (const C8*)(shstr + sh.name);
 			s.align = sh.addralign ? sh.addralign : 1;
 			s.fileOff = sh.offset;
 			s.size = sh.size;
@@ -130,7 +130,7 @@ namespace rat {
 					const detail::Shdr& st = shdrs[sh.link];
 					const U8* sp = &im[st.offset + (U64)sh.info * 24];
 					const U8* gstr = &im[shdrs[st.link].offset];
-					sig = (const char*)(gstr + rd32(sp));
+					sig = (const C8*)(gstr + rd32(sp));
 				}
 				if(sig.empty() || seenGroups.insert(sig).second)
 					continue; // first or unnamed, keep whole
@@ -158,7 +158,7 @@ namespace rat {
 		for(U32 i = 0; i < nsym; ++i) {
 			const U8* p = &im[sym.offset + (U64)i * 24];
 			InSym s;
-			s.name = (const char*)(strtab + rd32(p));
+			s.name = (const C8*)(strtab + rd32(p));
 			U8 info = p[4];
 			s.bind = (U8)(info >> 4);
 			s.type = (U8)(info & 0xf);
@@ -206,7 +206,7 @@ namespace rat {
 	}
 
 	U64 arMemberSize(const List<U8>& d, U64 hdrOff) {
-		String s((const char*)&d[hdrOff + 48], 10);
+		String s((const C8*)&d[hdrOff + 48], 10);
 		return (U64)strtoull(s.c_str(), nullptr, 10);
 	}
 
@@ -220,7 +220,7 @@ namespace rat {
 		}
 		U64 o = 8;
 		while(o + 60 <= d.size()) {
-			char nm0 = (char)d[o], nm1 = (char)d[o + 1];
+			C8 nm0 = (C8)d[o], nm1 = (C8)d[o + 1];
 			U64 sz = arMemberSize(d, o);
 			U64 dataOff = o + 60;
 			if(nm0 == '/' && nm1 == ' ') {
@@ -228,7 +228,7 @@ namespace rat {
 				const U8* p = &d[dataOff];
 				U32 count = (U32)((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]);
 				const U8* offs = p + 4;
-				const char* names = (const char*)(offs + (U64)count * 4);
+				const C8* names = (const C8*)(offs + (U64)count * 4);
 				U64 nameCursor = 0;
 				for(U32 i = 0; i < count; ++i) {
 					const U8* q = offs + (U64)i * 4;
@@ -248,7 +248,7 @@ namespace rat {
 
 	B32 loadLibrary(const String& path, Lib& lib, String& err) {
 		std::ifstream f(path, std::ios::binary);
-		auto fail = [&](const char* what) {
+		auto fail = [&](const C8* what) {
 			err = String(what) + " '" + path + "'";
 			return false;
 		};
@@ -256,7 +256,7 @@ namespace rat {
 			return fail("cannot read library");
 
 		U8 eh[64];
-		f.read((char*)eh, 64);
+		f.read((C8*)eh, 64);
 		if(!f || eh[0] != 0x7f || eh[1] != 'E' || eh[2] != 'L' || eh[3] != 'F' || eh[4] != ELFCLASS64 ||
 			 eh[5] != ELFDATA2LSB)
 			return fail("not a 64-bit LE ELF library");
@@ -267,7 +267,7 @@ namespace rat {
 
 		List<U8> sh(shnum * 64);
 		f.seekg((std::streamoff)shoff);
-		f.read((char*)sh.data(), (std::streamsize)sh.size());
+		f.read((C8*)sh.data(), (std::streamsize)sh.size());
 		if(!f)
 			return fail("truncated section headers in");
 
@@ -291,10 +291,10 @@ namespace rat {
 
 		lib.dynsym.resize(symSize);
 		f.seekg((std::streamoff)symOff);
-		f.read((char*)lib.dynsym.data(), (std::streamsize)symSize);
+		f.read((C8*)lib.dynsym.data(), (std::streamsize)symSize);
 		lib.dynstr.resize(strSize);
 		f.seekg((std::streamoff)strOff);
-		f.read((char*)lib.dynstr.data(), (std::streamsize)strSize);
+		f.read((C8*)lib.dynstr.data(), (std::streamsize)strSize);
 		if(!f)
 			return fail("truncated dynamic tables in");
 
@@ -303,12 +303,12 @@ namespace rat {
 	}
 
 	B32 findLibrary(const String& l, const List<String>& paths, String& found) {
-		const char* suffixes[] = {".so.6", ".so.1", ".so"};
+		const C8* suffixes[] = {".so.6", ".so.1", ".so"};
 		for(const String& dir : paths) {
 			String base = dir;
 			if(!base.empty() && base.back() != '/')
 				base += '/';
-			for(const char* suf : suffixes) {
+			for(const C8* suf : suffixes) {
 				String cand = base + "lib" + l + suf;
 				struct stat st;
 				if(stat(cand.c_str(), &st) == 0) {
@@ -329,7 +329,7 @@ namespace rat {
 			if(!f)
 				return String();
 			U8 eh[64];
-			if(!f.read((char*)eh, 64))
+			if(!f.read((C8*)eh, 64))
 				return String();
 			U64 phoff = rd64(eh + 32);
 			U16 phentsize = rd16(eh + 54);
@@ -337,7 +337,7 @@ namespace rat {
 			for(U16 i = 0; i < phnum; ++i) {
 				U8 ph[56];
 				f.seekg((std::streamoff)(phoff + (U64)i * phentsize));
-				if(!f.read((char*)ph, 56))
+				if(!f.read((C8*)ph, 56))
 					break;
 				if(rd32(ph) != PT_INTERP)
 					continue;

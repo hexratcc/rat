@@ -123,7 +123,7 @@ namespace rat {
 				// cie: parse augmentation for 'R' fde ptr enc
 				U64 i = idOff + 4;
 				++i; // version
-				const char* aug = (const char*)&m[i];
+				const C8* aug = (const C8*)&m[i];
 				U64 augLen = 0;
 				while(m[i + augLen])
 					++augLen;
@@ -132,11 +132,11 @@ namespace rat {
 				detail::readUleb(m.data(), i); // code align
 				detail::readSleb(m.data(), i); // data align
 				detail::readUleb(m.data(), i); // ra reg
-				U8 fdeEnc = 0x00;			 // absptr default
+				U8 fdeEnc = 0x00;							 // absptr default
 				if(aug[0] == 'z') {
 					detail::readUleb(m.data(), i); // aug data len
 					for(U64 a = 1; a < augLen; ++a) {
-						char c = ((const char*)&m[augStart])[a];
+						C8 c = ((const C8*)&m[augStart])[a];
 						if(c == 'L') {
 							++i; // lsda enc byte
 						} else if(c == 'P') {
@@ -827,7 +827,7 @@ namespace rat {
 			err = "cannot write '" + opt.output + "'";
 			return false;
 		}
-		os.write((const char*)out.data(), (std::streamsize)out.size());
+		os.write((const C8*)out.data(), (std::streamsize)out.size());
 		os.close();
 		if(!os) {
 			err = "write to '" + opt.output + "' failed";

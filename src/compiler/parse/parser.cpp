@@ -49,7 +49,7 @@ namespace rat::cc {
 		return false;
 	}
 
-	B32 Parser::expect(TokKind kind, const char* what) {
+	B32 Parser::expect(TokKind kind, const C8* what) {
 		if(peek().kind == kind) {
 			advance();
 			return true;

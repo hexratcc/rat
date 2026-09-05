@@ -176,7 +176,7 @@ namespace rat::cc {
 			String text = lex.text(lit);
 			B32 isFloat = false, isLongDouble = false, isImaginary = false;
 			while(!text.empty()) {
-				char c = text.back();
+				C8 c = text.back();
 				if(c == 'f' || c == 'F')
 					isFloat = true;
 				else if(c == 'l' || c == 'L')
@@ -188,8 +188,8 @@ namespace rat::cc {
 				text.pop_back();
 			}
 			errno = 0;
-			char* end = nullptr;
-			long double value = std::strtold(text.c_str(), &end);
+			C8* end = nullptr;
+			F80 value = std::strtold(text.c_str(), &end);
 			if(end == text.c_str() || *end != '\0') {
 				fail(lit, "invalid floating constant '" + text + "'");
 				return nullptr;

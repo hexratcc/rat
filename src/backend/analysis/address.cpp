@@ -21,7 +21,7 @@ namespace rat {
 			return n->getType() && n->getType()->isInt() && n->getType()->getIntWidth() == 64;
 		}
 
-		bool termLess(const Pair<const Node*, I64>& a, const Pair<const Node*, I64>& b) {
+		B32 termLess(const Pair<const Node*, I64>& a, const Pair<const Node*, I64>& b) {
 			return a.first->getId() < b.first->getId();
 		}
 

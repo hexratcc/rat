@@ -106,8 +106,8 @@ namespace rat::cc {
 		B32 evalConstTyped(const Expr* expr, I64& out, CType& ty);
 		B32 evalConstUnary(ExprOp op, I64 v, CType opTy, I64& out, CType& ty);
 		B32 evalConstBinary(ExprOp op, I64 a, CType aTy, I64 b, CType bTy, I64& out, CType& ty);
-		B32 evalFloatConst(const Expr* expr, long double& out);
-		void encodeFloatBytes(CType dt, long double v, List<U8>& out);
+		B32 evalFloatConst(const Expr* expr, F80& out);
+		void encodeFloatBytes(CType dt, F80 v, List<U8>& out);
 		B32 evalAddrConst(const Expr* expr, String& symbol, I64& addend);
 		B32 addrConstOf(const Expr* lv, String& symbol, I64& addend);
 		String internString(const Expr* strLit);

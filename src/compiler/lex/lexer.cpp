@@ -5,7 +5,7 @@
 namespace rat::cc {
 	namespace detail {
 		// clang-format off
-		const char* const kTokNames[] = {
+		const C8* const kTokNames[] = {
 				// literals and specials
 				"eof", "error", "identifier", "int-constant", "float-constant", "char-constant",
 				"string-literal",
@@ -26,11 +26,11 @@ namespace rat::cc {
 		static_assert(sizeof(kTokNames) / sizeof(kTokNames[0]) == (U32)TokKind::ShrEq + 1,
 									"kTokNames must cover every TokKind");
 
-		B32 validIntSuffix(const char* s, U32 n) {
+		B32 validIntSuffix(const C8* s, U32 n) {
 			B32 haveU = false, haveL = false;
 			U32 i = 0;
 			while(i < n) {
-				char c = s[i];
+				C8 c = s[i];
 				if((c == 'u' || c == 'U') && !haveU) {
 					haveU = true;
 					++i;
@@ -48,10 +48,10 @@ namespace rat::cc {
 			return true;
 		}
 
-		B32 validFloatSuffix(const char* s, U32 n) {
+		B32 validFloatSuffix(const C8* s, U32 n) {
 			B32 haveSize = false, imag = false;
 			for(U32 i = 0; i < n; ++i) {
-				char c = s[i];
+				C8 c = s[i];
 				if(c == 'f' || c == 'F' || c == 'l' || c == 'L') {
 					if(haveSize)
 						return false;
@@ -66,14 +66,14 @@ namespace rat::cc {
 			return true;
 		}
 
-		B32 spellingIs(const char* k, const char* s, U32 n) {
+		B32 spellingIs(const C8* k, const C8* s, U32 n) {
 			U32 i = 0;
 			for(; i < n && k[i] && k[i] == s[i]; ++i)
 				;
 			return i == n && k[i] == '\0';
 		}
 
-		TokKind keywordKind(const char* s, U32 n) {
+		TokKind keywordKind(const C8* s, U32 n) {
 			for(U32 k = (U32)TokKind::KwAuto; k <= (U32)TokKind::KwAlignas; ++k)
 				if(spellingIs(kTokNames[k], s, n))
 					return (TokKind)k;
@@ -83,7 +83,7 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
-	Lexer::Lexer(const char* src, U32 len)
+	Lexer::Lexer(const C8* src, U32 len)
 	: src(src),
 		len(len) {}
 
@@ -97,7 +97,7 @@ namespace rat::cc {
 
 	void Lexer::skipTrivia() {
 		for(;;) {
-			char c = cur();
+			C8 c = cur();
 			if(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v') {
 				bump();
 			} else if(c == '/' && at(pos + 1) == '/') {
@@ -146,9 +146,9 @@ namespace rat::cc {
 		if(pos >= len)
 			return finish(tok, TokKind::Eof);
 
-		char c = cur();
+		C8 c = cur();
 		if(c == 'L' || c == 'u' || c == 'U') {
-			char n1 = at(pos + 1);
+			C8 n1 = at(pos + 1);
 			if(c == 'u' && n1 == '8' && at(pos + 2) == '"') {
 				bump(); // 'u'
 				bump(); // '8'
@@ -177,7 +177,7 @@ namespace rat::cc {
 	B32 Lexer::isUcnStart(U32 p) const {
 		if(at(p) != '\\')
 			return false;
-		char n = at(p + 1);
+		C8 n = at(p + 1);
 		return n == 'u' || n == 'U';
 	}
 
@@ -187,7 +187,7 @@ namespace rat::cc {
 				bump();
 			} else if(isUcnStart(pos)) {
 				bump(); // backslash
-				char kind = cur();
+				C8 kind = cur();
 				bump(); // 'u' or 'U'
 				U32 ndigits = (kind == 'u') ? 4 : 8;
 				for(U32 k = 0; k < ndigits; ++k) {
@@ -283,7 +283,7 @@ namespace rat::cc {
 		return finish(tok, TokKind::FloatConstant);
 	}
 
-	Token Lexer::lexQuoted(Token tok, char quote, const char* unterminated, TokKind kind) {
+	Token Lexer::lexQuoted(Token tok, C8 quote, const C8* unterminated, TokKind kind) {
 		bump(); // opening quote
 		while(pos < len && cur() != quote && cur() != '\n') {
 			if(cur() == '\\')
@@ -315,10 +315,10 @@ namespace rat::cc {
 	}
 
 	Token Lexer::lexPunct(Token tok) {
-		char c = cur();
+		C8 c = cur();
 
 		struct Simple {
-			char c;
+			C8 c;
 			TokKind kind;
 		};
 		static const Simple kSimple[] = {
@@ -409,5 +409,5 @@ namespace rat::cc {
 
 	String Lexer::text(const Token& tok) const { return String(src + tok.offset, tok.length); }
 
-	const char* tokKindName(TokKind kind) { return detail::kTokNames[(U32)kind]; }
+	const C8* tokKindName(TokKind kind) { return detail::kTokNames[(U32)kind]; }
 } // namespace rat::cc

@@ -75,7 +75,7 @@ namespace rat {
 		static B32 matchVarConst(Node* n, Opcode want, Node*& base, I64& c);
 	private:
 		List<Node*> work;
-		List<char> queued;
+		List<C8> queued;
 		List<Node*> stack;
 	};
 } // namespace rat

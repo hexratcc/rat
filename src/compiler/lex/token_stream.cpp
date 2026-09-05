@@ -16,7 +16,7 @@ namespace rat::cc {
 				err = lx.error();
 				return TokKind::Error;
 			}
-			if((size_t)t.length != text.size()) {
+			if((U64)t.length != text.size()) {
 				err = "malformed token '" + text + "'";
 				return TokKind::Error;
 			}

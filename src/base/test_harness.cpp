@@ -7,12 +7,12 @@
 
 namespace rat {
 	namespace detail {
-		B32 hasSuffix(const String& s, const char* suffix) {
+		B32 hasSuffix(const String& s, const C8* suffix) {
 			String suf = suffix;
 			return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
 		}
 
-		void collectCases(const String& dir, const char* ext, List<String>& out) {
+		void collectCases(const String& dir, const C8* ext, List<String>& out) {
 			std::error_code ec;
 			List<String> subdirs;
 			List<String> files;
@@ -40,7 +40,7 @@ namespace rat {
 		}
 	} // namespace detail
 
-	I32 runTestSuite(I32 argc, char** argv, const TestSuiteSpec& spec) {
+	I32 runTestSuite(I32 argc, C8** argv, const TestSuiteSpec& spec) {
 		U32 jobs = 1;
 		B32 quiet = false; // -q: only the per-case lines, the caller tallies them
 		List<String> cases;

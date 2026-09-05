@@ -124,12 +124,12 @@ namespace rat::cc {
 
 		PpToken Preprocessor::stringize(const List<PpToken>& a, B32 spaceBefore) {
 			String s = "\"";
-			for(size_t k = 0; k < a.size(); ++k) {
+			for(U64 k = 0; k < a.size(); ++k) {
 				const PpToken& t = a[k];
 				if(k > 0 && t.spaceBefore)
 					s += ' ';
 				if(t.kind == Pk::Str || t.kind == Pk::Char) {
-					for(char c : *t.text) {
+					for(C8 c : *t.text) {
 						if(c == '"' || c == '\\')
 							s += '\\';
 						s += c;
@@ -147,7 +147,7 @@ namespace rat::cc {
 		}
 
 		void Preprocessor::appendList(List<PpToken>& os, List<PpToken> src, B32 firstSpace) {
-			for(size_t k = 0; k < src.size(); ++k) {
+			for(U64 k = 0; k < src.size(); ++k) {
 				src[k].bol = false;
 				if(k == 0)
 					src[k].spaceBefore = firstSpace;
@@ -159,14 +159,14 @@ namespace rat::cc {
 		Preprocessor::substitute(const Macro& m, const List<List<PpToken>>& args, const HideSet* hs) {
 			List<PpToken> os;
 			const List<PpToken>& body = m.body;
-			auto idxOf = [&](const String* s) -> int {
-				for(size_t k = 0; k < m.formals.size(); ++k)
+			auto idxOf = [&](const String* s) -> I32 {
+				for(U64 k = 0; k < m.formals.size(); ++k)
 					if(m.formals[k] == s)
-						return (int)k;
+						return (I32)k;
 				return -1;
 			};
 
-			size_t i = 0;
+			U64 i = 0;
 			while(i < body.size()) {
 				const PpToken& T = body[i];
 				B32 isHash = isPunct(T, "#");
@@ -174,7 +174,7 @@ namespace rat::cc {
 
 				// # param -> stringize
 				if(m.isFunc && isHash && i + 1 < body.size()) {
-					int p = idxOf(body[i + 1].text);
+					I32 p = idxOf(body[i + 1].text);
 					if(p >= 0) {
 						os.push_back(stringize(args[p], T.spaceBefore));
 						i += 2;
@@ -185,7 +185,7 @@ namespace rat::cc {
 				// ## token -> paste onto the previous token
 				if(isPaste && !os.empty() && i + 1 < body.size()) {
 					const PpToken& R = body[i + 1];
-					int p = idxOf(R.text);
+					I32 p = idxOf(R.text);
 					if(p >= 0) {
 						const List<PpToken>& a = args[p];
 						// GNU comma elision
@@ -199,7 +199,7 @@ namespace rat::cc {
 							// paste with empty operand -> previous unchanged
 						} else {
 							pasteInto(os.back(), a.front());
-							for(size_t k = 1; k < a.size(); ++k)
+							for(U64 k = 1; k < a.size(); ++k)
 								os.push_back(a[k]);
 						}
 					} else {
@@ -209,7 +209,7 @@ namespace rat::cc {
 					continue;
 				}
 
-				int p = idxOf(T.text);
+				I32 p = idxOf(T.text);
 				if(p >= 0) {
 					B32 nextPaste = i + 1 < body.size() && isPunct(body[i + 1], "##");
 					if(nextPaste) {
@@ -252,7 +252,7 @@ namespace rat::cc {
 		}
 
 		U32 Preprocessor::matchParen(const List<PpToken>& arg, U32 open) {
-			int depth = 0;
+			I32 depth = 0;
 			for(U32 i = open; i < arg.size(); ++i) {
 				if(isPunct(arg[i], "("))
 					++depth;
@@ -263,7 +263,7 @@ namespace rat::cc {
 		}
 
 		B32 Preprocessor::gatherArgs(List<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen) {
-			int depth = 1;
+			I32 depth = 1;
 			List<PpToken> cur;
 			for(;;) {
 				if(work.empty() || work.back().kind == Pk::Eof) {
@@ -295,7 +295,7 @@ namespace rat::cc {
 		B32 Preprocessor::mapArgs(const Macro& m,
 															const List<List<PpToken>>& raw,
 															List<List<PpToken>>& actuals) {
-			size_t np = m.params.size();
+			U64 np = m.params.size();
 			if(!m.variadic) {
 				if(np == 0 && raw.size() == 1 && raw[0].empty())
 					return true;
@@ -314,10 +314,10 @@ namespace rat::cc {
 				fail("macro invoked with too few arguments");
 				return false;
 			}
-			for(size_t k = 0; k < np; ++k)
+			for(U64 k = 0; k < np; ++k)
 				actuals.push_back(raw[k]);
 			List<PpToken> va;
-			for(size_t j = np; j < raw.size(); ++j) {
+			for(U64 j = np; j < raw.size(); ++j) {
 				if(j > np)
 					va.push_back(makePunct(","));
 				for(const PpToken& t : raw[j])
@@ -373,7 +373,7 @@ namespace rat::cc {
 		List<PpToken> Preprocessor::expand(PpSpan in) {
 			List<PpToken> work;
 			work.reserve(in.size());
-			for(size_t k = in.size(); k > 0; --k)
+			for(U64 k = in.size(); k > 0; --k)
 				work.push_back(in[k - 1]);
 			List<PpToken> os;
 			while(!work.empty()) {
@@ -480,7 +480,7 @@ namespace rat::cc {
 				fail("'defined' cannot be used as a macro name");
 				return;
 			}
-			size_t i = 1;
+			U64 i = 1;
 			if(i < toks.size() && isPunct(toks[i], "(") && !toks[i].spaceBefore) {
 				m.isFunc = true;
 				++i; // (
@@ -535,7 +535,7 @@ namespace rat::cc {
 				return;
 			}
 			if(m.isFunc) {
-				for(size_t k = 0; k < m.body.size(); ++k) {
+				for(U64 k = 0; k < m.body.size(); ++k) {
 					if(!isPunct(m.body[k], "#"))
 						continue;
 					B32 okOperand = false;

@@ -278,7 +278,7 @@ namespace rat {
 			h ^= x;
 			h *= 1099511628211ull;
 		}
-		std::snprintf(buf, sizeof buf, "__rat_vec_%016llx", (unsigned long long)h);
+		std::snprintf(buf, sizeof buf, "__rat_vec_%016lx", (U64)h);
 		String name(buf);
 		if(!mod->getGlobal(name)) {
 			List<U8> init = bytes;

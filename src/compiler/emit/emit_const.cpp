@@ -158,7 +158,7 @@ namespace rat::cc {
 				return false;
 			CType opTy;
 			if(!evalConstTyped(e->cast.operand, out, opTy)) {
-				long double fv;
+				F80 fv;
 				if(isFloating(ty) || isPointer(ty) || isAggregate(ty) || ty.isVoid())
 					return false;
 				if(!evalFloatConst(e->cast.operand, fv))
@@ -211,12 +211,12 @@ namespace rat::cc {
 		return evalConstTyped(e, out, ty);
 	}
 
-	B32 Emitter::evalFloatConst(const Expr* e, long double& out) {
+	B32 Emitter::evalFloatConst(const Expr* e, F80& out) {
 		if(e->kind == ExprKind::IntLit || e->kind == ExprKind::Cast) {
 			I64 iv;
 			CType it;
 			if(evalConstTyped(e, iv, it) && isInteger(it)) {
-				out = it.isUnsigned() ? (long double)(U64)iv : (long double)iv;
+				out = it.isUnsigned() ? (F80)(U64)iv : (F80)iv;
 				return true;
 			}
 		}
@@ -227,7 +227,7 @@ namespace rat::cc {
 		case ExprKind::Cast:
 			return evalFloatConst(e->cast.operand, out);
 		case ExprKind::Unary: {
-			long double v;
+			F80 v;
 			if(!evalFloatConst(e->unary.operand, v))
 				return false;
 			switch(e->unary.op) {
@@ -242,7 +242,7 @@ namespace rat::cc {
 			}
 		}
 		case ExprKind::Binary: {
-			long double a, b;
+			F80 a, b;
 			if(!evalFloatConst(e->binary.lhs, a) || !evalFloatConst(e->binary.rhs, b))
 				return false;
 			switch(e->binary.op) {
@@ -268,7 +268,7 @@ namespace rat::cc {
 			if(evalConst(e->ternary.cond, ci)) {
 				taken = ci != 0;
 			} else {
-				long double cf;
+				F80 cf;
 				if(!evalFloatConst(e->ternary.cond, cf))
 					return false;
 				taken = cf != 0;

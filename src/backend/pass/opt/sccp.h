@@ -59,7 +59,7 @@ namespace rat {
 		U32 rewrite(Function& fn);
 	private:
 		List<Lattice> values; // lattice for value producing nodes, Top when unset
-		List<char> exec;			// control nodes proven executable
+		List<C8> exec;				// control nodes proven executable
 		List<Node*> flowWork; // executable control nodes to propagate
 		List<Node*> ssaWork;	// value / if nodes to re-evaluate
 	};

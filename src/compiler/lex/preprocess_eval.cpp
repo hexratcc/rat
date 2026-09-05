@@ -61,7 +61,7 @@ namespace rat::cc {
 			return parsePrimary();
 		}
 
-		int Eval::prec(const String& op) {
+		I32 Eval::prec(const String& op) {
 			if(op == "*" || op == "/" || op == "%")
 				return 10;
 			if(op == "+" || op == "-")
@@ -140,10 +140,10 @@ namespace rat::cc {
 			return {};
 		}
 
-		Val Eval::parseBinary(int minPrec) {
+		Val Eval::parseBinary(I32 minPrec) {
 			Val left = parseUnary();
 			while(cur().kind == Pk::Punct) {
-				int p = prec(*cur().text);
+				I32 p = prec(*cur().text);
 				if(p < minPrec || p < 0)
 					break;
 				String op = *cur().text;
@@ -190,7 +190,7 @@ namespace rat::cc {
 		List<PpToken> Preprocessor::replaceDefined(PpSpan in) {
 			List<PpToken> r;
 			r.reserve(in.size());
-			size_t i = 0, n = in.size();
+			U64 i = 0, n = in.size();
 			while(i < n) {
 				const PpToken& t = in[i];
 				if(t.kind == Pk::Id && t.text == idDefined) {

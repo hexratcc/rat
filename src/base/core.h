@@ -34,6 +34,7 @@ namespace rat {
 
 	using F32 = float;
 	using F64 = double;
+	using F80 = long double;
 
 	using C8 = char;
 	using B32 = uint32_t;

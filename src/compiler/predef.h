@@ -8,8 +8,8 @@
 namespace rat::cc {
 	namespace detail {
 		struct Def {
-			const char* name;
-			const char* value;
+			const C8* name;
+			const C8* value;
 		};
 
 		void append(String& out, const Def* defs, U32 n);

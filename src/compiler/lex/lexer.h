@@ -58,11 +58,11 @@ namespace rat::cc {
 		KwReal,					// __real__ (extract the real part of a complex value)
 		KwImag,					// __imag__ (extract the imaginary part of a complex value)
 		KwTypeof,				// typeof / __typeof / __typeof__ (GCC: type of an expr)
-		KwNoinline,     // __rat_noinline__ (marker the preprocessor leaves for __attribute__((noinline)))
-		KwAlias,	      // __rat_alias__ (marker the preprocessor leaves for __attribute__((alias(...))))
-		KwAsm,		      // asm / __asm / __asm__ (GNU inline assembly)
-		KwAlignof,      // _Alignof (__alignof__ / __alignof are macros for it)
-		KwAlignas,      // _Alignas (__attribute__((aligned(n))) expands to it too)
+		KwNoinline, // __rat_noinline__ (marker the preprocessor leaves for __attribute__((noinline)))
+		KwAlias,		// __rat_alias__ (marker the preprocessor leaves for __attribute__((alias(...))))
+		KwAsm,			// asm / __asm / __asm__ (GNU inline assembly)
+		KwAlignof,	// _Alignof (__alignof__ / __alignof are macros for it)
+		KwAlignas,	// _Alignas (__attribute__((aligned(n))) expands to it too)
 
 		// punctuators
 		LParen,
@@ -122,14 +122,14 @@ namespace rat::cc {
 	};
 
 	namespace detail {
-		B32 validIntSuffix(const char* s, U32 n);
-		B32 validFloatSuffix(const char* s, U32 n);
-		B32 spellingIs(const char* k, const char* s, U32 n);
-		TokKind keywordKind(const char* s, U32 n);
+		B32 validIntSuffix(const C8* s, U32 n);
+		B32 validFloatSuffix(const C8* s, U32 n);
+		B32 spellingIs(const C8* k, const C8* s, U32 n);
+		TokKind keywordKind(const C8* s, U32 n);
 	} // namespace detail
 
 	struct Lexer {
-		Lexer(const char* src, U32 len);
+		Lexer(const C8* src, U32 len);
 
 		Token next();
 
@@ -146,9 +146,9 @@ namespace rat::cc {
 		Token lexFloatSuffix(Token tok);
 		Token lexChar(Token tok);
 		Token lexString(Token tok);
-		Token lexQuoted(Token tok, char quote, const char* unterminated, TokKind kind);
+		Token lexQuoted(Token tok, C8 quote, const C8* unterminated, TokKind kind);
 		struct PunctAlt {
-			char c;
+			C8 c;
 			TokKind kind;
 		};
 		Token lexPunct(Token tok);
@@ -157,11 +157,11 @@ namespace rat::cc {
 		Token finish(Token tok, TokKind kind);
 		Token fail(Token tok, const String& msg);
 
-		char at(U32 i) const { return i < len ? src[i] : '\0'; }
-		char cur() const { return at(pos); }
+		C8 at(U32 i) const { return i < len ? src[i] : '\0'; }
+		C8 cur() const { return at(pos); }
 		B32 isUcnStart(U32 p) const;
 
-		const char* src;
+		const C8* src;
 		U32 len;
 		U32 pos = 0;
 		U32 line = 1;
@@ -170,7 +170,7 @@ namespace rat::cc {
 		String errMsg;
 	};
 
-	const char* tokKindName(TokKind kind);
+	const C8* tokKindName(TokKind kind);
 } // namespace rat::cc
 
 #endif

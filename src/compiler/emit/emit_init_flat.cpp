@@ -156,21 +156,21 @@ namespace rat::cc {
 		return true;
 	}
 
-	void Emitter::encodeFloatBytes(CType dt, long double v, List<U8>& out) {
+	void Emitter::encodeFloatBytes(CType dt, F80 v, List<U8>& out) {
 		if(dt.bits == 32) {
-			float f = (float)v;
+			F32 f = (F32)v;
 			const U8* p = (const U8*)&f;
 			for(U32 i = 0; i < sizeof(f); ++i)
 				out.push_back(p[i]);
 		} else if(dt.bits == 128) {
 			// x86 extended precision
-			long double ld = v;
+			F80 ld = v;
 			const U8* p = (const U8*)&ld;
 			U32 n = byteSize(dt); // 16
 			for(U32 i = 0; i < n; ++i)
 				out.push_back(i < 10 ? p[i] : (U8)0);
 		} else {
-			double d = (double)v;
+			F64 d = (F64)v;
 			const U8* p = (const U8*)&d;
 			for(U32 i = 0; i < sizeof(d); ++i)
 				out.push_back(p[i]);
@@ -185,7 +185,7 @@ namespace rat::cc {
 			return true;
 		U64 bits = 0;
 		if(isFloating(dt)) {
-			long double d = 0;
+			F80 d = 0;
 			if(!emit.evalFloatConst(e, d)) {
 				emit.failNonConstInit();
 				return false;
