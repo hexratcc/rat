@@ -2,7 +2,7 @@ MODE ?= release
 CXX ?= c++
 
 ifeq ($(MODE),release)
-OPT := -O2
+OPT := -O2 -flto=auto
 else ifeq ($(MODE),debug)
 OPT := -O0 -g
 else
@@ -10,6 +10,8 @@ $(error MODE must be release or debug)
 endif
 
 FLAGS := -std=c++17 -Wall -Wextra -pthread $(OPT)
+# use mimalloc when available
+MIMALLOC := $(shell echo "int main(){}" | $(CXX) -x c++ - -o /dev/null -lmimalloc 2>/dev/null && echo -lmimalloc)
 OBJ := build/$(MODE)
 INC := -iquote src/base -iquote src/backend -iquote src/linker -iquote src/compiler -iquote $(OBJ)
 
@@ -52,7 +54,7 @@ $(OBJ)/%.o: %.cpp | $(OBJ)/git_hash.h
 bin/%:
 	@mkdir -p bin
 	@echo "link $@"
-	@$(CXX) $(FLAGS) -o $@ $^
+	@$(CXX) $(FLAGS) -o $@ $^ $(MIMALLOC)
 
 bin/rat: $(base_o) $(rat_o) $(call driver_o,backend/main)
 bin/rat-test: $(base_o) $(rat_o) $(call driver_o,backend/test/runner)
