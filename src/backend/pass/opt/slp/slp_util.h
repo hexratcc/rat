@@ -29,7 +29,6 @@ namespace rat {
 
 		B32 packableElem(const Type* t);
 		B32 packableBinary(Opcode op, const Type* t);
-		B32 identifiedBase(const Node* n);
 		String groupSig(const RefinedAddr& k);
 
 		U32 laneCountFor(U32 esz);
