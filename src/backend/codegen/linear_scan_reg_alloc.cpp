@@ -78,18 +78,19 @@ namespace rat {
 			live.forEach([&](VReg v) { ivFor(v).segs.push_back({first, segEnd[v]}); });
 		}
 
-		for(Interval& iv : intervals) {
+		for(U32 v = 1; v < fn->nextVReg; ++v) {
+			Interval& iv = intervals[v];
 			if(!iv.live())
 				continue;
 			coalesceSegs(iv);
-			for(I32 c : callPts) {
-				for(const Seg& sg : iv.segs)
-					if(sg.start < c && c < sg.end) {
-						iv.crossesCall = true;
-						break;
-					}
-				if(iv.crossesCall)
+			U32 c = 0;
+			for(const Seg& sg : iv.segs) {
+				while(c < callPts.size() && callPts[c] <= sg.start)
+					++c;
+				if(c < callPts.size() && callPts[c] < sg.end) {
+					iv.crossesCall = true;
 					break;
+				}
 			}
 		}
 	}
@@ -164,10 +165,10 @@ namespace rat {
 
 	void LinearScanRegAllocPass::assignRegs() {
 		List<Interval*> sorted;
-		sorted.reserve(intervals.size());
-		for(Interval& iv : intervals)
-			if(iv.live())
-				sorted.push_back(&iv);
+		sorted.reserve(fn->nextVReg);
+		for(U32 v = 1; v < fn->nextVReg; ++v)
+			if(intervals[v].live())
+				sorted.push_back(&intervals[v]);
 		std::sort(sorted.begin(), sorted.end(), [](const Interval* a, const Interval* b) {
 			return a->start != b->start ? a->start < b->start : a->vreg < b->vreg;
 		});
@@ -380,9 +381,9 @@ namespace rat {
 	void LinearScanRegAllocPass::assignSpillSlots() {
 		// pack
 		List<Interval*> spilled;
-		for(Interval& iv : intervals)
-			if(iv.live() && iv.spilled)
-				spilled.push_back(&iv);
+		for(U32 v = 1; v < fn->nextVReg; ++v)
+			if(intervals[v].live() && intervals[v].spilled)
+				spilled.push_back(&intervals[v]);
 		std::sort(spilled.begin(), spilled.end(), [](const Interval* a, const Interval* b) {
 			return a->start != b->start ? a->start < b->start : a->vreg < b->vreg;
 		});
