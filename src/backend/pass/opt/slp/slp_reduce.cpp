@@ -56,16 +56,8 @@ namespace rat {
 				terms[i] = keyed[i].term;
 		}
 
-		// anchor the packer on the first leaf load's state
-		Node* memIn = nullptr;
-		RefinedAddr wkey;
-		if(LoadNode* l = firstLoadInCone(root, 128)) {
-			memIn = l->getMemory();
-			wkey = refineAddr(l->getPointer(), esz);
-		}
-
-		Packer packer(*this, memIn, &wkey, /*storeWindow=*/false);
-
+		// no window - every packed load must read one shared pre-state
+		Packer packer(*this, nullptr, nullptr);
 		U32 k = n / w;
 		List<Node*> vecs;
 		for(U32 g = 0; g < k; ++g) {
@@ -77,11 +69,6 @@ namespace rat {
 			}
 			vecs.push_back(v);
 		}
-		if(!packer.guardGroups.empty()) {
-			++stats.rejectedGuarded;
-			return 0;
-		}
-
 		// horizontal-sum cost: 2 shuffle+add rounds for 4 lanes, 1 for 2 lanes
 		I32 hsumOps = 3;
 		if(w == 4)

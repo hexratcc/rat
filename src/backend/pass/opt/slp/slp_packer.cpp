@@ -10,12 +10,11 @@
 namespace rat {
 	using namespace slp;
 
-	SlpPackPass::Packer::Packer(Slp& drv, Node* memIn, const RefinedAddr* windowKey, B32 storeWindow)
+	SlpPackPass::Packer::Packer(Slp& drv, Node* memIn, const RefinedAddr* windowKey)
 	: drv(drv),
 		fn(drv.fn),
 		memIn(memIn),
-		windowKey(windowKey),
-		storeWindow(storeWindow) {}
+		windowKey(windowKey) {}
 
 	// each inner store maps to the lane offsets stored before it
 	void SlpPackPass::Packer::collectRun(const Segment& seg, U32 begin, U32 count) {
@@ -219,7 +218,7 @@ namespace rat {
 			return nullptr;
 
 		// A same-group load range that straddles the store window without matching it exactly is a store-forward trap
-		if(windowKey && storeWindow && !equal && k0.sameGroup(*windowKey)) {
+		if(windowKey && !equal && k0.sameGroup(*windowKey)) {
 			I64 sLo = windowKey->constant, sHi = sLo + (I64)(w * esz);
 			I64 lLo = k0.constant, lHi = lLo + (I64)(w * esz);
 			if(lLo != sLo && lLo < sHi && sLo < lHi) {
@@ -233,6 +232,9 @@ namespace rat {
 		if(sharedState && !interWritten.count(first->getMemory()))
 			return packWideOrSplat(first->getMemory(), first, k0, elemTy, vecTy, w, equal);
 
+		// lanes read inner window states: hoist them to memIn unless one reads a
+		// lane stored earlier in the window (never reached by reductions, their
+		// interWritten is empty)
 		for(U32 i = 0; i < w; ++i) {
 			LoadNode* l = cast<LoadNode>(lanes[i]);
 			Node* m = l->getMemory();
@@ -258,9 +260,10 @@ namespace rat {
 		}
 
 		if(!k0.sameGroup(*windowKey)) {
-			U32 guardBytes = equal ? esz : w * esz;
-			U32 winBytes = storeWindow ? w * windowKey->size : windowKey->size;
-			if(!provablyDisjoint(k0, guardBytes, *windowKey, winBytes))
+			U32 guardBytes = w * esz;
+			if(equal)
+				guardBytes = esz;
+			if(!provablyDisjoint(k0, guardBytes, *windowKey, w * windowKey->size))
 				addGuard(k0, first->getPointer(), guardBytes);
 		}
 

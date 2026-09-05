@@ -67,8 +67,7 @@ namespace rat {
 			// window context
 			Node* memIn;
 			const RefinedAddr* windowKey;
-			B32 storeWindow;						// windowKey is a real store window (false for reductions)
-			Set<const Node*> runStores; // the scalar stores being fused
+			Set<const Node*> runStores;								// the scalar stores being fused
 			Map<const Node*, List<I64>> interWritten; // inner store -> lane offsets stored before it
 			Set<const Node*> observers;								// loads reading an inner store's state
 			B32 dead = false; // a matched strategy could not be built, the window is rejected
@@ -93,7 +92,7 @@ namespace rat {
 			I32 profit = 0;
 			U32 interior = 0; // vector arithmetic / wide loads created
 
-			Packer(Slp& drv, Node* memIn, const RefinedAddr* windowKey, B32 storeWindow = true);
+			Packer(Slp& drv, Node* memIn, const RefinedAddr* windowKey);
 
 			void collectRun(const Segment& seg, U32 begin, U32 count);
 			void addGuard(const RefinedAddr& k, Node* lane0Ptr, U32 bytes);
