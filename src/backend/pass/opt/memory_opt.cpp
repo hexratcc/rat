@@ -39,7 +39,7 @@ namespace rat {
 	}
 
 	U32 MemoryOptPass::cseLoads(Function& fn, const AliasAnalysis& aa) {
-		Schedule sched(fn);
+		Schedule sched(fn, Schedule::Mode::Loads);
 
 		auto dominates = [&](LoadNode* a, LoadNode* b) -> B32 {
 			I32 ba = sched.blockOf(a), bb = sched.blockOf(b);

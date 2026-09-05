@@ -23,7 +23,7 @@ namespace rat {
 		}
 	} // namespace detail
 
-	Schedule::Schedule(const Function& fn)
+	Schedule::Schedule(const Function& fn, Mode mode)
 	: fn(fn) {
 		U32 count = fn.size();
 		headIndex.assign(count, -1);
@@ -33,9 +33,17 @@ namespace rat {
 		buildCFG();
 		computeDominators();
 		computeLoops();
+		List<Node*> work;
+		for(Node* n : fn)
+			if(isFloating(n))
+				work.push_back(n);
 		List<I32> early(count, -1);
-		scheduleEarly(early);
-		scheduleLate(early);
+		scheduleEarly(work, early);
+		if(mode == Mode::Loads) {
+			placeLoads(work, early);
+			return;
+		}
+		scheduleLate(work, early);
 		buildBlockLists();
 	}
 
@@ -431,12 +439,7 @@ namespace rat {
 		}
 	}
 
-	void Schedule::scheduleEarly(List<I32>& early) {
-		List<Node*> work;
-		for(Node* n : fn)
-			if(isFloating(n))
-				work.push_back(n);
-
+	void Schedule::scheduleEarly(const List<Node*>& work, List<I32>& early) {
 		for(Node* n : work)
 			detail::idSet(early, n->getId(), entryBlock);
 
@@ -490,12 +493,19 @@ namespace rat {
 		return headBlock(headOf(predCtrl));
 	}
 
-	void Schedule::scheduleLate(const List<I32>& early) {
-		List<Node*> work;
-		for(Node* n : fn)
-			if(isFloating(n))
-				work.push_back(n);
+	B32 Schedule::place(Node* n, I32 late, const List<I32>& early) {
+		U32 id = n->getId();
+		I32 e = detail::idGet(early, id);
+		if(e < 0)
+			e = entryBlock;
+		I32 pick = hoistTarget(n, late, e);
+		if(detail::idGet(nodeBlock, id) == pick)
+			return false;
+		detail::idSet(nodeBlock, id, pick);
+		return true;
+	}
 
+	void Schedule::scheduleLate(const List<Node*>& work, const List<I32>& early) {
 		// late = LCA of use blocks; then hoist to the shallowest loop depth on the
 		// dominator path between early and late. Iterated to a fixpoint
 		B32 changed = true;
@@ -515,19 +525,18 @@ namespace rat {
 					if(late < 0)
 						continue; // no placed use yet
 				}
-
-				I32 e = detail::idGet(early, n->getId());
-				if(e < 0)
-					e = entryBlock;
-				I32 pick = hoistTarget(n, late, e);
-
-				U32 id = n->getId();
-				if(detail::idGet(nodeBlock, id) != pick) {
-					detail::idSet(nodeBlock, id, pick);
+				if(place(n, late, early))
 					changed = true;
-				}
 			}
 		}
+	}
+
+	// a load's placement reads only early and its home block, never another
+	// node's late block, so it is final after one pass
+	void Schedule::placeLoads(const List<Node*>& work, const List<I32>& early) {
+		for(Node* n : work)
+			if(isa<LoadNode>(n))
+				place(n, homeBlock(n), early);
 	}
 
 	I32 Schedule::blockOf(const Node* n) const {
@@ -540,21 +549,41 @@ namespace rat {
 				if(phi->getType()->isData())
 					blocks[headBlock(phi->getRegion())].phis.push_back(phi);
 
-		List<List<Node*>> raw(blocks.size());
+		// bucket the placed nodes by block, in function order, without a list per block
+		U32 nb = (U32)blocks.size();
+		List<I32> start(nb + 1, 0);
 		for(Node* n : fn) {
-			B32 pinned =
-					isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n) || isStackOpcode(n->getOpcode());
-			if(pinned || isFloating(n)) {
-				I32 b = detail::idGet(nodeBlock, n->getId());
-				if(b >= 0)
-					raw[b].push_back(n);
-			}
+			I32 b = listedBlock(n);
+			if(b >= 0)
+				++start[b + 1];
 		}
+		for(U32 b = 0; b < nb; ++b)
+			start[b + 1] += start[b];
+		List<I32> fill(start.begin(), start.end() - 1);
+		List<Node*> flat(start[nb]);
+		for(Node* n : fn) {
+			I32 b = listedBlock(n);
+			if(b >= 0)
+				flat[fill[b]++] = n;
+		}
+
 		TopoScratch scratch;
 		scratch.localOf.assign(fn.size(), -1);
 		AliasAnalysis aa(8);
-		for(I32 b = 0; b < (I32)blocks.size(); ++b)
-			blocks[b].nodes = topoOrder(raw[b], aa, scratch);
+		List<Node*> raw;
+		for(U32 b = 0; b < nb; ++b) {
+			raw.assign(flat.begin() + start[b], flat.begin() + start[b + 1]);
+			blocks[b].nodes = topoOrder(raw, aa, scratch);
+		}
+	}
+
+	// block of a node that goes into a block list
+	I32 Schedule::listedBlock(const Node* n) const {
+		B32 pinned =
+				isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n) || isStackOpcode(n->getOpcode());
+		if(!pinned && !isFloating(n))
+			return -1; // none
+		return detail::idGet(nodeBlock, n->getId());
 	}
 
 	Node* Schedule::memoryInputOf(const Node* n) {

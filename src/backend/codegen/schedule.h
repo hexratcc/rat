@@ -53,7 +53,12 @@ namespace rat {
 			List<Node*> nodes;	 // scheduled compute nodes, in emit order
 		};
 
-		explicit Schedule(const Function& fn);
+		enum class Mode {
+			Full,
+			Loads, // blockOf(load), dominators and loop depth
+		};
+
+		explicit Schedule(const Function& fn, Mode mode = Mode::Full);
 
 		I32 numBlocks() const;
 		const Block& block(I32 b) const;
@@ -76,8 +81,11 @@ namespace rat {
 		void buildCFG();
 		void computeDominators();
 		void computeLoops();
-		void scheduleEarly(List<I32>& early);
-		void scheduleLate(const List<I32>& early);
+		void scheduleEarly(const List<Node*>& work, List<I32>& early);
+		void scheduleLate(const List<Node*>& work, const List<I32>& early);
+		void placeLoads(const List<Node*>& work, const List<I32>& early);
+		B32 place(Node* n, I32 late, const List<I32>& early);
+		I32 listedBlock(const Node* n) const;
 		void buildBlockLists();
 
 		static B32 isHeadNode(const Node* n);
