@@ -19,7 +19,7 @@ namespace rat::cc {
 		std::deque<String> ownedText; // storage backing texts
 		String fileName;
 		String errMsg; // first conversion error
-		size_t pos = 0;
+		U64 pos = 0;
 
 		Token next() {
 			Token t = toks[pos];
@@ -30,7 +30,7 @@ namespace rat::cc {
 		const Token& peek() { return toks[pos]; }
 		const Token& peek2() { return toks[pos + 1 < toks.size() ? pos + 1 : pos]; }
 
-		String text(const Token& tok) const { return *texts[tok.offset]; }
+		const String& text(const Token& tok) const { return *texts[tok.offset]; }
 		const String& file() const { return fileName; }
 		const String& error() const { return errMsg; }
 		void reset() { pos = 0; }

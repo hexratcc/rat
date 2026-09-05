@@ -15,15 +15,15 @@ namespace rat::cc {
 			return drive && s.size() >= 3 && s[1] == ':' && (s[2] == '/' || s[2] == '\\');
 		}
 
-		size_t ucnLen(const String& s, size_t i) {
-			size_t n = s.size();
+		U64 ucnLen(const String& s, U64 i) {
+			U64 n = s.size();
 			if(i + 1 >= n || s[i] != '\\')
 				return 0;
-			char k = s[i + 1];
-			size_t ndig = (k == 'u') ? 4 : (k == 'U') ? 8 : 0;
+			C8 k = s[i + 1];
+			U64 ndig = (k == 'u') ? 4 : (k == 'U') ? 8 : 0;
 			if(ndig == 0 || i + 2 + ndig > n)
 				return 0;
-			for(size_t d = 0; d < ndig; ++d)
+			for(U64 d = 0; d < ndig; ++d)
 				if(!isHexDigit(s[i + 2 + d]))
 					return 0;
 			return 2 + ndig;
@@ -33,8 +33,8 @@ namespace rat::cc {
 			if(s.empty())
 				return Pk::Punct;
 			if(isIdentStart(s[0]) || ucnLen(s, 0)) {
-				for(size_t i = 0; i < s.size();) {
-					if(size_t u = ucnLen(s, i)) {
+				for(U64 i = 0; i < s.size();) {
+					if(U64 u = ucnLen(s, i)) {
 						i += u;
 					} else if(isIdentCont(s[i])) {
 						++i;
@@ -53,14 +53,14 @@ namespace rat::cc {
 		void splice(const String& src, String& out, List<LineMark>& marks) {
 			U32 line = 1;
 			B32 pendingMark = false;
-			size_t i = 0, n = src.size();
+			U64 i = 0, n = src.size();
 			out.reserve(n + 1);
 
 			// decode one logical char at p (trigraph-aware); returns length
-			auto decode = [&](size_t p, char& c) -> size_t {
+			auto decode = [&](U64 p, C8& c) -> U64 {
 				c = src[p];
 				if(c == '?' && p + 2 < n && src[p + 1] == '?') {
-					char r = 0;
+					C8 r = 0;
 					switch(src[p + 2]) {
 					case '=':
 						r = '#';
@@ -100,7 +100,7 @@ namespace rat::cc {
 				return 1;
 			};
 
-			auto emit = [&](char c) {
+			auto emit = [&](C8 c) {
 				if(pendingMark) {
 					marks.push_back({(U32)out.size(), line});
 					pendingMark = false;
@@ -108,13 +108,13 @@ namespace rat::cc {
 				out.push_back(c);
 			};
 
-			const char* data = src.data();
+			const C8* data = src.data();
 			while(i < n) {
 				// fast path: bulk-copy a run with no splice/trigraph/CR triggers
-				size_t start = i;
-				U32 startLine = line; // line of first char in run
+				U64 start = i;
+				U32 startLine = line; // line of first C8 in run
 				while(i < n) {
-					char c = data[i];
+					C8 c = data[i];
 					if(c == '\\' || c == '\r' || c == '?')
 						break;
 					if(c == '\n')
@@ -131,11 +131,11 @@ namespace rat::cc {
 				if(i >= n)
 					break;
 
-				char c;
-				size_t len = decode(i, c);
+				C8 c;
+				U64 len = decode(i, c);
 				if(c == '\\') {
 					// backslash-newline splice (backslash may be a trigraph)
-					size_t j = i + len;
+					U64 j = i + len;
 					if(j < n) {
 						if(src[j] == '\n') {
 							i = j + 1;
@@ -172,10 +172,10 @@ namespace rat::cc {
 		}
 
 		// longest-match punctuator length at s[i]; assumes s[i] starts one
-		inline size_t punctLen(const String& s, size_t i, size_t n) {
-			char c = s[i];
-			char d = i + 1 < n ? s[i + 1] : '\0';
-			char e = i + 2 < n ? s[i + 2] : '\0';
+		inline U64 punctLen(const String& s, U64 i, U64 n) {
+			C8 c = s[i];
+			C8 d = i + 1 < n ? s[i + 1] : '\0';
+			C8 e = i + 2 < n ? s[i + 2] : '\0';
 			switch(c) {
 			case '.':
 				return (d == '.' && e == '.') ? 3 : 1;
@@ -217,22 +217,22 @@ namespace rat::cc {
 		LexResult
 		lexAll(const String& s, const List<LineMark>& marks, const String* file, Interner& in) {
 			LexResult r;
-			size_t i = 0, n = s.size();
+			U64 i = 0, n = s.size();
 			r.toks.reserve(n / 3 + 8);
 			B32 bolPending = true;
 			B32 spacePending = false;
 			U32 line = 1;
-			size_t mi = 0, mn = marks.size();
+			U64 mi = 0, mn = marks.size();
 
 			// apply splice line-corrections at offsets <= p
-			auto advanceTo = [&](size_t p) {
+			auto advanceTo = [&](U64 p) {
 				while(mi < mn && marks[mi].off <= p) {
 					line = marks[mi].line;
 					++mi;
 				}
 			};
 
-			auto pushTok = [&](Pk kind, size_t start, size_t end) {
+			auto pushTok = [&](Pk kind, U64 start, U64 end) {
 				PpToken t;
 				t.kind = kind;
 				std::string_view sv(s.data() + start, end - start);
@@ -263,7 +263,7 @@ namespace rat::cc {
 
 			while(i < n) {
 				advanceTo(i);
-				char c = s[i];
+				C8 c = s[i];
 				if(c == '\n') {
 					bolPending = true;
 					spacePending = true;
@@ -304,11 +304,11 @@ namespace rat::cc {
 				}
 
 				// string / char literal, with optional prefix
-				size_t pfx = i;
+				U64 pfx = i;
 				if(isIdentStart(c) || ucnLen(s, i)) {
-					size_t j = i;
+					U64 j = i;
 					for(;;) {
-						if(size_t u = ucnLen(s, j))
+						if(U64 u = ucnLen(s, j))
 							j += u;
 						else if(j < n && isIdentCont(s[j]))
 							++j;
@@ -329,8 +329,8 @@ namespace rat::cc {
 				}
 
 				if(c == '"' || c == '\'') {
-					char quote = c;
-					size_t j = i + 1;
+					C8 quote = c;
+					U64 j = i + 1;
 					while(j < n && s[j] != quote) {
 						if(s[j] == '\\' && j + 1 < n)
 							j += 2;
@@ -352,9 +352,9 @@ namespace rat::cc {
 
 				// pp-number
 				if(isDigit(c) || (c == '.' && i + 1 < n && isDigit(s[i + 1]))) {
-					size_t j = i + 1;
+					U64 j = i + 1;
 					while(j < n) {
-						char d = s[j];
+						C8 d = s[j];
 						if((d == 'e' || d == 'E' || d == 'p' || d == 'P') && j + 1 < n &&
 							 (s[j + 1] == '+' || s[j + 1] == '-')) {
 							j += 2;
@@ -372,7 +372,7 @@ namespace rat::cc {
 				}
 
 				// punctuator
-				size_t plen = punctLen(s, i, n);
+				U64 plen = punctLen(s, i, n);
 				pushTok(Pk::Punct, i, i + plen);
 				i += plen;
 			}
@@ -387,16 +387,16 @@ namespace rat::cc {
 		}
 
 		I64 parseCharConst(const String& txt) {
-			size_t i = 0;
+			U64 i = 0;
 			while(i < txt.size() && txt[i] != '\'')
 				++i;
 			++i; // skip opening quote
 			if(i >= txt.size())
 				return 0;
 			if(txt[i] != '\\')
-				return (I64)(unsigned char)txt[i];
+				return (I64)(U8)txt[i];
 			++i;
-			char e = txt[i++];
+			C8 e = txt[i++];
 			U8 simple = 0;
 			if(simpleEscape(e, simple))
 				return (I64)simple;
@@ -414,14 +414,14 @@ namespace rat::cc {
 						v = v * 8 + (txt[i] - '0');
 					return v;
 				}
-				return (I64)(unsigned char)e;
+				return (I64)(U8)e;
 			}
 		}
 
 		Val parseNumLit(const String& txt) {
 			Val v;
-			size_t p = 0;
-			int base = 10;
+			U64 p = 0;
+			I32 base = 10;
 			if(txt.size() >= 2 && txt[0] == '0' && (txt[1] == 'x' || txt[1] == 'X')) {
 				base = 16;
 				p = 2;
@@ -431,13 +431,13 @@ namespace rat::cc {
 			}
 			U64 acc = 0;
 			for(; p < txt.size(); ++p) {
-				int d = hexVal(txt[p]);
+				I32 d = hexVal(txt[p]);
 				if(d < 0 || d >= base)
 					break;
 				acc = acc * (U64)base + (U64)d;
 			}
 			for(; p < txt.size(); ++p) {
-				char c = (char)std::tolower(txt[p]);
+				C8 c = (C8)std::tolower(txt[p]);
 				if(c == 'u')
 					v.isU = true;
 			}

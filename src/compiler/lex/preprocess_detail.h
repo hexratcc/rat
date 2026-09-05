@@ -51,7 +51,7 @@ namespace rat::cc {
 		constexpr U32 kMaxIncludeDepth = 200;
 
 		// 1-2 char fast paths avoid strlen/memcmp
-		inline B32 isPunct(const PpToken& t, const char* s) {
+		inline B32 isPunct(const PpToken& t, const C8* s) {
 			if(t.kind != Pk::Punct)
 				return false;
 			const String& x = *t.text;
@@ -63,7 +63,7 @@ namespace rat::cc {
 		}
 		String unquote(const String& s);
 		B32 isAbsPath(const String& s);
-		size_t ucnLen(const String& s, size_t i);
+		U64 ucnLen(const String& s, U64 i);
 		Pk classify(const String& s);
 
 		// absolute line correction at an output offset (emitted at splices)
@@ -85,9 +85,9 @@ namespace rat::cc {
 			PpSpan(const PpToken* pb, const PpToken* pe)
 			: b(pb),
 				e(pe) {}
-			size_t size() const { return (size_t)(e - b); }
+			U64 size() const { return (U64)(e - b); }
 			B32 empty() const { return b == e; }
-			const PpToken& operator[](size_t i) const { return b[i]; }
+			const PpToken& operator[](U64 i) const { return b[i]; }
 		};
 
 		struct LexResult {
@@ -122,7 +122,7 @@ namespace rat::cc {
 		// #if expression evaluator
 		struct Eval {
 			const List<PpToken>& t;
-			size_t i = 0;
+			U64 i = 0;
 			String& err;
 			B32 ok = true;
 			B32 live = true;
@@ -132,15 +132,15 @@ namespace rat::cc {
 				err(e) {}
 
 			const PpToken& cur() { return t[i]; }
-			B32 isOp(const char* s) { return isPunct(cur(), s); }
+			B32 isOp(const C8* s) { return isPunct(cur(), s); }
 			B32 atEnd() { return cur().kind == Pk::Eof; }
 
 			void fail(const String& m);
 			Val parsePrimary();
 			Val parseUnary();
-			int prec(const String& op);
+			I32 prec(const String& op);
 			Val apply(const String& op, Val a, Val b);
-			Val parseBinary(int minPrec);
+			Val parseBinary(I32 minPrec);
 			Val parseExpr();
 			Val run();
 		};

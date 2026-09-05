@@ -241,7 +241,7 @@ namespace rat::cc {
 			CType t;
 			t.base = CType::Base::Float;
 			t.bits = e->floatLit.bits;
-			Node* lit = fn.constFloat(irType(t), (double)e->floatLit.value);
+			Node* lit = fn.constFloat(irType(t), (F64)e->floatLit.value);
 			if(e->floatLit.imaginary) {
 				CType ct = t;
 				ct.set(CType::Complex);

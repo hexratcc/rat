@@ -15,7 +15,7 @@ namespace rat::cc {
 		}
 
 		String Preprocessor::dirOf(const String& path) {
-			size_t s = path.find_last_of('/');
+			U64 s = path.find_last_of('/');
 			return s == String::npos ? String() : path.substr(0, s + 1);
 		}
 
@@ -44,7 +44,7 @@ namespace rat::cc {
 				if(isPunct(toks[0], "<")) {
 					angled = true;
 					fname.clear();
-					for(size_t k = 1; k < toks.size(); ++k) {
+					for(U64 k = 1; k < toks.size(); ++k) {
 						if(isPunct(toks[k], ">"))
 							return true;
 						if(k > 1 && toks[k].spaceBefore)
@@ -70,9 +70,9 @@ namespace rat::cc {
 			if(isAbsPath(fname)) {
 				tries.push_back(fname);
 			} else {
-				size_t startDir = 0, best = 0;
+				U64 startDir = 0, best = 0;
 				if(next) {
-					for(size_t k = 0; k < opts.includeDirs.size(); ++k) {
+					for(U64 k = 0; k < opts.includeDirs.size(); ++k) {
 						String d = opts.includeDirs[k];
 						if(!d.empty() && d.back() != '/')
 							d += '/';
@@ -85,7 +85,7 @@ namespace rat::cc {
 				} else if(!angled) {
 					tries.push_back(curDir.empty() ? fname : curDir + fname);
 				}
-				for(size_t k = startDir; k < opts.includeDirs.size(); ++k) {
+				for(U64 k = startDir; k < opts.includeDirs.size(); ++k) {
 					String base = opts.includeDirs[k];
 					if(!base.empty() && base.back() != '/')
 						base += '/';
@@ -133,7 +133,7 @@ namespace rat::cc {
 			} else if(rest.size() >= 1 && rest[0].kind == Pk::Id &&
 								(*rest[0].text == "push_macro" || *rest[0].text == "pop_macro")) {
 				String mname;
-				for(size_t k = 1; k < rest.size(); ++k) {
+				for(U64 k = 1; k < rest.size(); ++k) {
 					if(rest[k].kind == Pk::Str) {
 						mname = unquote(*rest[k].text);
 						break;
@@ -164,7 +164,7 @@ namespace rat::cc {
 		}
 
 		String Preprocessor::destringize(const String& lit) {
-			size_t b = 0, e = lit.size();
+			U64 b = 0, e = lit.size();
 			while(b < e && lit[b] != '"')
 				++b; // skip optional L prefix
 			if(b < e && lit[b] == '"')
@@ -172,7 +172,7 @@ namespace rat::cc {
 			if(e > b && lit[e - 1] == '"')
 				--e;
 			String out;
-			for(size_t i = b; i < e; ++i) {
+			for(U64 i = b; i < e; ++i) {
 				if(lit[i] == '\\' && i + 1 < e && (lit[i + 1] == '"' || lit[i + 1] == '\\'))
 					++i;
 				out += lit[i];
@@ -190,7 +190,7 @@ namespace rat::cc {
 			if(!any)
 				return std::move(toks);
 			List<PpToken> out;
-			for(size_t i = 0; i < toks.size();) {
+			for(U64 i = 0; i < toks.size();) {
 				if(toks[i].kind == Pk::Id && *toks[i].text == "_Pragma" && i + 3 < toks.size() &&
 					 isPunct(toks[i + 1], "(") && toks[i + 2].kind == Pk::Str && isPunct(toks[i + 3], ")")) {
 					List<PpToken> body = lexFragment(destringize(*toks[i + 2].text), intern(path));
@@ -305,10 +305,10 @@ namespace rat::cc {
 			List<Cond> stack;
 			List<PpToken> textBuf;
 
-			size_t i = 0, n = toks.size();
+			U64 i = 0, n = toks.size();
 			while(i < n && ok) {
-				size_t start = i;
-				size_t j = i + 1;
+				U64 start = i;
+				U64 j = i + 1;
 				while(j < n && !toks[j].bol)
 					++j;
 				i = j;
@@ -324,7 +324,7 @@ namespace rat::cc {
 
 				flush(textBuf);
 
-				size_t d = start + 1;
+				U64 d = start + 1;
 				if(d >= j) // null directive
 					continue;
 
@@ -368,7 +368,7 @@ namespace rat::cc {
 					doInclude(rest, curDir, true);
 				} else if(name == "error") {
 					String msg;
-					for(size_t k = 0; k < rest.size(); ++k) {
+					for(U64 k = 0; k < rest.size(); ++k) {
 						if(k && rest[k].spaceBefore)
 							msg += ' ';
 						msg += *rest[k].text;
@@ -402,7 +402,7 @@ namespace rat::cc {
 				time_t now = ::time(nullptr);
 				struct tm* lt = std::localtime(&now);
 				if(lt) {
-					char buf[64];
+					C8 buf[64];
 					std::strftime(buf, sizeof buf, "%b %e %Y", lt);
 					s.date = String("\"") + buf + "\"";
 					std::strftime(buf, sizeof buf, "%H:%M:%S", lt);
@@ -417,7 +417,7 @@ namespace rat::cc {
 			defineSimple("__STDC_VERSION__", "199901L");
 
 			// GNU C extensions
-			auto defineFrag = [&](const char* text) { doDefine(lexFragment(text, intern("<builtin>"))); };
+			auto defineFrag = [&](const C8* text) { doDefine(lexFragment(text, intern("<builtin>"))); };
 			defineFrag("__attribute__(x)");
 			defineFrag("__attribute(x)");
 			defineFrag("__asm__ asm");
@@ -448,7 +448,7 @@ namespace rat::cc {
 
 		void Preprocessor::applyCommandLine() {
 			for(const String& d : opts.defines) {
-				size_t eq = d.find('=');
+				U64 eq = d.find('=');
 				String left = eq == String::npos ? d : d.substr(0, eq);
 				String right = eq == String::npos ? String("1") : d.substr(eq + 1);
 				List<PpToken> all = lexFragment(left, intern("<command-line>"));
@@ -462,7 +462,7 @@ namespace rat::cc {
 
 		String Preprocessor::serialize() {
 			String s;
-			size_t total = 0;
+			U64 total = 0;
 			for(const PpToken& t : out)
 				if(t.kind != Pk::Placemarker && t.kind != Pk::Eof)
 					total += t.text->size() + 1;

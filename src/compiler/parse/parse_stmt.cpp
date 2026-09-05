@@ -63,9 +63,9 @@ namespace rat::cc {
 			fail(peek(), "expected type specifier");
 			return nullptr;
 		}
-		B32 isStatic = sawStatic;
-		B32 isExtern = sawExtern;
-		U32 align = sawAlignas;
+		B32 isStatic = specs.isStatic;
+		B32 isExtern = specs.isExtern;
+		U32 align = specAlign;
 		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
 		if(peek().kind == TokKind::Semicolon) {
 			advance();
@@ -409,25 +409,33 @@ namespace rat::cc {
 		if(!expect(TokKind::LBrace, "'{'"))
 			return nullptr;
 		Stmt* block = makeStmt(StmtKind::Compound, open.offset);
-		Map<String, CType> savedTypedefs = typedefs;
-		Map<String, I64> savedEnumConstants = enumConstants;
-		Map<String, B32> savedEnumSignedTags = enumSignedTags;
-		Map<String, TagBinding> savedStructTypes = structTypes;
-		++scopeDepth;
+		pushScope();
 		while(!failed && peek().kind != TokKind::RBrace && peek().kind != TokKind::Eof) {
 			Stmt* s = parseStatement();
 			if(!s)
 				return nullptr;
 			block->body.push_back(s);
 		}
-		--scopeDepth;
-		typedefs = std::move(savedTypedefs);
-		enumConstants = std::move(savedEnumConstants);
-		enumSignedTags = std::move(savedEnumSignedTags);
-		structTypes = std::move(savedStructTypes);
+		popScope();
 		if(!expect(TokKind::RBrace, "'}'"))
 			return nullptr;
 		return block;
+	}
+
+	void Parser::pushScope() {
+		typedefs.push();
+		enumConstants.push();
+		enumSignedTags.push();
+		structTypes.push();
+		++scopeDepth;
+	}
+
+	void Parser::popScope() {
+		--scopeDepth;
+		typedefs.pop();
+		enumConstants.pop();
+		enumSignedTags.pop();
+		structTypes.pop();
 	}
 
 } // namespace rat::cc

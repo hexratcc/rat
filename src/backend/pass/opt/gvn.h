@@ -31,7 +31,7 @@ namespace rat {
 		};
 
 		struct GVNKeyHash {
-			size_t operator()(const GVNKey& k) const {
+			U64 operator()(const GVNKey& k) const {
 				U64 h = 1469598103934665603ull;
 				auto mix = [&](U64 v) {
 					h ^= v;
@@ -44,7 +44,7 @@ namespace rat {
 				mix(((U64)k.in1) << 32);
 				if(k.sym)
 					mix(std::hash<String>{}(*k.sym));
-				return (size_t)h;
+				return (U64)h;
 			}
 		};
 

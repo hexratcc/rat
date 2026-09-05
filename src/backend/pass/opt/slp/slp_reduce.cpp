@@ -36,7 +36,7 @@ namespace rat {
 		// canonical term order: sort by the first leaf load's refined address so
 		// grouping is robust against source-level reassociation
 		struct Keyed {
-			bool operator<(const Keyed& o) const {
+			B32 operator<(const Keyed& o) const {
 				if(sig != o.sig)
 					return sig < o.sig;
 				return c < o.c;

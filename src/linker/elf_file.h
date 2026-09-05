@@ -120,7 +120,7 @@ namespace rat {
 		inline void wrPad(List<U8>& b, U64 to) { le::padTo(b, to); }
 
 		// sysv symbol hash
-		inline U32 sysvHash(const char* name) {
+		inline U32 sysvHash(const C8* name) {
 			U32 h = 0, g;
 			for(const U8* s = (const U8*)name; *s; ++s) {
 				h = (h << 4) + *s;

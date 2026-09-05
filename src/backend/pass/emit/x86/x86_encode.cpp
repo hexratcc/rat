@@ -559,7 +559,7 @@ namespace rat {
 			U32 instCount = 0;
 			for(const MachineBlock& blk : mf.blocks)
 				instCount += (U32)blk.insts.size();
-			code.reserve((size_t)instCount * 16u + 64u); // cheap upper estimate
+			code.reserve((U64)instCount * 16u + 64u); // cheap upper estimate
 
 			Asm a(code, relocs);
 			reset(mf, fl, a, mf.usedCalleeSaved);

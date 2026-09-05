@@ -7,19 +7,19 @@ namespace rat::cc {
 	namespace detail {
 		void utf8Encode(String& out, U32 cp) {
 			if(cp < 0x80) {
-				out.push_back((char)cp);
+				out.push_back((C8)cp);
 			} else if(cp < 0x800) {
-				out.push_back((char)(0xC0 | (cp >> 6)));
-				out.push_back((char)(0x80 | (cp & 0x3F)));
+				out.push_back((C8)(0xC0 | (cp >> 6)));
+				out.push_back((C8)(0x80 | (cp & 0x3F)));
 			} else if(cp < 0x10000) {
-				out.push_back((char)(0xE0 | (cp >> 12)));
-				out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
-				out.push_back((char)(0x80 | (cp & 0x3F)));
+				out.push_back((C8)(0xE0 | (cp >> 12)));
+				out.push_back((C8)(0x80 | ((cp >> 6) & 0x3F)));
+				out.push_back((C8)(0x80 | (cp & 0x3F)));
 			} else {
-				out.push_back((char)(0xF0 | (cp >> 18)));
-				out.push_back((char)(0x80 | ((cp >> 12) & 0x3F)));
-				out.push_back((char)(0x80 | ((cp >> 6) & 0x3F)));
-				out.push_back((char)(0x80 | (cp & 0x3F)));
+				out.push_back((C8)(0xF0 | (cp >> 18)));
+				out.push_back((C8)(0x80 | ((cp >> 12) & 0x3F)));
+				out.push_back((C8)(0x80 | ((cp >> 6) & 0x3F)));
+				out.push_back((C8)(0x80 | (cp & 0x3F)));
 			}
 		}
 
@@ -49,7 +49,7 @@ namespace rat::cc {
 				return;
 			}
 			for(U32 k = 0; k < unitBytes; ++k)
-				out.push_back((char)(U8)(cp >> (8 * k)));
+				out.push_back((C8)(U8)(cp >> (8 * k)));
 		}
 	} // namespace detail
 
@@ -60,7 +60,7 @@ namespace rat::cc {
 
 		U32 end = (U32)s.size();
 		while(end > 0) {
-			char c = s[end - 1];
+			C8 c = s[end - 1];
 			if(c == 'u' || c == 'U') {
 				isUnsigned = true;
 				--end;
@@ -147,7 +147,7 @@ namespace rat::cc {
 		return true;
 	}
 
-	static U32 escapeMaxVal(char prefix) {
+	static U32 escapeMaxVal(C8 prefix) {
 		switch(prefix) {
 		case 'u':
 			return 0xFFFFu;
@@ -165,7 +165,7 @@ namespace rat::cc {
 			fail(tok, "unterminated escape");
 			return false;
 		}
-		char e = s[i++];
+		C8 e = s[i++];
 		U8 simple = 0;
 		if(simpleEscape(e, simple)) {
 			out = simple;
@@ -209,7 +209,7 @@ namespace rat::cc {
 	}
 
 	B32 Parser::decodeUcn(const String& s, U32& i, U32 end, const Token& tok, U32& cp) {
-		char kind = s[i++]; // 'u' or 'U'
+		C8 kind = s[i++]; // 'u' or 'U'
 		U32 ndigits = (kind == 'u') ? 4 : 8;
 		if(i + ndigits > end) {
 			fail(tok, "incomplete universal character name");
@@ -295,7 +295,7 @@ namespace rat::cc {
 		if(end > 0 && s[end - 1] == '"')
 			--end;
 		while(i < end) {
-			char c = s[i++];
+			C8 c = s[i++];
 			if(c != '\\') {
 				out.push_back(c);
 				continue;
@@ -313,7 +313,7 @@ namespace rat::cc {
 			if(maxVal > 0xFFu)
 				detail::utf8Encode(out, val);
 			else
-				out.push_back((char)(U8)val);
+				out.push_back((C8)(U8)val);
 		}
 		return true;
 	}

@@ -11,7 +11,7 @@ namespace rat::cc {
 		String name = "__ratcc_str" + std::to_string(strCounter++);
 		List<U8> init;
 		init.reserve(bytes.size() + cw);
-		for(char c : bytes)
+		for(C8 c : bytes)
 			init.push_back((U8)c);
 		for(U32 i = 0; i < cw; ++i)
 			init.push_back(0);
@@ -288,7 +288,7 @@ namespace rat::cc {
 		List<U8> fbytes;
 		if(dinit) {
 			if(isFloating(d.type)) {
-				long double dv = 0;
+				F80 dv = 0;
 				if(!evalFloatConst(dinit, dv)) {
 					fail("initializer for '" + *d.name + "' is not a constant expression");
 					return false;

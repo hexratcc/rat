@@ -8,7 +8,7 @@ namespace rat {
 	using namespace elf;
 
 	namespace detail {
-		constexpr const char* kInterp = "/lib64/ld-linux-x86-64.so.2";
+		constexpr const C8* kInterp = "/lib64/ld-linux-x86-64.so.2";
 
 		B32 isGotReloc(U32 t) {
 			return t == R_X86_64_GOTPCREL || t == R_X86_64_GOTPCRELX || t == R_X86_64_REX_GOTPCRELX ||
@@ -16,26 +16,26 @@ namespace rat {
 		}
 
 		B32 isLinkerSym(const String& n) {
-			static const char* names[] = {"__dso_handle",
-																		"_GLOBAL_OFFSET_TABLE_",
-																		"__init_array_start",
-																		"__init_array_end",
-																		"__preinit_array_start",
-																		"__preinit_array_end",
-																		"__fini_array_start",
-																		"__fini_array_end",
-																		"__bss_start",
-																		"_edata",
-																		"edata",
-																		"_end",
-																		"end",
-																		"__end__",
-																		"__ehdr_start",
-																		"_DYNAMIC",
-																		"__data_start",
-																		"data_start",
-																		"__TMC_END__"};
-			for(const char* s : names)
+			static const C8* names[] = {"__dso_handle",
+																	"_GLOBAL_OFFSET_TABLE_",
+																	"__init_array_start",
+																	"__init_array_end",
+																	"__preinit_array_start",
+																	"__preinit_array_end",
+																	"__fini_array_start",
+																	"__fini_array_end",
+																	"__bss_start",
+																	"_edata",
+																	"edata",
+																	"_end",
+																	"end",
+																	"__end__",
+																	"__ehdr_start",
+																	"_DYNAMIC",
+																	"__data_start",
+																	"data_start",
+																	"__TMC_END__"};
+			for(const C8* s : names)
 				if(n == s)
 					return true;
 			return false;
@@ -255,7 +255,7 @@ namespace rat {
 			B32 used = false;
 			U32 n = (U32)(lib.dynsym.size() / 24);
 			const U8* syms = lib.dynsym.data();
-			const char* strs = (const char*)lib.dynstr.data();
+			const C8* strs = (const C8*)lib.dynstr.data();
 			U64 strMax = lib.dynstr.size();
 			for(U32 i = 0; i < n; ++i) {
 				const U8* p = syms + (U64)i * 24;

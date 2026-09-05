@@ -295,7 +295,7 @@ namespace rat {
 	// each broadcast then picks its lane in-register instead of touching memory
 	void slp::Packer::coalesceSplats() {
 		struct Cand {
-			bool operator<(const Cand& o) const {
+			B32 operator<(const Cand& o) const {
 				if(sig != o.sig)
 					return sig < o.sig;
 				return c < o.c;

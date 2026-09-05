@@ -292,7 +292,7 @@ namespace rat::cc {
 				U8 mods;
 			} intLit;
 			struct {
-				long double value;
+				F80 value;
 				U32 bits;
 				B32 imaginary;
 			} floatLit;
@@ -480,7 +480,7 @@ namespace rat::cc {
 		void dumpExpr(const Expr* e, U32 depth, std::ostream& os);
 	} // namespace detail
 
-	const char* exprOpName(ExprOp op);
+	const C8* exprOpName(ExprOp op);
 	void dumpAst(const TransUnit& unit, std::ostream& os);
 } // namespace rat::cc
 

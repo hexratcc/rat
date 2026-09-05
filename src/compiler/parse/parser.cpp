@@ -28,8 +28,8 @@ namespace rat::cc {
 			vl->count = lay.ptrBytes * 4;
 			vaList.array = vl;
 		}
-		typedefs["va_list"] = vaList;
-		typedefs["__builtin_va_list"] = vaList;
+		typedefs.set("va_list", vaList);
+		typedefs.set("__builtin_va_list", vaList);
 	}
 
 	void Parser::fail(const Token& at, const String& msg) {
@@ -49,7 +49,7 @@ namespace rat::cc {
 		return false;
 	}
 
-	B32 Parser::expect(TokKind kind, const char* what) {
+	B32 Parser::expect(TokKind kind, const C8* what) {
 		if(peek().kind == kind) {
 			advance();
 			return true;
@@ -397,11 +397,11 @@ namespace rat::cc {
 				fail(peek(), "expected type specifier");
 				return nullptr;
 			}
-			B32 gExtern = sawExtern;
-			B32 gExternInline = sawExtern && sawInline;
-			B32 gStatic = sawStatic;
-			B32 gNoinline = sawNoinline;
-			U32 gAlign = sawAlignas;
+			B32 gExtern = specs.isExtern;
+			B32 gExternInline = specs.isExtern && specs.isInline;
+			B32 gStatic = specs.isStatic;
+			B32 gNoinline = specs.isNoInline;
+			U32 gAlign = specAlign;
 			CType first = base;
 			parsePointers(first);
 			if(first.ptr == 0 && peek().kind == TokKind::Semicolon) {

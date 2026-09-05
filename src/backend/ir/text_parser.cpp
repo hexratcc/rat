@@ -338,7 +338,7 @@ namespace rat {
 			if(lhs.empty() || lhs[0] != 'v' || !allDigits(lhs.substr(1)))
 				return fail("bad result name '" + lhs + "'");
 			errno = 0;
-			unsigned long idv = std::strtoul(lhs.c_str() + 1, nullptr, 10);
+			U64 idv = std::strtoul(lhs.c_str() + 1, nullptr, 10);
 			if(errno == ERANGE || idv > 0xffffffffUL)
 				return fail("result id out of range '" + lhs + "'");
 			pn.id = (U32)idv;
@@ -366,7 +366,7 @@ namespace rat {
 				if(remainder.empty())
 					return fail("constant is missing its value: " + line);
 				errno = 0;
-				char* cend = nullptr;
+				C8* cend = nullptr;
 				pn.cval = (I64)std::strtoll(remainder.c_str(), &cend, 10);
 				if(cend == remainder.c_str() || errno == ERANGE)
 					return fail("bad constant value '" + remainder + "'");
@@ -383,7 +383,7 @@ namespace rat {
 				if(!allDigits(toks[0].substr(1)))
 					return fail("bad proj index '" + toks[0] + "'");
 				errno = 0;
-				unsigned long pj = std::strtoul(toks[0].c_str() + 1, nullptr, 10);
+				U64 pj = std::strtoul(toks[0].c_str() + 1, nullptr, 10);
 				if(errno == ERANGE || pj > 0xffffffffUL)
 					return fail("proj index out of range '" + toks[0] + "'");
 				pn.projIndex = (U32)pj;
@@ -447,7 +447,7 @@ namespace rat {
 				if(laneTok.size() < 2 || laneTok[0] != '#' || !allDigits(laneTok.substr(1)))
 					return fail("malformed lane selector (expected #index): " + line);
 				errno = 0;
-				unsigned long lane = std::strtoul(laneTok.c_str() + 1, nullptr, 10);
+				U64 lane = std::strtoul(laneTok.c_str() + 1, nullptr, 10);
 				if(errno == ERANGE || lane > 0xffffffffUL)
 					return fail("lane selector out of range: " + line);
 				pn.projIndex = (U32)lane; // reuse the proj payload slot for the selector

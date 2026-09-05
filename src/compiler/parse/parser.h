@@ -6,6 +6,62 @@
 #include "target_layout.h"
 
 namespace rat::cc {
+	template <typename V> struct ScopeMap {
+		struct Undo {
+			String name;
+			V prev;
+			B32 hadPrev;
+		};
+		Map<String, V> table;
+		List<Undo> undo;
+		List<U32> marks;
+
+		const V* get(const String& key) const; // null when absent
+		void push() { marks.push_back((U32)undo.size()); }
+		void pop();
+		void set(const String& key, V value);
+		void erase(const String& key);
+	};
+
+	template <typename V> const V* ScopeMap<V>::get(const String& key) const {
+		auto it = table.find(key);
+		return it == table.end() ? nullptr : &it->second;
+	}
+
+	template <typename V> void ScopeMap<V>::pop() {
+		U32 mark = marks.back();
+		marks.pop_back();
+		while(undo.size() > mark) {
+			Undo& u = undo.back();
+			if(u.hadPrev)
+				table.insert_or_assign(u.name, u.prev);
+			else
+				table.erase(u.name);
+			undo.pop_back();
+		}
+	}
+
+	template <typename V> void ScopeMap<V>::set(const String& key, V value) {
+		auto [it, inserted] = table.try_emplace(key, value);
+		if(inserted) {
+			if(!marks.empty())
+				undo.push_back({key, V{}, false});
+		} else {
+			if(!marks.empty())
+				undo.push_back({key, it->second, true});
+			it->second = value;
+		}
+	}
+
+	template <typename V> void ScopeMap<V>::erase(const String& key) {
+		auto it = table.find(key);
+		if(it == table.end())
+			return;
+		if(!marks.empty())
+			undo.push_back({key, it->second, true});
+		table.erase(it);
+	}
+
 	struct Parser {
 		Parser(TokenStream& lexer, Arena& arena, const TargetLayout& layout);
 
@@ -19,7 +75,7 @@ namespace rat::cc {
 		Token advance() { return lex.next(); }
 		B32 check(TokKind kind) { return peek().kind == kind; }
 		B32 accept(TokKind kind);
-		B32 expect(TokKind kind, const char* what);
+		B32 expect(TokKind kind, const C8* what);
 		void fail(const Token& at, const String& msg);
 
 		// grammar
@@ -27,12 +83,6 @@ namespace rat::cc {
 		B32 parseTypeSpec(CType& out);
 		B32 parseAlignasSpec(U32& align);
 		B32 acceptTrailingAlignas(U32& align);
-		void setStorage(B32 isStatic, B32 isExtern, B32 isInline, B32 isNoInline) {
-			sawStatic = isStatic;
-			sawExtern = isExtern;
-			sawInline = isInline;
-			sawNoinline = isNoInline;
-		}
 		FuncDef* parseFunctionRest(CType ret,
 															 const Token& nameTok,
 															 const Token& start,
@@ -65,6 +115,8 @@ namespace rat::cc {
 		void adjustParamType(CType& t, const Expr** vlaBound = nullptr);
 		B32 parseParamTypeList(FuncType* ft);
 		Stmt* parseCompound();
+		void pushScope();
+		void popScope();
 		Stmt* parseStatement();
 		Stmt* parseAsmStatement();
 		B32 parseAsmOperands(List<AsmOperand>& out);
@@ -140,31 +192,42 @@ namespace rat::cc {
 		U32 fieldAlign(CType t) const {
 			return isAggregate(t) ? t.strukt->align : (U32)typeSizeBytes(t);
 		}
-
-		TokenStream& lex;
-		Arena& arena;
-		TargetLayout lay;
-		U32 parseDepth = 0;
-		B32 failed = false;
-		B32 sawStatic = false;
-		B32 sawExtern = false;
-		B32 sawInline = false;
-		B32 sawNoinline = false;
-		U32 sawAlignas = 0;
-		String errMsg;
-		String curFuncName;
-		Map<String, I64> enumConstants;
-		Map<String, B32> enumSignedTags;
+	private:
+		struct DeclSpecs {
+			B32 isStatic = false;
+			B32 isExtern = false;
+			B32 isInline = false;
+			B32 isNoInline = false;
+		};
 		struct TagBinding {
 			StructType* type = nullptr;
 			U32 depth = 0;
 		};
-		Map<String, TagBinding> structTypes;
+
+		// input
+		TokenStream& lex;
+		Arena& arena;
+		TargetLayout lay;
+
+		// parse state
+		U32 parseDepth = 0;
+		B32 failed = false;
+		String errMsg;
+		String curFuncName;
+		DeclSpecs specs; // storage of the last parsed type spec
+		U32 specAlign = 0;
+
+		// scopes
 		U32 scopeDepth = 0;
+		ScopeMap<CType> typedefs;
+		ScopeMap<I64> enumConstants;
+		ScopeMap<B32> enumSignedTags;
+		ScopeMap<TagBinding> structTypes;
+
+		// unit-wide tables
 		Map<U32, StructType*> complexLayouts;
-		Map<String, CType> typedefs;
-		List<FuncDef*> blockProtos;
 		Map<String, FuncDef*> funcDefs;
+		List<FuncDef*> blockProtos;
 	};
 } // namespace rat::cc
 
