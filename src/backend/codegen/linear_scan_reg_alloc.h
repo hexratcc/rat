@@ -64,15 +64,16 @@ namespace rat {
 		};
 
 		B32 anySpilled() const override {
-			for(const Interval& iv : intervals)
-				if(iv.live() && iv.spilled)
+			for(U32 v = 1; v < fn->nextVReg; ++v)
+				if(intervals[v].live() && intervals[v].spilled)
 					return true;
 			return false;
 		}
 
 		void resetState() override {
-			for(Interval& iv : intervals)
-				iv.reset();
+			U32 nv = std::min((U32)intervals.size(), fn->nextVReg);
+			for(U32 v = 0; v < nv; ++v)
+				intervals[v].reset();
 		}
 		void solve() override;
 		Assignment assignmentOf(VReg v) override;
