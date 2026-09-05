@@ -1,8 +1,7 @@
-// generic IR plumbing
+// generic IR plumbing, address group signatures and the structural hash
 
 #include "pass/opt/slp/slp_util.h"
 
-#include "analysis/alias_analysis.h"
 #include "ir/node.h"
 #include "ir/opcode.h"
 #include "ir/type.h"
@@ -44,7 +43,21 @@ namespace rat {
 		}
 	}
 
-	B32 slp::identifiedBase(const Node* n) { return n && AliasAnalysis::isIdentified(n); }
+	String slp::groupSig(const RefinedAddr& k) {
+		String s = std::to_string(k.base->getId());
+		for(const auto& [var, scale] : k.terms) {
+			s += ',';
+			s += std::to_string(var->getId());
+			s += ':';
+			s += std::to_string(scale);
+		}
+		return s;
+	}
+
+	U32 slp::laneCountFor(U32 esz) { return kVecBytes / esz; }
+
+	// element widths with an SSE packed form (i32/f32 and i64/f64)
+	B32 slp::supportedEsz(U32 esz) { return esz == 4 || esz == 8; }
 
 	B32 slp::dataCone(const Node* root, U32 cap, List<const Node*>& out) {
 		List<const Node*> work = {root};
@@ -68,7 +81,7 @@ namespace rat {
 	// first load reached walking the bounded value cone, or null
 	LoadNode* slp::firstLoadInCone(Node* root, U32 cap) {
 		// a partial cone (dataCone hit the cap) is fine: callers use this only for
-		// best-effort canonical ordering / anchoring
+		// best-effort canonical ordering
 		List<const Node*> cone;
 		dataCone(root, cap, cone);
 		for(const Node* c : cone)
@@ -114,8 +127,47 @@ namespace rat {
 				u->setInput(t, to);
 	}
 
-	U32 slp::laneCountFor(U32 esz) { return kVecBytes / esz; }
+	U64 slp::ShapeHash::mix(U64 h, U64 v) {
+		h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+		return h;
+	}
 
-	// element widths with an SSE packed form (i32/f32 and i64/f64)
-	B32 slp::supportedEsz(U32 esz) { return esz == 4 || esz == 8; }
+	U64 slp::ShapeHash::operator()(const Node* n) { return shape(n, kDepth); }
+
+	U64 slp::ShapeHash::shape(const Node* n, U32 depth) {
+		if(!n)
+			return 0x51ab;
+		if(depth == kDepth) {
+			if(auto it = memo.find(n); it != memo.end())
+				return it->second;
+		}
+		U64 h = mix((U64)n->getOpcode() << 8, n->getType()->getUid());
+		if(const LoadNode* l = dyn_cast<LoadNode>(n)) {
+			RefinedAddr ra = refineAddr(const_cast<LoadNode*>(l)->getPointer(), 1);
+			U64 baseId = 0;
+			if(ra.base)
+				baseId = ra.base->getId();
+			h = mix(h, baseId);
+			for(const auto& [var, scale] : ra.terms)
+				h = mix(mix(h, var->getId()), (U64)scale);
+		}
+		if(depth && isArithmeticOpcode(n->getOpcode())) {
+			U32 e = n->getInputCount();
+			if(n->isCommutative() && e == 2) {
+				// order-independent combine so commutative operands hash the same either way
+				U64 a = shape(n->getInput(0), depth - 1);
+				U64 b = shape(n->getInput(1), depth - 1);
+				if(a < b)
+					h = mix(h, mix(a, b));
+				else
+					h = mix(h, mix(b, a));
+			} else {
+				for(U32 i = 0; i < e; ++i)
+					h = mix(h, shape(n->getInput(i), depth - 1));
+			}
+		}
+		if(depth == kDepth)
+			memo.emplace(n, h);
+		return h;
+	}
 } // namespace rat

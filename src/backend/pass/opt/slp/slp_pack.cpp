@@ -2,33 +2,31 @@
 
 #include "pass/opt/slp/slp_pack.h"
 
-#include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/module.h"
-#include "target/target.h"
 
 #include <iostream>
 
 namespace rat {
 	using namespace slp;
 
-	B32 SlpPackPass::statsEnabled() {
+	B32 slp::statsEnabled() {
 		static B32 v = envFlag("RAT_SLP_STATS");
 		return v;
 	}
-	B32 SlpPackPass::shapesDisabled() {
+	B32 slp::shapesDisabled() {
 		static B32 v = envFlag("RAT_SLP_NO_SHAPES");
 		return v;
 	}
-	B32 SlpPackPass::guardsDisabled() {
+	B32 slp::guardsDisabled() {
 		static B32 v = envFlag("RAT_SLP_NO_GUARDS");
 		return v;
 	}
-	B32 SlpPackPass::guardCostDisabled() {
+	B32 slp::guardCostDisabled() {
 		static B32 v = envFlag("RAT_SLP_NO_GUARD_COST");
 		return v;
 	}
-	B32 SlpPackPass::fpReduceEnabled() {
+	B32 slp::fpReduceEnabled() {
 		static B32 v = envFlag("RAT_SLP_FP_REDUCE");
 		return v;
 	}
@@ -47,18 +45,12 @@ namespace rat {
 								<< " reductions " << s.packedReduction << " rejected "
 								<< (s.rejectedTree + s.rejectedProfit + s.rejectedGuarded + s.rejectedOverlap)
 								<< " (tree " << s.rejectedTree << ", profit " << s.rejectedProfit << ", guard "
-								<< s.rejectedGuarded << ", overlap " << s.rejectedOverlap << ")\n"
-								<< "slp[" << module.getName() << "]: nodes: wload " << s.packWideLoad << " vbin "
-								<< s.packBinary << " splat " << s.packSplat << " (grouped " << s.splatGrouped
-								<< ") const " << s.packConst << " frontier " << s.packFrontier << " | orient-swaps "
-								<< s.orientSwaps << " memo-hits " << s.memoHits << "\n";
+								<< s.rejectedGuarded << ", overlap " << s.rejectedOverlap << ")\n";
 		}
 		return changed;
 	}
 
 	U32 SlpPackPass::runOnFunction(Function& fn, const TargetInfo& target) {
-		U32 ptrBytes = target.getPointerSizeInBytes();
-		AliasAnalysis aa(ptrBytes);
-		return Slp(fn, aa, ptrBytes, target.hasSse41(), stats).run();
+		return Slp(fn, target, stats).run();
 	}
 } // namespace rat

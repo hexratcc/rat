@@ -2,16 +2,24 @@
 
 #include "pass/opt/slp/slp_pack.h"
 
-#include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/node.h"
 #include "ir/opcode.h"
 #include "ir/type.h"
+#include "target/target.h"
 
 namespace rat {
 	using namespace slp;
 
-	StoreNode* SlpPackPass::soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers) {
+	namespace detail {
+		// control edge is the cold (scalar fallback) arm of an earlier guard
+		B32 isElseProj(const Node* c) {
+			const ProjNode* p = dyn_cast<ProjNode>(c);
+			return p && p->getLabel() && String(p->getLabel()) == "slp.else";
+		}
+	} // namespace detail
+
+	StoreNode* slp::soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers) {
 		StoreNode* succ = nullptr;
 		for(Node* u : s->getUsers()) {
 			if(u->getOpcode() == Opcode::Store && cast<StoreNode>(u)->getMemory() == s) {
@@ -29,11 +37,7 @@ namespace rat {
 		return succ;
 	}
 
-	static bool storeByOffset(const SlpPackPass::StoreInfo* a, const SlpPackPass::StoreInfo* b) {
-		return a->key.constant < b->key.constant;
-	}
-
-	B32 SlpPackPass::windowAt(const Segment& seg, U32 at, WindowShape& out) {
+	B32 slp::windowAt(const Segment& seg, U32 at, WindowShape& out) {
 		if(at >= seg.size())
 			return false;
 		const RefinedAddr& k0 = seg[at].key;
@@ -55,87 +59,64 @@ namespace rat {
 				return false;
 			lo = std::min(lo, si.key.constant);
 		}
-		U64 seenLanes = 0;
+		// the byte offsets must fill the w lanes above lo exactly once each
+		out.byOff.assign(w, nullptr);
 		for(U32 j = 0; j < w; ++j) {
-			I64 d = seg[at + j].key.constant - lo;
-			if(d < 0 || d % esz != 0 || (U64)d / esz >= w)
+			U64 d = (U64)(seg[at + j].key.constant - lo);
+			if(d % esz != 0 || d / esz >= w || out.byOff[d / esz])
 				return false;
-			U64 bit = 1ull << ((U64)d / esz);
-			if(seenLanes & bit)
-				return false;
-			seenLanes |= bit;
+			out.byOff[d / esz] = &seg[at + j];
 		}
 		out.begin = at;
 		out.w = w;
-		out.esz = esz;
 		out.elemTy = elemTy;
 		out.ctrl = ctrl;
 		out.lo = lo;
-		out.byOff.clear();
-		for(U32 j = 0; j < w; ++j)
-			out.byOff.push_back(&seg[at + j]);
-		std::sort(out.byOff.begin(), out.byOff.end(), storeByOffset);
 		return true;
 	}
 
-	B32 SlpPackPass::windowHasObs(const Segment& seg, const WindowShape& ws) {
+	B32 slp::windowHasObs(const Segment& seg, const WindowShape& ws) {
 		for(U32 j = 0; j + 1 < ws.w; ++j)
 			if(!seg[ws.begin + j].observers.empty())
 				return true;
 		return false;
 	}
 
-	List<Node*> SlpPackPass::laneValues(const WindowShape& w) {
+	List<Node*> slp::laneValues(const WindowShape& w) {
 		List<Node*> vals;
 		for(const StoreInfo* si : w.byOff)
 			vals.push_back(si->store->getValue());
 		return vals;
 	}
 
-	void SlpPackPass::collectInterState(const Segment& seg,
-																			U32 begin,
-																			U32 count,
-																			Map<const Node*, List<I64>>& interWritten,
-																			Set<const Node*>& obsSet) {
-		// each store maps to the prefix of lane offsets stored before it in the window
-		List<I64> written;
-		for(U32 j = 0; j + 1 < count; ++j) {
-			written.push_back(seg[begin + j].key.constant);
-			interWritten.emplace(seg[begin + j].store, written);
-			for(LoadNode* L : seg[begin + j].observers)
-				obsSet.insert(L);
-		}
-	}
-
-	SlpPackPass::Slp::Slp(
-			Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats)
+	slp::Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
 	: fn(fn),
-		aa(aa),
-		ptrBytes(ptrBytes),
-		sse41(sse41),
+		ptrBytes(target.getPointerSizeInBytes()),
+		sse41(target.hasSse41()),
+		aa(ptrBytes),
 		stats(stats) {}
 
-	// base object of a store, computed once per store (refineAddr is not free)
-	Node* SlpPackPass::Slp::storeBaseObj(StoreNode* s, Map<const Node*, Node*>& cache) {
-		auto it = cache.find(s);
-		if(it != cache.end())
+	const Slp::StoreAddr& slp::Slp::storeAddr(StoreNode* s) {
+		auto it = addrCache.find(s);
+		if(it != addrCache.end())
 			return it->second;
-		Node* b = nullptr;
-		U32 ssz = aa.getAccessSize(s);
-		if(ssz) {
-			RefinedAddr sk = refineAddr(s->getPointer(), ssz);
-			if(sk.valid())
-				b = sk.base;
-		}
-		cache.emplace(s, b);
-		return b;
+		StoreAddr a;
+		U32 sz = aa.getAccessSize(s);
+		if(sz)
+			a.key = refineAddr(s->getPointer(), sz);
+		if(a.key.valid())
+			a.sig = groupSig(a.key);
+		return addrCache.emplace(s, std::move(a)).first->second;
+	}
+
+	B32 slp::Slp::disjointStores(StoreNode* a, StoreNode* b) {
+		const RefinedAddr& ka = storeAddr(a).key;
+		const RefinedAddr& kb = storeAddr(b).key;
+		return provablyDisjoint(aa, a->getPointer(), ka, ka.size, b->getPointer(), kb, kb.size);
 	}
 
 	// skip the maximal run of stores that are disjoint from loadBase purely by object identity
-	Node* SlpPackPass::Slp::skipDisjointRun(StoreNode* s,
-																					Node* loadBase,
-																					Map<const Node*, Node*>& storeBase,
-																					Map<const Node*, Map<const Node*, Node*>>& skipMemo) {
+	Node* slp::Slp::skipDisjointRun(StoreNode* s, Node* loadBase) {
 		Map<const Node*, Node*>& memo = skipMemo[loadBase];
 		List<const Node*> run;
 		Node* cur = s;
@@ -151,7 +132,7 @@ namespace rat {
 				endpoint = it->second;
 				break;
 			}
-			if(!AliasAnalysis::distinctObjects(loadBase, storeBaseObj(cs, storeBase))) {
+			if(!AliasAnalysis::distinctObjects(loadBase, storeAddr(cs).key.base)) {
 				endpoint = cur; // barrier candidate: needs the exact per-offset check
 				break;
 			}
@@ -163,10 +144,18 @@ namespace rat {
 		return endpoint;
 	}
 
-	void SlpPackPass::Slp::normalizeLoadEdges() {
-		Map<const Node*, Node*> storeBase;
-		Map<const Node*, Map<const Node*, Node*>> skipMemo;
+	// 'to' is at most kMaxHops stores up the chain from 'from'
+	B32 slp::Slp::reachesUp(Node* from, Node* to) {
+		for(U32 hop = 0; from != to; ++hop) {
+			StoreNode* s = dyn_cast<StoreNode>(from);
+			if(!s || hop == kMaxHops)
+				return false;
+			from = s->getMemory();
+		}
+		return true;
+	}
 
+	void slp::Slp::normalizeLoadEdges() {
 		for(Node* n : fn) {
 			LoadNode* l = dyn_cast<LoadNode>(n);
 			if(!l)
@@ -187,12 +176,12 @@ namespace rat {
 			RefinedAddr lk = refineAddr(l->getPointer(), lsz);
 			// the object-identity fast path is exact only when the address is a plain object
 			// reference (no loads in its cone, so the addrReadsState check cannot fire)
-			B32 fastPath = lk.base != nullptr && coneLoads.empty() && identifiedBase(lk.base);
+			B32 fastPath = coneLoads.empty() && AliasAnalysis::isIdentified(lk.base);
 
 			Node* m = l->getMemory();
 			while(StoreNode* s = dyn_cast<StoreNode>(m)) {
 				if(fastPath) {
-					Node* jumped = skipDisjointRun(s, lk.base, storeBase, skipMemo);
+					Node* jumped = skipDisjointRun(s, lk.base);
 					if(jumped != m) {
 						m = jumped; // skipped a run
 						continue;
@@ -204,10 +193,12 @@ namespace rat {
 				RefinedAddr sk = refineAddr(s->getPointer(), ssz);
 				if(!provablyDisjoint(aa, l->getPointer(), lk, lsz, s->getPointer(), sk, ssz))
 					break;
-				B32 addrReadsState = false;
+				// a load feeding the address must not sit at or below s: it would be ordered
+				// after s while the hoisted load is ordered before it, which is a schedule cycle
+				B32 addrPinned = false;
 				for(const Node* cl : coneLoads)
-					addrReadsState |= cast<LoadNode>(cl)->getMemory() == s;
-				if(addrReadsState)
+					addrPinned |= reachesUp(cast<LoadNode>(cl)->getMemory(), s);
+				if(addrPinned)
 					break;
 				m = s->getMemory();
 			}
@@ -218,7 +209,7 @@ namespace rat {
 
 	// when p's only consumer is s, reorder ... -> p -> s into ... -> pp -> s -> p;
 	// returns false (no swap) if p feeds anything besides s
-	B32 SlpPackPass::Slp::trySwapAdjacentStores(StoreNode* s, StoreNode* p) {
+	B32 slp::Slp::trySwapAdjacentStores(StoreNode* s, StoreNode* p) {
 		for(Node* u : p->getUsers())
 			if(u != s && usesValue(u, p))
 				return false;
@@ -233,33 +224,8 @@ namespace rat {
 		return true;
 	}
 
-	const String& SlpPackPass::Slp::storeSig(StoreNode* s) {
-		auto it = sigCache.find(s);
-		if(it != sigCache.end())
-			return it->second;
-		RefinedAddr k;
-		String sig;
-		if(storeKey(s, k))
-			sig = groupSig(k);
-		return sigCache.emplace(s, std::move(sig)).first->second;
-	}
-
-	B32 SlpPackPass::Slp::storeKey(StoreNode* s, RefinedAddr& out) {
-		auto it = keyCache.find(s);
-		if(it != keyCache.end()) {
-			out = it->second;
-			return out.valid();
-		}
-		RefinedAddr k;
-		U32 sz = aa.getAccessSize(s);
-		if(sz)
-			k = refineAddr(s->getPointer(), sz);
-		keyCache.emplace(s, k);
-		out = k;
-		return out.valid();
-	}
-
-	void SlpPackPass::Slp::normalizeStoreChains() {
+	// bubble each store up past disjoint predecessors until the chain is in canonical group order
+	void slp::Slp::normalizeStoreChains() {
 		B32 progress = true;
 		for(U32 round = 0; progress && round < 8; ++round) {
 			progress = false;
@@ -267,110 +233,118 @@ namespace rat {
 				StoreNode* s = dyn_cast<StoreNode>(n);
 				if(!s)
 					continue;
-				RefinedAddr ks;
-				if(!storeKey(s, ks))
+				const StoreAddr& as = storeAddr(s);
+				if(!as.key.valid())
 					continue;
-				const String& sig = storeSig(s);
 				U32 hops = 0;
 				while(hops++ < 16) {
 					StoreNode* p = dyn_cast<StoreNode>(s->getMemory());
 					if(!p || p->getControl() != s->getControl())
 						break;
-					RefinedAddr kp;
-					if(!storeKey(p, kp))
-						break;
-					const String& psig = storeSig(p);
-					if(sig >= psig)
+					const StoreAddr& ap = storeAddr(p);
+					if(!ap.key.valid() || as.sig >= ap.sig)
 						break; // same group, or already canonically ordered
-					if(!provablyDisjoint(aa, s->getPointer(), ks, ks.size, p->getPointer(), kp, kp.size))
+					if(!disjointStores(s, p) || !trySwapAdjacentStores(s, p))
 						break;
-					if(!trySwapAdjacentStores(s, p))
-						break; // p has another observer
 					progress = true;
 				}
 			}
 		}
 	}
 
-	static B32 byStoreOffset(const Pair<I64, StoreNode*>& a, const Pair<I64, StoreNode*>& b) {
-		return a.first < b.first;
-	}
-
 	// reorder a maximal same-group, same-control, observer-free store run into byte-offset order
-	void SlpPackPass::Slp::sortDisjointRuns() {
+	void slp::Slp::sortDisjointRuns() {
 		for(Node* n : fn) {
 			StoreNode* h = dyn_cast<StoreNode>(n);
 			if(!h)
 				continue;
-			RefinedAddr kh;
-			if(!storeKey(h, kh))
+			const StoreAddr& ah = storeAddr(h);
+			if(!ah.key.valid())
 				continue;
-			const String& sig = storeSig(h);
 			StoreNode* pred = dyn_cast<StoreNode>(h->getMemory());
-			if(pred && pred->getControl() == h->getControl() && storeSig(pred) == sig && !sig.empty())
+			if(pred && pred->getControl() == h->getControl() && storeAddr(pred).sig == ah.sig)
 				continue; // not a run head
-			List<StoreNode*> run;
-			List<RefinedAddr> keys;
-			StoreNode* cur = h;
-			RefinedAddr kc = kh;
+			List<StoreNode*> run = {h};
 			while(true) {
-				run.push_back(cur);
-				keys.push_back(kc);
 				List<LoadNode*> obs;
-				StoreNode* nx = soleChainSuccessor(cur, obs);
-				if(!obs.empty() || !nx || nx->getControl() != cur->getControl())
+				StoreNode* nx = soleChainSuccessor(run.back(), obs);
+				if(!obs.empty() || !nx || nx->getControl() != h->getControl())
 					break;
-				RefinedAddr kn;
-				if(storeSig(nx) != sig || !storeKey(nx, kn))
+				if(storeAddr(nx).sig != ah.sig)
 					break;
-				cur = nx;
-				kc = kn;
+				run.push_back(nx);
 			}
 			if(run.size() < 3)
 				continue;
 			StoreNode* tail = run.back();
 			if(tail->getUsers().size() != 1)
 				continue; // tail must have a single memory successor for the rewire to be sound
+			List<Pair<I64, StoreNode*>> ord;
+			for(StoreNode* s : run)
+				ord.push_back({storeAddr(s).key.constant, s});
 			B32 sorted = true;
-			for(U32 i = 1; i < run.size(); ++i)
-				if(keys[i].constant < keys[i - 1].constant)
+			for(U32 i = 1; i < ord.size(); ++i)
+				if(ord[i].first < ord[i - 1].first)
 					sorted = false;
 			if(sorted)
 				continue;
 			B32 disjoint = true;
 			for(U32 i = 0; i < run.size() && disjoint; ++i)
-				for(U32 j = i + 1; j < run.size(); ++j)
-					if(!provablyDisjoint(aa,
-															 run[i]->getPointer(),
-															 keys[i],
-															 keys[i].size,
-															 run[j]->getPointer(),
-															 keys[j],
-															 keys[j].size)) {
-						disjoint = false;
-						break;
-					}
+				for(U32 j = i + 1; j < run.size() && disjoint; ++j)
+					disjoint = disjointStores(run[i], run[j]);
 			if(!disjoint)
 				continue;
-			List<Pair<I64, StoreNode*>> ord;
-			for(U32 i = 0; i < run.size(); ++i)
-				ord.push_back({keys[i].constant, run[i]});
-			std::sort(ord.begin(), ord.end(), byStoreOffset);
+			std::sort(ord.begin(), ord.end());
 			Node* after = tail->getUsers()[0];
-			Node* mIn = run[0]->getMemory();
-			for(U32 i = 0; i < ord.size(); ++i)
-				ord[i].second->setInput(1, i == 0 ? mIn : (Node*)ord[i - 1].second);
-			rewriteInput(after, tail, ord.back().second);
+			Node* prev = run[0]->getMemory();
+			for(auto& [c, s] : ord) {
+				s->setInput(1, prev);
+				prev = s;
+			}
+			rewriteInput(after, tail, prev);
 		}
 	}
 
-	// control edge is the cold (scalar fallback) arm of an earlier guard
-	static B32 isElseProj(const Node* c) {
-		const ProjNode* p = dyn_cast<ProjNode>(c);
-		return p && p->getLabel() && String(p->getLabel()) == "slp.else";
+	Map<Node*, StoreInfo> slp::Slp::collectCandidates() {
+		Map<Node*, StoreInfo> cand;
+		for(Node* n : fn) {
+			StoreNode* s = dyn_cast<StoreNode>(n);
+			if(!s || !packableElem(s->getValue()->getType()))
+				continue;
+			const RefinedAddr& k = storeAddr(s).key;
+			if(k.valid())
+				cand[s] = {s, k, {}};
+		}
+		return cand;
 	}
 
-	U32 SlpPackPass::Slp::processSegment(Segment& seg) {
+	List<Segment> slp::Slp::buildSegments(const Map<Node*, StoreInfo>& cand) {
+		List<Segment> segments;
+		for(Node* n : fn) {
+			auto headIt = cand.find(n);
+			if(headIt == cand.end())
+				continue;
+			StoreNode* s = headIt->second.store;
+			Node* m = s->getMemory();
+			if(m && m->getOpcode() == Opcode::Store && cand.count(m))
+				continue; // not a head
+			Segment seg;
+			StoreNode* cur = s;
+			while(cur) {
+				auto it = cand.find(cur);
+				if(it == cand.end())
+					break;
+				StoreInfo info = it->second;
+				cur = soleChainSuccessor(cur, info.observers);
+				seg.push_back(std::move(info));
+			}
+			if(seg.size() >= 2)
+				segments.push_back(std::move(seg));
+		}
+		return segments;
+	}
+
+	U32 slp::Slp::processSegment(Segment& seg) {
 		U32 changed = 0;
 		U32 i = 0;
 		while(i < seg.size()) {
@@ -379,11 +353,11 @@ namespace rat {
 				++i;
 				continue;
 			}
-			B32 coldArm = isElseProj(w0.ctrl);
+			B32 coldArm = detail::isElseProj(w0.ctrl);
 			if(RegionNode* r = dyn_cast<RegionNode>(w0.ctrl)) {
 				coldArm = true;
 				for(U32 k = 0; coldArm && k < r->getPredecessorCount(); ++k)
-					coldArm = isElseProj(r->getPredecessor(k));
+					coldArm = detail::isElseProj(r->getPredecessor(k));
 			}
 			if(coldArm) {
 				++i;
@@ -413,60 +387,16 @@ namespace rat {
 		return changed;
 	}
 
-	U32 SlpPackPass::Slp::run() {
+	U32 slp::Slp::run() {
 		normalizeLoadEdges();
 		normalizeStoreChains();
 		sortDisjointRuns();
-		Map<Node*, StoreInfo> cand = collectCandidates();
 		U32 changed = 0;
-		if(!cand.empty()) {
-			List<Segment> segments = buildSegments(cand);
-			for(Segment& seg : segments)
-				changed += processSegment(seg);
-		}
+		for(Segment& seg : buildSegments(collectCandidates()))
+			changed += processSegment(seg);
 		changed += packReductions();
 		// sweep replaced scalars and any speculative, unprofitable trees
 		fn.eliminateDeadNodes();
 		return changed;
-	}
-
-	Map<Node*, SlpPackPass::StoreInfo> SlpPackPass::Slp::collectCandidates() {
-		Map<Node*, StoreInfo> cand;
-		for(Node* n : fn) {
-			StoreNode* s = dyn_cast<StoreNode>(n);
-			if(!s || !packableElem(s->getValue()->getType()))
-				continue;
-			RefinedAddr k = refineAddr(s->getPointer(), s->getValue()->getType()->byteSize(ptrBytes));
-			if(!k.valid())
-				continue;
-			cand[s] = {s, std::move(k), {}};
-		}
-		return cand;
-	}
-
-	List<SlpPackPass::Segment> SlpPackPass::Slp::buildSegments(const Map<Node*, StoreInfo>& cand) {
-		List<Segment> segments;
-		for(Node* n : fn) {
-			auto headIt = cand.find(n);
-			if(headIt == cand.end())
-				continue;
-			StoreNode* s = headIt->second.store;
-			Node* m = s->getMemory();
-			if(m && m->getOpcode() == Opcode::Store && cand.count(m))
-				continue; // not a head
-			Segment seg;
-			StoreNode* cur = s;
-			while(cur) {
-				auto it = cand.find(cur);
-				if(it == cand.end())
-					break;
-				StoreInfo info = it->second;
-				cur = soleChainSuccessor(cur, info.observers);
-				seg.push_back(std::move(info));
-			}
-			if(seg.size() >= 2)
-				segments.push_back(std::move(seg));
-		}
-		return segments;
 	}
 } // namespace rat

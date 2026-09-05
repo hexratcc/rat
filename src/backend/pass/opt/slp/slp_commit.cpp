@@ -1,4 +1,4 @@
-// guarded speculation & commit
+// window commit: static fusion, guarded speculation
 
 #include "pass/opt/slp/slp_pack.h"
 
@@ -10,45 +10,52 @@
 namespace rat {
 	using namespace slp;
 
-	// true when every operand of v is a compile-time constant
-	static B32 allInputsConst(Node* v) {
-		for(U32 j = 0, e = v->getInputCount(); j < e; ++j)
-			if(!isa<ConstantNode>(v->getInput(j)))
-				return false;
+	namespace detail {
+		// true when every operand of v is a compile-time constant
+		B32 allInputsConst(Node* v) {
+			for(U32 j = 0, e = v->getInputCount(); j < e; ++j)
+				if(!isa<ConstantNode>(v->getInput(j)))
+					return false;
+			return true;
+		}
+	} // namespace detail
+
+	// one vector per window
+	B32 slp::Slp::packRun(Packer& packer, const List<WindowShape>& run, List<Node*>& vecs) {
+		for(const WindowShape& w : run) {
+			packer.profit += (I32)w.w - 1; // the fused store itself
+			Node* v = packer.packTuple(laneValues(w), w.elemTy, 0);
+			if(!v) {
+				++stats.rejectedTree;
+				return false; // lane tuple could not be built
+			}
+			vecs.push_back(v);
+		}
 		return true;
 	}
 
-	U32 SlpPackPass::Slp::tryStaticWindow(Segment& seg, U32 i, const WindowShape& w0) {
-		Map<const Node*, List<I64>> interWritten;
-		Set<const Node*> obsSet;
-		collectInterState(seg, i, w0.w, interWritten, obsSet);
-		RefinedAddr wkey = w0.byOff[0]->key;
-		Packer packer(fn, ptrBytes, sse41, shapes, stats);
-		packer.bindWindow(seg[i].store->getMemory(), &wkey, &interWritten, &obsSet, &addrAnchors);
-		packer.profit += (I32)w0.w - 1; // the fused store itself
-		Node* vec = packer.packTuple(laneValues(w0), w0.elemTy, 0);
+	U32 slp::Slp::tryStaticWindow(Segment& seg, U32 i, const WindowShape& w0) {
+		const RefinedAddr& wkey = w0.byOff[0]->key;
+		Packer packer(*this, seg[i].store->getMemory(), &wkey);
+		packer.collectRun(seg, i, w0.w);
+		List<Node*> vecs;
+		if(!packRun(packer, {w0}, vecs))
+			return 0;
+		Node* vec = vecs[0];
 
 		// a splat or an all-constant pack needs no scalar setup, so it is worth fusing
 		// even with no interior vector arithmetic
-		B32 splat = vec && vec->getOpcode() == Opcode::Splat;
-		B32 constPack = vec && vec->getOpcode() == Opcode::Pack && allInputsConst(vec);
+		B32 splat = vec->getOpcode() == Opcode::Splat;
+		B32 constPack = vec->getOpcode() == Opcode::Pack && detail::allInputsConst(vec);
 		B32 cheapFill = splat || constPack;
-
-		B32 profitable = packer.profit >= kMinProfit && (packer.interior > 0 || cheapFill);
-		if(!vec || !packer.guardGroups.empty() || !profitable) {
-			if(!vec)
-				++stats.rejectedTree;
-			else
-				++stats.rejectedProfit;
+		if(packer.profit < kMinProfit || (packer.interior == 0 && !cheapFill)) {
+			++stats.rejectedProfit;
 			return 0;
 		}
 
 		StoreNode* lastInChain = seg[i + w0.w - 1].store;
-		Node* wide = fn.create<StoreNode>(fn.memTy(),
-																			w0.ctrl,
-																			packer.memIn,
-																			packer.anchorPtr(w0.byOff[0]->store->getPointer(), wkey),
-																			vec);
+		Node* ptr = packer.anchorPtr(w0.byOff[0]->store->getPointer(), wkey);
+		Node* wide = fn.create<StoreNode>(fn.memTy(), w0.ctrl, packer.memIn, ptr, vec);
 		lastInChain->replaceAllUsesWith(wide);
 		for(U32 j = 0; j < w0.w; ++j)
 			fn.removeNode(seg[i + j].store);
@@ -57,7 +64,8 @@ namespace rat {
 		return w0.w;
 	}
 
-	U32 SlpPackPass::Slp::tryGuardedRun(Segment& seg, U32 i, const WindowShape& w0) {
+	U32 slp::Slp::tryGuardedRun(Segment& seg, U32 i, const WindowShape& w0) {
+		// extend to contiguous same-group windows that can share one guard branch
 		List<WindowShape> run = {w0};
 		while(run.size() < kMaxRunWindows) {
 			WindowShape wn;
@@ -65,52 +73,38 @@ namespace rat {
 				break;
 			B32 sameGroup = wn.byOff[0]->key.sameGroup(w0.byOff[0]->key);
 			B32 contiguous = wn.lo == w0.lo + (I64)(run.size() * kVecBytes);
-			B32 sameShape = wn.ctrl == w0.ctrl && wn.esz == w0.esz;
-			if(!sameGroup || !contiguous || !sameShape)
+			if(!sameGroup || !contiguous || wn.ctrl != w0.ctrl)
 				break;
 			run.push_back(std::move(wn));
 		}
 		U32 n = (U32)run.size();
 		U32 total = n * w0.w;
 		stats.windowsSeen += n - 1; // run extensions
-		Node* memIn = seg[i].store->getMemory();
-		Node* wPtr = w0.byOff[0]->store->getPointer();
-		RefinedAddr wkey = w0.byOff[0]->key;
-		Map<const Node*, List<I64>> interWritten;
-		Set<const Node*> obsSet;
-		collectInterState(seg, i, total, interWritten, obsSet);
 
-		Packer packer(fn, ptrBytes, sse41, shapes, stats);
-		packer.bindWindow(memIn, &wkey, &interWritten, &obsSet, &addrAnchors);
+		Packer packer(*this, seg[i].store->getMemory(), &w0.byOff[0]->key);
+		packer.collectRun(seg, i, total);
 		List<Node*> vecs;
-		B32 treeOk = true;
-		for(U32 k = 0; k < n && treeOk; ++k) {
-			packer.profit += (I32)w0.w - 1; // each fused store
-			if(Node* v = packer.packTuple(laneValues(run[k]), w0.elemTy, 0))
-				vecs.push_back(v);
-			else
-				treeOk = false;
-		}
+		if(!packRun(packer, run, vecs))
+			return 0;
 
+		Node* wPtr = w0.byOff[0]->store->getPointer();
 		I32 guardCost = 0;
 		if(!guardCostDisabled())
 			guardCost = (I32)packer.guardGroups.size() * kGuardCheckCost + kGuardBranchCost;
 		B32 profitable = packer.profit - guardCost >= (I32)(kMinProfit * n) && packer.interior >= n;
 		B32 withinBudget = packer.guardGroups.size() <= kMaxGuards;
-		B32 accept = treeOk && profitable && withinBudget && !packer.coneTouchesObserver(wPtr);
-		for(const auto& g : packer.guardGroups)
+		B32 accept = profitable && withinBudget && !packer.coneTouchesObserver(wPtr);
+		for(const Packer::GuardGroup& g : packer.guardGroups)
 			accept = accept && !packer.coneTouchesObserver(g.ptr);
-		if(accept)
-			accept = observersConfined(seg, i, total, obsSet);
+		// every observer must feed only the scalar stores of this run
+		for(const Node* obs : packer.observers)
+			accept = accept && coneEndsInStores(obs, packer.runStores, 128);
 		if(!accept) {
-			if(!treeOk)
-				++stats.rejectedTree;
-			else
-				++stats.rejectedGuarded;
+			++stats.rejectedGuarded;
 			return 0;
 		}
 
-		commitGuardedRun(seg, i, run, vecs, packer, interWritten);
+		commitGuardedRun(seg, i, run, vecs, packer);
 		packer.coalesceSplats();
 		stats.packedGuarded += n;
 		++stats.guardedRuns;
@@ -118,40 +112,16 @@ namespace rat {
 		return total;
 	}
 
-	B32 SlpPackPass::Slp::observersConfined(const Segment& seg,
-																					U32 i,
-																					U32 total,
-																					const Set<const Node*>& obsSet) const {
-		Set<const Node*> runStores;
-		for(U32 j = 0; j < total; ++j)
-			runStores.insert(seg[i + j].store);
-		for(const Node* obs : obsSet)
-			if(!coneEndsInStores(obs, runStores, 128))
-				return false;
-		return true;
-	}
-
-	void SlpPackPass::Slp::commitGuardedRun(Segment& seg,
-																					U32 i,
-																					const List<WindowShape>& run,
-																					const List<Node*>& vecs,
-																					Packer& packer,
-																					const Map<const Node*, List<I64>>& interWritten) {
+	void slp::Slp::commitGuardedRun(
+			Segment& seg, U32 i, const List<WindowShape>& run, const List<Node*>& vecs, Packer& packer) {
 		const WindowShape& w0 = run[0];
 		U32 n = (U32)run.size();
 		U32 total = n * w0.w;
-		Node* memIn = seg[i].store->getMemory();
 		Node* wPtr = w0.byOff[0]->store->getPointer();
 		StoreNode* lastInChain = seg[i + total - 1].store;
-		Set<const Node*> runStores;
-		for(U32 j = 0; j < total; ++j)
-			runStores.insert(seg[i + j].store);
 		Type* ctrlTy = fn.ctrlTy();
-		Node* wEnd =
-				fn.create<BinaryNode>(Opcode::Add,
-															wPtr->getType(),
-															wPtr,
-															fn.create<ConstantNode>(fn.types().getInt(64), (I64)(n * kVecBytes)));
+		Node* runBytes = fn.create<ConstantNode>(fn.types().getInt(64), (I64)(n * kVecBytes));
+		Node* wEnd = fn.create<BinaryNode>(Opcode::Add, wPtr->getType(), wPtr, runBytes);
 
 		// guard cascade: speculate in the then-arm, keep the scalar path in the else-arm
 		Node* iff = nullptr;
@@ -163,30 +133,19 @@ namespace rat {
 		else
 			elseP = fn.create<RegionNode>(ctrlTy, fails);
 
-		// sink the speculated wide loads into the then-arm
-		for(U32 k = 0; k < n; ++k) {
-			List<const Node*> cone;
-			if(!dataCone(vecs[k], 128, cone))
-				continue;
-			for(const Node* c : cone) {
-				LoadNode* ld = dyn_cast<LoadNode>(const_cast<Node*>(c));
-				if(ld && ld->getControl() == w0.ctrl)
-					ld->setInput(0, thenP);
-			}
+		// sink the speculated loads into the then-arm
+		for(const Node* c : packer.madeLoads) {
+			LoadNode* ld = cast<LoadNode>(const_cast<Node*>(c));
+			if(ld->getControl() == w0.ctrl)
+				ld->setInput(0, thenP);
 		}
 
 		// wide stores chain down the then-arm
-		Node* prevMem = memIn;
-		Set<const Node*> wideStores;
+		Node* prevMem = packer.memIn;
 		for(U32 k = 0; k < n; ++k) {
-			Node* wide = fn.create<StoreNode>(
-					fn.memTy(),
-					thenP,
-					prevMem,
-					packer.anchorPtr(run[k].byOff[0]->store->getPointer(), run[k].byOff[0]->key),
-					vecs[k]);
-			wideStores.insert(wide);
-			prevMem = wide;
+			const StoreInfo* lane0 = run[k].byOff[0];
+			Node* ptr = packer.anchorPtr(lane0->store->getPointer(), lane0->key);
+			prevMem = fn.create<StoreNode>(fn.memTy(), thenP, prevMem, ptr, vecs[k]);
 		}
 		Node* region = fn.create<RegionNode>(ctrlTy, List<Node*>{thenP, elseP});
 
@@ -202,35 +161,34 @@ namespace rat {
 		for(U32 j = 0; j < total; ++j)
 			seg[i + j].store->setInput(0, elseP);
 
-		Set<const Node*> preSet;
-		collectPreStates(memIn, preSet);
-		rerouteBlock(w0.ctrl, iff, region, elseP, wideStores, runStores, preSet, interWritten);
+		rerouteBlock(w0.ctrl, iff, region, elseP, packer);
 	}
 
-	Node* SlpPackPass::Slp::guardBranch(Node* ctrl, Node* pred) {
+	Node* slp::Slp::guardBranch(Node* ctrl, Node* pred) {
 		Type* ctrlTy = fn.ctrlTy();
 		Type* iffTy = fn.types().getTuple({ctrlTy, ctrlTy});
 		return fn.create<IfNode>(iffTy, ctrl, pred);
 	}
 
-	Node* SlpPackPass::Slp::guardProj(Node* of, U32 index, const C8* label) {
+	Node* slp::Slp::guardProj(Node* of, U32 index, const C8* label) {
 		return fn.create<ProjNode>(fn.ctrlTy(), of, index, label);
 	}
 
-	Node* SlpPackPass::Slp::emitGuardCascade(const List<Packer::GuardGroup>& groups,
-																					 Node* startCtrl,
-																					 Node* wPtr,
-																					 Node* wEnd,
-																					 Node*& iff,
-																					 List<Node*>& fails) {
+	Node* slp::Slp::emitGuardCascade(const List<Packer::GuardGroup>& groups,
+																	 Node* startCtrl,
+																	 Node* wPtr,
+																	 Node* wEnd,
+																	 Node*& iff,
+																	 List<Node*>& fails) {
 		Type* i64 = fn.types().getInt(64);
 		Type* boolTy = fn.boolTy();
 		Type* ctrlTy = fn.ctrlTy();
 		iff = nullptr;
 		Node* ctrl = startCtrl;
-		for(const auto& g : groups) {
-			Node* gEnd = fn.create<BinaryNode>(
-					Opcode::Add, g.ptr->getType(), g.ptr, fn.create<ConstantNode>(i64, g.maxC - g.minC));
+		for(const Packer::GuardGroup& g : groups) {
+			// disjoint iff the group range ends before the run or starts after it
+			Node* gBytes = fn.create<ConstantNode>(i64, g.maxC - g.minC);
+			Node* gEnd = fn.create<BinaryNode>(Opcode::Add, g.ptr->getType(), g.ptr, gBytes);
 			Node* bIf = guardBranch(ctrl, fn.create<CompareNode>(Opcode::Ule, boolTy, gEnd, wPtr));
 			Node* bT = guardProj(bIf, IfNode::thenProjIndex(), "slp.then");
 			Node* bF = guardProj(bIf, IfNode::elseProjIndex(), "slp.chk");
@@ -249,11 +207,12 @@ namespace rat {
 		return ctrl;
 	}
 
-	void SlpPackPass::Slp::collectPreStates(Node* memIn, Set<const Node*>& preSet) {
+	Set<const Node*> slp::Slp::preStates(Node* memIn) {
+		Set<const Node*> pre;
 		Node* m = memIn;
 		U32 hop = 0;
 		while(m && hop++ < 4096) {
-			preSet.insert(m);
+			pre.insert(m);
 			if(m->getOpcode() == Opcode::Store)
 				m = cast<StoreNode>(m)->getMemory();
 			else if(ProjNode* p = dyn_cast<ProjNode>(m)) {
@@ -268,21 +227,19 @@ namespace rat {
 				break; // phi or other merge: done
 			}
 		}
+		return pre;
 	}
 
-	void SlpPackPass::Slp::rerouteBlock(Node* startCtrl,
-																			Node* iff,
-																			Node* region,
-																			Node* elseP,
-																			const Set<const Node*>& wideStores,
-																			const Set<const Node*>& runStores,
-																			const Set<const Node*>& preSet,
-																			const Map<const Node*, List<I64>>& interWritten) {
+	// the wide stores hang off the then-arm and the scalar stores were moved to the
+	// else-arm already, so the only user left to skip is the first guard branch
+	void slp::Slp::rerouteBlock(
+			Node* startCtrl, Node* iff, Node* region, Node* elseP, const Packer& packer) {
+		Set<const Node*> preSet = preStates(packer.memIn);
 		List<Node*> ctrlUsers;
 		for(Node* u : startCtrl->getUsers())
 			ctrlUsers.push_back(u);
 		for(Node* u : ctrlUsers) {
-			if(u == iff || wideStores.count(u) || runStores.count(u))
+			if(u == iff)
 				continue;
 			Node* dest = nullptr; // null: keep the pre-branch anchor
 			if(isControlNode(u)) {
@@ -297,11 +254,11 @@ namespace rat {
 					m = cl->getMemory();
 				else if(AsmNode* as = dyn_cast<AsmNode>(u))
 					m = as->getMemory();
-				if(m && interWritten.count(m))
+				if(m && packer.interWritten.count(m))
 					dest = elseP;
 				else if(m && !preSet.count(m))
 					dest = region; // post-run
-				else if(m && isa<LoadNode>(u) && coneEndsInStores(u, runStores, 64))
+				else if(m && isa<LoadNode>(u) && coneEndsInStores(u, packer.runStores, 64))
 					dest = elseP; // pre-run load only the scalar arm reads
 			}
 			if(dest)
