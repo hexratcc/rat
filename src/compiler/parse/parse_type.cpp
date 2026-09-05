@@ -62,7 +62,7 @@ namespace rat::cc {
 	B32 Parser::startsType(const Token& tok) {
 		if(detail::isTypeStart(tok.kind))
 			return true;
-		return tok.kind == TokKind::Identifier && typedefs.count(lex.text(tok)) != 0;
+		return tok.kind == TokKind::Identifier && typedefs.get(lex.text(tok)) != nullptr;
 	}
 
 	B32 Parser::parseTypedef() {
@@ -148,35 +148,29 @@ namespace rat::cc {
 	}
 
 	B32 Parser::parseTypeSpec(CType& out) {
-		B32 isStatic = false;
-		B32 isExtern = false;
-		B32 isInline = false;
+		DeclSpecs seen;
 		B32 isConst = false;
-		B32 isNoInline = false;
 		I32 storageCount = 0;
-		sawStatic = false;
-		sawExtern = false;
-		sawInline = false;
-		sawNoinline = false;
-		sawAlignas = 0;
+		specs = DeclSpecs{};
+		specAlign = 0;
 		auto applyQualStorage = [&](TokKind sk) {
 			if(sk == TokKind::KwStatic)
-				isStatic = true;
+				seen.isStatic = true;
 			if(sk == TokKind::KwExtern)
-				isExtern = true;
+				seen.isExtern = true;
 			if(sk == TokKind::KwInline)
-				isInline = true;
+				seen.isInline = true;
 			if(sk == TokKind::KwConst)
 				isConst = true;
 			if(sk == TokKind::KwNoinline)
-				isNoInline = true;
+				seen.isNoInline = true;
 			if(sk == TokKind::KwStatic || sk == TokKind::KwExtern || sk == TokKind::KwAuto ||
 				 sk == TokKind::KwRegister)
 				++storageCount;
 		};
 		while(detail::isQualOrStorage(peek().kind) || peek().kind == TokKind::KwAlignas) {
 			if(peek().kind == TokKind::KwAlignas) {
-				if(!parseAlignasSpec(sawAlignas))
+				if(!parseAlignasSpec(specAlign))
 					return false;
 				continue;
 			}
@@ -187,15 +181,15 @@ namespace rat::cc {
 			// an attribute marker may trail the spec
 			while(peek().kind == TokKind::KwNoinline || peek().kind == TokKind::KwAlignas) {
 				if(peek().kind == TokKind::KwAlignas) {
-					parseAlignasSpec(sawAlignas);
+					parseAlignasSpec(specAlign);
 					continue;
 				}
-				isNoInline = true;
+				seen.isNoInline = true;
 				advance();
 			}
 			if(isConst)
 				out.quals |= 1u;
-			setStorage(isStatic, isExtern, isInline, isNoInline);
+			specs = seen;
 		};
 		if(storageCount > 1) {
 			fail(peek(), "more than one storage-class specifier");
@@ -217,10 +211,9 @@ namespace rat::cc {
 			return ok;
 		}
 		if(peek().kind == TokKind::Identifier) {
-			auto it = typedefs.find(lex.text(peek()));
-			if(it != typedefs.end()) {
+			if(const CType* td = typedefs.get(lex.text(peek()))) {
 				advance();
-				out = it->second;
+				out = *td;
 				finishSpec();
 				return true;
 			}
@@ -257,7 +250,7 @@ namespace rat::cc {
 			else if(k == TokKind::KwInt)
 				; // base int
 			else if(k == TokKind::KwAlignas) {
-				if(!parseAlignasSpec(sawAlignas))
+				if(!parseAlignasSpec(specAlign))
 					return false;
 				continue;
 			} else if(detail::isQualOrStorage(k)) {
@@ -304,12 +297,12 @@ namespace rat::cc {
 			} else
 				t.bits = 32;
 		}
-		if(!acceptTrailingAlignas(sawAlignas))
+		if(!acceptTrailingAlignas(specAlign))
 			return false;
 		if(isConst)
 			t.quals |= 1u;
 		out = t;
-		setStorage(isStatic, isExtern, isInline, isNoInline);
+		specs = seen;
 		return true;
 	}
 } // namespace rat::cc

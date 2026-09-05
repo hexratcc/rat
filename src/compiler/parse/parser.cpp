@@ -397,11 +397,11 @@ namespace rat::cc {
 				fail(peek(), "expected type specifier");
 				return nullptr;
 			}
-			B32 gExtern = sawExtern;
-			B32 gExternInline = sawExtern && sawInline;
-			B32 gStatic = sawStatic;
-			B32 gNoinline = sawNoinline;
-			U32 gAlign = sawAlignas;
+			B32 gExtern = specs.isExtern;
+			B32 gExternInline = specs.isExtern && specs.isInline;
+			B32 gStatic = specs.isStatic;
+			B32 gNoinline = specs.isNoInline;
+			U32 gAlign = specAlign;
 			CType first = base;
 			parsePointers(first);
 			if(first.ptr == 0 && peek().kind == TokKind::Semicolon) {

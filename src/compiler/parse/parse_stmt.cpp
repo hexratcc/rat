@@ -63,9 +63,9 @@ namespace rat::cc {
 			fail(peek(), "expected type specifier");
 			return nullptr;
 		}
-		B32 isStatic = sawStatic;
-		B32 isExtern = sawExtern;
-		U32 align = sawAlignas;
+		B32 isStatic = specs.isStatic;
+		B32 isExtern = specs.isExtern;
+		U32 align = specAlign;
 		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
 		if(peek().kind == TokKind::Semicolon) {
 			advance();

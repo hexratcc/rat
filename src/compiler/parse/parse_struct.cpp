@@ -20,7 +20,7 @@ namespace rat::cc {
 				fail(peek(), "expected member type");
 				return false;
 			}
-			U32 baseAlign = sawAlignas;
+			U32 baseAlign = specAlign;
 			if(peek().kind == TokKind::Semicolon && isStruct(base)) {
 				advance();
 				const StructType* inner = base.strukt;
@@ -220,9 +220,9 @@ namespace rat::cc {
 		B32 hasBody = peek().kind == TokKind::LBrace;
 		StructType* st = nullptr;
 		if(tag) {
-			auto it = structTypes.find(*tag);
-			if(it != structTypes.end() && !(hasBody && it->second.depth < scopeDepth))
-				st = it->second.type;
+			const TagBinding* bound = structTypes.get(*tag);
+			if(bound && !(hasBody && bound->depth < scopeDepth))
+				st = bound->type;
 			else {
 				st = arena.make<StructType>();
 				st->tag = *tag;
@@ -319,9 +319,8 @@ namespace rat::cc {
 			if(haveList)
 				enumSignedTags.set(tag, anyNegative);
 			else {
-				auto seen = enumSignedTags.find(tag);
-				if(seen != enumSignedTags.end())
-					anyNegative = seen->second;
+				if(const B32* seen = enumSignedTags.get(tag))
+					anyNegative = *seen;
 			}
 		}
 		out = ctInt();
