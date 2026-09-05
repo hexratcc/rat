@@ -2,16 +2,24 @@
 
 #include "pass/opt/slp/slp_pack.h"
 
-#include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/node.h"
 #include "ir/opcode.h"
 #include "ir/type.h"
+#include "target/target.h"
 
 namespace rat {
 	using namespace slp;
 
-	StoreNode* SlpPackPass::soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers) {
+	namespace detail {
+		// control edge is the cold (scalar fallback) arm of an earlier guard
+		B32 isElseProj(const Node* c) {
+			const ProjNode* p = dyn_cast<ProjNode>(c);
+			return p && p->getLabel() && String(p->getLabel()) == "slp.else";
+		}
+	} // namespace detail
+
+	StoreNode* slp::soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers) {
 		StoreNode* succ = nullptr;
 		for(Node* u : s->getUsers()) {
 			if(u->getOpcode() == Opcode::Store && cast<StoreNode>(u)->getMemory() == s) {
@@ -29,7 +37,7 @@ namespace rat {
 		return succ;
 	}
 
-	B32 SlpPackPass::windowAt(const Segment& seg, U32 at, WindowShape& out) {
+	B32 slp::windowAt(const Segment& seg, U32 at, WindowShape& out) {
 		if(at >= seg.size())
 			return false;
 		const RefinedAddr& k0 = seg[at].key;
@@ -67,29 +75,28 @@ namespace rat {
 		return true;
 	}
 
-	B32 SlpPackPass::windowHasObs(const Segment& seg, const WindowShape& ws) {
+	B32 slp::windowHasObs(const Segment& seg, const WindowShape& ws) {
 		for(U32 j = 0; j + 1 < ws.w; ++j)
 			if(!seg[ws.begin + j].observers.empty())
 				return true;
 		return false;
 	}
 
-	List<Node*> SlpPackPass::laneValues(const WindowShape& w) {
+	List<Node*> slp::laneValues(const WindowShape& w) {
 		List<Node*> vals;
 		for(const StoreInfo* si : w.byOff)
 			vals.push_back(si->store->getValue());
 		return vals;
 	}
 
-	SlpPackPass::Slp::Slp(
-			Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats)
+	slp::Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
 	: fn(fn),
-		aa(aa),
-		ptrBytes(ptrBytes),
-		sse41(sse41),
+		ptrBytes(target.getPointerSizeInBytes()),
+		sse41(target.hasSse41()),
+		aa(ptrBytes),
 		stats(stats) {}
 
-	const SlpPackPass::Slp::StoreAddr& SlpPackPass::Slp::storeAddr(StoreNode* s) {
+	const Slp::StoreAddr& slp::Slp::storeAddr(StoreNode* s) {
 		auto it = addrCache.find(s);
 		if(it != addrCache.end())
 			return it->second;
@@ -102,14 +109,14 @@ namespace rat {
 		return addrCache.emplace(s, std::move(a)).first->second;
 	}
 
-	B32 SlpPackPass::Slp::disjointStores(StoreNode* a, StoreNode* b) {
+	B32 slp::Slp::disjointStores(StoreNode* a, StoreNode* b) {
 		const RefinedAddr& ka = storeAddr(a).key;
 		const RefinedAddr& kb = storeAddr(b).key;
 		return provablyDisjoint(aa, a->getPointer(), ka, ka.size, b->getPointer(), kb, kb.size);
 	}
 
 	// skip the maximal run of stores that are disjoint from loadBase purely by object identity
-	Node* SlpPackPass::Slp::skipDisjointRun(StoreNode* s, Node* loadBase) {
+	Node* slp::Slp::skipDisjointRun(StoreNode* s, Node* loadBase) {
 		Map<const Node*, Node*>& memo = skipMemo[loadBase];
 		List<const Node*> run;
 		Node* cur = s;
@@ -138,7 +145,7 @@ namespace rat {
 	}
 
 	// 'to' is at most kMaxHops stores up the chain from 'from'
-	B32 SlpPackPass::Slp::reachesUp(Node* from, Node* to) {
+	B32 slp::Slp::reachesUp(Node* from, Node* to) {
 		for(U32 hop = 0; from != to; ++hop) {
 			StoreNode* s = dyn_cast<StoreNode>(from);
 			if(!s || hop == kMaxHops)
@@ -148,7 +155,7 @@ namespace rat {
 		return true;
 	}
 
-	void SlpPackPass::Slp::normalizeLoadEdges() {
+	void slp::Slp::normalizeLoadEdges() {
 		for(Node* n : fn) {
 			LoadNode* l = dyn_cast<LoadNode>(n);
 			if(!l)
@@ -202,7 +209,7 @@ namespace rat {
 
 	// when p's only consumer is s, reorder ... -> p -> s into ... -> pp -> s -> p;
 	// returns false (no swap) if p feeds anything besides s
-	B32 SlpPackPass::Slp::trySwapAdjacentStores(StoreNode* s, StoreNode* p) {
+	B32 slp::Slp::trySwapAdjacentStores(StoreNode* s, StoreNode* p) {
 		for(Node* u : p->getUsers())
 			if(u != s && usesValue(u, p))
 				return false;
@@ -218,7 +225,7 @@ namespace rat {
 	}
 
 	// bubble each store up past disjoint predecessors until the chain is in canonical group order
-	void SlpPackPass::Slp::normalizeStoreChains() {
+	void slp::Slp::normalizeStoreChains() {
 		B32 progress = true;
 		for(U32 round = 0; progress && round < 8; ++round) {
 			progress = false;
@@ -246,7 +253,7 @@ namespace rat {
 	}
 
 	// reorder a maximal same-group, same-control, observer-free store run into byte-offset order
-	void SlpPackPass::Slp::sortDisjointRuns() {
+	void slp::Slp::sortDisjointRuns() {
 		for(Node* n : fn) {
 			StoreNode* h = dyn_cast<StoreNode>(n);
 			if(!h)
@@ -298,13 +305,7 @@ namespace rat {
 		}
 	}
 
-	// control edge is the cold (scalar fallback) arm of an earlier guard
-	static B32 isElseProj(const Node* c) {
-		const ProjNode* p = dyn_cast<ProjNode>(c);
-		return p && p->getLabel() && String(p->getLabel()) == "slp.else";
-	}
-
-	Map<Node*, SlpPackPass::StoreInfo> SlpPackPass::Slp::collectCandidates() {
+	Map<Node*, StoreInfo> slp::Slp::collectCandidates() {
 		Map<Node*, StoreInfo> cand;
 		for(Node* n : fn) {
 			StoreNode* s = dyn_cast<StoreNode>(n);
@@ -317,7 +318,7 @@ namespace rat {
 		return cand;
 	}
 
-	List<SlpPackPass::Segment> SlpPackPass::Slp::buildSegments(const Map<Node*, StoreInfo>& cand) {
+	List<Segment> slp::Slp::buildSegments(const Map<Node*, StoreInfo>& cand) {
 		List<Segment> segments;
 		for(Node* n : fn) {
 			auto headIt = cand.find(n);
@@ -343,7 +344,7 @@ namespace rat {
 		return segments;
 	}
 
-	U32 SlpPackPass::Slp::processSegment(Segment& seg) {
+	U32 slp::Slp::processSegment(Segment& seg) {
 		U32 changed = 0;
 		U32 i = 0;
 		while(i < seg.size()) {
@@ -352,11 +353,11 @@ namespace rat {
 				++i;
 				continue;
 			}
-			B32 coldArm = isElseProj(w0.ctrl);
+			B32 coldArm = detail::isElseProj(w0.ctrl);
 			if(RegionNode* r = dyn_cast<RegionNode>(w0.ctrl)) {
 				coldArm = true;
 				for(U32 k = 0; coldArm && k < r->getPredecessorCount(); ++k)
-					coldArm = isElseProj(r->getPredecessor(k));
+					coldArm = detail::isElseProj(r->getPredecessor(k));
 			}
 			if(coldArm) {
 				++i;
@@ -386,7 +387,7 @@ namespace rat {
 		return changed;
 	}
 
-	U32 SlpPackPass::Slp::run() {
+	U32 slp::Slp::run() {
 		normalizeLoadEdges();
 		normalizeStoreChains();
 		sortDisjointRuns();

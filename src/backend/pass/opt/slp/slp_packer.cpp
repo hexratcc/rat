@@ -10,14 +10,14 @@
 namespace rat {
 	using namespace slp;
 
-	SlpPackPass::Packer::Packer(Slp& drv, Node* memIn, const RefinedAddr* windowKey)
+	slp::Packer::Packer(Slp& drv, Node* memIn, const RefinedAddr* windowKey)
 	: drv(drv),
 		fn(drv.fn),
 		memIn(memIn),
 		windowKey(windowKey) {}
 
 	// each inner store maps to the lane offsets stored before it
-	void SlpPackPass::Packer::collectRun(const Segment& seg, U32 begin, U32 count) {
+	void slp::Packer::collectRun(const Segment& seg, U32 begin, U32 count) {
 		List<I64> written;
 		for(U32 j = 0; j < count; ++j) {
 			const StoreInfo& si = seg[begin + j];
@@ -31,7 +31,7 @@ namespace rat {
 		}
 	}
 
-	void SlpPackPass::Packer::addGuard(const RefinedAddr& k, Node* lane0Ptr, U32 bytes) {
+	void slp::Packer::addGuard(const RefinedAddr& k, Node* lane0Ptr, U32 bytes) {
 		String sig = groupSig(k);
 		for(GuardGroup& g : guardGroups)
 			if(g.sig == sig) {
@@ -47,7 +47,7 @@ namespace rat {
 
 	// rewrite same-group wide-access pointers as anchor + byte delta so lowering
 	// folds a displacement (window formation already trusts the refined deltas)
-	Node* SlpPackPass::Packer::anchorPtr(Node* ptr, const RefinedAddr& k) {
+	Node* slp::Packer::anchorPtr(Node* ptr, const RefinedAddr& k) {
 		if(!k.valid())
 			return ptr;
 		auto [it, inserted] = drv.addrAnchors.try_emplace(groupSig(k), ptr, k.constant);
@@ -61,7 +61,7 @@ namespace rat {
 		return fn.create<BinaryNode>(Opcode::Add, ptr->getType(), anchor, off);
 	}
 
-	B32 SlpPackPass::Packer::coneTouchesObserver(const Node* n) const {
+	B32 slp::Packer::coneTouchesObserver(const Node* n) const {
 		if(observers.empty())
 			return false;
 		List<const Node*> cone;
@@ -73,7 +73,7 @@ namespace rat {
 		return false;
 	}
 
-	String SlpPackPass::Packer::tupleKey(const List<Node*>& lanes) {
+	String slp::Packer::tupleKey(const List<Node*>& lanes) {
 		String k;
 		k.reserve(lanes.size() * 10);
 		for(Node* n : lanes) {
@@ -83,7 +83,7 @@ namespace rat {
 		return k;
 	}
 
-	Node* SlpPackPass::Packer::packTuple(const List<Node*>& lanes, Type* elemTy, U32 depth) {
+	Node* slp::Packer::packTuple(const List<Node*>& lanes, Type* elemTy, U32 depth) {
 		Type* vecTy = fn.types().getVec(elemTy, (U32)lanes.size());
 
 		// splat: every lane is the same node
@@ -108,10 +108,8 @@ namespace rat {
 	}
 
 	// strategies in order
-	Node* SlpPackPass::Packer::packTupleUncached(const List<Node*>& lanes,
-																							 Type* elemTy,
-																							 Type* vecTy,
-																							 U32 depth) {
+	Node*
+	slp::Packer::packTupleUncached(const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth) {
 		U32 w = (U32)lanes.size();
 
 		// all-constant lanes
@@ -149,10 +147,8 @@ namespace rat {
 	}
 
 	// isomorphic binary lanes, recurse into the two operand tuples and rebuild the op
-	Node* SlpPackPass::Packer::packBinaryLanes(const List<Node*>& lanes,
-																						 Type* elemTy,
-																						 Type* vecTy,
-																						 U32 depth) {
+	Node*
+	slp::Packer::packBinaryLanes(const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth) {
 		U32 w = (U32)lanes.size();
 		Opcode op = lanes[0]->getOpcode();
 		for(Node* n : lanes)
@@ -191,7 +187,7 @@ namespace rat {
 		return fn.create<BinaryNode>(op, vecTy, lv, rv);
 	}
 
-	Node* SlpPackPass::Packer::packLoads(const List<Node*>& lanes, Type* elemTy, Type* vecTy) {
+	Node* slp::Packer::packLoads(const List<Node*>& lanes, Type* elemTy, Type* vecTy) {
 		U32 w = (U32)lanes.size();
 		U32 esz = elemTy->byteSize(drv.ptrBytes);
 		for(Node* n : lanes)
@@ -217,7 +213,8 @@ namespace rat {
 		if(!adjacent && !equal)
 			return nullptr;
 
-		// A same-group load range that straddles the store window without matching it exactly is a store-forward trap
+		// a same-group load range that straddles the store window without matching
+		// it exactly is a store-forward trap
 		if(windowKey && !equal && k0.sameGroup(*windowKey)) {
 			I64 sLo = windowKey->constant, sHi = sLo + (I64)(w * esz);
 			I64 lLo = k0.constant, lHi = lLo + (I64)(w * esz);
@@ -271,13 +268,13 @@ namespace rat {
 	}
 
 	// materialize a whole-vector load, or a splat when every lane hits one address
-	Node* SlpPackPass::Packer::packWideOrSplat(Node* mem,
-																						 LoadNode* first,
-																						 const RefinedAddr& k0,
-																						 Type* elemTy,
-																						 Type* vecTy,
-																						 U32 w,
-																						 B32 equal) {
+	Node* slp::Packer::packWideOrSplat(Node* mem,
+																		 LoadNode* first,
+																		 const RefinedAddr& k0,
+																		 Type* elemTy,
+																		 Type* vecTy,
+																		 U32 w,
+																		 B32 equal) {
 		Node* ptr = anchorPtr(first->getPointer(), k0);
 		if(equal) {
 			profit += (I32)w - 2; // w scalar loads become one load and one broadcast
@@ -296,17 +293,18 @@ namespace rat {
 
 	// splat reloads at consecutive addresses fold into one wide load
 	// each broadcast then picks its lane in-register instead of touching memory
-	void SlpPackPass::Packer::coalesceSplats() {
+	void slp::Packer::coalesceSplats() {
 		struct Cand {
-			String sig; // address group + state + control
-			I64 c;
-			Node* splat;
-			LoadNode* load;
 			bool operator<(const Cand& o) const {
 				if(sig != o.sig)
 					return sig < o.sig;
 				return c < o.c;
 			}
+
+			String sig; // address group + state + control
+			I64 c;
+			Node* splat;
+			LoadNode* load;
 		};
 		List<Cand> cs;
 		for(auto& [splat, load] : splatLoads) {

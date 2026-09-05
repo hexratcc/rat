@@ -17,11 +17,12 @@ namespace rat {
 		// bounded-depth structural hashing
 		struct ShapeHash {
 			static constexpr U32 kDepth = 4;
-			Map<const Node*, U64> memo; // at kDepth
 
 			static U64 mix(U64 h, U64 v);
 			U64 shape(const Node* n, U32 depth);
 			U64 operator()(const Node* n);
+
+			Map<const Node*, U64> memo; // at kDepth
 		};
 
 		B32 envFlag(const C8* name);

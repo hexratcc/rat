@@ -1,8 +1,12 @@
+// scheduling-free SLP vectorization: pack adjacent scalar stores (and add
+// reductions) into SSE vectors by rewriting the graph, no instruction motion
+
 #ifndef RAT_PASS_OPT_SLPPACK_H
 #define RAT_PASS_OPT_SLPPACK_H
 
 #include "core.h"
 
+#include "analysis/alias_analysis.h"
 #include "ir/opcode.h"
 #include "pass/opt/slp/slp_util.h"
 #include "pass/pass.h"
@@ -13,7 +17,6 @@ namespace rat {
 	struct LoadNode;
 	struct BinaryNode;
 	struct Type;
-	struct AliasAnalysis;
 
 	struct SlpStats {
 		U32 windowsSeen = 0;		 // structurally valid windows examined
@@ -28,16 +31,21 @@ namespace rat {
 		U32 rejectedOverlap = 0; // load range straddles the store window (store-forward trap)
 	};
 
-	struct SlpPackPass : FunctionPass {
-		using ShapeHash = slp::ShapeHash;
+	namespace slp {
+		constexpr U32 kMaxDepth = 16;				// pack-growth recursion bound
+		constexpr I32 kMinProfit = 2;				// scalar ops saved, net of lane plumbing
+		constexpr U32 kMaxRunWindows = 4;		// windows sharing one guard branch
+		constexpr U32 kMaxGuards = 4;				// runtime checks per guarded run
+		constexpr I32 kGuardCheckCost = 6;	// ops per runtime disjointness check
+		constexpr I32 kGuardBranchCost = 6; // branch + else-arm bloat per guarded run
+		constexpr U32 kMaxHops = 64;				// store-chain hops a reachability query may cover
 
-		static constexpr U32 kMaxDepth = 16;			 // pack-growth recursion bound
-		static constexpr I32 kMinProfit = 2;			 // scalar ops saved, net of lane plumbing
-		static constexpr U32 kMaxRunWindows = 4;	 // windows sharing one guard branch
-		static constexpr U32 kMaxGuards = 4;			 // runtime checks per guarded run
-		static constexpr I32 kGuardCheckCost = 6;	 // ops per runtime disjointness check
-		static constexpr I32 kGuardBranchCost = 6; // branch + else-arm bloat per guarded run
-		static constexpr U32 kMaxHops = 64;				 // store-chain hops a reachability query may cover
+		// env-gated diagnostics/tuning
+		B32 statsEnabled();
+		B32 shapesDisabled();
+		B32 guardsDisabled();
+		B32 guardCostDisabled();
+		B32 fpReduceEnabled();
 
 		struct StoreInfo {
 			StoreNode* store = nullptr;
@@ -57,40 +65,22 @@ namespace rat {
 			List<const StoreInfo*> byOff; // lane order
 		};
 
+		StoreNode* soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers);
+		B32 windowAt(const Segment& seg, U32 at, WindowShape& out);
+		B32 windowHasObs(const Segment& seg, const WindowShape& ws);
+		List<Node*> laneValues(const WindowShape& w);
+		List<Node*> flattenAddChain(BinaryNode* root, Opcode addOp, Type* t);
+
 		struct Slp;
 
 		// grows one vector value per store window
 		struct Packer {
-			Slp& drv;
-			Function& fn;
-
-			// window context
-			Node* memIn;
-			const RefinedAddr* windowKey;
-			Set<const Node*> runStores;								// the scalar stores being fused
-			Map<const Node*, List<I64>> interWritten; // inner store -> lane offsets stored before it
-			Set<const Node*> observers;								// loads reading an inner store's state
-			B32 dead = false; // a matched strategy could not be built, the window is rejected
-
 			// runtime disjointness guards
 			struct GuardGroup {
 				String sig;					 // group identity
 				Node* ptr = nullptr; // pointer of the lane at minC
 				I64 minC = 0, maxC = 0;
 			};
-
-			List<GuardGroup> guardGroups;
-
-			// loads this packer created; only these may be sunk into a speculative arm
-			Set<const Node*> madeLoads;
-
-			// splat reloads kept for post-commit coalescing into wide loads
-			List<Pair<Node*, LoadNode*>> splatLoads;
-
-			// tuple -> already built vector node, so shared subtrees pack once
-			Map<String, Node*> memo;
-			I32 profit = 0;
-			U32 interior = 0; // vector arithmetic / wide loads created
 
 			Packer(Slp& drv, Node* memIn, const RefinedAddr* windowKey);
 
@@ -111,39 +101,49 @@ namespace rat {
 														Type* vecTy,
 														U32 w,
 														B32 equal);
+
+			Slp& drv;
+			Function& fn;
+
+			// window context, null for reductions
+			Node* memIn;
+			const RefinedAddr* windowKey;
+			Set<const Node*> runStores;								// the scalar stores being fused
+			Map<const Node*, List<I64>> interWritten; // inner store -> lane offsets stored before it
+			Set<const Node*> observers;								// loads reading an inner store's state
+			B32 dead = false; // a matched strategy could not be built, the window is rejected
+			List<GuardGroup> guardGroups;
+			// splat reloads kept for post-commit coalescing into wide loads
+			List<Pair<Node*, LoadNode*>> splatLoads;
+			// loads this packer created; only these may be sunk into a speculative arm
+			Set<const Node*> madeLoads;
+			// tuple -> already built vector node, so shared subtrees pack once
+			Map<String, Node*> memo;
+			I32 profit = 0;
+			U32 interior = 0; // vector arithmetic / wide loads created
 		};
 
 		// function driver
 		struct Slp {
-			Function& fn;
-			const AliasAnalysis& aa;
-			U32 ptrBytes;
-			B32 sse41;
-			SlpStats& stats;
-			ShapeHash shapes;
-			Map<String, Pair<Node*, I64>> addrAnchors;
 			struct StoreAddr {
 				RefinedAddr key; // invalid when the pointer does not refine
 				String sig;			 // groupSig(key), empty when invalid
 			};
-			Map<const Node*, StoreAddr> addrCache;							// refineAddr is not free
-			Map<const Node*, Map<const Node*, Node*>> skipMemo; // load base -> store -> run end
 
-			Slp(Function& fn, const AliasAnalysis& aa, U32 ptrBytes, B32 sse41, SlpStats& stats);
+			Slp(Function& fn, const TargetInfo& target, SlpStats& stats);
 
 			const StoreAddr& storeAddr(StoreNode* s);
 			B32 disjointStores(StoreNode* a, StoreNode* b);
 			Node* skipDisjointRun(StoreNode* s, Node* loadBase);
 			B32 reachesUp(Node* from, Node* to);
 			void normalizeLoadEdges();
+			B32 trySwapAdjacentStores(StoreNode* s, StoreNode* p);
 			void normalizeStoreChains();
 			void sortDisjointRuns();
-			B32 trySwapAdjacentStores(StoreNode* s, StoreNode* p);
-			// thin fn.create wrappers for the guard cascade
-			Node* guardBranch(Node* ctrl, Node* pred);
-			Node* guardProj(Node* of, U32 index, const C8* label);
 			Map<Node*, StoreInfo> collectCandidates();
 			List<Segment> buildSegments(const Map<Node*, StoreInfo>& cand);
+			U32 processSegment(Segment& seg);
+			B32 packRun(Packer& packer, const List<WindowShape>& run, List<Node*>& vecs);
 			U32 tryStaticWindow(Segment& seg, U32 i, const WindowShape& w0);
 			U32 tryGuardedRun(Segment& seg, U32 i, const WindowShape& w0);
 			void commitGuardedRun(Segment& seg,
@@ -151,6 +151,9 @@ namespace rat {
 														const List<WindowShape>& run,
 														const List<Node*>& vecs,
 														Packer& packer);
+			// thin fn.create wrappers for the guard cascade
+			Node* guardBranch(Node* ctrl, Node* pred);
+			Node* guardProj(Node* of, U32 index, const C8* label);
 			// build the disjointness-guard branch cascade; returns the speculating
 			// then-control and fills iff (first branch) and fails (else-arm controls)
 			Node* emitGuardCascade(const List<Packer::GuardGroup>& groups,
@@ -164,30 +167,26 @@ namespace rat {
 			// steer every other user of the pre-branch control to the right arm
 			void
 			rerouteBlock(Node* startCtrl, Node* iff, Node* region, Node* elseP, const Packer& packer);
-			U32 processSegment(Segment& seg);
-			B32 packRun(Packer& packer, const List<WindowShape>& run, List<Node*>& vecs);
 			U32 packReduction(BinaryNode* root);
 			U32 packReductions();
 			U32 run();
-		};
 
+			Function& fn;
+			U32 ptrBytes;
+			B32 sse41;
+			AliasAnalysis aa;
+			SlpStats& stats;
+			ShapeHash shapes;
+			Map<String, Pair<Node*, I64>> addrAnchors; // group sig -> (anchor ptr, its refined constant)
+			Map<const Node*, StoreAddr> addrCache;		 // refineAddr is not free
+			Map<const Node*, Map<const Node*, Node*>> skipMemo; // load base -> store -> run end
+		};
+	} // namespace slp
+
+	struct SlpPackPass : FunctionPass {
 		const C8* name() const override;
 		B32 run(Module& module, const TargetInfo& target) override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
-
-		// env-gated diagnostics/tuning
-		static B32 statsEnabled();
-		static B32 shapesDisabled();
-		static B32 guardsDisabled();
-		static B32 guardCostDisabled();
-		static B32 fpReduceEnabled();
-
-		// window/segment machinery over the pass-specific StoreInfo/Segment/WindowShape
-		static StoreNode* soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers);
-		static B32 windowAt(const Segment& seg, U32 at, WindowShape& out);
-		static B32 windowHasObs(const Segment& seg, const WindowShape& ws);
-		static List<Node*> flattenAddChain(BinaryNode* root, Opcode addOp, Type* t);
-		static List<Node*> laneValues(const WindowShape& w);
 	private:
 		SlpStats stats;
 	};

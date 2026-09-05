@@ -1,4 +1,4 @@
-// guarded speculation & commit
+// window commit: static fusion, guarded speculation
 
 #include "pass/opt/slp/slp_pack.h"
 
@@ -10,16 +10,18 @@
 namespace rat {
 	using namespace slp;
 
-	// true when every operand of v is a compile-time constant
-	static B32 allInputsConst(Node* v) {
-		for(U32 j = 0, e = v->getInputCount(); j < e; ++j)
-			if(!isa<ConstantNode>(v->getInput(j)))
-				return false;
-		return true;
-	}
+	namespace detail {
+		// true when every operand of v is a compile-time constant
+		B32 allInputsConst(Node* v) {
+			for(U32 j = 0, e = v->getInputCount(); j < e; ++j)
+				if(!isa<ConstantNode>(v->getInput(j)))
+					return false;
+			return true;
+		}
+	} // namespace detail
 
 	// one vector per window
-	B32 SlpPackPass::Slp::packRun(Packer& packer, const List<WindowShape>& run, List<Node*>& vecs) {
+	B32 slp::Slp::packRun(Packer& packer, const List<WindowShape>& run, List<Node*>& vecs) {
 		for(const WindowShape& w : run) {
 			packer.profit += (I32)w.w - 1; // the fused store itself
 			Node* v = packer.packTuple(laneValues(w), w.elemTy, 0);
@@ -32,7 +34,7 @@ namespace rat {
 		return true;
 	}
 
-	U32 SlpPackPass::Slp::tryStaticWindow(Segment& seg, U32 i, const WindowShape& w0) {
+	U32 slp::Slp::tryStaticWindow(Segment& seg, U32 i, const WindowShape& w0) {
 		const RefinedAddr& wkey = w0.byOff[0]->key;
 		Packer packer(*this, seg[i].store->getMemory(), &wkey);
 		packer.collectRun(seg, i, w0.w);
@@ -44,7 +46,7 @@ namespace rat {
 		// a splat or an all-constant pack needs no scalar setup, so it is worth fusing
 		// even with no interior vector arithmetic
 		B32 splat = vec->getOpcode() == Opcode::Splat;
-		B32 constPack = vec->getOpcode() == Opcode::Pack && allInputsConst(vec);
+		B32 constPack = vec->getOpcode() == Opcode::Pack && detail::allInputsConst(vec);
 		B32 cheapFill = splat || constPack;
 		if(packer.profit < kMinProfit || (packer.interior == 0 && !cheapFill)) {
 			++stats.rejectedProfit;
@@ -52,11 +54,8 @@ namespace rat {
 		}
 
 		StoreNode* lastInChain = seg[i + w0.w - 1].store;
-		Node* wide = fn.create<StoreNode>(fn.memTy(),
-																			w0.ctrl,
-																			packer.memIn,
-																			packer.anchorPtr(w0.byOff[0]->store->getPointer(), wkey),
-																			vec);
+		Node* ptr = packer.anchorPtr(w0.byOff[0]->store->getPointer(), wkey);
+		Node* wide = fn.create<StoreNode>(fn.memTy(), w0.ctrl, packer.memIn, ptr, vec);
 		lastInChain->replaceAllUsesWith(wide);
 		for(U32 j = 0; j < w0.w; ++j)
 			fn.removeNode(seg[i + j].store);
@@ -65,7 +64,8 @@ namespace rat {
 		return w0.w;
 	}
 
-	U32 SlpPackPass::Slp::tryGuardedRun(Segment& seg, U32 i, const WindowShape& w0) {
+	U32 slp::Slp::tryGuardedRun(Segment& seg, U32 i, const WindowShape& w0) {
+		// extend to contiguous same-group windows that can share one guard branch
 		List<WindowShape> run = {w0};
 		while(run.size() < kMaxRunWindows) {
 			WindowShape wn;
@@ -80,7 +80,6 @@ namespace rat {
 		U32 n = (U32)run.size();
 		U32 total = n * w0.w;
 		stats.windowsSeen += n - 1; // run extensions
-		Node* wPtr = w0.byOff[0]->store->getPointer();
 
 		Packer packer(*this, seg[i].store->getMemory(), &w0.byOff[0]->key);
 		packer.collectRun(seg, i, total);
@@ -88,6 +87,7 @@ namespace rat {
 		if(!packRun(packer, run, vecs))
 			return 0;
 
+		Node* wPtr = w0.byOff[0]->store->getPointer();
 		I32 guardCost = 0;
 		if(!guardCostDisabled())
 			guardCost = (I32)packer.guardGroups.size() * kGuardCheckCost + kGuardBranchCost;
@@ -112,7 +112,7 @@ namespace rat {
 		return total;
 	}
 
-	void SlpPackPass::Slp::commitGuardedRun(
+	void slp::Slp::commitGuardedRun(
 			Segment& seg, U32 i, const List<WindowShape>& run, const List<Node*>& vecs, Packer& packer) {
 		const WindowShape& w0 = run[0];
 		U32 n = (U32)run.size();
@@ -164,30 +164,31 @@ namespace rat {
 		rerouteBlock(w0.ctrl, iff, region, elseP, packer);
 	}
 
-	Node* SlpPackPass::Slp::guardBranch(Node* ctrl, Node* pred) {
+	Node* slp::Slp::guardBranch(Node* ctrl, Node* pred) {
 		Type* ctrlTy = fn.ctrlTy();
 		Type* iffTy = fn.types().getTuple({ctrlTy, ctrlTy});
 		return fn.create<IfNode>(iffTy, ctrl, pred);
 	}
 
-	Node* SlpPackPass::Slp::guardProj(Node* of, U32 index, const C8* label) {
+	Node* slp::Slp::guardProj(Node* of, U32 index, const C8* label) {
 		return fn.create<ProjNode>(fn.ctrlTy(), of, index, label);
 	}
 
-	Node* SlpPackPass::Slp::emitGuardCascade(const List<Packer::GuardGroup>& groups,
-																					 Node* startCtrl,
-																					 Node* wPtr,
-																					 Node* wEnd,
-																					 Node*& iff,
-																					 List<Node*>& fails) {
+	Node* slp::Slp::emitGuardCascade(const List<Packer::GuardGroup>& groups,
+																	 Node* startCtrl,
+																	 Node* wPtr,
+																	 Node* wEnd,
+																	 Node*& iff,
+																	 List<Node*>& fails) {
 		Type* i64 = fn.types().getInt(64);
 		Type* boolTy = fn.boolTy();
 		Type* ctrlTy = fn.ctrlTy();
 		iff = nullptr;
 		Node* ctrl = startCtrl;
-		for(const auto& g : groups) {
-			Node* gEnd = fn.create<BinaryNode>(
-					Opcode::Add, g.ptr->getType(), g.ptr, fn.create<ConstantNode>(i64, g.maxC - g.minC));
+		for(const Packer::GuardGroup& g : groups) {
+			// disjoint iff the group range ends before the run or starts after it
+			Node* gBytes = fn.create<ConstantNode>(i64, g.maxC - g.minC);
+			Node* gEnd = fn.create<BinaryNode>(Opcode::Add, g.ptr->getType(), g.ptr, gBytes);
 			Node* bIf = guardBranch(ctrl, fn.create<CompareNode>(Opcode::Ule, boolTy, gEnd, wPtr));
 			Node* bT = guardProj(bIf, IfNode::thenProjIndex(), "slp.then");
 			Node* bF = guardProj(bIf, IfNode::elseProjIndex(), "slp.chk");
@@ -206,7 +207,7 @@ namespace rat {
 		return ctrl;
 	}
 
-	Set<const Node*> SlpPackPass::Slp::preStates(Node* memIn) {
+	Set<const Node*> slp::Slp::preStates(Node* memIn) {
 		Set<const Node*> pre;
 		Node* m = memIn;
 		U32 hop = 0;
@@ -231,7 +232,7 @@ namespace rat {
 
 	// the wide stores hang off the then-arm and the scalar stores were moved to the
 	// else-arm already, so the only user left to skip is the first guard branch
-	void SlpPackPass::Slp::rerouteBlock(
+	void slp::Slp::rerouteBlock(
 			Node* startCtrl, Node* iff, Node* region, Node* elseP, const Packer& packer) {
 		Set<const Node*> preSet = preStates(packer.memIn);
 		List<Node*> ctrlUsers;

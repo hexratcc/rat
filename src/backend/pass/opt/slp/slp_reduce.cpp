@@ -10,16 +10,18 @@
 namespace rat {
 	using namespace slp;
 
-	// refined address of the first leaf load in a reduction term, for canonical ordering
-	static B32 leafKey(Node* term, U32 esz, RefinedAddr& out) {
-		LoadNode* l = firstLoadInCone(term, 64);
-		if(!l)
-			return false;
-		out = refineAddr(l->getPointer(), esz);
-		return out.valid();
-	}
+	namespace detail {
+		// refined address of the first leaf load in a reduction term, for canonical ordering
+		B32 leafKey(Node* term, U32 esz, RefinedAddr& out) {
+			LoadNode* l = firstLoadInCone(term, 64);
+			if(!l)
+				return false;
+			out = refineAddr(l->getPointer(), esz);
+			return out.valid();
+		}
+	} // namespace detail
 
-	U32 SlpPackPass::Slp::packReduction(BinaryNode* root) {
+	U32 slp::Slp::packReduction(BinaryNode* root) {
 		Type* t = root->getType();
 		U32 esz = t->byteSize(ptrBytes);
 		U32 w = laneCountFor(esz);
@@ -34,19 +36,20 @@ namespace rat {
 		// canonical term order: sort by the first leaf load's refined address so
 		// grouping is robust against source-level reassociation
 		struct Keyed {
-			String sig;
-			I64 c;
-			Node* term;
 			bool operator<(const Keyed& o) const {
 				if(sig != o.sig)
 					return sig < o.sig;
 				return c < o.c;
 			}
+
+			String sig;
+			I64 c;
+			Node* term;
 		};
 		List<Keyed> keyed;
 		for(Node* term : terms) {
 			RefinedAddr k;
-			if(!leafKey(term, esz, k))
+			if(!detail::leafKey(term, esz, k))
 				break;
 			keyed.push_back({groupSig(k), k.constant, term});
 		}
@@ -69,6 +72,7 @@ namespace rat {
 			}
 			vecs.push_back(v);
 		}
+
 		// horizontal-sum cost: 2 shuffle+add rounds for 4 lanes, 1 for 2 lanes
 		I32 hsumOps = 3;
 		if(w == 4)
@@ -97,7 +101,7 @@ namespace rat {
 		return 1;
 	}
 
-	U32 SlpPackPass::Slp::packReductions() {
+	U32 slp::Slp::packReductions() {
 		List<BinaryNode*> roots;
 		for(Node* n : fn) {
 			BinaryNode* b = dyn_cast<BinaryNode>(n);
@@ -123,7 +127,7 @@ namespace rat {
 	}
 
 	// flatten an add-reduction tree through single-use interior adds, back to source order
-	List<Node*> SlpPackPass::flattenAddChain(BinaryNode* root, Opcode addOp, Type* t) {
+	List<Node*> slp::flattenAddChain(BinaryNode* root, Opcode addOp, Type* t) {
 		List<Node*> terms;
 		List<Node*> work = {root};
 		while(!work.empty()) {
