@@ -28,8 +28,8 @@ namespace rat::cc {
 			vl->count = lay.ptrBytes * 4;
 			vaList.array = vl;
 		}
-		typedefs["va_list"] = vaList;
-		typedefs["__builtin_va_list"] = vaList;
+		typedefs.set("va_list", vaList);
+		typedefs.set("__builtin_va_list", vaList);
 	}
 
 	void Parser::fail(const Token& at, const String& msg) {

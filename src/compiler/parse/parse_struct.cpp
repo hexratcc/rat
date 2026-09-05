@@ -227,7 +227,7 @@ namespace rat::cc {
 				st = arena.make<StructType>();
 				st->tag = *tag;
 				st->isUnion = isUnion;
-				structTypes[*tag] = TagBinding{st, scopeDepth};
+				structTypes.set(*tag, TagBinding{st, scopeDepth});
 			}
 		}
 
@@ -307,7 +307,7 @@ namespace rat::cc {
 				}
 				if(value < 0)
 					anyNegative = true;
-				enumConstants[lex.text(name)] = value;
+				enumConstants.set(lex.text(name), value);
 				next = value + 1;
 				if(!accept(TokKind::Comma))
 					break;
@@ -317,7 +317,7 @@ namespace rat::cc {
 		}
 		if(!tag.empty()) {
 			if(haveList)
-				enumSignedTags[tag] = anyNegative;
+				enumSignedTags.set(tag, anyNegative);
 			else {
 				auto seen = enumSignedTags.find(tag);
 				if(seen != enumSignedTags.end())

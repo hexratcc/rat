@@ -89,7 +89,7 @@ namespace rat::cc {
 			U32 ignored = 0;
 			if(!acceptTrailingAlignas(ignored))
 				return false;
-			typedefs[lex.text(nameTok)] = t;
+			typedefs.set(lex.text(nameTok), t);
 			if(!accept(TokKind::Comma))
 				break;
 		}
