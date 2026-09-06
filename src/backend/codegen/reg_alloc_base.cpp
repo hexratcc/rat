@@ -201,9 +201,149 @@ namespace rat {
 			}
 	}
 
+	B32 RegAllocBase::dropsRematDef(const MachineInstr& in) {
+		if(in.defs.size() != 1 || !in.defs[0].isVReg())
+			return false;
+		VReg v = in.defs[0].vreg;
+		return rematDef.count(v) && assignmentOf(v).spilled && !slotReadByCall.count(v);
+	}
+
+	void RegAllocBase::emitReload(List<MachineInstr>& out,
+																PhysReg dst,
+																const MachineOperand& u,
+																const Assignment& a) {
+		auto rt = rematDef.find(u.vreg);
+		if(rt == rematDef.end()) {
+			out.push_back(hooks->makeReload(dst, a.spillSlot, a.cls, u.width));
+			return;
+		}
+		MachineInstr m = rt->second;
+		m.defs[0] = MachineOperand::fixed(dst, u.width);
+		out.push_back(std::move(m));
+	}
+
+	void RegAllocBase::emitStore(List<MachineInstr>& out, I32 slot, PhysReg src, U32 cls, U32 width) {
+		out.push_back(hooks->makeSpill(slot, src, cls, width));
+		memo = {true, slot, src, cls, width};
+	}
+
+	// the register that just stored its slot or target after a reload into it
+	PhysReg RegAllocBase::sourceOf(List<MachineInstr>& out,
+																 const MachineOperand& u,
+																 const Assignment& a,
+																 PhysReg target) {
+		if(memo.on && memo.cls == a.cls && memo.slot == a.spillSlot && memo.width == u.width)
+			return memo.reg;
+		emitReload(out, target, u, a);
+		return target;
+	}
+
+	B32 RegAllocBase::rewriteCopy(List<MachineInstr>& out, MachineInstr& in) {
+		MachineOperand& d = in.defs[0];
+		MachineOperand& u = in.uses[0];
+		Assignment da = d.isVReg() ? assignmentOf(d.vreg) : Assignment{};
+		Assignment ua = u.isVReg() ? assignmentOf(u.vreg) : Assignment{};
+		if(!da.spilled && !ua.spilled)
+			return false;
+		if(da.spilled && ua.spilled && da.spillSlot == ua.spillSlot)
+			return true;				// slot self-copy
+		PhysReg dst = kNoReg; // where the value must land
+		if(d.isPhys())
+			dst = d.phys;
+		else if(!da.spilled)
+			dst = da.reg;
+		PhysReg src;
+		if(ua.spilled)
+			src = sourceOf(out, u, ua, dst != kNoReg ? dst : scratchAt(ua.cls, 0));
+		else
+			src = u.isPhys() ? u.phys : ua.reg;
+		if(da.spilled) {
+			emitStore(out, da.spillSlot, src, da.cls, d.width);
+			return true;
+		}
+		if(src != dst) {
+			d = MachineOperand::fixed(dst, d.width);
+			u = MachineOperand::fixed(src, u.width);
+			out.push_back(in);
+		}
+		memo.on = false;
+		return true;
+	}
+
+	void RegAllocBase::rewriteInstr(List<MachineInstr>& out, MachineInstr& in, I32 pt) {
+		U32 useScratch[kMaxRegClasses] = {0};
+		for(MachineOperand& u : in.uses) {
+			if(!u.isVReg())
+				continue;
+			Assignment a = assignmentOf(u.vreg);
+			if(!a.spilled) {
+				u = MachineOperand::fixed(a.reg, u.width);
+				continue;
+			}
+			if(in.isCall) {
+				u = MachineOperand::frameSlot(a.spillSlot, u.width);
+				continue;
+			}
+			if(Piece* pc = pieceAt(u.vreg, pt)) {
+				if(!pc->loaded)
+					emitReload(out, pc->reg, u, a);
+				pc->loaded = true;
+				u = MachineOperand::fixed(pc->reg, u.width);
+				continue;
+			}
+			// the previous instruction just stored this slot from a register nothing has
+			// touched since, reuse
+			B32 tied = false;
+			for(const MachineOperand& d : in.defs)
+				if(d.isVReg() && d.vreg == u.vreg)
+					tied = true;
+			if(memo.on && !tied && useScratch[a.cls] == 0 && memo.cls == a.cls &&
+				 memo.slot == a.spillSlot && memo.width == u.width) {
+				u = MachineOperand::fixed(memo.reg, u.width);
+				++useScratch[a.cls]; // reserve index 0 in case memo.reg is scratch 0
+				continue;
+			}
+			PhysReg sc = scratchAt(a.cls, useScratch[a.cls]++);
+			emitReload(out, sc, u, a);
+			u = MachineOperand::fixed(sc, u.width);
+		}
+
+		U32 defScratch[kMaxRegClasses] = {0};
+		List<MachineInstr> stores;
+		for(MachineOperand& d : in.defs) {
+			if(!d.isVReg())
+				continue;
+			Assignment a = assignmentOf(d.vreg);
+			if(!a.spilled) {
+				d = MachineOperand::fixed(a.reg, d.width);
+				continue;
+			}
+			PhysReg sc;
+			if(Piece* pc = pieceAt(d.vreg, pt)) {
+				sc = pc->reg;
+				pc->loaded = true;
+			} else {
+				sc = scratchAt(a.cls, defScratch[a.cls]++);
+			}
+			stores.push_back(hooks->makeSpill(a.spillSlot, sc, a.cls, d.width));
+			d = MachineOperand::fixed(sc, d.width);
+		}
+
+		memo.on = false;
+		out.push_back(in);
+		for(MachineInstr& s : stores)
+			out.push_back(std::move(s));
+		if(stores.empty() || in.isCall)
+			return;
+		// uses[0] = frame slot, uses[1] = source register
+		const MachineInstr& last = out.back();
+		if(last.uses.size() == 2 && last.uses[0].kind == MachineOperand::Kind::FrameSlot &&
+			 last.uses[1].kind == MachineOperand::Kind::Phys)
+			memo = {true, last.uses[0].slot, last.uses[1].phys, last.regClass, last.uses[1].width};
+	}
+
 	void RegAllocBase::rewrite() {
-		// spill slots read by a call (stack-passed args): defs must be kept
-		Set<VReg> slotReadByCall;
+		slotReadByCall.clear();
 		for(U32 b = 0; b < fn->blocks.size(); ++b)
 			for(const MachineInstr& in : fn->blocks[b].insts)
 				if(in.isCall)
@@ -213,162 +353,18 @@ namespace rat {
 
 		for(U32 b = 0; b < fn->blocks.size(); ++b) {
 			List<MachineInstr> out;
-			B32 memo = false;
-			I32 memoSlot = 0;
-			PhysReg memoReg = kNoReg;
-			U32 memoCls = 0;
-			U32 memoWidth = 0;
-
-			auto reloadInto = [&](PhysReg dst, const MachineOperand& u, const Assignment& a) {
-				if(auto rt = rematDef.find(u.vreg); rt != rematDef.end()) {
-					MachineInstr m = rt->second;
-					m.defs[0] = MachineOperand::fixed(dst, u.width);
-					out.push_back(std::move(m));
-				} else {
-					out.push_back(hooks->makeReload(dst, a.spillSlot, a.cls, u.width));
+			memo.on = false;
+			for(U32 i = 0; i < fn->blocks[b].insts.size(); ++i) {
+				MachineInstr& in = fn->blocks[b].insts[i];
+				I32 pt = (I32)blkPts[b][i];
+				if(dropsRematDef(in)) { // every use remats instead
+					memo.on = false;
+					continue;
 				}
-			};
-
-			for(MachineInstr& in : fn->blocks[b].insts) {
-				// spilled remat def: drop it, every use re-materializes
-				if(in.defs.size() == 1 && in.defs[0].isVReg()) {
-					VReg dv = in.defs[0].vreg;
-					if(rematDef.find(dv) != rematDef.end() && assignmentOf(dv).spilled &&
-						 !slotReadByCall.count(dv)) {
-						memo = false;
-						continue;
-					}
-				}
-
-				// spill from or reload into it directly instead of bouncing through a scratch register
-				if(hooks->isCopy && hooks->isCopy(in) && in.defs.size() == 1 && in.uses.size() == 1) {
-					const MachineOperand& d = in.defs[0];
-					const MachineOperand& u = in.uses[0];
-					if(d.isVReg() && u.isPhys()) {
-						Assignment da = assignmentOf(d.vreg);
-						if(da.spilled) {
-							out.push_back(hooks->makeSpill(da.spillSlot, u.phys, da.cls, d.width));
-							memo = true;
-							memoSlot = da.spillSlot;
-							memoReg = u.phys;
-							memoCls = da.cls;
-							memoWidth = d.width;
-							continue;
-						}
-					} else if(d.isPhys() && u.isVReg()) {
-						Assignment ua = assignmentOf(u.vreg);
-						if(ua.spilled) {
-							reloadInto(d.phys, u, ua);
-							memo = false;
-							continue;
-						}
-					}
-				}
-
-				// spilled-copy peepholes
-				if(hooks->isCopy && hooks->isCopy(in) && in.defs.size() == 1 && in.uses.size() == 1 &&
-					 in.defs[0].isVReg() && in.uses[0].isVReg()) {
-					Assignment da = assignmentOf(in.defs[0].vreg);
-					Assignment ua = assignmentOf(in.uses[0].vreg);
-					if(da.cls == ua.cls && (da.spilled || ua.spilled)) {
-						if(da.spilled && ua.spilled) {
-							if(da.spillSlot == ua.spillSlot)
-								continue; // slot self-copy
-							PhysReg sc;
-							if(memo && memoCls == ua.cls && memoSlot == ua.spillSlot &&
-								 memoWidth == in.uses[0].width) {
-								sc = memoReg; // forward the just-stored value
-							} else {
-								sc = scratchAt(ua.cls, 0);
-								reloadInto(sc, in.uses[0], ua);
-							}
-							out.push_back(hooks->makeSpill(da.spillSlot, sc, da.cls, in.defs[0].width));
-							memo = true;
-							memoSlot = da.spillSlot;
-							memoReg = sc;
-							memoCls = da.cls;
-							memoWidth = in.defs[0].width;
-							continue;
-						}
-						if(da.spilled) {
-							// register -> slot
-							out.push_back(hooks->makeSpill(da.spillSlot, ua.reg, da.cls, in.defs[0].width));
-							memo = true;
-							memoSlot = da.spillSlot;
-							memoReg = ua.reg;
-							memoCls = da.cls;
-							memoWidth = in.defs[0].width;
-							continue;
-						}
-						// slot -> register
-						reloadInto(da.reg, in.uses[0], ua);
-						memo = false;
-						continue;
-					}
-				}
-
-				U32 useScratch[kMaxRegClasses] = {0};
-				for(MachineOperand& u : in.uses) {
-					if(!u.isVReg())
-						continue;
-					Assignment a = assignmentOf(u.vreg);
-					if(a.spilled) {
-						if(in.isCall) {
-							u = MachineOperand::frameSlot(a.spillSlot, u.width);
-							continue;
-						}
-						// the previous instruction just stored this slot from a register nothing has
-						// touched since, reuse
-						B32 tied = false;
-						for(const MachineOperand& d : in.defs)
-							if(d.isVReg() && d.vreg == u.vreg)
-								tied = true;
-						if(memo && !tied && useScratch[a.cls] == 0 && memoCls == a.cls &&
-							 memoSlot == a.spillSlot && memoWidth == u.width) {
-							u = MachineOperand::fixed(memoReg, u.width);
-							++useScratch[a.cls]; // reserve index 0 in case memoReg is scratch 0
-							continue;
-						}
-						PhysReg sc = scratchAt(a.cls, useScratch[a.cls]++);
-						reloadInto(sc, u, a);
-						u = MachineOperand::fixed(sc, u.width);
-					} else {
-						u = MachineOperand::fixed(a.reg, u.width);
-					}
-				}
-
-				U32 defScratch[kMaxRegClasses] = {0};
-				List<MachineInstr> spills;
-				for(MachineOperand& d : in.defs) {
-					if(!d.isVReg())
-						continue;
-					Assignment a = assignmentOf(d.vreg);
-					if(a.spilled) {
-						PhysReg sc = scratchAt(a.cls, defScratch[a.cls]++);
-						spills.push_back(hooks->makeSpill(a.spillSlot, sc, a.cls, d.width));
-						d = MachineOperand::fixed(sc, d.width);
-					} else {
-						d = MachineOperand::fixed(a.reg, d.width);
-					}
-				}
-
-				memo = false;
-
-				out.push_back(in);
-				for(MachineInstr& s : spills)
-					out.push_back(std::move(s));
-				if(!spills.empty() && !in.isCall) {
-					const MachineInstr& last = out.back();
-					// makeSpill shape: uses[0] = frame slot, uses[1] = source register
-					if(last.uses.size() == 2 && last.uses[0].kind == MachineOperand::Kind::FrameSlot &&
-						 last.uses[1].kind == MachineOperand::Kind::Phys) {
-						memo = true;
-						memoSlot = last.uses[0].slot;
-						memoReg = last.uses[1].phys;
-						memoCls = last.regClass;
-						memoWidth = last.uses[1].width;
-					}
-				}
+				B32 copy = hooks->isCopy && hooks->isCopy(in) && in.defs.size() == 1 && in.uses.size() == 1;
+				if(copy && rewriteCopy(out, in))
+					continue;
+				rewriteInstr(out, in, pt);
 			}
 			fn->blocks[b].insts = std::move(out);
 		}
@@ -438,6 +434,7 @@ namespace rat {
 		} else {
 			solve();
 		}
+		assignPieces();
 		rewrite();
 
 		if(usedCalleeSaved) {

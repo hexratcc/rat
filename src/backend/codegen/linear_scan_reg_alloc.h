@@ -30,6 +30,8 @@ namespace rat {
 		static constexpr U32 kLoopUseWeight = 3;
 		static constexpr U32 kMaxUseWeight = 100000;
 
+		using Touch = Pair<VReg, I32>; // a spilled vreg and a point reading or writing it
+
 		// closed [start, end]
 		struct Seg {
 			I32 start;
@@ -71,6 +73,7 @@ namespace rat {
 		}
 
 		void resetState() override {
+			pieces.clear();
 			U32 nv = std::min((U32)intervals.size(), fn->nextVReg);
 			for(U32 v = 0; v < nv; ++v)
 				intervals[v].reset();
@@ -83,6 +86,11 @@ namespace rat {
 		U64 forbidden(const Interval& iv) const;
 		void assignRegs();
 		void assignSpillSlots();
+		void assignPieces() override;
+		void cutPieces(const Touch* pts, U32 count, List<U64>& busy);
+		static B32 pieceAfter(const Touch& key, const Piece& pc);
+		PhysReg pickPieceReg(U32 cls, I32 start, I32 end, List<U64>& busy);
+		Piece* pieceAt(VReg v, I32 pt) override;
 		void spillAt(Interval* cur, List<Interval*>& active);
 		void buildSpillWebs(const List<Interval*>& spilled);
 		VReg webFind(VReg v);
@@ -94,6 +102,7 @@ namespace rat {
 		}
 
 		List<Interval> intervals;
+		List<Piece> pieces; // sorted by (vreg, start)
 		List<VReg> webParent;
 		Map<VReg, List<VReg>> webMembers; // union-find root -> members
 		List<std::pair<I32, U64>> pinsByPoint;
