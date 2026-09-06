@@ -29,33 +29,40 @@ namespace rat {
 		U32 runOnFunction(Function& caller, const TargetInfo& target) override;
 		B32 onlyReadsFunction() const override { return false; } // reads callees
 	private:
-		B32 isStartProj(const Function& callee, Node* n);
-		void buildCallGraph(Module& m);
-		void refreshCallees(Function& fn);
-		Function* lookup(const String& name) const;
-		B32 reachesIndex(U32 from, U32 target);
-		B32 isCyclic(Function* fn);
-	private:
-		Module* graphModule = nullptr;
-		Map<const Function*, U64> quietAt;
-		List<Function*> graphFuncs;
-		List<List<U32>> graphCallees;
-		Map<String, U32> graphByName;
-		Map<const Function*, U32> graphIndex;
-		List<U32> visitStamp;
-		List<U32> edgeStamp;
-		U32 visitStampCur = 0;
-		U32 edgeStampCur = 0;
-		Map<const Function*, B32> cyclicCache;
+		// call graph row
+		struct Info {
+			Function* fn = nullptr;
+			List<Info*> callees;	// direct callees, sorted, live functions only
+			U64 version = kNoRow; // caller version the row was built from
+			U64 quietAt = 0;			// stamp of the last run that inlined nothing, 0 = none
+			U32 firstSize = 0;		// caller size when first seen, bounds growth per module run
+			U32 visit = 0;				// dfs stamp
+			I8 cyclic = -1;				// cached isCyclic, -1 = unknown
+		};
+		static constexpr U64 kNoRow = ~(U64)0;
 
+		void syncCallGraph(Module& m);
+		void dropDeadRows(Module& m);
+		B32 refreshCallees(Function& fn, Info& info);
+		void forgetCycles();
+		Function* lookup(const String& name) const;
+		B32 reaches(Info* from, Info* target);
+		B32 isCyclic(Function* fn);
+		U64 quietStamp(const Function& caller, const Info& info) const;
+
+		B32 isStartProj(const Function& callee, Node* n);
 		Node* incomingForStartProj(CallNode* call, U32 startProjIdx);
 		B32 shouldInline(const Function& caller, CallNode* call, Function* callee);
-
 		B32
 		inlineCallSite(Function& caller, CallNode* call, Function& callee, List<CallNode*>& newCalls);
 
-		// callee node id -> caller node, reused across call sites
-		List<Node*> cloneMap;
+		Module* module = nullptr;
+		Map<const Function*, Info> infos;
+		Map<String, Function*> byName;
+		U32 visitCur = 0;
+
+		// scratch reused across call sites
+		List<Node*> cloneMap; // callee node id -> caller node
 		List<CallNode*> worklist;
 		List<Node*> ctrls, mems, vals;
 	};

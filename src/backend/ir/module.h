@@ -72,6 +72,7 @@ namespace rat {
 
 		FunctionIterator begin() const { return {funcs.begin()}; }
 		FunctionIterator end() const { return {funcs.end()}; }
+		U32 size() const { return (U32)funcs.size(); }
 	private:
 		String name;
 		List<Function*> funcs;
