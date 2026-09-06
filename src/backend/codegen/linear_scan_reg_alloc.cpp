@@ -329,6 +329,97 @@ namespace rat {
 		}
 	}
 
+	void LinearScanRegAllocPass::assignPieces() {
+		if(!anySpilled())
+			return;
+		List<U64> busy(fixedAt.begin(), fixedAt.end());
+		for(U32 v = 1; v < fn->nextVReg; ++v) {
+			const Interval& iv = intervals[v];
+			if(!iv.live() || iv.spilled || iv.assigned == kNoReg)
+				continue;
+			for(const Seg& sg : iv.segs)
+				for(I32 p = sg.start; p <= sg.end; ++p)
+					busy[(U32)p] |= (U64)1 << iv.assigned;
+		}
+		// every operand of a spilled vreg, sorted by vreg then program order
+		List<Touch> touches;
+		for(U32 b = 0; b < fn->blocks.size(); ++b)
+			for(U32 i = 0; i < fn->blocks[b].insts.size(); ++i) {
+				const MachineInstr& in = fn->blocks[b].insts[i];
+				if(in.isCall)
+					continue; // reads its slot directly
+				I32 pt = (I32)blkPts[b][i];
+				for(const MachineOperand& o : in.uses)
+					if(o.isVReg() && intervals[o.vreg].spilled)
+						touches.emplace_back(o.vreg, pt);
+				for(const MachineOperand& o : in.defs)
+					if(o.isVReg() && intervals[o.vreg].spilled)
+						touches.emplace_back(o.vreg, pt);
+			}
+		std::sort(touches.begin(), touches.end());
+		for(U32 i = 0; i < touches.size();) {
+			U32 j = i;
+			while(j < touches.size() && touches[j].first == touches[i].first)
+				++j;
+			cutPieces(&touches[i], j - i, busy);
+			i = j;
+		}
+	}
+
+	void LinearScanRegAllocPass::cutPieces(const Touch* pts, U32 count, List<U64>& busy) {
+		VReg v = pts[0].first;
+		U32 cls = intervals[v].cls;
+		U32 i = 0;
+		while(i < count) {
+			I32 start = pts[i].second;
+			I32 end = start;
+			U32 block = order[(U32)start].block;
+			U32 j = i + 1;
+			while(j < count && order[(U32)pts[j].second].block == block) {
+				auto call = std::upper_bound(callPts.begin(), callPts.end(), end);
+				if(call != callPts.end() && *call < pts[j].second)
+					break;
+				end = pts[j].second;
+				++j;
+			}
+			i = j;
+			if(end == start)
+				continue;
+			PhysReg reg = pickPieceReg(cls, start, end, busy);
+			if(reg != kNoReg)
+				pieces.push_back({v, start, end, reg});
+		}
+	}
+
+	PhysReg LinearScanRegAllocPass::pickPieceReg(U32 cls, I32 start, I32 end, List<U64>& busy) {
+		const RegClass& rc = regClass(cls);
+		U64 used = 0;
+		for(I32 p = start; p <= end; ++p)
+			used |= busy[(U32)p];
+		for(PhysReg p : rc.allocatable) {
+			if((used >> p) & 1)
+				continue;
+			if(isCalleeSaved(rc, p) && !usedCallee.count(p))
+				continue;
+			for(I32 q = start; q <= end; ++q)
+				busy[(U32)q] |= (U64)1 << p;
+			return p;
+		}
+		return kNoReg;
+	}
+
+	B32 LinearScanRegAllocPass::pieceAfter(const Touch& key, const Piece& pc) {
+		return key.first < pc.vreg || (key.first == pc.vreg && key.second < pc.start);
+	}
+
+	RegAllocBase::Piece* LinearScanRegAllocPass::pieceAt(VReg v, I32 pt) {
+		auto after = std::upper_bound(pieces.begin(), pieces.end(), Touch{v, pt}, pieceAfter);
+		if(after == pieces.begin())
+			return nullptr;
+		Piece& pc = *(after - 1);
+		return pc.vreg == v && pt <= pc.end ? &pc : nullptr;
+	}
+
 	VReg LinearScanRegAllocPass::webFind(VReg v) {
 		while(webParent[v] != v)
 			v = webParent[v] = webParent[webParent[v]];

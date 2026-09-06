@@ -67,6 +67,15 @@ namespace rat {
 		virtual void solve() = 0;										 // compute assignments (number() already ran)
 		virtual Assignment assignmentOf(VReg v) = 0; // result lookup used by rewrite()
 		virtual B32 anySpilled() const = 0;					 // did solve() spill anything?
+		virtual void assignPieces() = 0;
+		struct Piece {
+			VReg vreg;
+			I32 start;
+			I32 end;
+			PhysReg reg;
+			B32 loaded = false; // reloaded once at its first use
+		};
+		virtual Piece* pieceAt(VReg v, I32 pt) = 0; // the piece holding v at pt, if any
 
 		B32 allocate(MachineFunc& fn,
 								 const RegisterInfo& ri,
@@ -91,7 +100,24 @@ namespace rat {
 		const RegClass& regClass(U32 cls) const;
 		static B32 isCalleeSaved(const RegClass& rc, PhysReg p);
 		static B32 isAllocatable(const RegClass& rc, PhysReg p);
+		// a slot just written from a register nothing has touched since
+		struct Memo {
+			B32 on = false;
+			I32 slot = 0;
+			PhysReg reg = kNoReg;
+			U32 cls = 0;
+			U32 width = 0;
+		};
+
 		void rewrite();
+		B32 dropsRematDef(const MachineInstr& in);
+		void
+		emitReload(List<MachineInstr>& out, PhysReg dst, const MachineOperand& u, const Assignment& a);
+		void emitStore(List<MachineInstr>& out, I32 slot, PhysReg src, U32 cls, U32 width);
+		PhysReg
+		sourceOf(List<MachineInstr>& out, const MachineOperand& u, const Assignment& a, PhysReg target);
+		B32 rewriteCopy(List<MachineInstr>& out, MachineInstr& in);
+		void rewriteInstr(List<MachineInstr>& out, MachineInstr& in, I32 pt);
 		PhysReg scratchAt(U32 cls, U32 idx);
 	protected:
 		MachineFunc* fn = nullptr;
@@ -107,6 +133,8 @@ namespace rat {
 		Map<VReg, Map<I32, PhysReg>> copyPinAt; // pin exemptions
 		Map<VReg, MachineInstr> rematDef;				// single pure def per remat vreg
 		B32 ok = true;
+		Memo memo;
+		Set<VReg> slotReadByCall;
 		List<VRegSet> liveUseScratch;
 		List<VRegSet> liveDefScratch;
 	private:
