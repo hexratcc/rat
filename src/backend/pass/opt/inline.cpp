@@ -140,78 +140,106 @@ namespace rat {
 	}
 
 	Function* InlinePass::lookup(const String& name) const {
-		auto it = graphByName.find(name);
-		return it == graphByName.end() ? nullptr : graphFuncs[it->second];
+		auto it = byName.find(name);
+		return it == byName.end() ? nullptr : it->second;
 	}
 
-	void InlinePass::refreshCallees(Function& fn) {
-		auto self = graphIndex.find(&fn);
-		if(self == graphIndex.end())
-			return;
-		List<U32>& row = graphCallees[self->second];
-		row.clear();
-		++edgeStampCur;
+	// rebuild fn's callee row
+	B32 InlinePass::refreshCallees(Function& fn, Info& info) {
+		List<Info*> row;
 		for(Node* n : fn) {
 			CallNode* c = dyn_cast<CallNode>(n);
 			if(!c)
 				continue;
-			Function* next = lookup(c->getCallee());
-			if(!next)
-				continue;
-			auto ni = graphIndex.find(next);
-			if(ni == graphIndex.end())
-				continue;
-			U32 j = ni->second;
-			if(edgeStamp[j] == edgeStampCur)
-				continue;
-			edgeStamp[j] = edgeStampCur;
-			row.push_back(j);
+			if(Function* next = lookup(c->getCallee()))
+				row.push_back(&infos[next]);
 		}
-	}
-
-	void InlinePass::buildCallGraph(Module& m) {
-		graphModule = &m;
-		graphFuncs.clear();
-		graphByName.clear();
-		graphIndex.clear();
-		for(Function* fn : m) {
-			U32 i = (U32)graphFuncs.size();
-			graphByName.emplace(fn->getName(), i);
-			graphIndex[fn] = i;
-			graphFuncs.push_back(fn);
-		}
-		graphCallees.assign(graphFuncs.size(), List<U32>());
-		visitStamp.assign(graphFuncs.size(), 0);
-		edgeStamp.assign(graphFuncs.size(), 0);
-		visitStampCur = 0;
-		edgeStampCur = 0;
-		cyclicCache.clear();
-		for(Function* fn : graphFuncs)
-			refreshCallees(*fn);
-	}
-
-	B32 InlinePass::reachesIndex(U32 from, U32 target) {
-		if(visitStamp[from] == visitStampCur)
+		std::sort(row.begin(), row.end());
+		row.erase(std::unique(row.begin(), row.end()), row.end());
+		info.version = fn.getVersion();
+		if(row == info.callees)
 			return false;
-		visitStamp[from] = visitStampCur;
-		for(U32 next : graphCallees[from])
-			if(next == target || reachesIndex(next, target))
+		info.callees.swap(row);
+		return true; // edges changed
+	}
+
+	// forget the functions dfe removed, and the edges into them
+	void InlinePass::dropDeadRows(Module& m) {
+		Set<const Function*> alive;
+		for(Function* fn : m)
+			alive.insert(fn);
+		for(auto& [fn, info] : infos) {
+			List<Info*>& row = info.callees;
+			U32 w = 0;
+			for(Info* callee : row)
+				if(alive.count(callee->fn))
+					row[w++] = callee;
+			row.resize(w);
+		}
+		for(auto it = infos.begin(); it != infos.end();) {
+			if(alive.count(it->first))
+				++it;
+			else
+				it = infos.erase(it);
+		}
+	}
+
+	void InlinePass::forgetCycles() {
+		for(auto& [fn, info] : infos)
+			info.cyclic = -1;
+	}
+
+	// refresh the rows of functions mutated since their row was built
+	void InlinePass::syncCallGraph(Module& m) {
+		if(module != &m) {
+			infos.clear();
+			byName.clear();
+			module = &m;
+		}
+		if(byName.size() != m.size()) {
+			byName.clear();
+			for(Function* fn : m) {
+				byName.emplace(fn->getName(), fn);
+				infos[fn].fn = fn;
+			}
+			if(infos.size() > m.size())
+				dropDeadRows(m);
+		}
+		B32 changed = false;
+		for(Function* fn : m) {
+			Info& info = infos[fn];
+			if(info.version != fn->getVersion() && refreshCallees(*fn, info))
+				changed = true;
+		}
+		if(changed)
+			forgetCycles();
+	}
+
+	B32 InlinePass::reaches(Info* from, Info* target) {
+		if(from->visit == visitCur)
+			return false;
+		from->visit = visitCur;
+		for(Info* next : from->callees)
+			if(next == target || reaches(next, target))
 				return true;
 		return false;
 	}
 
 	B32 InlinePass::isCyclic(Function* fn) {
-		auto it = cyclicCache.find(fn);
-		if(it != cyclicCache.end())
-			return it->second;
-		B32 cyc = false;
-		auto gi = graphIndex.find(fn);
-		if(gi != graphIndex.end()) {
-			++visitStampCur;
-			cyc = reachesIndex(gi->second, gi->second);
+		Info& info = infos[fn];
+		if(info.cyclic < 0) {
+			++visitCur;
+			info.cyclic = reaches(&info, &info);
 		}
-		cyclicCache[fn] = cyc;
-		return cyc;
+		return info.cyclic;
+	}
+
+	// caller version folded with its direct callees' versions
+	U64 InlinePass::quietStamp(const Function& caller, const Info& info) const {
+		U64 stamp = 14695981039346656037ull ^ caller.getVersion();
+		for(Info* callee : info.callees)
+			stamp = stamp * 1099511628211ull + callee->fn->getVersion();
+		return stamp;
 	}
 
 	B32 InlinePass::shouldInline(const Function& caller, CallNode* call, Function* callee) {
@@ -237,33 +265,29 @@ namespace rat {
 	}
 
 	B32 InlinePass::run(Module& module, const TargetInfo& target) {
-		graphModule = nullptr;
+		syncCallGraph(module);
 		return FunctionPass::run(module, target);
 	}
 
 	U32 InlinePass::runOnFunction(Function& caller, const TargetInfo&) {
-		Module& m = caller.getModule();
-		if(graphModule != &m)
-			buildCallGraph(m);
-
-		U64 stamp = caller.getVersion();
-		if(auto gi = graphIndex.find(&caller); gi != graphIndex.end())
-			for(U32 j : graphCallees[gi->second])
-				stamp = stamp * 1099511628211ull + graphFuncs[j]->getVersion();
-		if(auto qa = quietAt.find(&caller); qa != quietAt.end() && qa->second == stamp)
+		if(module != &caller.getModule())
+			syncCallGraph(caller.getModule());
+		Info& info = infos[&caller];
+		U64 stamp = quietStamp(caller, info);
+		if(info.quietAt == stamp)
 			return 0;
-
-		U32 count = 0;
-		U32 baseline = caller.size();
+		if(!info.firstSize)
+			info.firstSize = caller.size();
+		U32 limit = info.firstSize + kCallerGrowthBudget;
 
 		worklist.clear();
 		for(Node* n : caller)
 			if(CallNode* c = dyn_cast<CallNode>(n))
 				worklist.push_back(c);
 
+		U32 count = 0;
 		B32 changed = true;
-		while(changed && count < kMaxInlinesPerFunction &&
-					caller.size() <= baseline + kCallerGrowthBudget) {
+		while(changed && count < kMaxInlinesPerFunction && caller.size() <= limit) {
 			changed = false;
 			for(U32 i = 0; i < worklist.size(); ++i) {
 				CallNode* c = worklist[i];
@@ -282,13 +306,13 @@ namespace rat {
 				}
 			}
 		}
-		if(count) {
-			caller.eliminateDeadNodes();
-			refreshCallees(caller);
-			cyclicCache.clear();
-		} else {
-			quietAt[&caller] = stamp;
+		if(!count) {
+			info.quietAt = stamp;
+			return 0;
 		}
+		caller.eliminateDeadNodes();
+		if(refreshCallees(caller, info))
+			forgetCycles();
 		return count;
 	}
 
