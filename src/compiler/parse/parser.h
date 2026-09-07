@@ -177,6 +177,7 @@ namespace rat::cc {
 		B32 parseEnumSpec(CType& out);
 		B32 evalIntConst(const Expr* e, I64& out);
 		B32 tryEvalIntConst(const Expr* e, I64& out);
+		I64 castConstValue(I64 v, CType ty) const;
 
 		// struct/union support
 		StructType* complexStruct(CType realType);
