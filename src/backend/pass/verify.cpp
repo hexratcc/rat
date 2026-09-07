@@ -194,6 +194,21 @@ namespace rat {
 					err(u, "projection index out of range for an If (must be 0 or 1)");
 			break;
 		}
+		case Opcode::Switch: {
+			auto* sw = cast<SwitchNode>(n);
+			if(!isCtrl(sw->getControl()))
+				err(n, "Switch input 0 (control) is not control-typed");
+			if(!sw->getSelector()->getType()->isInt())
+				err(n, "Switch selector must be an integer");
+			if(!t->isTuple() || t->getTupleElementCount() == 0) {
+				err(n, "Switch type must be a non-empty tuple of control");
+				break;
+			}
+			for(U32 i = 0, e = t->getTupleElementCount(); i < e; ++i)
+				if(!t->getTupleElement(i)->isControl())
+					err(n, "Switch tuple element " + std::to_string(i) + " must be control");
+			break;
+		}
 		case Opcode::Proj: {
 			auto* p = cast<ProjNode>(n);
 			Node* prod = p->getProducer();

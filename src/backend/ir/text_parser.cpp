@@ -542,6 +542,8 @@ namespace rat {
 			switch(op) {
 			case Opcode::If:
 				return fn->create<IfNode>(pn.ty, in[0], in[1]);
+			case Opcode::Switch:
+				return fn->create<SwitchNode>(pn.ty, in[0], in[1]);
 			case Opcode::Proj:
 				if(in[0] == fn->getStart() && pn.projIndex == StartNode::controlProjIndex() && startCtrl)
 					return startCtrl;
