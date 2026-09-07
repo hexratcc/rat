@@ -194,6 +194,21 @@ namespace rat {
 					err(u, "projection index out of range for an If (must be 0 or 1)");
 			break;
 		}
+		case Opcode::Switch: {
+			auto* sw = cast<SwitchNode>(n);
+			if(!isCtrl(sw->getControl()))
+				err(n, "Switch input 0 (control) is not control-typed");
+			if(!sw->getSelector()->getType()->isInt())
+				err(n, "Switch selector must be an integer");
+			if(!t->isTuple() || t->getTupleElementCount() == 0) {
+				err(n, "Switch type must be a non-empty tuple of control");
+				break;
+			}
+			for(U32 i = 0, e = t->getTupleElementCount(); i < e; ++i)
+				if(!t->getTupleElement(i)->isControl())
+					err(n, "Switch tuple element " + std::to_string(i) + " must be control");
+			break;
+		}
 		case Opcode::Proj: {
 			auto* p = cast<ProjNode>(n);
 			Node* prod = p->getProducer();
@@ -233,8 +248,8 @@ namespace rat {
 			break;
 		}
 		case Opcode::Constant:
-			if(!t->isInt())
-				err(n, "Constant type must be an integer");
+			if(!(t->isInt() || t->isFloat()))
+				err(n, "Constant type must be an integer or a float");
 			break;
 
 		case Opcode::Global: {
@@ -425,14 +440,9 @@ namespace rat {
 				}
 				break;
 			}
-			case OpClass::Unary: {
-				auto* u = cast<UnaryNode>(n);
-				if(!t->isInt())
-					err(n, "unary operates on a non-integer type");
-				if(u->getOperand()->getType() != t)
-					err(n, "unary result type differs from its operand");
+			case OpClass::Unary:
+				checkUnary(n);
 				break;
-			}
 			case OpClass::Compare: {
 				auto* c = cast<CompareNode>(n);
 				if(!(t->isInt() && t->getIntWidth() == 1))
@@ -441,23 +451,73 @@ namespace rat {
 					err(n, "comparison operands have different types");
 				break;
 			}
-			case OpClass::Convert: {
-				auto* c = cast<ConvertNode>(n);
-				const Type* src = c->getOperand()->getType();
-				if(!(src->isInt() && t->isInt())) {
-					err(n, "conversion requires integer source and destination");
-					break;
-				}
-				U32 sw = src->getIntWidth(), dw = t->getIntWidth();
-				if(op == Opcode::Trunc && dw > sw)
-					err(n, "trunc widens its operand");
-				if((op == Opcode::SExt || op == Opcode::ZExt) && dw < sw)
-					err(n, "extension narrows its operand");
+			case OpClass::Convert:
+				checkConvert(n);
 				break;
-			}
 			case OpClass::None:
 				break;
 			}
+			break;
+		}
+	}
+
+	void VerifyPass::FunctionVerifier::checkUnary(Node* n) {
+		auto* u = cast<UnaryNode>(n);
+		const Type* t = n->getType();
+		if(n->getOpcode() == Opcode::FNeg) {
+			if(!t->isFloat())
+				err(n, "fneg operates on a non-float type");
+		} else if(!t->isInt()) {
+			err(n, "unary operates on a non-integer type");
+		}
+		if(u->getOperand()->getType() != t)
+			err(n, "unary result type differs from its operand");
+	}
+
+	void VerifyPass::FunctionVerifier::checkConvert(Node* n) {
+		auto* c = cast<ConvertNode>(n);
+		Opcode op = n->getOpcode();
+		const Type* t = n->getType();
+		const Type* src = c->getOperand()->getType();
+		switch(op) {
+		case Opcode::Trunc:
+		case Opcode::SExt:
+		case Opcode::ZExt: {
+			if(!(src->isInt() && t->isInt())) {
+				err(n, "conversion requires integer source and destination");
+				break;
+			}
+			U32 sw = src->getIntWidth(), dw = t->getIntWidth();
+			if(op == Opcode::Trunc && dw > sw)
+				err(n, "trunc widens its operand");
+			if((op == Opcode::SExt || op == Opcode::ZExt) && dw < sw)
+				err(n, "extension narrows its operand");
+			break;
+		}
+		case Opcode::SIToFP:
+		case Opcode::UIToFP:
+			if(!(src->isInt() && t->isFloat()))
+				err(n, "conversion requires an integer source and a float destination");
+			break;
+		case Opcode::FPToSI:
+		case Opcode::FPToUI:
+			if(!(src->isFloat() && t->isInt()))
+				err(n, "conversion requires a float source and an integer destination");
+			break;
+		case Opcode::FPExt:
+		case Opcode::FPTrunc: {
+			if(!(src->isFloat() && t->isFloat())) {
+				err(n, "conversion requires float source and destination");
+				break;
+			}
+			U32 sw = src->getFloatWidth(), dw = t->getFloatWidth();
+			if(op == Opcode::FPTrunc && dw > sw)
+				err(n, "fptrunc widens its operand");
+			if(op == Opcode::FPExt && dw < sw)
+				err(n, "fpext narrows its operand");
+			break;
+		}
+		default:
 			break;
 		}
 	}

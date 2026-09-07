@@ -449,6 +449,14 @@ namespace rat {
 		a->patchRel32(skip, a->here());
 	}
 
+	U32 X86EncodePass::blockIdBound(const MachineFunc& f) {
+		I32 maxId = -1;
+		for(const MachineBlock& blk : f.blocks)
+			if(blk.id > maxId)
+				maxId = blk.id;
+		return (U32)(maxId + 1);
+	}
+
 	void X86EncodePass::encodeFunction() {
 		// frame slots in [rbp-frameSize, rbp); saves pushed below, total 16-aligned
 		U32 saveBytes = 8u * (U32)calleeSaved.size();
@@ -485,7 +493,7 @@ namespace rat {
 			}
 		omitFrame = !framey && !hasCall;
 
-		blockOffset.assign(fn->blocks.size(), 0);
+		blockOffset.assign(blockIdBound(*fn), 0);
 		prologue();
 		for(U32 bi = 0; bi < fn->blocks.size(); ++bi) {
 			const MachineBlock& blk = fn->blocks[bi];

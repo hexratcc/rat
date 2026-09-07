@@ -376,6 +376,8 @@ namespace rat::cc {
 										 const Designator& des,
 										 U32& i,
 										 U32& cur);
+		B32 initListIsFlat(const Expr* init);
+		U32 initArrayCount(CType elem, const Expr* init);
 		U32 arrayInitOuterExtent(CType elem, const Expr* init);
 		B32 resolveArrayIndices(const List<Expr*>& els,
 														const List<Designator>& des,

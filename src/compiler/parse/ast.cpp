@@ -373,7 +373,9 @@ namespace rat::cc {
 			for(U32 i = 0; i < fn->params.size(); ++i) {
 				if(i)
 					os << ", ";
-				os << typeName(fn->params[i].type) << " " << *fn->params[i].name;
+				os << typeName(fn->params[i].type);
+				if(fn->params[i].name)
+					os << " " << *fn->params[i].name;
 			}
 			os << ") -> " << typeName(fn->retType) << "\n";
 			if(fn->body)

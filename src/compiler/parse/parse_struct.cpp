@@ -110,7 +110,7 @@ namespace rat::cc {
 					U32 unitBytes = typeSizeBytes(ft);
 					if(unitBytes == 0)
 						unitBytes = 4;
-					U32 falign = fieldAlign(ft);
+					U32 falign = typeAlignBytes(ft);
 					if(memberAlign > falign)
 						falign = memberAlign;
 					U32 unitBits = unitBytes * 8;
@@ -171,7 +171,7 @@ namespace rat::cc {
 				if(!acceptTrailingAlignas(memberAlign)) // trailing form: int a __attribute__(...)
 					return false;
 				U64 esize = typeSizeBytes(ft);
-				U32 falign = fieldAlign(ft);
+				U32 falign = typeAlignBytes(ft);
 				if(memberAlign > falign)
 					falign = memberAlign;
 				U64 fsize = isArr ? esize * count : esize;

@@ -15,15 +15,11 @@ for exe in ("bin/rat-test", "bin/cc"):
     if not os.access(exe, os.X_OK):
         sys.exit("missing binaries, run make")
 
-names = sys.argv[1:]
-bench = "bench" in names
-reps = [arg for arg in names if arg.startswith("-r")]
-names = [name for name in names if name != "bench" and not name.startswith("-r")]
+jobs, _quiet, bench, reps, names = lib.parse_args(sys.argv[1:])
 run_ir = not names and not bench
 if not names:
     names = sorted(child.name for child in TEST.iterdir() if (child / "run.py").is_file())
 
-jobs = os.cpu_count()
 counts = {"PASS": 0, "FAIL": 0, "SKIP": 0, "BENCH": 0}
 totals = {}
 
@@ -55,7 +51,7 @@ for name in names:
     runner = TEST / name / "run.py"
     if not runner.is_file():
         sys.exit(f"no such suite: {name}")
-    ok &= report([sys.executable, str(runner), f"-j{jobs}", "-q"] + (["bench"] if bench else []) + reps)
+    ok &= report([sys.executable, str(runner), f"-j{jobs}", f"-r{reps}", "-q"] + (["bench"] if bench else []))
 
 if bench:
     if counts["BENCH"]:

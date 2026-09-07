@@ -1,0 +1,52 @@
+@name verify: float const, fneg and the six FP conversions are valid IR
+@passes verify
+
+@input
+func fverify(f64, i32) -> f64 {
+	v0 = start : (ctrl, mem, f64, i32)
+	v1 = stop : ctrl v20
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : f64  #2 "arg0" of v0
+	v5 = proj : i32  #3 "arg1" of v0
+	v6 = fneg : f64 v4
+	v7 = sitofp : f64 v5
+	v8 = uitofp : f64 v5
+	v9 = fadd : f64 v6, v7
+	v10 = fadd : f64 v9, v8
+	v11 = fptrunc : f32 v10
+	v12 = fpext : f64 v11
+	v13 = fptosi : i32 v12
+	v14 = fptoui : i64 v12
+	v15 = sitofp : f64 v13
+	v16 = uitofp : f64 v14
+	v17 = const : f64  4609434218613702656
+	v18 = fadd : f64 v15, v16
+	v19 = fadd : f64 v18, v17
+	v20 = return : ctrl v2, v3, v19
+}
+
+@expect
+func fverify(f64, i32) -> f64 {
+	v0 = start : (ctrl, mem, f64, i32)
+	v1 = stop : ctrl v20
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : f64  #2 "arg0" of v0
+	v5 = proj : i32  #3 "arg1" of v0
+	v6 = fneg : f64 v4
+	v7 = sitofp : f64 v5
+	v8 = uitofp : f64 v5
+	v9 = fadd : f64 v6, v7
+	v10 = fadd : f64 v9, v8
+	v11 = fptrunc : f32 v10
+	v12 = fpext : f64 v11
+	v13 = fptosi : i32 v12
+	v14 = fptoui : i64 v12
+	v15 = sitofp : f64 v13
+	v16 = uitofp : f64 v14
+	v17 = const : f64  4609434218613702656
+	v18 = fadd : f64 v15, v16
+	v19 = fadd : f64 v18, v17
+	v20 = return : ctrl v2, v3, v19
+}

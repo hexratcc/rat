@@ -32,7 +32,8 @@ namespace rat::cc {
 				return v;
 			}
 			fail("unexpected token in #if expression");
-			++i;
+			if(c.kind != Pk::Eof)
+				++i;
 			return {};
 		}
 

@@ -192,7 +192,7 @@ namespace rat::cc {
 				failArrayUnknownSize(*d.name);
 				return false;
 			}
-			count = (I64)arrayInitOuterExtent(d.type, d.init);
+			count = (I64)initArrayCount(d.type, d.init);
 		}
 		U32 elemSize = byteSize(d.type);
 		U32 total = (U32)count * elemSize;
@@ -232,7 +232,7 @@ namespace rat::cc {
 					failArrayUnknownSize(*d.name);
 					return false;
 				}
-				count = (I64)arrayInitOuterExtent(d.type, d.init);
+				count = (I64)initArrayCount(d.type, d.init);
 			}
 			if(count <= 0) {
 				failArrayCount();

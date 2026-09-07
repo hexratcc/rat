@@ -177,6 +177,7 @@ namespace rat::cc {
 		B32 parseEnumSpec(CType& out);
 		B32 evalIntConst(const Expr* e, I64& out);
 		B32 tryEvalIntConst(const Expr* e, I64& out);
+		I64 castConstValue(I64 v, CType ty) const;
 
 		// struct/union support
 		StructType* complexStruct(CType realType);
@@ -189,9 +190,6 @@ namespace rat::cc {
 		B32 startsType(const Token& tok);
 		U64 typeSizeBytes(CType t) const { return typeSize(t, lay.ptrBytes); }
 		U32 typeAlignBytes(CType t) const { return typeAlign(t, lay.ptrBytes); }
-		U32 fieldAlign(CType t) const {
-			return isAggregate(t) ? t.strukt->align : (U32)typeSizeBytes(t);
-		}
 	private:
 		struct DeclSpecs {
 			B32 isStatic = false;

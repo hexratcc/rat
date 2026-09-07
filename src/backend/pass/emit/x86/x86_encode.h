@@ -31,6 +31,7 @@ namespace rat {
 		void emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes);
 
 		void reset(const MachineFunc& f, const X86FrameLayout& layout, Asm& asm_, List<PhysReg> callee);
+		static U32 blockIdBound(const MachineFunc& f);
 		void encodeFunction();
 
 		static Reg toGp(PhysReg p);

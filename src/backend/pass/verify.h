@@ -37,6 +37,8 @@ namespace rat {
 			B32 checkArity(const Node* n);
 			void checkEdges(Node* n);
 			void checkNode(Node* n);
+			void checkUnary(Node* n);
+			void checkConvert(Node* n);
 			void checkStopReturns();
 		};
 	private:
