@@ -112,7 +112,8 @@ class Suite:
             row = "BENCH " + f"{self.name}/{self.level}/{test}".ljust(BENCH_NAME_W)
             for cc in ("rat", "gcc", "clang"):
                 row += f"{vals[cc]:>{BENCH_VAL_W}g}" if cc in vals else f"{'-':>{BENCH_VAL_W}}"
-                self.totals[cc] = self.totals.get(cc, 0) + vals.get(cc, 0)
+                if cc in vals:
+                    self.totals[cc] = self.totals.get(cc, 0) + vals[cc]
             print(row, flush=True)
             self.benches += 1
 
