@@ -141,6 +141,11 @@ namespace detail {
 		});
 		if(!ok)
 			return false;
+		String diags = trim(sink.str());
+		if(!diags.empty()) {
+			err = "pass diagnostics\n    " + diags;
+			return false;
+		}
 
 		String actualCanon, expectCanon, cerr;
 		if(!canonicalIR(emitToString(mod), actualCanon, cerr)) {
