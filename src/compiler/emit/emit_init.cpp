@@ -45,6 +45,21 @@ namespace rat::cc {
 		return true;
 	}
 
+	B32 Emitter::initListIsFlat(const Expr* init) {
+		if(!init || init->kind != ExprKind::InitList)
+			return false;
+		for(U32 i = 0; i < init->designators.size(); ++i)
+			if(init->designators[i].isSet)
+				return false;
+		return true;
+	}
+
+	U32 Emitter::initArrayCount(CType elem, const Expr* init) {
+		if(initListIsFlat(init))
+			return flatArrayCount(elem, init->args);
+		return arrayInitOuterExtent(elem, init);
+	}
+
 	U32 Emitter::arrayInitOuterExtent(CType elem, const Expr* init) {
 		const List<Expr*>& els = init->args;
 		U32 rowLen = elem.array ? elem.array->count : 0;

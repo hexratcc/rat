@@ -115,7 +115,7 @@ namespace rat::cc {
 				failArrayUnknownSize(*d.name);
 				return false;
 			}
-			count = (I64)d.init->args.size();
+			count = (I64)initArrayCount(d.type, d.init);
 		}
 		U32 elemSize = byteSize(d.type);
 		U32 total = (U32)count * elemSize;
@@ -139,15 +139,7 @@ namespace rat::cc {
 		I64 count;
 		if(!validateGlobalArrayLen(d, count, haveLen))
 			return false;
-		B32 flat = false;
-		if(d.init && d.init->kind == ExprKind::InitList) {
-			flat = true;
-			for(U32 i = 0; i < d.init->designators.size(); ++i)
-				if(d.init->designators[i].isSet) {
-					flat = false;
-					break;
-				}
-		}
+		B32 flat = initListIsFlat(d.init);
 		if(!haveLen) {
 			if(!d.init || d.init->kind != ExprKind::InitList) {
 				failArrayUnknownSize(*d.name);
