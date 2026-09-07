@@ -151,7 +151,11 @@ namespace rat::cc {
 		if(isPointer(to) && !isPointer(from) && !isFloating(from)) {
 			if(n->getOpcode() == Opcode::Constant)
 				return fn.constInt(mod.getPtr(), cast<ConstantNode>(n)->getValue());
-			return fn.convert(Opcode::SExt, n, mod.getPtr());
+			U32 fromBits = from.bits == 0 ? 32 : from.bits;
+			Opcode ext = Opcode::SExt;
+			if(fromBits < lay.ptrBytes * 8 && from.isUnsigned())
+				ext = Opcode::ZExt;
+			return fn.convert(ext, n, mod.getPtr());
 		}
 		if(isPointer(from) || isPointer(to))
 			return n;
