@@ -19,7 +19,44 @@ namespace rat {
 			out = refineAddr(l->getPointer(), esz);
 			return out.valid();
 		}
+
+		// a term tagged with its leaf address, ordered by group then offset
+		struct Keyed {
+			B32 operator<(const Keyed& o) const {
+				if(sig != o.sig)
+					return sig < o.sig;
+				return c < o.c;
+			}
+
+			String sig;
+			I64 c;
+			Node* term;
+		};
 	} // namespace detail
+
+	void slp::Slp::sortReductionTerms(List<Node*>& terms, U32 esz) {
+		List<detail::Keyed> keyed;
+		for(Node* term : terms) {
+			RefinedAddr k;
+			if(!detail::leafKey(term, esz, k))
+				return;
+			keyed.push_back({groupSig(k), k.constant, term});
+		}
+		std::stable_sort(keyed.begin(), keyed.end());
+		for(U32 i = 0; i < (U32)terms.size(); ++i)
+			terms[i] = keyed[i].term;
+	}
+
+	// log2 shuffle+add finish
+	Node* slp::Slp::emitHsum(Node* acc, Opcode addOp, Type* vecTy, U32 w) {
+		Node* s1 = fn.create<ShuffleNode>(vecTy, acc, (U8)0x4e); // swap 64-bit halves
+		acc = fn.create<BinaryNode>(addOp, vecTy, acc, s1);
+		if(w == 4) {
+			Node* s2 = fn.create<ShuffleNode>(vecTy, acc, (U8)0xb1); // swap 32-bit pairs
+			acc = fn.create<BinaryNode>(addOp, vecTy, acc, s2);
+		}
+		return acc;
+	}
 
 	U32 slp::Slp::packReduction(BinaryNode* root) {
 		Type* t = root->getType();
@@ -33,31 +70,7 @@ namespace rat {
 			return 0;
 		++stats.windowsSeen;
 
-		// canonical term order: sort by the first leaf load's refined address so
-		// grouping is robust against source-level reassociation
-		struct Keyed {
-			B32 operator<(const Keyed& o) const {
-				if(sig != o.sig)
-					return sig < o.sig;
-				return c < o.c;
-			}
-
-			String sig;
-			I64 c;
-			Node* term;
-		};
-		List<Keyed> keyed;
-		for(Node* term : terms) {
-			RefinedAddr k;
-			if(!detail::leafKey(term, esz, k))
-				break;
-			keyed.push_back({groupSig(k), k.constant, term});
-		}
-		if(keyed.size() == terms.size()) {
-			std::stable_sort(keyed.begin(), keyed.end());
-			for(U32 i = 0; i < n; ++i)
-				terms[i] = keyed[i].term;
-		}
+		sortReductionTerms(terms, esz);
 
 		// no window - every packed load must read one shared pre-state
 		Packer packer(*this, nullptr, nullptr);
@@ -88,13 +101,7 @@ namespace rat {
 		Node* acc = vecs[0];
 		for(U32 g = 1; g < k; ++g)
 			acc = fn.create<BinaryNode>(addOp, vecTy, acc, vecs[g]);
-		// log2 shuffle+add finish, result in every lane
-		Node* s1 = fn.create<ShuffleNode>(vecTy, acc, (U8)0x4e); // swap 64-bit halves
-		acc = fn.create<BinaryNode>(addOp, vecTy, acc, s1);
-		if(w == 4) {
-			Node* s2 = fn.create<ShuffleNode>(vecTy, acc, (U8)0xb1); // swap 32-bit pairs
-			acc = fn.create<BinaryNode>(addOp, vecTy, acc, s2);
-		}
+		acc = emitHsum(acc, addOp, vecTy, w);
 		Node* res = fn.create<ExtractNode>(t, acc, 0);
 		root->replaceAllUsesWith(res);
 		++stats.packedReduction;
