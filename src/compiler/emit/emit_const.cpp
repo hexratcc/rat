@@ -3,6 +3,8 @@
 namespace rat::cc {
 	static I64 narrowToType(I64 v, CType ty) {
 		U32 bits = isPointer(ty) ? 64 : ty.bits;
+		if(bits == 1)
+			return v != 0;
 		if(bits >= 64)
 			return v;
 		U64 mask = ((U64)1 << bits) - 1;
