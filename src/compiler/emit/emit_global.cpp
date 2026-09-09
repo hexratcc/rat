@@ -179,15 +179,19 @@ namespace rat::cc {
 		List<U8> init;
 
 		if(d.init && d.init->kind == ExprKind::StrLit) {
-			if(d.type.ptr != 0 || d.type.bits != 8) {
+			U32 charWidth = d.init->str.isWide ? d.init->str.charSize : 1u;
+			if(d.type.ptr != 0 || d.type.bits != charWidth * 8) {
 				failStringNeedsCharArray();
 				return false;
 			}
 			const String& bytes = *d.init->str.bytes;
+			I64 nchars = (I64)bytes.size() / (I64)charWidth;
 			if(!haveLen)
-				count = (I64)bytes.size() + 1;
-			for(I64 i = 0; i < count; ++i)
-				init.push_back(i < (I64)bytes.size() ? (U8)bytes[(U32)i] : 0);
+				count = nchars + 1;
+			init.assign((U32)count * elemSize, 0);
+			for(I64 i = 0; i < nchars && i < count; ++i)
+				for(U32 k = 0; k < charWidth; ++k)
+					init[(U32)(i * elemSize) + k] = (U8)bytes[(U32)(i * charWidth + k)];
 		} else if(d.init && d.init->kind == ExprKind::InitList) {
 			const List<Expr*>& els = d.init->args;
 			const List<Designator>& des = d.init->designators;
