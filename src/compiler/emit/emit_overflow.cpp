@@ -1,7 +1,7 @@
 #include "emit/emit.h"
 
 namespace rat::cc {
-	namespace {
+	namespace detail {
 		struct OvfForm {
 			Opcode op = Opcode::Add;
 			B32 predicate = false;
@@ -87,11 +87,11 @@ namespace rat::cc {
 			t.set(CType::Unsigned, uns);
 			return t;
 		}
-	} // namespace
+	} // namespace detail
 
 	Emitter::Wide Emitter::wideExtend(Function& fn, Node* v, CType from) {
 		Wide r;
-		r.lo = convert(fn, v, from, ctWide(from.isUnsigned()));
+		r.lo = convert(fn, v, from, detail::ctWide(from.isUnsigned()));
 		if(from.isUnsigned())
 			r.hi = fn.constInt(r.lo->getType(), 0);
 		else
@@ -180,8 +180,8 @@ namespace rat::cc {
 
 	B32 Emitter::emitOverflowBuiltin(Function& fn, const Expr* e, Value& out) {
 		const String& b = *e->call.callee;
-		OvfForm f;
-		if(!parseOverflowName(b, lay.longBits, f))
+		detail::OvfForm f;
+		if(!detail::parseOverflowName(b, lay.longBits, f))
 			return false;
 		if(e->args.size() != 3) {
 			fail("'" + b + "' expects three arguments");
@@ -224,9 +224,9 @@ namespace rat::cc {
 
 		Node* fits;
 		Node* value;
-		B32 sgn = exactInSigned64(f.op, at, bt);
-		if(sgn || exactInUnsigned64(f.op, at, bt)) {
-			CType w = ctWide(!sgn);
+		B32 sgn = detail::exactInSigned64(f.op, at, bt);
+		if(sgn || detail::exactInUnsigned64(f.op, at, bt)) {
+			CType w = detail::ctWide(!sgn);
 			Node* r = fn.binary(f.op, convert(fn, an, at, w), convert(fn, bn, bt, w));
 			fits = fitsIn64(fn, r, rt, sgn);
 			value = convert(fn, r, w, rt);
@@ -239,7 +239,7 @@ namespace rat::cc {
 			else
 				r = wideAddSub(fn, wa, wb, f.op == Opcode::Sub);
 			fits = wideFits(fn, r, rt);
-			value = convert(fn, r.lo, ctWide(true), rt);
+			value = convert(fn, r.lo, detail::ctWide(true), rt);
 		}
 		if(!f.predicate)
 			fn.store(a2.node, value);
