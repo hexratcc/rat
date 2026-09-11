@@ -1,6 +1,7 @@
 #include "pass/emit/x86/x86_lower.h"
 
 #include "codegen/machine_function.h"
+#include "hash.h"
 #include "ir/function.h"
 #include "ir/module.h"
 #include "ir/node.h"
@@ -273,11 +274,9 @@ namespace rat {
 
 	String X86LowerPass::vecPoolSym(const List<U8>& bytes) {
 		C8 buf[48];
-		U64 h = 1469598103934665603ull;
-		for(U8 x : bytes) {
-			h ^= x;
-			h *= 1099511628211ull;
-		}
+		U64 h = kFnvBasis;
+		for(U8 x : bytes)
+			hashMix(h, x);
 		std::snprintf(buf, sizeof buf, "__rat_vec_%016lx", (U64)h);
 		String name(buf);
 		if(!mod->getGlobal(name)) {

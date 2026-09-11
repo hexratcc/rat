@@ -10,6 +10,7 @@
 #define RAT_ANALYSIS_ALIASANALYSIS_H
 
 #include "core.h"
+#include "hash.h"
 
 namespace rat {
 	struct Node;
@@ -37,16 +38,12 @@ namespace rat {
 
 		struct MustAliasKeyHash {
 			U64 operator()(const MustAliasKey& k) const {
-				U64 h = 1469598103934665603ull; // FNV-1a
-				auto mix = [&](U64 v) {
-					h ^= v;
-					h *= 1099511628211ull;
-				};
-				mix(reinterpret_cast<U64>(k.base));
-				mix((U64)k.constant);
-				mix((U64)k.size);
+				U64 h = kFnvBasis;
+				hashMix(h, reinterpret_cast<U64>(k.base));
+				hashMix(h, (U64)k.constant);
+				hashMix(h, (U64)k.size);
 				for(Node* s : k.symbolic)
-					mix(reinterpret_cast<U64>(s));
+					hashMix(h, reinterpret_cast<U64>(s));
 				return h;
 			}
 		};
