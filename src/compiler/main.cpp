@@ -155,17 +155,17 @@ namespace detail {
 		return opt;
 	}
 
-	I32 emitTokens(const String& source, std::ostream& os) {
-		Lexer lex(source.data(), (U32)source.size());
-		for(;;) {
-			Token tok = lex.next();
-			os << tok.line << ":" << tok.col << "\t" << tokKindName(tok.kind);
+	// dump the pp token stream the parser sees: source line, kind, spelling
+	I32 emitTokens(const TokenStream& ts, std::ostream& os) {
+		for(const Token& tok : ts.toks) {
+			os << tok.line << "\t" << tokKindName(tok.kind);
 			if(tok.kind == TokKind::Error)
-				return os << "\t" << lex.error() << "\n", 1;
+				return os << "\t" << ts.error() << "\n", 1;
 			if(tok.kind == TokKind::Eof)
 				return os << "\n", 0;
-			os << "\t'" << lex.text(tok) << "'\n";
+			os << "\t'" << ts.text(tok) << "'\n";
 		}
+		return 0;
 	}
 
 	TransUnit* parse(TokenStream& ts, Arena& arena) {
@@ -226,12 +226,12 @@ namespace detail {
 		return 0;
 	}
 
-	I32 emitOne(const Options& opt, const String& pped, TokenStream* ts, Emit kind) {
+	I32 emitOne(const Options& opt, TokenStream* ts, Emit kind) {
 		std::ofstream file;
 		if(!cli::openOutput(kTool, pathFor(opt, kind), file, kind == Emit::X86))
 			return 1;
 		if(kind == Emit::Tok)
-			return emitTokens(pped, file);
+			return emitTokens(*ts, file);
 		if(kind == Emit::Ast)
 			return emitAstText(*ts, file);
 		return emitViaModule(opt, *ts, file);
@@ -261,13 +261,8 @@ static I32 run(I32 argc, C8** argv) {
 	if(!opt.noPredefs)
 		source = builtinPredefs(hostTargetTriple()) + "#line 1 \"" + path + "\"\n" + source;
 
-	// -E and -emit tok need serialized text; else parse the pp token stream directly
-	B32 needText = opt.preprocessOnly, needToks = false;
-	for(::detail::Emit kind : opt.emits)
-		if(kind == ::detail::Emit::Tok)
-			needText = true;
-		else
-			needToks = true;
+	// only -E needs serialized text; every -emit kind runs off the pp token stream
+	B32 needText = opt.preprocessOnly, needToks = !opt.emits.empty();
 
 	String pped, ppErr;
 	TokenStream ts;
@@ -281,7 +276,7 @@ static I32 run(I32 argc, C8** argv) {
 		return std::cout << pped, 0;
 
 	for(::detail::Emit kind : opt.emits)
-		if(I32 rc = ::detail::emitOne(opt, pped, needToks ? &ts : nullptr, kind))
+		if(I32 rc = ::detail::emitOne(opt, &ts, kind))
 			return rc;
 	return 0;
 }

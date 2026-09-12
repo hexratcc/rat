@@ -3,27 +3,9 @@
 #include "lex/preprocess_detail.h"
 
 namespace rat::cc {
-	namespace detail {
-		// kTokNames doubles as the keyword/punct spelling table
-		static_assert((U32)TokKind::KwAlignas + 1 == (U32)TokKind::LParen,
-									"keywords and punctuators must be contiguous");
-
-		// classify a pp-number/literal by lexing its text (suffix validation)
-		TokKind classifySingle(const String& text, String& err) {
-			Lexer lx(text.data(), (U32)text.size());
-			Token t = lx.next();
-			if(t.kind == TokKind::Error) {
-				err = lx.error();
-				return TokKind::Error;
-			}
-			if((U64)t.length != text.size()) {
-				err = "malformed token '" + text + "'";
-				return TokKind::Error;
-			}
-			return t.kind;
-		}
-	} // namespace detail
-	using namespace detail;
+	// kTokNames doubles as the keyword/punct spelling table
+	static_assert((U32)TokKind::KwAlignas + 1 == (U32)TokKind::LParen,
+								"keywords and punctuators must be contiguous");
 
 	B32 preprocessToTokens(const String& path,
 												 const String& source,
@@ -66,12 +48,12 @@ namespace rat::cc {
 
 		for(const detail::PpToken& t : pp.out) {
 			switch(t.kind) {
-			case Pk::Id: {
+			case detail::Pk::Id: {
 				auto it = kindOf.find(t.text);
 				push(it != kindOf.end() ? it->second : TokKind::Identifier, t.text, t.line);
 				break;
 			}
-			case Pk::Punct: {
+			case detail::Pk::Punct: {
 				auto it = kindOf.find(t.text);
 				if(it != kindOf.end()) {
 					push(it->second, t.text, t.line);
@@ -84,11 +66,11 @@ namespace rat::cc {
 				}
 				break;
 			}
-			case Pk::Num:
-			case Pk::Char:
-			case Pk::Str: {
+			case detail::Pk::Num:
+			case detail::Pk::Char:
+			case detail::Pk::Str: {
 				String lerr;
-				TokKind k = detail::classifySingle(*t.text, lerr);
+				TokKind k = detail::classifyLiteral(*t.text, lerr);
 				if(k == TokKind::Error && !sawError) {
 					sawError = true;
 					ts.errMsg = lerr;
