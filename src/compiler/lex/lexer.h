@@ -115,8 +115,7 @@ namespace rat::cc {
 
 	struct Token {
 		TokKind kind = TokKind::Eof;
-		U32 offset = 0; // byte offset of the lexeme in the source buffer
-		U32 length = 0; // lexeme length in bytes
+		U32 offset = 0; // index of the token in its stream
 		U32 line = 1;		// 1-based line of the first character
 		U32 col = 1;		// 1-based column of the first character
 	};
@@ -124,51 +123,18 @@ namespace rat::cc {
 	namespace detail {
 		B32 validIntSuffix(const C8* s, U32 n);
 		B32 validFloatSuffix(const C8* s, U32 n);
-		B32 spellingIs(const C8* k, const C8* s, U32 n);
-		TokKind keywordKind(const C8* s, U32 n);
+
+		// scanners over one token spelling; advance i, false on error with err set
+		B32 scanSuffix(const C8* s, U32 n, U32& i, B32 isFloat, TokKind& kind, String& err);
+		B32 scanHexNumber(const C8* s, U32 n, U32& i, B32& isFloat, String& err);
+		B32 scanDecNumber(const C8* s, U32 n, U32& i, B32& isFloat, String& err);
+		U32 encodingPrefix(const C8* s, U32 n);
+		B32 scanNumber(const C8* s, U32 n, U32& i, TokKind& kind, String& err);
+		B32 scanQuoted(const C8* s, U32 n, U32& i, C8 quote, const C8* unterminated, String& err);
+
+		// kind of one complete pp-number, char constant or string literal
+		TokKind classifyLiteral(const String& text, String& err);
 	} // namespace detail
-
-	struct Lexer {
-		Lexer(const C8* src, U32 len);
-
-		Token next();
-
-		String text(const Token& tok) const;
-
-		const String& error() const { return errMsg; }
-	private:
-		void skipTrivia();
-		void bump();
-
-		Token lexIdentifier(Token tok);
-		Token lexNumber(Token tok);
-		Token lexIntSuffix(Token tok);
-		Token lexFloatSuffix(Token tok);
-		Token lexChar(Token tok);
-		Token lexString(Token tok);
-		Token lexQuoted(Token tok, C8 quote, const C8* unterminated, TokKind kind);
-		struct PunctAlt {
-			C8 c;
-			TokKind kind;
-		};
-		Token lexPunct(Token tok);
-		Token lexAltOp(Token tok, TokKind base, std::initializer_list<PunctAlt> alts);
-
-		Token finish(Token tok, TokKind kind);
-		Token fail(Token tok, const String& msg);
-
-		C8 at(U32 i) const { return i < len ? src[i] : '\0'; }
-		C8 cur() const { return at(pos); }
-		B32 isUcnStart(U32 p) const;
-
-		const C8* src;
-		U32 len;
-		U32 pos = 0;
-		U32 line = 1;
-		U32 lineStart = 0;
-
-		String errMsg;
-	};
 
 	const C8* tokKindName(TokKind kind);
 } // namespace rat::cc

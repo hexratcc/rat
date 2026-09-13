@@ -10,6 +10,29 @@
 namespace rat::cc {
 	namespace detail {
 		U32 alignedChunkWidth(U32 offset, U32 size);
+
+		// shared child traversal for AST scans
+		struct AstWalk {
+			virtual ~AstWalk() = default;
+
+			// child edges this walk follows
+			B32 sizeofOperand = false;	 // operand of sizeof
+			B32 alignOfOperand = false;	 // operand of _Alignof
+			B32 compoundLitInit = false; // initializer of a compound literal
+			B32 stmtExprBody = false;		 // body of a statement expression
+			B32 exprChildren = false;		 // expressions a statement holds
+			B32 nestedSwitch = false;		 // children of a nested switch
+			B32 forInit = false;				 // initializer statement of a for
+
+			// per-node action, run before the children
+			virtual B32 onExpr(const Expr*) { return true; }
+			virtual B32 onStmt(const Stmt*) { return true; }
+		};
+
+		B32 walkExpr(AstWalk& w, const Expr* e);
+		B32 walkExprChildren(AstWalk& w, const Expr* e);
+		B32 walkStmt(AstWalk& w, const Stmt* s);
+		B32 walkStmtChildren(AstWalk& w, const Stmt* s);
 	} // namespace detail
 
 	B32 builtinReturnType(const String& name, U32 longBits, CType& out);
@@ -300,16 +323,13 @@ namespace rat::cc {
 
 		Set<String> memVars;
 		void collectAddrTaken(const Stmt* s);
-		void collectAddrTakenExpr(const Expr* e);
 
 		U32 strCounter = 0;
 		Map<String, String> strPool; // string-literal bytes -> interned symbol
 
 		Map<String, Function::Block*> labelBlocks;
 		void collectLabels(Function& fn, const Stmt* s);
-		void collectLabelsInExpr(Function& fn, const Expr* e);
 		static B32 containsLabel(const Stmt* s);
-		static B32 containsLabelInExpr(const Expr* e);
 		static B32 containsSwitchCase(const Stmt* s);
 
 		B32 registerGlobals(const TransUnit& unit);

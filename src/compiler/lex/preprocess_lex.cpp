@@ -2,6 +2,8 @@
 
 #include "lex/char_class.h"
 
+#include <cctype>
+
 namespace rat::cc {
 	namespace detail {
 		String unquote(const String& s) { return s.size() >= 2 ? s.substr(1, s.size() - 2) : s; }

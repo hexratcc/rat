@@ -1,6 +1,6 @@
 #include "elf_read.h"
 
-#include <cstring>
+#include <cstdlib>
 #include <fstream>
 #include <sys/stat.h>
 

@@ -4,6 +4,8 @@
 #include "ir/module.h"
 #include "ir/node.h"
 
+#include <ostream>
+
 namespace rat {
 	void TextEmitterPass::comment(std::ostream& os, const C8* text) { os << Green << text << Reset; }
 

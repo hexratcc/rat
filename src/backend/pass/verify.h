@@ -4,6 +4,8 @@
 #include "core.h"
 #include "pass/pass.h"
 
+#include <iosfwd>
+
 namespace rat {
 	struct Function;
 	struct Module;

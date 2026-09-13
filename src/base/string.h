@@ -3,6 +3,9 @@
 
 #include "core.h"
 
+#include <cctype>
+#include <sstream>
+
 namespace rat {
 	inline B32 readAll(std::istream& in, String& out) {
 		std::ostringstream ss;

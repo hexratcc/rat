@@ -5,6 +5,7 @@
 #include "core.h"
 #include "pass/pass.h"
 
+#include <iosfwd>
 #include <type_traits>
 
 namespace rat {

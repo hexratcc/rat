@@ -4,6 +4,8 @@
 #include "core.h"
 #include "ir/opcode.h"
 
+#include <iosfwd>
+
 namespace rat {
 	struct Module;
 	struct Type;

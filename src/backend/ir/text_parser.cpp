@@ -1,6 +1,9 @@
 #include "ir/text_parser.h"
 
+#include <cctype>
 #include <cerrno>
+#include <cstdlib>
+#include <sstream>
 
 #include "ir/function.h"
 #include "ir/module.h"

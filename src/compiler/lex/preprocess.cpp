@@ -2,6 +2,7 @@
 
 #include <ctime>
 #include <fstream>
+#include <sstream>
 
 #include "lex/preprocess_detail.h"
 

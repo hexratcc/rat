@@ -8,8 +8,6 @@
 #include "pass/emit/x86/x86_op.h"
 #include "pass/pass.h"
 
-#include <cstdint>
-
 namespace rat {
 	struct BinaryNode;
 	struct CallNode;

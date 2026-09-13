@@ -1,5 +1,6 @@
 #include "pass/opt/inline.h"
 
+#include "hash.h"
 #include "ir/function.h"
 #include "ir/module.h"
 #include "ir/node.h"
@@ -236,9 +237,9 @@ namespace rat {
 
 	// caller version folded with its direct callees' versions
 	U64 InlinePass::quietStamp(const Function& caller, const Info& info) const {
-		U64 stamp = 14695981039346656037ull ^ caller.getVersion();
+		U64 stamp = kFnvBasis ^ caller.getVersion();
 		for(Info* callee : info.callees)
-			stamp = stamp * 1099511628211ull + callee->fn->getVersion();
+			stamp = stamp * kFnvPrime + callee->fn->getVersion();
 		return stamp;
 	}
 

@@ -1,7 +1,9 @@
 #include "test_harness.h"
 
 #include <atomic>
+#include <cstdlib>
 #include <filesystem>
+#include <iostream>
 #include <mutex>
 #include <thread>
 

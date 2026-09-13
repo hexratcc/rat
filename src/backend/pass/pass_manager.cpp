@@ -3,8 +3,8 @@
 #include "ir/module.h"
 
 #include <chrono>
-#include <cstring>
 #include <iomanip>
+#include <ostream>
 
 namespace rat {
 	Pass* PassManager::add(UniquePtr<Pass> pass) {

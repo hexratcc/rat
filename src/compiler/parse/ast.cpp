@@ -1,5 +1,7 @@
 #include "parse/ast.h"
 
+#include <ostream>
+
 namespace rat::cc {
 	StructType* makeComplexLayout(Arena& arena, CType complexType) {
 		U32 elemBytes = (complexType.bits + 7) / 8;

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "hash.h"
+
 namespace rat::cc {
 	namespace detail {
 		// names arrive sorted+unique (kept by every ctor below), so interning
@@ -9,11 +11,9 @@ namespace rat::cc {
 		const HideSet* Preprocessor::internHide(List<const String*> names) {
 			if(names.empty())
 				return nullptr;
-			U64 h = 1469598103934665603ull;
-			for(const String* p : names) {
-				h ^= (U64)(uintptr_t)p;
-				h *= 1099511628211ull;
-			}
+			U64 h = kFnvBasis;
+			for(const String* p : names)
+				hashMix(h, (U64)(uintptr_t)p);
 			List<const HideSet*>& bucket = hidePool[h];
 			for(const HideSet* c : bucket)
 				if(c->names == names)

@@ -7,6 +7,8 @@
 #include "pass/pass.h"
 #include "target/x86/x86_asm.h"
 
+#include <iosfwd>
+
 namespace rat {
 	struct Global;
 	struct ObjectFile;

@@ -3,6 +3,7 @@
 #include "string.h"
 #include "test_harness.h"
 #include <fstream>
+#include <sstream>
 
 #include "rat.h"
 

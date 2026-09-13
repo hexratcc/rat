@@ -66,348 +66,154 @@ namespace rat::cc {
 			return true;
 		}
 
-		B32 spellingIs(const C8* k, const C8* s, U32 n) {
-			U32 i = 0;
-			for(; i < n && k[i] && k[i] == s[i]; ++i)
-				;
-			return i == n && k[i] == '\0';
+		// character at i, '\0' past the end
+		inline C8 charAt(const C8* s, U32 n, U32 i) { return i < n ? s[i] : '\0'; }
+
+		B32 scanSuffix(const C8* s, U32 n, U32& i, B32 isFloat, TokKind& kind, String& err) {
+			U32 start = i;
+			while(isIdentCont(charAt(s, n, i)))
+				++i;
+			if(isFloat) {
+				if(!validFloatSuffix(s + start, i - start)) {
+					err = "invalid suffix on floating constant";
+					return false;
+				}
+				kind = TokKind::FloatConstant;
+				return true;
+			}
+			if(!validIntSuffix(s + start, i - start)) {
+				err = "invalid suffix on integer constant";
+				return false;
+			}
+			kind = TokKind::IntConstant;
+			return true;
 		}
 
-		TokKind keywordKind(const C8* s, U32 n) {
-			for(U32 k = (U32)TokKind::KwAuto; k <= (U32)TokKind::KwAlignas; ++k)
-				if(spellingIs(kTokNames[k], s, n))
-					return (TokKind)k;
-			if(spellingIs("__typeof", s, n) || spellingIs("__typeof__", s, n))
-				return TokKind::KwTypeof;
-			return TokKind::Identifier;
+		B32 scanHexNumber(const C8* s, U32 n, U32& i, B32& isFloat, String& err) {
+			i += 2; // "0x"
+			B32 anyDigits = false;
+			while(isHexDigit(charAt(s, n, i))) {
+				anyDigits = true;
+				++i;
+			}
+			if(charAt(s, n, i) == '.') {
+				isFloat = true;
+				++i;
+				while(isHexDigit(charAt(s, n, i))) {
+					anyDigits = true;
+					++i;
+				}
+			}
+			if(!anyDigits) {
+				err = "expected hex digits after '0x'";
+				return false;
+			}
+			C8 c = charAt(s, n, i);
+			if(c != 'p' && c != 'P') {
+				if(!isFloat)
+					return true;
+				err = "hexadecimal floating constant requires an exponent";
+				return false;
+			}
+			isFloat = true;
+			++i;
+			if(charAt(s, n, i) == '+' || charAt(s, n, i) == '-')
+				++i;
+			if(!isDigit(charAt(s, n, i))) {
+				err = "expected digits in binary exponent";
+				return false;
+			}
+			while(isDigit(charAt(s, n, i)))
+				++i;
+			return true;
+		}
+
+		B32 scanDecNumber(const C8* s, U32 n, U32& i, B32& isFloat, String& err) {
+			while(isDigit(charAt(s, n, i)))
+				++i;
+			if(charAt(s, n, i) == '.') {
+				isFloat = true;
+				++i;
+				while(isDigit(charAt(s, n, i)))
+					++i;
+			}
+			C8 c = charAt(s, n, i);
+			if(c != 'e' && c != 'E')
+				return true;
+			isFloat = true;
+			++i;
+			if(charAt(s, n, i) == '+' || charAt(s, n, i) == '-')
+				++i;
+			if(!isDigit(charAt(s, n, i))) {
+				err = "expected digits in exponent";
+				return false;
+			}
+			while(isDigit(charAt(s, n, i)))
+				++i;
+			return true;
+		}
+
+		B32 scanNumber(const C8* s, U32 n, U32& i, TokKind& kind, String& err) {
+			B32 isFloat = false;
+			C8 c1 = charAt(s, n, i + 1);
+			B32 hex = charAt(s, n, i) == '0' && (c1 == 'x' || c1 == 'X');
+			B32 ok = hex ? scanHexNumber(s, n, i, isFloat, err) : scanDecNumber(s, n, i, isFloat, err);
+			if(!ok)
+				return false;
+			return scanSuffix(s, n, i, isFloat, kind, err);
+		}
+
+		B32 scanQuoted(const C8* s, U32 n, U32& i, C8 quote, const C8* unterminated, String& err) {
+			++i; // opening quote
+			while(i < n && s[i] != quote && s[i] != '\n') {
+				if(s[i] == '\\')
+					++i; // an escaped character never closes the literal
+				++i;
+			}
+			if(charAt(s, n, i) != quote) {
+				err = unterminated;
+				return false;
+			}
+			++i; // closing quote
+			return true;
+		}
+
+		// length of an encoding prefix: L/u/U before a quote, u8 before '"'
+		U32 encodingPrefix(const C8* s, U32 n) {
+			C8 c = charAt(s, n, 0), c1 = charAt(s, n, 1);
+			if(c != 'L' && c != 'u' && c != 'U')
+				return 0;
+			if(c == 'u' && c1 == '8' && charAt(s, n, 2) == '"')
+				return 2;
+			return (c1 == '\'' || c1 == '"') ? 1 : 0;
+		}
+
+		TokKind classifyLiteral(const String& text, String& err) {
+			const C8* s = text.data();
+			U32 n = (U32)text.size();
+			U32 i = encodingPrefix(s, n);
+			TokKind kind = TokKind::Error;
+			B32 ok = false;
+			C8 c = charAt(s, n, i);
+			if(c == '\'') {
+				ok = scanQuoted(s, n, i, '\'', "unterminated character constant", err);
+				kind = TokKind::CharConstant;
+			} else if(c == '"') {
+				ok = scanQuoted(s, n, i, '"', "unterminated string literal", err);
+				kind = TokKind::StringLiteral;
+			} else {
+				i = 0; // no prefix on a pp-number
+				ok = scanNumber(s, n, i, kind, err);
+			}
+			if(!ok)
+				return TokKind::Error;
+			if(i != n) {
+				err = "malformed token '" + text + "'";
+				return TokKind::Error;
+			}
+			return kind;
 		}
 	} // namespace detail
-
-	Lexer::Lexer(const C8* src, U32 len)
-	: src(src),
-		len(len) {}
-
-	void Lexer::bump() {
-		if(pos < len && src[pos] == '\n') {
-			++line;
-			lineStart = pos + 1;
-		}
-		++pos;
-	}
-
-	void Lexer::skipTrivia() {
-		for(;;) {
-			C8 c = cur();
-			if(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v') {
-				bump();
-			} else if(c == '/' && at(pos + 1) == '/') {
-				bump();
-				bump();
-				while(pos < len && cur() != '\n')
-					bump();
-			} else if(c == '/' && at(pos + 1) == '*') {
-				bump();
-				bump();
-				while(pos < len && !(cur() == '*' && at(pos + 1) == '/'))
-					bump();
-				if(pos < len) {
-					bump(); // '*'
-					bump(); // '/'
-				}
-			} else {
-				return;
-			}
-		}
-	}
-
-	Token Lexer::finish(Token tok, TokKind kind) {
-		tok.kind = kind;
-		tok.length = pos - tok.offset;
-		return tok;
-	}
-
-	Token Lexer::fail(Token tok, const String& msg) {
-		errMsg = msg;
-		if(pos == tok.offset && pos < len)
-			bump(); // always make progress
-		tok.kind = TokKind::Error;
-		tok.length = pos - tok.offset;
-		return tok;
-	}
-
-	Token Lexer::next() {
-		skipTrivia();
-
-		Token tok;
-		tok.offset = pos;
-		tok.line = line;
-		tok.col = pos - lineStart + 1;
-
-		if(pos >= len)
-			return finish(tok, TokKind::Eof);
-
-		C8 c = cur();
-		if(c == 'L' || c == 'u' || c == 'U') {
-			C8 n1 = at(pos + 1);
-			if(c == 'u' && n1 == '8' && at(pos + 2) == '"') {
-				bump(); // 'u'
-				bump(); // '8'
-				return lexString(tok);
-			}
-			if(n1 == '\'') {
-				bump(); // prefix
-				return lexChar(tok);
-			}
-			if(n1 == '"') {
-				bump(); // prefix
-				return lexString(tok);
-			}
-		}
-		if(isIdentStart(c) || isUcnStart(pos))
-			return lexIdentifier(tok);
-		if(isDigit(c) || (c == '.' && isDigit(at(pos + 1))))
-			return lexNumber(tok);
-		if(c == '\'')
-			return lexChar(tok);
-		if(c == '"')
-			return lexString(tok);
-		return lexPunct(tok);
-	}
-
-	B32 Lexer::isUcnStart(U32 p) const {
-		if(at(p) != '\\')
-			return false;
-		C8 n = at(p + 1);
-		return n == 'u' || n == 'U';
-	}
-
-	Token Lexer::lexIdentifier(Token tok) {
-		for(;;) {
-			if(isIdentCont(cur())) {
-				bump();
-			} else if(isUcnStart(pos)) {
-				bump(); // backslash
-				C8 kind = cur();
-				bump(); // 'u' or 'U'
-				U32 ndigits = (kind == 'u') ? 4 : 8;
-				for(U32 k = 0; k < ndigits; ++k) {
-					if(!isHexDigit(cur()))
-						return fail(tok, "incomplete universal character name");
-					bump();
-				}
-			} else {
-				break;
-			}
-		}
-		U32 n = pos - tok.offset;
-		return finish(tok, detail::keywordKind(src + tok.offset, n));
-	}
-
-	Token Lexer::lexNumber(Token tok) {
-		if(cur() == '0' && (at(pos + 1) == 'x' || at(pos + 1) == 'X')) {
-			bump();
-			bump();
-			B32 anyDigits = false;
-			while(isHexDigit(cur())) {
-				anyDigits = true;
-				bump();
-			}
-			B32 isFloat = false;
-			if(cur() == '.') {
-				isFloat = true;
-				bump();
-				while(isHexDigit(cur())) {
-					anyDigits = true;
-					bump();
-				}
-			}
-			if(!anyDigits)
-				return fail(tok, "expected hex digits after '0x'");
-			if(cur() == 'p' || cur() == 'P') {
-				isFloat = true;
-				bump();
-				if(cur() == '+' || cur() == '-')
-					bump();
-				if(!isDigit(cur()))
-					return fail(tok, "expected digits in binary exponent");
-				while(isDigit(cur()))
-					bump();
-			} else if(isFloat) {
-				return fail(tok, "hexadecimal floating constant requires an exponent");
-			}
-			if(isFloat)
-				return lexFloatSuffix(tok);
-			return lexIntSuffix(tok);
-		}
-
-		B32 isFloat = false;
-		while(isDigit(cur()))
-			bump();
-		if(cur() == '.') {
-			isFloat = true;
-			bump();
-			while(isDigit(cur()))
-				bump();
-		}
-		if(cur() == 'e' || cur() == 'E') {
-			isFloat = true;
-			bump();
-			if(cur() == '+' || cur() == '-')
-				bump();
-			if(!isDigit(cur()))
-				return fail(tok, "expected digits in exponent");
-			while(isDigit(cur()))
-				bump();
-		}
-
-		if(isFloat)
-			return lexFloatSuffix(tok);
-		return lexIntSuffix(tok);
-	}
-
-	Token Lexer::lexIntSuffix(Token tok) {
-		U32 sfxStart = pos;
-		while(isIdentCont(cur()))
-			bump();
-		if(!detail::validIntSuffix(src + sfxStart, pos - sfxStart))
-			return fail(tok, "invalid suffix on integer constant");
-		return finish(tok, TokKind::IntConstant);
-	}
-
-	Token Lexer::lexFloatSuffix(Token tok) {
-		U32 sfxStart = pos;
-		while(isIdentCont(cur()))
-			bump();
-		if(!detail::validFloatSuffix(src + sfxStart, pos - sfxStart))
-			return fail(tok, "invalid suffix on floating constant");
-		return finish(tok, TokKind::FloatConstant);
-	}
-
-	Token Lexer::lexQuoted(Token tok, C8 quote, const C8* unterminated, TokKind kind) {
-		bump(); // opening quote
-		while(pos < len && cur() != quote && cur() != '\n') {
-			if(cur() == '\\')
-				bump(); // consume the backslash
-			bump();
-		}
-		if(cur() != quote)
-			return fail(tok, unterminated);
-		bump(); // closing quote
-		return finish(tok, kind);
-	}
-
-	Token Lexer::lexChar(Token tok) {
-		return lexQuoted(tok, '\'', "unterminated character constant", TokKind::CharConstant);
-	}
-
-	Token Lexer::lexString(Token tok) {
-		return lexQuoted(tok, '"', "unterminated string literal", TokKind::StringLiteral);
-	}
-
-	Token Lexer::lexAltOp(Token tok, TokKind base, std::initializer_list<PunctAlt> alts) {
-		bump();
-		for(const PunctAlt& a : alts)
-			if(cur() == a.c) {
-				bump();
-				return finish(tok, a.kind);
-			}
-		return finish(tok, base);
-	}
-
-	Token Lexer::lexPunct(Token tok) {
-		C8 c = cur();
-
-		struct Simple {
-			C8 c;
-			TokKind kind;
-		};
-		static const Simple kSimple[] = {
-				{'(', TokKind::LParen},
-				{')', TokKind::RParen},
-				{'{', TokKind::LBrace},
-				{'}', TokKind::RBrace},
-				{'[', TokKind::LBracket},
-				{']', TokKind::RBracket},
-				{';', TokKind::Semicolon},
-				{',', TokKind::Comma},
-				{'~', TokKind::Tilde},
-				{'?', TokKind::Question},
-				{':', TokKind::Colon},
-		};
-		for(const Simple& s : kSimple)
-			if(s.c == c) {
-				bump();
-				return finish(tok, s.kind);
-			}
-
-		switch(c) {
-		case '.':
-			if(at(pos + 1) == '.' && at(pos + 2) == '.') {
-				bump();
-				bump();
-				bump();
-				return finish(tok, TokKind::Ellipsis);
-			}
-			bump();
-			return finish(tok, TokKind::Dot);
-		case '+':
-			return lexAltOp(tok, TokKind::Plus, {{'+', TokKind::PlusPlus}, {'=', TokKind::PlusEq}});
-		case '-':
-			return lexAltOp(tok,
-											TokKind::Minus,
-											{{'-', TokKind::MinusMinus}, {'=', TokKind::MinusEq}, {'>', TokKind::Arrow}});
-		case '*':
-			return lexAltOp(tok, TokKind::Star, {{'=', TokKind::StarEq}});
-		case '/':
-			return lexAltOp(tok, TokKind::Slash, {{'=', TokKind::SlashEq}});
-		case '%':
-			return lexAltOp(tok, TokKind::Percent, {{'=', TokKind::PercentEq}});
-		case '^':
-			return lexAltOp(tok, TokKind::Caret, {{'=', TokKind::CaretEq}});
-		case '!':
-			return lexAltOp(tok, TokKind::Bang, {{'=', TokKind::BangEq}});
-		case '=':
-			return lexAltOp(tok, TokKind::Assign, {{'=', TokKind::EqEq}});
-		case '&':
-			return lexAltOp(tok, TokKind::Amp, {{'&', TokKind::AmpAmp}, {'=', TokKind::AmpEq}});
-		case '|':
-			return lexAltOp(tok, TokKind::Pipe, {{'|', TokKind::PipePipe}, {'=', TokKind::PipeEq}});
-		case '<':
-			bump();
-			if(cur() == '<') {
-				bump();
-				if(cur() == '=') {
-					bump();
-					return finish(tok, TokKind::ShlEq);
-				}
-				return finish(tok, TokKind::Shl);
-			}
-			if(cur() == '=') {
-				bump();
-				return finish(tok, TokKind::Le);
-			}
-			return finish(tok, TokKind::Lt);
-		case '>':
-			bump();
-			if(cur() == '>') {
-				bump();
-				if(cur() == '=') {
-					bump();
-					return finish(tok, TokKind::ShrEq);
-				}
-				return finish(tok, TokKind::Shr);
-			}
-			if(cur() == '=') {
-				bump();
-				return finish(tok, TokKind::Ge);
-			}
-			return finish(tok, TokKind::Gt);
-		default:
-			return fail(tok, String("unexpected character '") + c + "'");
-		}
-	}
-
-	String Lexer::text(const Token& tok) const { return String(src + tok.offset, tok.length); }
 
 	const C8* tokKindName(TokKind kind) { return detail::kTokNames[(U32)kind]; }
 } // namespace rat::cc

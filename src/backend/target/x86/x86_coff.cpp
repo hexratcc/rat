@@ -2,6 +2,8 @@
 
 #include "byte_io.h"
 
+#include <ostream>
+
 namespace rat {
 	namespace detail {
 		constexpr U16 IMAGE_FILE_MACHINE_AMD64 = 0x8664;

@@ -10,6 +10,7 @@
 #define RAT_PASS_OPT_GVN_H
 
 #include "core.h"
+#include "hash.h"
 #include "pass/pass.h"
 
 namespace rat {
@@ -32,18 +33,14 @@ namespace rat {
 
 		struct GVNKeyHash {
 			U64 operator()(const GVNKey& k) const {
-				U64 h = 1469598103934665603ull;
-				auto mix = [&](U64 v) {
-					h ^= v;
-					h *= 1099511628211ull;
-				};
-				mix(k.op);
-				mix(k.type);
-				mix((U64)k.payload);
-				mix(k.in0);
-				mix(((U64)k.in1) << 32);
+				U64 h = kFnvBasis;
+				hashMix(h, k.op);
+				hashMix(h, k.type);
+				hashMix(h, (U64)k.payload);
+				hashMix(h, k.in0);
+				hashMix(h, ((U64)k.in1) << 32);
 				if(k.sym)
-					mix(std::hash<String>{}(*k.sym));
+					hashMix(h, std::hash<String>{}(*k.sym));
 				return (U64)h;
 			}
 		};

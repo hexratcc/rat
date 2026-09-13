@@ -1,323 +1,249 @@
 #include "emit/emit.h"
 
 namespace rat::cc {
-	void Emitter::collectAddrTakenExpr(const Expr* e) {
-		if(!e)
-			return;
-		switch(e->kind) {
-		case ExprKind::Unary:
-			if(e->unary.op == ExprOp::Addr && e->unary.operand->kind == ExprKind::Ident)
-				memVars.insert(*e->unary.operand->ident.name);
-			collectAddrTakenExpr(e->unary.operand);
-			return;
-		case ExprKind::Binary:
-			collectAddrTakenExpr(e->binary.lhs);
-			collectAddrTakenExpr(e->binary.rhs);
-			return;
-		case ExprKind::Ternary:
-			collectAddrTakenExpr(e->ternary.cond);
-			collectAddrTakenExpr(e->ternary.whenTrue);
-			collectAddrTakenExpr(e->ternary.whenFalse);
-			return;
-		case ExprKind::Comma:
-			collectAddrTakenExpr(e->comma.lhs);
-			collectAddrTakenExpr(e->comma.rhs);
-			return;
-		case ExprKind::Cast:
-			collectAddrTakenExpr(e->cast.operand);
-			return;
-		case ExprKind::Call:
-			if(lay.win64VaList && e->call.callee && !e->args.empty() &&
-				 e->args[0]->kind == ExprKind::Ident) {
-				const String& b = *e->call.callee;
-				if(b == "__builtin_va_start" || b == "__builtin_va_end" || b == "__builtin_va_copy")
-					memVars.insert(*e->args[0]->ident.name);
+	namespace detail {
+		B32 walkExprChildren(AstWalk& w, const Expr* e) {
+			switch(e->kind) {
+			case ExprKind::Unary:
+				return walkExpr(w, e->unary.operand);
+			case ExprKind::Binary:
+				return walkExpr(w, e->binary.lhs) && walkExpr(w, e->binary.rhs);
+			case ExprKind::Ternary:
+				return walkExpr(w, e->ternary.cond) && walkExpr(w, e->ternary.whenTrue) &&
+							 walkExpr(w, e->ternary.whenFalse);
+			case ExprKind::Comma:
+				return walkExpr(w, e->comma.lhs) && walkExpr(w, e->comma.rhs);
+			case ExprKind::Cast:
+				return walkExpr(w, e->cast.operand);
+			case ExprKind::Sizeof:
+				return !w.sizeofOperand || walkExpr(w, e->sizeOf.operand);
+			case ExprKind::AlignOf:
+				return !w.alignOfOperand || walkExpr(w, e->sizeOf.operand);
+			case ExprKind::Member:
+				return walkExpr(w, e->member.base);
+			case ExprKind::Call:
+				return walkExpr(w, e->call.target);
+			case ExprKind::VaArg:
+				return walkExpr(w, e->vaArg.ap);
+			case ExprKind::CompoundLit:
+				return !w.compoundLitInit || walkExpr(w, e->compound.init);
+			case ExprKind::StmtExpr:
+				return !w.stmtExprBody || walkStmt(w, e->stmtExpr.body);
+			default:
+				return true;
 			}
-			collectAddrTakenExpr(e->call.target);
-			for(const Expr* arg : e->args)
-				collectAddrTakenExpr(arg);
-			return;
-		case ExprKind::Member:
-			collectAddrTakenExpr(e->member.base);
-			return;
-		case ExprKind::InitList:
-			for(const Expr* el : e->args)
-				collectAddrTakenExpr(el);
-			return;
-		case ExprKind::CompoundLit:
-			collectAddrTakenExpr(e->compound.init);
-			return;
-		case ExprKind::VaArg:
-			if(lay.win64VaList && e->vaArg.ap->kind == ExprKind::Ident)
-				memVars.insert(*e->vaArg.ap->ident.name);
-			collectAddrTakenExpr(e->vaArg.ap);
-			return;
-		case ExprKind::StmtExpr:
-			collectAddrTaken(e->stmtExpr.body);
-			return;
-		default:
-			return;
 		}
-	}
+
+		// args holds the call arguments and the initializer-list elements; it is
+		// empty for every other kind, so it is walked last for all of them.
+		B32 walkExpr(AstWalk& w, const Expr* e) {
+			if(!e)
+				return true;
+			if(!w.onExpr(e))
+				return false;
+			if(!walkExprChildren(w, e))
+				return false;
+			for(const Expr* a : e->args)
+				if(!walkExpr(w, a))
+					return false;
+			return true;
+		}
+
+		B32 walkStmtChildren(AstWalk& w, const Stmt* s) {
+			switch(s->kind) {
+			case StmtKind::Compound:
+				for(const Stmt* child : s->body)
+					if(!walkStmt(w, child))
+						return false;
+				return true;
+			case StmtKind::Decl:
+				if(!w.exprChildren)
+					return true;
+				for(const Declarator& d : s->decls)
+					if(!walkExpr(w, d.init))
+						return false;
+				return true;
+			case StmtKind::If:
+				if(w.exprChildren && !walkExpr(w, s->expr))
+					return false;
+				return walkStmt(w, s->thenBody) && walkStmt(w, s->elseBody);
+			case StmtKind::Switch:
+				if(!w.nestedSwitch)
+					return true;
+				if(w.exprChildren && !walkExpr(w, s->expr))
+					return false;
+				return walkStmt(w, s->thenBody);
+			case StmtKind::While:
+			case StmtKind::DoWhile:
+			case StmtKind::Case:
+				if(w.exprChildren && !walkExpr(w, s->expr))
+					return false;
+				return walkStmt(w, s->thenBody);
+			case StmtKind::For:
+				if(w.forInit && !walkStmt(w, s->forInit))
+					return false;
+				if(w.exprChildren && (!walkExpr(w, s->expr) || !walkExpr(w, s->forPost)))
+					return false;
+				return walkStmt(w, s->thenBody);
+			case StmtKind::Label:
+			case StmtKind::Default:
+				return walkStmt(w, s->thenBody);
+			case StmtKind::Return:
+			case StmtKind::Expr:
+				return !w.exprChildren || walkExpr(w, s->expr);
+			default:
+				return true;
+			}
+		}
+
+		B32 walkStmt(AstWalk& w, const Stmt* s) {
+			if(!s)
+				return true;
+			if(!w.onStmt(s))
+				return false;
+			return walkStmtChildren(w, s);
+		}
+
+		// &x, and the win64 va_list builtins, force x into memory
+		struct AddrTakenWalk final : AstWalk {
+			AddrTakenWalk(Set<String>& vars, B32 win64Va)
+			: memVars(vars),
+				win64VaList(win64Va) {
+				compoundLitInit = true;
+				stmtExprBody = true;
+				exprChildren = true;
+				nestedSwitch = true;
+				forInit = true;
+			}
+			B32 onExpr(const Expr* e) override;
+			void noteVaBuiltin(const Expr* e);
+			Set<String>& memVars;
+			B32 win64VaList;
+		};
+
+		void AddrTakenWalk::noteVaBuiltin(const Expr* e) {
+			if(!win64VaList || !e->call.callee || e->args.empty() || e->args[0]->kind != ExprKind::Ident)
+				return;
+			const String& b = *e->call.callee;
+			if(b == "__builtin_va_start" || b == "__builtin_va_end" || b == "__builtin_va_copy")
+				memVars.insert(*e->args[0]->ident.name);
+		}
+
+		B32 AddrTakenWalk::onExpr(const Expr* e) {
+			switch(e->kind) {
+			case ExprKind::Unary:
+				if(e->unary.op == ExprOp::Addr && e->unary.operand->kind == ExprKind::Ident)
+					memVars.insert(*e->unary.operand->ident.name);
+				return true;
+			case ExprKind::Call:
+				noteVaBuiltin(e);
+				return true;
+			case ExprKind::VaArg:
+				if(win64VaList && e->vaArg.ap->kind == ExprKind::Ident)
+					memVars.insert(*e->vaArg.ap->ident.name);
+				return true;
+			default:
+				return true;
+			}
+		}
+
+		struct LabelWalkBase : AstWalk {
+			LabelWalkBase() {
+				sizeofOperand = true;
+				alignOfOperand = true;
+				stmtExprBody = true;
+				exprChildren = true;
+				nestedSwitch = true;
+				forInit = true;
+			}
+		};
+
+		struct LabelBlockWalk final : LabelWalkBase {
+			LabelBlockWalk(Function& func, Map<String, Function::Block*>& blocks)
+			: fn(func),
+				labelBlocks(blocks) {}
+			B32 onStmt(const Stmt* s) override;
+			Function& fn;
+			Map<String, Function::Block*>& labelBlocks;
+		};
+
+		B32 LabelBlockWalk::onStmt(const Stmt* s) {
+			if(s->kind == StmtKind::Label && !labelBlocks.count(*s->label))
+				labelBlocks[*s->label] = fn.createLoopHeader("label." + *s->label);
+			return true;
+		}
+
+		struct HasLabelWalk final : LabelWalkBase {
+			B32 onStmt(const Stmt* s) override { return s->kind != StmtKind::Label; }
+		};
+
+		struct RefersToWalk final : AstWalk {
+			explicit RefersToWalk(const String& n)
+			: name(n) {
+				sizeofOperand = true;
+				compoundLitInit = true;
+			}
+			B32 onExpr(const Expr* e) override;
+			const String& name;
+		};
+
+		B32 RefersToWalk::onExpr(const Expr* e) {
+			if(e->kind != ExprKind::Ident)
+				return true;
+			return !e->ident.name || *e->ident.name != name;
+		}
+
+		struct HasSwitchCaseWalk final : AstWalk {
+			B32 onStmt(const Stmt* s) override {
+				return s->kind != StmtKind::Case && s->kind != StmtKind::Default;
+			}
+		};
+
+		struct SwitchCaseWalk final : AstWalk {
+			SwitchCaseWalk(List<const Stmt*>& list, const Stmt*& defStmt)
+			: cases(list),
+				def(defStmt) {}
+			B32 onStmt(const Stmt* s) override;
+			List<const Stmt*>& cases;
+			const Stmt*& def;
+		};
+
+		B32 SwitchCaseWalk::onStmt(const Stmt* s) {
+			if(s->kind == StmtKind::Case)
+				cases.push_back(s);
+			else if(s->kind == StmtKind::Default)
+				def = s;
+			return true;
+		}
+	} // namespace detail
 
 	void Emitter::collectAddrTaken(const Stmt* s) {
-		if(!s)
-			return;
-		switch(s->kind) {
-		case StmtKind::Compound:
-			for(const Stmt* child : s->body)
-				collectAddrTaken(child);
-			return;
-		case StmtKind::Decl:
-			for(const Declarator& d : s->decls)
-				collectAddrTakenExpr(d.init);
-			return;
-		case StmtKind::If:
-			collectAddrTakenExpr(s->expr);
-			collectAddrTaken(s->thenBody);
-			collectAddrTaken(s->elseBody);
-			return;
-		case StmtKind::While:
-		case StmtKind::DoWhile:
-		case StmtKind::Switch:
-			collectAddrTakenExpr(s->expr);
-			collectAddrTaken(s->thenBody);
-			return;
-		case StmtKind::For:
-			collectAddrTaken(s->forInit);
-			collectAddrTakenExpr(s->expr);
-			collectAddrTakenExpr(s->forPost);
-			collectAddrTaken(s->thenBody);
-			return;
-		case StmtKind::Label:
-		case StmtKind::Default:
-			collectAddrTaken(s->thenBody);
-			return;
-		case StmtKind::Case:
-			collectAddrTakenExpr(s->expr);
-			collectAddrTaken(s->thenBody);
-			return;
-		case StmtKind::Return:
-		case StmtKind::Expr:
-			collectAddrTakenExpr(s->expr);
-			return;
-		default:
-			return;
-		}
-	}
-
-	void Emitter::collectLabelsInExpr(Function& fn, const Expr* e) {
-		if(!e)
-			return;
-		switch(e->kind) {
-		case ExprKind::StmtExpr:
-			collectLabels(fn, e->stmtExpr.body);
-			break;
-		case ExprKind::Unary:
-			collectLabelsInExpr(fn, e->unary.operand);
-			break;
-		case ExprKind::Binary:
-			collectLabelsInExpr(fn, e->binary.lhs);
-			collectLabelsInExpr(fn, e->binary.rhs);
-			break;
-		case ExprKind::Ternary:
-			collectLabelsInExpr(fn, e->ternary.cond);
-			collectLabelsInExpr(fn, e->ternary.whenTrue);
-			collectLabelsInExpr(fn, e->ternary.whenFalse);
-			break;
-		case ExprKind::Comma:
-			collectLabelsInExpr(fn, e->comma.lhs);
-			collectLabelsInExpr(fn, e->comma.rhs);
-			break;
-		case ExprKind::Cast:
-			collectLabelsInExpr(fn, e->cast.operand);
-			break;
-		case ExprKind::Sizeof:
-		case ExprKind::AlignOf:
-			collectLabelsInExpr(fn, e->sizeOf.operand);
-			break;
-		case ExprKind::Member:
-			collectLabelsInExpr(fn, e->member.base);
-			break;
-		case ExprKind::Call:
-			collectLabelsInExpr(fn, e->call.target);
-			break;
-		case ExprKind::VaArg:
-			collectLabelsInExpr(fn, e->vaArg.ap);
-			break;
-		default:
-			break;
-		}
-		for(const Expr* a : e->args)
-			collectLabelsInExpr(fn, a);
+		detail::AddrTakenWalk w(memVars, lay.win64VaList);
+		detail::walkStmt(w, s);
 	}
 
 	void Emitter::collectLabels(Function& fn, const Stmt* s) {
-		if(!s)
-			return;
-		switch(s->kind) {
-		case StmtKind::Label:
-			if(!labelBlocks.count(*s->label))
-				labelBlocks[*s->label] = fn.createLoopHeader("label." + *s->label);
-			collectLabels(fn, s->thenBody);
-			return;
-		case StmtKind::Compound:
-			for(const Stmt* child : s->body)
-				collectLabels(fn, child);
-			return;
-		case StmtKind::If:
-			collectLabelsInExpr(fn, s->expr);
-			collectLabels(fn, s->thenBody);
-			collectLabels(fn, s->elseBody);
-			return;
-		case StmtKind::While:
-		case StmtKind::DoWhile:
-		case StmtKind::Switch:
-			collectLabelsInExpr(fn, s->expr);
-			collectLabels(fn, s->thenBody);
-			return;
-		case StmtKind::For:
-			collectLabels(fn, s->forInit);
-			collectLabelsInExpr(fn, s->expr);
-			collectLabelsInExpr(fn, s->forPost);
-			collectLabels(fn, s->thenBody);
-			return;
-		case StmtKind::Expr:
-		case StmtKind::Return:
-			collectLabelsInExpr(fn, s->expr);
-			return;
-		case StmtKind::Case:
-			collectLabelsInExpr(fn, s->expr);
-			collectLabels(fn, s->thenBody);
-			return;
-		case StmtKind::Default:
-			collectLabels(fn, s->thenBody);
-			return;
-		case StmtKind::Decl:
-			for(const Declarator& d : s->decls)
-				collectLabelsInExpr(fn, d.init);
-			return;
-		default:
-			return;
-		}
-	}
-
-	B32 Emitter::containsLabelInExpr(const Expr* e) {
-		if(!e)
-			return false;
-		switch(e->kind) {
-		case ExprKind::StmtExpr:
-			if(containsLabel(e->stmtExpr.body))
-				return true;
-			break;
-		case ExprKind::Unary:
-			if(containsLabelInExpr(e->unary.operand))
-				return true;
-			break;
-		case ExprKind::Binary:
-			if(containsLabelInExpr(e->binary.lhs) || containsLabelInExpr(e->binary.rhs))
-				return true;
-			break;
-		case ExprKind::Ternary:
-			if(containsLabelInExpr(e->ternary.cond) || containsLabelInExpr(e->ternary.whenTrue) ||
-				 containsLabelInExpr(e->ternary.whenFalse))
-				return true;
-			break;
-		case ExprKind::Comma:
-			if(containsLabelInExpr(e->comma.lhs) || containsLabelInExpr(e->comma.rhs))
-				return true;
-			break;
-		case ExprKind::Cast:
-			if(containsLabelInExpr(e->cast.operand))
-				return true;
-			break;
-		case ExprKind::Sizeof:
-		case ExprKind::AlignOf:
-			if(containsLabelInExpr(e->sizeOf.operand))
-				return true;
-			break;
-		case ExprKind::Member:
-			if(containsLabelInExpr(e->member.base))
-				return true;
-			break;
-		case ExprKind::Call:
-			if(containsLabelInExpr(e->call.target))
-				return true;
-			break;
-		case ExprKind::VaArg:
-			if(containsLabelInExpr(e->vaArg.ap))
-				return true;
-			break;
-		default:
-			break;
-		}
-		for(const Expr* a : e->args)
-			if(containsLabelInExpr(a))
-				return true;
-		return false;
+		detail::LabelBlockWalk w(fn, labelBlocks);
+		detail::walkStmt(w, s);
 	}
 
 	B32 Emitter::containsLabel(const Stmt* s) {
-		if(!s)
-			return false;
-		switch(s->kind) {
-		case StmtKind::Label:
-			return true;
-		case StmtKind::Compound:
-			for(const Stmt* child : s->body)
-				if(containsLabel(child))
-					return true;
-			return false;
-		case StmtKind::If:
-			return containsLabelInExpr(s->expr) || containsLabel(s->thenBody) ||
-						 containsLabel(s->elseBody);
-		case StmtKind::While:
-		case StmtKind::DoWhile:
-		case StmtKind::Switch:
-			return containsLabelInExpr(s->expr) || containsLabel(s->thenBody);
-		case StmtKind::For:
-			return containsLabel(s->forInit) || containsLabelInExpr(s->expr) ||
-						 containsLabelInExpr(s->forPost) || containsLabel(s->thenBody);
-		case StmtKind::Expr:
-		case StmtKind::Return:
-			return containsLabelInExpr(s->expr);
-		case StmtKind::Case:
-			return containsLabelInExpr(s->expr) || containsLabel(s->thenBody);
-		case StmtKind::Default:
-			return containsLabel(s->thenBody);
-		case StmtKind::Decl:
-			for(const Declarator& d : s->decls)
-				if(containsLabelInExpr(d.init))
-					return true;
-			return false;
-		default:
-			return false;
-		}
+		detail::HasLabelWalk w;
+		return !detail::walkStmt(w, s);
 	}
 
 	B32 Emitter::containsSwitchCase(const Stmt* s) {
-		if(!s)
-			return false;
-		switch(s->kind) {
-		case StmtKind::Case:
-		case StmtKind::Default:
-			return true;
-		case StmtKind::Label:
-			return containsSwitchCase(s->thenBody);
-		case StmtKind::Compound:
-			for(const Stmt* child : s->body)
-				if(containsSwitchCase(child))
-					return true;
-			return false;
-		case StmtKind::If:
-			return containsSwitchCase(s->thenBody) || containsSwitchCase(s->elseBody);
-		case StmtKind::While:
-		case StmtKind::DoWhile:
-			return containsSwitchCase(s->thenBody);
-		case StmtKind::For:
-			return containsSwitchCase(s->thenBody);
-		default:
-			return false;
-		}
+		detail::HasSwitchCaseWalk w;
+		return !detail::walkStmt(w, s);
+	}
+
+	void Emitter::collectSwitchCases(const Stmt* s, List<const Stmt*>& cases, const Stmt*& def) {
+		detail::SwitchCaseWalk w(cases, def);
+		detail::walkStmt(w, s);
+	}
+
+	B32 Emitter::exprRefersTo(const Expr* e, const String& name) const {
+		detail::RefersToWalk w(name);
+		return !detail::walkExpr(w, e);
 	}
 } // namespace rat::cc

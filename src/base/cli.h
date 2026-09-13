@@ -1,7 +1,9 @@
 #ifndef RAT_BASE_CLI_H
 #define RAT_BASE_CLI_H
 
+#include <cstdlib>
 #include <fstream>
+#include <iostream>
 
 #include "core.h"
 #include "git_hash.h"
