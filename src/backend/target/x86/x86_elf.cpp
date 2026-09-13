@@ -3,6 +3,8 @@
 #include "byte_io.h"
 #include "elf_file.h"
 
+#include <ostream>
+
 namespace rat {
 	namespace detail {
 		constexpr U8 kElfMag[4] = {0x7f, 'E', 'L', 'F'};

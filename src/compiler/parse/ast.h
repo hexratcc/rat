@@ -3,6 +3,8 @@
 
 #include "core.h"
 
+#include <iosfwd>
+
 namespace rat::cc {
 	enum class ExprOp : U8 {
 		// unary

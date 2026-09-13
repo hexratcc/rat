@@ -5,6 +5,8 @@
 
 #include "target/target.h"
 
+#include <iosfwd>
+
 namespace rat {
 	enum class RelocKind : U32 {
 		Abs64 = 1, // absolute 64-bit address       (S + A)

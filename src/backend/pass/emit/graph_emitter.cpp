@@ -4,6 +4,8 @@
 #include "ir/module.h"
 #include "ir/node.h"
 
+#include <ostream>
+
 namespace rat {
 	namespace detail {
 		void writeId(std::ostream& os, U32 fnIndex, const Node* n) {

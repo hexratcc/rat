@@ -3,6 +3,7 @@
 #include "parse/parser_detail.h"
 
 #include <cerrno>
+#include <cstdlib>
 
 namespace rat::cc {
 	Expr* Parser::parseBuiltinOffsetof(const Token& kw) {

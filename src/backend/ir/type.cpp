@@ -1,5 +1,7 @@
 #include "ir/type.h"
 
+#include <sstream>
+
 namespace rat {
 	Type::Type(Kind kind, U32 bits, List<Type*> elements)
 	: kind(kind),

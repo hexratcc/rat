@@ -3,6 +3,8 @@
 #include "cli.h"
 #include "ir/text_parser.h"
 
+#include <iostream>
+
 using namespace rat;
 
 namespace detail {

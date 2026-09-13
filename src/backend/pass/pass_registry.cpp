@@ -1,6 +1,7 @@
 #include "pass/pass_registry.h"
 
 #include <iomanip>
+#include <ostream>
 
 #include "pass/pass.h"
 #include "string.h"

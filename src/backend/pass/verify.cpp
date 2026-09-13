@@ -5,6 +5,8 @@
 #include "ir/node.h"
 #include "ir/type.h"
 
+#include <sstream>
+
 namespace rat {
 	VerifyPass::FunctionVerifier::FunctionVerifier(const Function& fn, List<String>& e)
 	: fn(fn),

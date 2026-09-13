@@ -3,6 +3,8 @@
 
 #include "core.h"
 
+#include <iosfwd>
+
 namespace rat {
 	struct Type {
 		enum Kind {

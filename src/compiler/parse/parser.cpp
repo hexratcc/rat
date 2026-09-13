@@ -1,5 +1,7 @@
 #include "parse/parser.h"
 
+#include <sstream>
+
 namespace rat::cc {
 	B32 Parser::enterDepth() {
 		if(++parseDepth > kMaxParseDepth) {

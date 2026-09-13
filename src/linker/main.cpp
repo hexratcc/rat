@@ -3,6 +3,8 @@
 #include "cli.h"
 #include "string.h"
 
+#include <iostream>
+
 using namespace rat;
 
 namespace detail {

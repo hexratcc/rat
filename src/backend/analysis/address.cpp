@@ -5,8 +5,6 @@
 #include "ir/opcode.h"
 #include "ir/type.h"
 
-#include <algorithm>
-
 namespace rat {
 	namespace {
 		// extract a compile-time constant value; false if n is not a constant

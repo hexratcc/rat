@@ -4,6 +4,8 @@
 #include "core.h"
 #include "pass/pass_manager.h"
 
+#include <iosfwd>
+
 namespace rat {
 	UniquePtr<Pass> createPass(const String& name, std::ostream& out);
 	UniquePtr<MachinePass> createMachinePass(const String& name, std::ostream& out);

@@ -8,6 +8,8 @@
 #include "lex/preprocess.h"
 #include "parse/parser.h"
 #include <chrono>
+#include <cstdlib>
+#include <iostream>
 #ifdef __GLIBC__
 #include <malloc.h>
 #endif
