@@ -99,6 +99,7 @@ namespace rat {
 			Node* anchorPtr(Node* ptr, const RefinedAddr& k);
 			void coalesceSplats();
 			B32 coneTouchesObserver(const Node* n) const;
+			B32 madeLoadsReadMemIn() const;
 			static String tupleKey(const List<Node*>& lanes);
 			Node* packTuple(const List<Node*>& lanes, Type* elemTy, U32 depth);
 			Node* packTupleUncached(const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth);

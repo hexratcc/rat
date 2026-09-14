@@ -73,6 +73,13 @@ namespace rat {
 		return false;
 	}
 
+	B32 slp::Packer::madeLoadsReadMemIn() const {
+		for(const Node* n : madeLoads)
+			if(cast<LoadNode>(n)->getMemory() != memIn)
+				return false;
+		return true;
+	}
+
 	String slp::Packer::tupleKey(const List<Node*>& lanes) {
 		String k;
 		k.reserve(lanes.size() * 10);
