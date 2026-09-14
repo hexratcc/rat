@@ -73,6 +73,13 @@ namespace rat {
 		return false;
 	}
 
+	B32 slp::Packer::madeLoadsReadMemIn() const {
+		for(const Node* n : madeLoads)
+			if(cast<LoadNode>(n)->getMemory() != memIn)
+				return false;
+		return true;
+	}
+
 	String slp::Packer::tupleKey(const List<Node*>& lanes) {
 		String k;
 		k.reserve(lanes.size() * 10);
@@ -187,84 +194,103 @@ namespace rat {
 		return fn.create<BinaryNode>(op, vecTy, lv, rv);
 	}
 
-	Node* slp::Packer::packLoads(const List<Node*>& lanes, Type* elemTy, Type* vecTy) {
+	B32 slp::Packer::matchLoadShape(const List<Node*>& lanes, Type* elemTy, LoadShape& out) const {
 		U32 w = (U32)lanes.size();
-		U32 esz = elemTy->byteSize(drv.ptrBytes);
+		out.esz = elemTy->byteSize(drv.ptrBytes);
 		for(Node* n : lanes)
 			if(!isa<LoadNode>(n) || n->getType() != elemTy)
-				return nullptr;
-		LoadNode* first = cast<LoadNode>(lanes[0]);
-		RefinedAddr k0 = refineAddr(first->getPointer(), esz);
-		if(!k0.valid())
-			return nullptr;
-		B32 sharedState = true;
-		B32 adjacent = true, equal = true;
+				return false;
+		out.first = cast<LoadNode>(lanes[0]);
+		out.k0 = refineAddr(out.first->getPointer(), out.esz);
+		if(!out.k0.valid())
+			return false;
+
+		out.sharedState = true;
+		out.adjacent = true;
+		out.equal = true;
 		for(U32 i = 1; i < w; ++i) {
 			LoadNode* l = cast<LoadNode>(lanes[i]);
-			if(l->getControl() != first->getControl())
-				return nullptr;
-			sharedState &= l->getMemory() == first->getMemory();
-			RefinedAddr k = refineAddr(l->getPointer(), esz);
-			if(!k.valid() || !k.sameGroup(k0))
-				return nullptr;
-			adjacent &= k.constant == k0.constant + (I64)(i * esz);
-			equal &= k.constant == k0.constant;
+			if(l->getControl() != out.first->getControl())
+				return false;
+			out.sharedState &= l->getMemory() == out.first->getMemory();
+			RefinedAddr k = refineAddr(l->getPointer(), out.esz);
+			if(!k.valid() || !k.sameGroup(out.k0))
+				return false;
+			out.adjacent &= k.constant == out.k0.constant + (I64)(i * out.esz);
+			out.equal &= k.constant == out.k0.constant;
 		}
-		if(!adjacent && !equal)
-			return nullptr;
+		return out.adjacent || out.equal;
+	}
 
-		// a same-group load range that straddles the store window without matching
-		// it exactly is a store-forward trap
-		if(windowKey && !equal && k0.sameGroup(*windowKey)) {
-			I64 sLo = windowKey->constant, sHi = sLo + (I64)(w * esz);
-			I64 lLo = k0.constant, lHi = lLo + (I64)(w * esz);
-			if(lLo != sLo && lLo < sHi && sLo < lHi) {
-				++drv.stats.rejectedOverlap;
-				dead = true;
-				return nullptr;
-			}
-		}
+	// a same-group load range that overlaps the store window without starting at it
+	// reads bytes the window itself writes
+	B32 slp::Packer::straddlesWindow(const LoadShape& sh, U32 w) const {
+		if(!windowKey || sh.equal || !sh.k0.sameGroup(*windowKey))
+			return false;
+		I64 sLo = windowKey->constant, sHi = sLo + (I64)(w * sh.esz);
+		I64 lLo = sh.k0.constant, lHi = lLo + (I64)(w * sh.esz);
+		return lLo != sLo && lLo < sHi && sLo < lHi;
+	}
 
-		// all lanes read one pre-window state: a single wide load (or splat)
-		if(sharedState && !interWritten.count(first->getMemory()))
-			return packWideOrSplat(first->getMemory(), first, k0, elemTy, vecTy, w, equal);
-
-		// lanes read inner window states: hoist them to memIn unless one reads a
-		// lane stored earlier in the window (never reached by reductions, their
-		// interWritten is empty)
-		for(U32 i = 0; i < w; ++i) {
-			LoadNode* l = cast<LoadNode>(lanes[i]);
-			Node* m = l->getMemory();
+	// lanes read states inside the window
+	B32 slp::Packer::innerStatesHoistable(const List<Node*>& lanes, const LoadShape& sh) {
+		for(U32 i = 0; i < (U32)lanes.size(); ++i) {
+			Node* m = cast<LoadNode>(lanes[i])->getMemory();
 			if(m == memIn)
 				continue;
 			auto it = interWritten.find(m);
 			if(it == interWritten.end())
-				return nullptr; // some other state, not this window's business
-			if(k0.sameGroup(*windowKey)) {
-				I64 laneOff = 0;
-				if(adjacent)
-					laneOff = (I64)(i * esz);
-				// this lane reads [c, c + esz), a lane stored before it covers [written, written + ssz).
-				// any overlap, not just an exact hit, means the scalar sees a freshly stored byte
-				I64 c = k0.constant + laneOff;
-				I64 ssz = (I64)windowKey->size;
-				for(I64 written : it->second)
-					if(written < c + (I64)esz && c < written + ssz) {
-						dead = true; // scalar reads a freshly stored lane
-						return nullptr;
-					}
-			}
+				return false; // some other state, not this window's business
+			if(!sh.k0.sameGroup(*windowKey))
+				continue;
+			I64 laneOff = 0;
+			if(sh.adjacent)
+				laneOff = (I64)(i * sh.esz);
+			// this lane reads [c, c + esz), a lane stored before it covers [written, written + ssz).
+			// any overlap, not just an exact hit, means the scalar sees a freshly stored byte
+			I64 c = sh.k0.constant + laneOff;
+			I64 ssz = (I64)windowKey->size;
+			for(I64 written : it->second)
+				if(written < c + (I64)sh.esz && c < written + ssz) {
+					dead = true; // scalar reads a freshly stored lane
+					return false;
+				}
+		}
+		return true;
+	}
+
+	// a load outside the window's own group needs a runtime disjointness check,
+	// unless the two ranges provably miss each other
+	void slp::Packer::guardAgainstWindow(const LoadShape& sh, U32 w) {
+		if(sh.k0.sameGroup(*windowKey))
+			return;
+		U32 guardBytes = w * sh.esz;
+		if(sh.equal)
+			guardBytes = sh.esz;
+		if(!provablyDisjoint(sh.k0, guardBytes, *windowKey, w * windowKey->size))
+			addGuard(sh.k0, sh.first->getPointer(), guardBytes);
+	}
+
+	Node* slp::Packer::packLoads(const List<Node*>& lanes, Type* elemTy, Type* vecTy) {
+		U32 w = (U32)lanes.size();
+		LoadShape sh;
+		if(!matchLoadShape(lanes, elemTy, sh))
+			return nullptr;
+
+		if(straddlesWindow(sh, w)) {
+			++drv.stats.rejectedOverlap;
+			dead = true;
+			return nullptr;
 		}
 
-		if(!k0.sameGroup(*windowKey)) {
-			U32 guardBytes = w * esz;
-			if(equal)
-				guardBytes = esz;
-			if(!provablyDisjoint(k0, guardBytes, *windowKey, w * windowKey->size))
-				addGuard(k0, first->getPointer(), guardBytes);
-		}
-
-		return packWideOrSplat(memIn, first, k0, elemTy, vecTy, w, equal);
+		// all lanes read one state outside the window
+		if(sh.sharedState && !interWritten.count(sh.first->getMemory()))
+			return packWideOrSplat(sh.first->getMemory(), sh.first, sh.k0, elemTy, vecTy, w, sh.equal);
+		if(!innerStatesHoistable(lanes, sh))
+			return nullptr;
+		assert(windowKey && "inner window states imply a window");
+		guardAgainstWindow(sh, w);
+		return packWideOrSplat(memIn, sh.first, sh.k0, elemTy, vecTy, w, sh.equal);
 	}
 
 	// materialize a whole-vector load, or a splat when every lane hits one address

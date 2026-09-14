@@ -94,6 +94,7 @@ namespace rat {
 		B32 profitable = packer.profit - guardCost >= (I32)(kMinProfit * n) && packer.interior >= n;
 		B32 withinBudget = packer.guardGroups.size() <= kMaxGuards;
 		B32 accept = profitable && withinBudget && !packer.coneTouchesObserver(wPtr);
+		accept = accept && packer.madeLoadsReadMemIn();
 		for(const Packer::GuardGroup& g : packer.guardGroups)
 			accept = accept && !packer.coneTouchesObserver(g.ptr);
 		// every observer must feed only the scalar stores of this run
@@ -258,7 +259,7 @@ namespace rat {
 					dest = elseP;
 				else if(m && !preSet.count(m))
 					dest = region; // post-run
-				else if(m && isa<LoadNode>(u) && coneEndsInStores(u, packer.runStores, 64))
+				else if(m == packer.memIn && isa<LoadNode>(u) && coneEndsInStores(u, packer.runStores, 64))
 					dest = elseP; // pre-run load only the scalar arm reads
 			}
 			if(dest)

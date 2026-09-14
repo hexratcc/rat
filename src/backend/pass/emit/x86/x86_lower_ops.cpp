@@ -379,10 +379,7 @@ namespace rat {
 		// int lanes with sse4.1 build the vector in-register (VPackReg); float and pre-sse4.1
 		// fall back to gathering through the vec scratch slot (VPack)
 		B32 useReg = isInt && sse41;
-		X86Op op = X86Op::VPack;
-		if(useReg)
-			op = X86Op::VPackReg;
-		else
+		if(!useReg)
 			needVecScratch();
 		List<MachineOperand> lanes;
 		for(U32 i = 0; i < w; ++i) {
@@ -392,7 +389,10 @@ namespace rat {
 			else
 				lanes.push_back(MachineOperand::vr(sseValue(lane), esz));
 		}
-		vpack(op, vregFor(n), std::move(lanes), esz, isInt);
+		if(useReg)
+			vpackReg(vregFor(n), lanes, esz);
+		else
+			vpackMem(vregFor(n), lanes, esz, isInt);
 	}
 
 	void X86LowerPass::emitX87Binary(BinaryNode* n, U32 idx) {

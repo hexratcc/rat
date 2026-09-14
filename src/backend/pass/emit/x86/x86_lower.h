@@ -140,7 +140,8 @@ namespace rat {
 		void varith(VReg d, VReg a, VReg b, U8 pfx, U8 opc, B32 esc38);
 		void vsplat(VReg d, VReg s, U32 esz, B32 isInt);
 		void vextract(VReg d, VReg s, U32 lane, U32 esz, B32 isInt);
-		void vpack(X86Op op, VReg d, List<MachineOperand> lanes, U32 esz, B32 isInt);
+		void vpackMem(VReg d, const List<MachineOperand>& lanes, U32 esz, B32 isInt);
+		void vpackReg(VReg d, const List<MachineOperand>& lanes, U32 esz);
 		void vshuf(VReg d, VReg s, U8 sel);
 		// x87
 		void fld(Slot d, VReg addr);

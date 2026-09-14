@@ -82,6 +82,16 @@ namespace rat {
 				I64 minC = 0, maxC = 0;
 			};
 
+			// how a load tuple is addressed
+			struct LoadShape {
+				LoadNode* first = nullptr;
+				RefinedAddr k0; // address of lane 0
+				U32 esz = 0;
+				B32 sharedState = false; // every lane reads one memory state
+				B32 adjacent = false;		 // lane i is at k0 + i*esz
+				B32 equal = false;			 // every lane hits k0
+			};
+
 			Packer(Slp& drv, Node* memIn, const RefinedAddr* windowKey);
 
 			void collectRun(const Segment& seg, U32 begin, U32 count);
@@ -89,9 +99,14 @@ namespace rat {
 			Node* anchorPtr(Node* ptr, const RefinedAddr& k);
 			void coalesceSplats();
 			B32 coneTouchesObserver(const Node* n) const;
+			B32 madeLoadsReadMemIn() const;
 			static String tupleKey(const List<Node*>& lanes);
 			Node* packTuple(const List<Node*>& lanes, Type* elemTy, U32 depth);
 			Node* packTupleUncached(const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth);
+			B32 matchLoadShape(const List<Node*>& lanes, Type* elemTy, LoadShape& out) const;
+			B32 straddlesWindow(const LoadShape& sh, U32 w) const;
+			B32 innerStatesHoistable(const List<Node*>& lanes, const LoadShape& sh);
+			void guardAgainstWindow(const LoadShape& sh, U32 w);
 			Node* packLoads(const List<Node*>& lanes, Type* elemTy, Type* vecTy);
 			Node* packBinaryLanes(const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth);
 			Node* packWideOrSplat(Node* mem,
@@ -108,10 +123,12 @@ namespace rat {
 			// window context, null for reductions
 			Node* memIn;
 			const RefinedAddr* windowKey;
-			Set<const Node*> runStores;								// the scalar stores being fused
-			Map<const Node*, List<I64>> interWritten; // inner store -> lane offsets stored before it
-			Set<const Node*> observers;								// loads reading an inner store's state
-			B32 dead = false; // a matched strategy could not be built, the window is rejected
+			Set<const Node*> runStores; // the scalar stores being fused
+			// inner store -> lane offsets already written in the state that store produces,
+			// its own offset included
+			Map<const Node*, List<I64>> interWritten;
+			Set<const Node*> observers; // loads reading an inner store's state
+			B32 dead = false;						// a matched strategy could not be built, the window is rejected
 			List<GuardGroup> guardGroups;
 			// splat reloads kept for post-commit coalescing into wide loads
 			List<Pair<Node*, LoadNode*>> splatLoads;
@@ -167,6 +184,8 @@ namespace rat {
 			// steer every other user of the pre-branch control to the right arm
 			void
 			rerouteBlock(Node* startCtrl, Node* iff, Node* region, Node* elseP, const Packer& packer);
+			void sortReductionTerms(List<Node*>& terms, U32 esz);
+			Node* emitHsum(Node* acc, Opcode addOp, Type* vecTy, U32 w);
 			U32 packReduction(BinaryNode* root);
 			U32 packReductions();
 			U32 run();
