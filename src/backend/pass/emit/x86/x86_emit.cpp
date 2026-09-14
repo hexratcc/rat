@@ -263,8 +263,21 @@ namespace rat {
 		m.regClass = isInt ? detail::kGp : detail::kFp;
 	}
 
-	void X86LowerPass::vpack(X86Op op, VReg d, List<MachineOperand> lanes, U32 esz, B32 isInt) {
-		put(op, {detail::vr(d, 16)}, std::move(lanes), (I64)esz, isInt ? 1 : 0);
+	void X86LowerPass::vpackMem(VReg d, const List<MachineOperand>& lanes, U32 esz, B32 isInt) {
+		for(U32 i = 0; i < (U32)lanes.size(); ++i) {
+			I64 desc = ((I64)i << 1) | (isInt ? 1 : 0);
+			put(X86Op::VPackLane, {}, {lanes[i]}, (I64)esz, desc).regClass =
+					isInt ? detail::kGp : detail::kFp;
+		}
+		put(X86Op::VPack, {detail::vr(d, 16)}, {}, (I64)esz, isInt ? 1 : 0);
+	}
+
+	void X86LowerPass::vpackReg(VReg d, const List<MachineOperand>& lanes, U32 esz) {
+		put(X86Op::VPackReg, {detail::vr(d, 16)}, {lanes[0]}, (I64)esz, 1);
+		for(U32 i = 1; i < (U32)lanes.size(); ++i) {
+			List<MachineOperand> uses = {detail::vr(d, 16), lanes[i]};
+			put(X86Op::VInsertReg, {detail::vr(d, 16)}, std::move(uses), (I64)esz, (I64)i);
+		}
 	}
 
 	void X86LowerPass::vshuf(VReg d, VReg s, U8 sel) {

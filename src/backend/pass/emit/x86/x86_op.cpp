@@ -65,8 +65,10 @@ namespace rat {
 		{"varith",       kFp,    1,   2, 0,        ImmKind::Other, ImmKind::None},
 		{"vsplat",       kFp,    1,   1, 0,        ImmKind::Lane,  ImmKind::Other},
 		{"vextract",     kFp,    1,   1, 0,        ImmKind::Lane,  ImmKind::Other},
-		{"vpack",        kFp,    1,  -1, 0,        ImmKind::Lane,  ImmKind::Other},
-		{"vpackreg",     kFp,    1,  -1, 0,        ImmKind::Lane,  ImmKind::Other},
+		{"vpacklane",    kFp,    0,   1, 0,        ImmKind::Lane,  ImmKind::Other},
+		{"vpack",        kFp,    1,   0, 0,        ImmKind::Lane,  ImmKind::Other},
+		{"vpackreg",     kFp,    1,   1, 0,        ImmKind::Lane,  ImmKind::Other},
+		{"vinsertreg",   kFp,    1,   2, 0,        ImmKind::Lane,  ImmKind::Other},
 		{"vshuf",        kFp,    1,   1, 0,        ImmKind::Lane,  ImmKind::None},
 		// x87
 		// imm is the memory width, or -1 / -2 to store-and-pop or discard st(0)
