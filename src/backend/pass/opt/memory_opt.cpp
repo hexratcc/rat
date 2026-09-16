@@ -7,8 +7,9 @@
 #include "target/target.h"
 
 namespace rat {
-	Node* MemoryOptPass::effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size) {
-		for(U32 steps = 0; steps < kMaxStoreWalk; ++steps) {
+	Node*
+	MemoryOptPass::effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size, U32& hops) {
+		for(hops = 0; hops < kMaxStoreWalk; ++hops) {
 			StoreNode* s = dyn_cast<StoreNode>(mem);
 			if(!s)
 				break;
@@ -17,6 +18,15 @@ namespace rat {
 			mem = s->getMemory();
 		}
 		return mem;
+	}
+
+	// two loads of one bucket share an effective def, so the distance back to it
+	// is their order inside a block
+	B32 MemoryOptPass::precedes(const LoadNode* a, const LoadNode* b) const {
+		U32 ha = chainHops[a->getId()], hb = chainHops[b->getId()];
+		if(ha != hb)
+			return ha < hb;
+		return a->getId() < b->getId(); // same memory state, either may represent
 	}
 
 	U32 MemoryOptPass::forwardStores(const AliasAnalysis& aa) {
@@ -46,7 +56,7 @@ namespace rat {
 			if(ba < 0 || bb < 0)
 				return false;
 			if(ba == bb)
-				return a->getId() < b->getId(); // same block, no aliasing store between
+				return precedes(a, b); // same block, no aliasing store between
 			return sched.dominates(ba, bb);
 		};
 
@@ -65,13 +75,13 @@ namespace rat {
 			List<LoadNode*>& group = kv.second;
 			if(group.size() < 2)
 				continue;
-			std::sort(group.begin(), group.end(), [&](LoadNode* a, LoadNode* b) {
+			std::sort(group.begin(), group.end(), [&](LoadNode* a, LoadNode* b) -> B32 {
 				I32 ba = sched.blockOf(a), bb = sched.blockOf(b);
 				I32 da = ba < 0 ? -1 : sched.block(ba).domDepth;
 				I32 db = bb < 0 ? -1 : sched.block(bb).domDepth;
 				if(da != db)
 					return da < db;
-				return a->getId() < b->getId();
+				return precedes(a, b);
 			});
 			for(U32 i = 0, e = (U32)group.size(); i < e; ++i) {
 				LoadNode* b = group[i];
@@ -170,9 +180,11 @@ namespace rat {
 			if(LoadNode* l = dyn_cast<LoadNode>(n))
 				loads.push_back(l);
 		defs.assign(fn.idBound(), nullptr);
+		chainHops.assign(fn.idBound(), 0);
 		for(LoadNode* l : loads)
 			if(l->hasUsers())
-				defs[l->getId()] = effectiveDef(aa, l->getMemory(), l->getPointer(), aa.getAccessSize(l));
+				defs[l->getId()] = effectiveDef(
+						aa, l->getMemory(), l->getPointer(), aa.getAccessSize(l), chainHops[l->getId()]);
 
 		U32 removed = 0;
 		removed += forwardStores(aa);
