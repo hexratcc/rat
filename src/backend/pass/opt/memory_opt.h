@@ -38,7 +38,8 @@ namespace rat {
 		static constexpr U32 kMaxStoreWalk = 512;
 
 		// skip back over stores that provably do not alias [addr, addr+size)
-		static Node* effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size);
+		static Node* effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size, U32& hops);
+		B32 precedes(const LoadNode* a, const LoadNode* b) const;
 
 		struct ChainScan {
 			StoreNode* store; // last must-alias store of matching size and type
@@ -67,6 +68,7 @@ namespace rat {
 
 		List<LoadNode*> loads;
 		List<Node*> defs;
+		List<U32> chainHops;
 		std::unordered_map<BucketKey, List<LoadNode*>, BucketKeyHash> buckets;
 	};
 } // namespace rat
