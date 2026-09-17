@@ -1,7 +1,8 @@
 #include "parse/parser.h"
 
 namespace rat::cc {
-	// adjacent string literals concatenate, exactly like an ordinary one
+	// string-literal...
+	// adjacent literals concatenate
 	B32 Parser::parseAsmTemplate(const String*& out) {
 		if(!check(TokKind::StringLiteral)) {
 			fail(peek(), "expected a string literal in 'asm'");
@@ -17,7 +18,8 @@ namespace rat::cc {
 		return true;
 	}
 
-	// output/input list: [name] "constraint" ( expr ), comma separated, may be empty
+	// [ operand [, operand]... ]
+	// operand: [ '[' name ']' ] string-literal... ( expr )
 	B32 Parser::parseAsmOperands(List<AsmOperand>& out) {
 		if(check(TokKind::Colon) || check(TokKind::RParen))
 			return true;
@@ -48,7 +50,7 @@ namespace rat::cc {
 		return true;
 	}
 
-	// clobber list: string literals, comma separated, may be empty
+	// [ string-literal... [, string-literal...]... ]
 	B32 Parser::parseAsmStrings(List<const String*>& out) {
 		if(check(TokKind::Colon) || check(TokKind::RParen))
 			return true;
@@ -63,7 +65,9 @@ namespace rat::cc {
 		return true;
 	}
 
-	// asm [volatile] [inline] [goto] ( template [: out [: in [: clobbers [: labels]]]] ) ;
+	// asm [ volatile | inline | goto ]... ( template [: out [: in [: clobbers [: labels]]]] ) ;
+	// labels: [ name [, name]... ]
+	// no colon at all means basic asm, which is always volatile
 	Stmt* Parser::parseAsmStatement() {
 		Token kw = advance(); // asm
 		AsmBlock* blk = arena.make<AsmBlock>();
@@ -84,7 +88,6 @@ namespace rat::cc {
 			return nullptr;
 		if(!parseAsmTemplate(blk->text))
 			return nullptr;
-		// no colon at all means basic asm, which is always volatile
 		U32 section = 0;
 		while(accept(TokKind::Colon)) {
 			switch(section) {
@@ -129,8 +132,8 @@ namespace rat::cc {
 		return s;
 	}
 
-	// trailing declaration attributes: the markers the preprocessor leaves behind and an
-	// asm label. they may follow a declarator in any order
+	// [ alias ( string-literal... ) | asm ( string-literal... ) | noinline | alignas ]...
+	// the markers the preprocessor leaves behind, in any order; an asm label is rejected
 	B32 Parser::parseDeclAttributes(const String*& aliasOut, B32& noInlineOut, U32& alignOut) {
 		for(;;) {
 			if(accept(TokKind::KwAlias)) {

@@ -1,9 +1,13 @@
 #include "parse/parser.h"
 
 namespace rat::cc {
+	// { [ [designation] initializer [, [designation] initializer]... [,] ] } | assignment
+	// designation: designator... =
+	// designator: . name | '[' const-expr [ '...' const-expr ] ']'
+	// a '...' range is allowed on the first designator only
 	Expr* Parser::parseInitializer() {
 		if(check(TokKind::LBrace)) {
-			Token lb = advance();
+			Token lb = advance(); // {
 			Expr* e = makeExpr(ExprKind::InitList, lb.offset);
 			if(!check(TokKind::RBrace)) {
 				for(;;) {
@@ -87,6 +91,7 @@ namespace rat::cc {
 		return parseAssignment();
 	}
 
+	// wraps v to the width and signedness of an integer type
 	I64 Parser::castConstValue(I64 v, CType ty) const {
 		if(!isInteger(ty) || ty.typeofExpr)
 			return v;
@@ -101,6 +106,7 @@ namespace rat::cc {
 		return (I64)low;
 	}
 
+	// folds an integer constant expression; anything else is a diagnostic
 	B32 Parser::evalIntConst(const Expr* e, I64& out) {
 		switch(e->kind) {
 		case ExprKind::IntLit:
@@ -197,6 +203,7 @@ namespace rat::cc {
 		}
 	}
 
+	// evalIntConst without the diagnostic
 	B32 Parser::tryEvalIntConst(const Expr* e, I64& out) {
 		B32 savedFailed = failed;
 		String savedMsg = errMsg;

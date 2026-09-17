@@ -3,6 +3,7 @@
 #include "parse/parser_detail.h"
 
 namespace rat::cc {
+	// one shared { re, im } layout per element width
 	StructType* Parser::complexStruct(CType realType) {
 		StructType*& st = complexLayouts[realType.bits];
 		if(!st)
@@ -10,6 +11,10 @@ namespace rat::cc {
 		return st;
 	}
 
+	// [ struct-spec ; | type-spec member [, member]... ; ]... }
+	// member: [qualifier | *]... [ [name] [array-dims] | ( declarator ) suffixes ] member-tail
+	// member-tail: : const-expr | [alignas]...
+	// a bare struct-spec ; splices an anonymous struct or union member
 	B32 Parser::parseStructBody(StructType* st, B32 isUnion) {
 		U64 offset = 0;
 		U32 align = 1;
@@ -91,7 +96,6 @@ namespace rat::cc {
 						count = (U64)n; // 0 == flexible array member
 					}
 				}
-				// optional bitfield : width
 				if(accept(TokKind::Colon)) {
 					if(isArr || ft.ptr != 0 || ft.isFloat() || ft.isComplex() || ft.isVoid() ||
 						 isStruct(ft) || ft.func != nullptr) {
@@ -204,6 +208,8 @@ namespace rat::cc {
 		return true;
 	}
 
+	// tag-kw [alignas]... [tag] [ { body ] [alignas]...
+	// tag-kw: struct | union
 	B32 Parser::parseStructSpec(CType& out) {
 		B32 isUnion = check(TokKind::KwUnion);
 		advance(); // 'struct' or 'union'
@@ -255,6 +261,7 @@ namespace rat::cc {
 		return true;
 	}
 
+	// typeof ( type-name | expr )
 	B32 Parser::parseTypeofSpec(CType& out) {
 		advance(); // typeof / __typeof / __typeof__
 		if(!expect(TokKind::LParen, "'('"))
@@ -272,6 +279,8 @@ namespace rat::cc {
 		return expect(TokKind::RParen, "')'");
 	}
 
+	// enum [alignas]... [tag] [ { [ enumerator [, enumerator]... [,] ] } ]
+	// enumerator: name [= const-expr]
 	B32 Parser::parseEnumSpec(CType& out) {
 		advance(); // enum
 		String tag;

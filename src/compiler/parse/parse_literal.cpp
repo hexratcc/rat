@@ -41,6 +41,7 @@ namespace rat::cc {
 			return cp;
 		}
 
+		// largest escape value the encoding prefix of a literal can hold
 		U32 escapeMaxVal(C8 prefix) {
 			switch(prefix) {
 			case 'u':
@@ -65,6 +66,8 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
+	// [ 0x | 0X | 0 ] digits [ u | U | l | L ]...
+	// the type follows C11 6.4.4.1
 	B32 Parser::parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods) {
 		String s = lex.text(tok);
 		B32 isUnsigned = false;
@@ -159,6 +162,8 @@ namespace rat::cc {
 		return true;
 	}
 
+	// after \ : simple-escape | ? | x hex-digit... | octal-digit [octal-digit [octal-digit]]
+	// any other character stands for itself
 	B32 Parser::decodeEscape(
 			const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out) {
 		if(i >= end) {
@@ -208,6 +213,7 @@ namespace rat::cc {
 		}
 	}
 
+	// after \ : u hex-quad | U hex-quad hex-quad
 	B32 Parser::decodeUcn(const String& s, U32& i, U32 end, const Token& tok, U32& cp) {
 		C8 kind = s[i++]; // 'u' or 'U'
 		U32 ndigits = (kind == 'u') ? 4 : 8;
@@ -232,12 +238,13 @@ namespace rat::cc {
 		return true;
 	}
 
+	// [ L | u | U ] ' c-char... '
+	// several chars pack big-endian into one int
 	B32 Parser::parseCharLiteral(const Token& tok, I64& value) {
 		String s = lex.text(tok);
 		U32 maxVal = detail::escapeMaxVal(s.size() ? s[0] : '\'');
 		B32 prefixed = s.size() != 0 && s[0] != '\'';
-		// skip any encoding prefix
-		U32 i = 0;
+		U32 i = 0; // skip any encoding prefix
 		while(i < s.size() && s[i] != '\'')
 			++i;
 		++i;
@@ -282,6 +289,8 @@ namespace rat::cc {
 		return true;
 	}
 
+	// [ L | u | u8 | U ] " s-char... "
+	// appended to out as utf-8 bytes
 	B32 Parser::parseStringLiteral(const Token& tok, String& out) {
 		String s = lex.text(tok);
 		U32 maxVal = (s.size() && s[0] == 'u' && s.size() > 1 && s[1] == '8')
@@ -318,6 +327,8 @@ namespace rat::cc {
 		return true;
 	}
 
+	// [ L | u | U ] " s-char... "
+	// appended to out as unitBytes-wide code units
 	B32 Parser::parseWideStringLiteral(const Token& tok, U32 unitBytes, String& out) {
 		String s = lex.text(tok);
 		U32 maxVal = detail::escapeMaxVal(s.size() ? s[0] : '"');

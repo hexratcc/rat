@@ -1,6 +1,7 @@
 #include "parse/parser.h"
 
 namespace rat::cc {
+	// _Static_assert ( const-expr , string-literal... ) ;
 	B32 Parser::parseStaticAssert() {
 		Token kw = advance(); // _Static_assert
 		if(!expect(TokKind::LParen, "'('"))
@@ -37,6 +38,7 @@ namespace rat::cc {
 		return true;
 	}
 
+	// a non-extern object must not have an incomplete struct type, through arrays
 	B32 Parser::checkObjectComplete(const Declarator& d) {
 		if(d.isExtern)
 			return true;
@@ -50,6 +52,9 @@ namespace rat::cc {
 		return true;
 	}
 
+	// static-assert | typedef | type-spec [ init-declarator [, init-declarator]... ] ;
+	// init-declarator: declarator [alignas]... [= initializer] | name function-rest
+	// a prototype's function-rest eats its own ; or , itself
 	Stmt* Parser::parseDeclaration() {
 		Token start = peek();
 		if(check(TokKind::KwStaticAssert)) {
@@ -141,6 +146,7 @@ namespace rat::cc {
 		return s;
 	}
 
+	// ( expr )
 	Expr* Parser::parseParenCond() {
 		if(!expect(TokKind::LParen, "'('"))
 			return nullptr;
@@ -152,6 +158,7 @@ namespace rat::cc {
 		return cond;
 	}
 
+	// if ( expr ) stmt [ else stmt ]
 	Stmt* Parser::parseIf() {
 		Token kw = advance(); // if
 		Expr* cond = parseParenCond();
@@ -173,6 +180,7 @@ namespace rat::cc {
 		return s;
 	}
 
+	// while ( expr ) stmt
 	Stmt* Parser::parseWhile() {
 		Token kw = advance(); // while
 		Expr* cond = parseParenCond();
@@ -187,6 +195,7 @@ namespace rat::cc {
 		return s;
 	}
 
+	// do stmt while ( expr ) ;
 	Stmt* Parser::parseDoWhile() {
 		Token kw = advance(); // do
 		Stmt* body = parseStatement();
@@ -205,12 +214,13 @@ namespace rat::cc {
 		return s;
 	}
 
+	// for ( for-init [expr] ; [expr] ) stmt
+	// for-init: declaration | [expr] ;
 	Stmt* Parser::parseFor() {
 		Token kw = advance(); // for
 		if(!expect(TokKind::LParen, "'('"))
 			return nullptr;
 
-		// init clause
 		Stmt* init = nullptr;
 		if(startsType(peek()) || check(TokKind::KwTypedef)) {
 			init = parseDeclaration();
@@ -227,7 +237,6 @@ namespace rat::cc {
 			init->expr = e;
 		}
 
-		// condition
 		Expr* cond = nullptr;
 		if(!check(TokKind::Semicolon)) {
 			cond = parseExpression();
@@ -237,7 +246,6 @@ namespace rat::cc {
 		if(!expect(TokKind::Semicolon, "';'"))
 			return nullptr;
 
-		// post expression
 		Expr* post = nullptr;
 		if(!check(TokKind::RParen)) {
 			post = parseExpression();
@@ -259,6 +267,8 @@ namespace rat::cc {
 		return s;
 	}
 
+	// switch ( expr ) stmt
+	// a non-block body is wrapped in a compound
 	Stmt* Parser::parseSwitch() {
 		Token kw = advance(); // switch
 		Expr* ctrl = parseParenCond();
@@ -283,12 +293,16 @@ namespace rat::cc {
 		return s;
 	}
 
+	// stmt, or empty when a label ends the block
 	Stmt* Parser::parseLabeledSub() {
 		if(check(TokKind::RBrace) || check(TokKind::Eof))
 			return makeStmt(StmtKind::Empty, peek().offset);
 		return parseStatement();
 	}
 
+	// compound | asm | name : stmt | goto name ; | declaration
+	// | if | while | do | for | switch | case const-expr : [stmt] | default : [stmt]
+	// | break ; | continue ; | return [expr] ; | ; | expr ;
 	Stmt* Parser::parseStatement() {
 		DepthScope scope(*this);
 		if(!enterDepth())
@@ -404,6 +418,7 @@ namespace rat::cc {
 		return s;
 	}
 
+	// { [stmt]... }
 	Stmt* Parser::parseCompound() {
 		Token open = peek();
 		if(!expect(TokKind::LBrace, "'{'"))

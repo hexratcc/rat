@@ -79,6 +79,10 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
+	// size-op ( type-name ) | size-op unary | ( cast-type ) unary | ( cast-type ) braced-initializer
+	// postfix-tail | unary-op unary | ++ unary | -- unary | postfix
+	// size-op: sizeof | _Alignof
+	// cast-type: type-spec [qualifier | *]... [ ( declarator ) suffixes | '[' [cond-expr] ']' ]
 	Expr* Parser::parseUnary() {
 		DepthScope scope(*this);
 		if(!enterDepth())
@@ -188,6 +192,8 @@ namespace rat::cc {
 		return parsePostfix();
 	}
 
+	// unary [ binary-op unary ]...
+	// left-associative, an operator below minPrec ends it
 	Expr* Parser::parseBinary(I32 minPrec) {
 		Expr* lhs = parseUnary();
 		if(!lhs)
@@ -205,6 +211,7 @@ namespace rat::cc {
 		return lhs;
 	}
 
+	// binary [ ? expr : conditional ]
 	Expr* Parser::parseConditional() {
 		Expr* cond = parseBinary(1);
 		if(!cond)
@@ -225,6 +232,7 @@ namespace rat::cc {
 		return e;
 	}
 
+	// conditional [ assign-op assignment ]
 	Expr* Parser::parseAssignment() {
 		Expr* lhs = parseConditional();
 		if(!lhs)
@@ -240,6 +248,7 @@ namespace rat::cc {
 		return lhs;
 	}
 
+	// assignment [, assignment]...
 	Expr* Parser::parseExpression() {
 		Expr* e = parseAssignment();
 		if(!e)

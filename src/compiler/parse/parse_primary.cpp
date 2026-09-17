@@ -5,6 +5,8 @@
 #include <cerrno>
 
 namespace rat::cc {
+	// ( type-spec , name [ . name | '[' const-expr ']' ]... )
+	// folded to an integer
 	Expr* Parser::parseBuiltinOffsetof(const Token& kw) {
 		if(!expect(TokKind::LParen, "'('"))
 			return nullptr;
@@ -15,7 +17,6 @@ namespace rat::cc {
 		}
 		if(!expect(TokKind::Comma, "','"))
 			return nullptr;
-		// member-designator: identifier ('.' identifier | '[' const ']')*
 		if(!check(TokKind::Identifier)) {
 			fail(peek(), "expected a member name in __builtin_offsetof");
 			return nullptr;
@@ -64,6 +65,8 @@ namespace rat::cc {
 									 (U8)(CType::Unsigned | CType::Long | (lay.longBits < 64 ? CType::LongLong : 0)));
 	}
 
+	// type-spec [qualifier | *]... [ ( declarator ) suffixes | [ '[' [cond-expr] ']' ]... ]
+	// a declarator name, if any, is ignored
 	B32 Parser::parseTypeName(CType& out) {
 		CType ty;
 		if(!parseTypeSpec(ty))
@@ -90,6 +93,8 @@ namespace rat::cc {
 		return true;
 	}
 
+	// _Generic ( assignment [, assoc]... )
+	// assoc: type-name : assignment | default : assignment
 	Expr* Parser::parseGeneric() {
 		Token kw = advance(); // _Generic
 		if(!expect(TokKind::LParen, "'('"))
@@ -118,6 +123,9 @@ namespace rat::cc {
 		return e;
 	}
 
+	// generic | string-literal... | char-const | int-const | float-const | name
+	// | ( expr ) | ( compound )
+	// __func__, __builtin_offsetof and enum constants fold here
 	Expr* Parser::parsePrimary() {
 		const Token& tok = peek();
 		if(tok.kind == TokKind::KwGeneric)
@@ -197,7 +205,6 @@ namespace rat::cc {
 		}
 		if(tok.kind == TokKind::Identifier) {
 			Token id = advance();
-			// __func__
 			if(lex.text(id) == "__func__") {
 				Expr* e = makeExpr(ExprKind::StrLit, id.offset);
 				e->str.bytes = arena.make<String>(curFuncName);
@@ -205,7 +212,6 @@ namespace rat::cc {
 				e->str.charSize = 1;
 				return e;
 			}
-			// __builtin_offsetof(type, member)
 			if(lex.text(id) == "__builtin_offsetof")
 				return parseBuiltinOffsetof(id);
 			if(const I64* ec = enumConstants.get(lex.text(id)))
@@ -213,8 +219,7 @@ namespace rat::cc {
 			return makeIdent(id);
 		}
 		if(accept(TokKind::LParen)) {
-			// GNU statement expression
-			if(check(TokKind::LBrace)) {
+			if(check(TokKind::LBrace)) { // GNU statement expression
 				Stmt* body = parseCompound();
 				if(!body)
 					return nullptr;
@@ -235,6 +240,7 @@ namespace rat::cc {
 		return nullptr;
 	}
 
+	// primary postfix-tail
 	Expr* Parser::parsePostfix() {
 		Expr* e = parsePrimary();
 		if(!e)
@@ -242,13 +248,14 @@ namespace rat::cc {
 		return parsePostfixTail(e);
 	}
 
+	// [ ( [ assignment [, assignment]... ] ) | '[' expr ']' | . name | -> name | ++ | -- ]...
+	// __builtin_va_arg ( assignment , type-spec [qualifier | *]... ) is a call in form only
 	Expr* Parser::parsePostfixTail(Expr* e) {
 		for(;;) {
 			TokKind k = peek().kind;
 			if(k == TokKind::LParen) {
-				// __builtin_va_arg(ap, type)
 				if(e->kind == ExprKind::Ident && *e->ident.name == "__builtin_va_arg") {
-					Token lp = advance(); // '('
+					Token lp = advance(); // (
 					Expr* ap = parseAssignment();
 					if(!ap)
 						return nullptr;
@@ -268,14 +275,12 @@ namespace rat::cc {
 					e = va;
 					continue;
 				}
-				Token lp = advance();
+				Token lp = advance(); // (
 				Expr* callE = makeExpr(ExprKind::Call, lp.offset);
-				if(e->kind == ExprKind::Ident) {
-					// by-name call
+				if(e->kind == ExprKind::Ident) { // by-name call
 					callE->call.callee = e->ident.name;
 					callE->call.target = nullptr;
-				} else {
-					// indirect call
+				} else { // indirect call
 					callE->call.callee = nullptr;
 					callE->call.target = e;
 				}

@@ -98,6 +98,7 @@ namespace rat::cc {
 		return e;
 	}
 
+	// no two named parameters share a name
 	B32 Parser::checkParamNames(const FuncDef* fn) {
 		for(U32 i = 0; i < fn->params.size(); i++) {
 			if(!fn->params[i].name)
@@ -112,6 +113,10 @@ namespace rat::cc {
 		return true;
 	}
 
+	// ( [ void | param [, param]... [, '...'] ] ) [attrs] tail
+	// param: type-spec declarator
+	// tail: ; | , | compound
+	// an old-style name list goes through parseOldStyleParams straight to compound instead
 	FuncDef* Parser::parseFunctionRest(CType ret,
 																		 const Token& nameTok,
 																		 const Token& start,
@@ -203,6 +208,7 @@ namespace rat::cc {
 		return fn;
 	}
 
+	// name [, name]... ) [ type-spec declarator [, declarator]... ; ]...
 	B32 Parser::parseOldStyleParams(FuncDef* fn) {
 		for(;;) {
 			if(!check(TokKind::Identifier)) {
@@ -262,6 +268,8 @@ namespace rat::cc {
 		return true;
 	}
 
+	// [array-dims] [attrs] [= initializer] [, declarator [array-dims] [attrs] [= initializer]]... ;
+	// the first declarator's name is already in d
 	Stmt* Parser::parseGlobalRest(CType base, Declarator d, const Token& start) {
 		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
 		for(;;) {
@@ -319,6 +327,8 @@ namespace rat::cc {
 		return s;
 	}
 
+	// [qualifier | *]... name function-rest | [qualifier | *]... name global-rest
+	// the declarators after a prototype's ',' ; repeats while a function-rest ends in ','
 	B32 Parser::parseSharedDeclarators(CType base, TransUnit* unit, const Token& start) {
 		for(;;) {
 			CType t = base;
@@ -350,6 +360,7 @@ namespace rat::cc {
 		}
 	}
 
+	// a function body may be given once per unit
 	B32 Parser::registerFuncDef(FuncDef* fn) {
 		if(!fn->body)
 			return true;
@@ -362,6 +373,9 @@ namespace rat::cc {
 		return true;
 	}
 
+	// [ ; | static-assert | typedef | asm-stmt | type-spec ; | type-spec declarator-list ;
+	// | function-def ]... eof
+	// a file-scope asm-stmt must have an empty template
 	TransUnit* Parser::parseUnit() {
 		TransUnit* unit = arena.make<TransUnit>();
 		while(!failed && !check(TokKind::Eof)) {

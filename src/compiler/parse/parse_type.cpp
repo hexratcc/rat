@@ -59,12 +59,14 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
+	// a type keyword, qualifier, storage class or typedef name
 	B32 Parser::startsType(const Token& tok) {
 		if(detail::isTypeStart(tok.kind))
 			return true;
 		return tok.kind == TokKind::Identifier && typedefs.get(lex.text(tok)) != nullptr;
 	}
 
+	// typedef type-spec [ declarator [alignas]... [, declarator [alignas]...]... ] ;
 	B32 Parser::parseTypedef() {
 		advance(); // typedef
 		CType base;
@@ -94,6 +96,8 @@ namespace rat::cc {
 		return expect(TokKind::Semicolon, "';'");
 	}
 
+	// [ [qualifier]... * ]... [qualifier]...
+	// only const is kept, one bit per pointer level
 	void Parser::parsePointers(CType& t) {
 		for(;;) {
 			B32 sawConst = false;
@@ -110,6 +114,8 @@ namespace rat::cc {
 		}
 	}
 
+	// _Alignas ( type-name | const-expr )
+	// raises align, never lowers it
 	B32 Parser::parseAlignasSpec(U32& align) {
 		Token kw = advance(); // _Alignas
 		if(!expect(TokKind::LParen, "'('"))
@@ -138,6 +144,7 @@ namespace rat::cc {
 		return true;
 	}
 
+	// [alignas]...
 	B32 Parser::acceptTrailingAlignas(U32& align) {
 		while(check(TokKind::KwAlignas))
 			if(!parseAlignasSpec(align))
@@ -145,6 +152,7 @@ namespace rat::cc {
 		return true;
 	}
 
+	// records one qualifier or storage-class keyword
 	void Parser::applyQualStorage(DeclSpecs& seen, TokKind kind) {
 		switch(kind) {
 		case TokKind::KwStatic:
@@ -173,6 +181,8 @@ namespace rat::cc {
 		}
 	}
 
+	// [ noinline | alignas ]...
+	// then publishes the specs to the caller
 	B32 Parser::finishTypeSpec(DeclSpecs seen, CType& out) {
 		for(;;) {
 			if(check(TokKind::KwAlignas)) {
@@ -192,6 +202,9 @@ namespace rat::cc {
 		return true;
 	}
 
+	// [ qualifier | storage | alignas ]... spec-body [ noinline | alignas ]...
+	// spec-body: typeof-spec | enum-spec | struct-spec | typedef-name
+	//          | type-keyword [ type-keyword | qualifier | storage | alignas ]...
 	B32 Parser::parseTypeSpec(CType& out) {
 		DeclSpecs seen;
 		specs = DeclSpecs{};
