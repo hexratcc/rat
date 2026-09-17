@@ -96,7 +96,17 @@ namespace rat::cc {
 		B32 parseTypeofSpec(CType& out);
 		B32 parseEnumSpec(CType& out);
 		B32 parseStructSpec(CType& out);
+		struct StructLayout {
+			U64 offset = 0; // bytes used so far; the union's widest member
+			U32 align = 1;
+			U32 bitPos = 0; // next free bit of a struct
+		};
 		B32 parseStructBody(StructType* st, B32 isUnion);
+		void spliceAnonMember(StructType* st, const StructType* inner, B32 isUnion, StructLayout& l);
+		B32 parseStructMember(StructType* st, CType base, U32 baseAlign, B32 isUnion, StructLayout& l);
+		B32 arrayMemberCount(CType t, U64& count);
+		B32 parseBitfield(StructType* st, Field f, U32 memberAlign, B32 isUnion, StructLayout& l);
+		void placeField(StructType* st, Field f, U64 size, U32 align, B32 isUnion, StructLayout& l);
 		StructType* complexStruct(CType realType);
 		B32 parseTypedef();
 		B32 parseTypeName(CType& out);
