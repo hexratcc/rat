@@ -14,15 +14,14 @@ namespace rat::cc {
 		U64 offset = 0;
 		U32 align = 1;
 		U32 bitPos = 0;
-		while(peek().kind != TokKind::RBrace && peek().kind != TokKind::Eof) {
+		while(!check(TokKind::RBrace) && !check(TokKind::Eof)) {
 			CType base;
 			if(!parseTypeSpec(base)) {
 				fail(peek(), "expected member type");
 				return false;
 			}
 			U32 baseAlign = specAlign;
-			if(peek().kind == TokKind::Semicolon && isStruct(base)) {
-				advance();
+			if(isStruct(base) && accept(TokKind::Semicolon)) {
 				const StructType* inner = base.strukt;
 				U32 mAlign = inner->align;
 				U64 mbase = isUnion ? 0 : detail::alignUp(offset, mAlign);
@@ -69,11 +68,11 @@ namespace rat::cc {
 						ft = ft.array->elem;
 					}
 				} else {
-					if(peek().kind == TokKind::Identifier) {
+					if(check(TokKind::Identifier)) {
 						nameTok = advance();
 						haveName = true;
 					}
-					if(peek().kind == TokKind::LBracket) {
+					if(check(TokKind::LBracket)) {
 						Declarator d;
 						d.type = ft;
 						if(!parseArraySuffix(d, &memberAlign))
@@ -163,7 +162,7 @@ namespace rat::cc {
 						fail(nameTok, "flexible array member in struct with no other members");
 						return false;
 					}
-					if(!(peek().kind == TokKind::Semicolon && peek2().kind == TokKind::RBrace)) {
+					if(!(check(TokKind::Semicolon) && peek2().kind == TokKind::RBrace)) {
 						fail(nameTok, "flexible array member must be the last member");
 						return false;
 					}
@@ -206,7 +205,7 @@ namespace rat::cc {
 	}
 
 	B32 Parser::parseStructSpec(CType& out) {
-		B32 isUnion = peek().kind == TokKind::KwUnion;
+		B32 isUnion = check(TokKind::KwUnion);
 		advance(); // 'struct' or 'union'
 
 		U32 declAlign = 0;
@@ -214,10 +213,10 @@ namespace rat::cc {
 			return false;
 
 		const String* tag = nullptr;
-		if(peek().kind == TokKind::Identifier)
+		if(check(TokKind::Identifier))
 			tag = arena.make<String>(lex.text(advance()));
 
-		B32 hasBody = peek().kind == TokKind::LBrace;
+		B32 hasBody = check(TokKind::LBrace);
 		StructType* st = nullptr;
 		if(tag) {
 			const TagBinding* bound = structTypes.get(*tag);
@@ -279,16 +278,15 @@ namespace rat::cc {
 		U32 ignored = 0; // an enum's alignment is its underlying type's
 		if(!acceptTrailingAlignas(ignored))
 			return false;
-		if(peek().kind == TokKind::Identifier)
+		if(check(TokKind::Identifier))
 			tag = lex.text(advance());
 
 		B32 anyNegative = false;
-		B32 haveList = peek().kind == TokKind::LBrace;
-		if(peek().kind == TokKind::LBrace) {
-			advance();
+		B32 haveList = accept(TokKind::LBrace);
+		if(haveList) {
 			I64 next = 0;
-			while(peek().kind != TokKind::RBrace && peek().kind != TokKind::Eof) {
-				if(peek().kind != TokKind::Identifier) {
+			while(!check(TokKind::RBrace) && !check(TokKind::Eof)) {
+				if(!check(TokKind::Identifier)) {
 					fail(peek(), "expected enumerator name");
 					return false;
 				}

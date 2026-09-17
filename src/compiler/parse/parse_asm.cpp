@@ -3,14 +3,14 @@
 namespace rat::cc {
 	// adjacent string literals concatenate, exactly like an ordinary one
 	B32 Parser::parseAsmTemplate(const String*& out) {
-		if(peek().kind != TokKind::StringLiteral) {
+		if(!check(TokKind::StringLiteral)) {
 			fail(peek(), "expected a string literal in 'asm'");
 			return false;
 		}
 		String bytes;
 		if(!parseStringLiteral(advance(), bytes))
 			return false;
-		while(peek().kind == TokKind::StringLiteral)
+		while(check(TokKind::StringLiteral))
 			if(!parseStringLiteral(advance(), bytes))
 				return false;
 		out = arena.make<String>(std::move(bytes));
@@ -24,7 +24,7 @@ namespace rat::cc {
 		for(;;) {
 			AsmOperand op;
 			if(accept(TokKind::LBracket)) {
-				if(peek().kind != TokKind::Identifier) {
+				if(!check(TokKind::Identifier)) {
 					fail(peek(), "expected a symbolic operand name");
 					return false;
 				}
@@ -104,7 +104,7 @@ namespace rat::cc {
 				for(;;) {
 					if(check(TokKind::RParen))
 						break;
-					if(peek().kind != TokKind::Identifier) {
+					if(!check(TokKind::Identifier)) {
 						fail(peek(), "expected a label name in 'asm goto'");
 						return nullptr;
 					}
@@ -133,8 +133,7 @@ namespace rat::cc {
 	// asm label. they may follow a declarator in any order
 	B32 Parser::parseDeclAttributes(const String*& aliasOut, B32& noInlineOut, U32& alignOut) {
 		for(;;) {
-			if(check(TokKind::KwAlias)) {
-				advance();
+			if(accept(TokKind::KwAlias)) {
 				if(!expect(TokKind::LParen, "'(' after an alias attribute"))
 					return false;
 				if(!parseAsmTemplate(aliasOut))
@@ -155,8 +154,7 @@ namespace rat::cc {
 				fail(kw, "asm labels on declarations are not supported");
 				return false;
 			}
-			if(check(TokKind::KwNoinline)) {
-				advance();
+			if(accept(TokKind::KwNoinline)) {
 				noInlineOut = true;
 				continue;
 			}

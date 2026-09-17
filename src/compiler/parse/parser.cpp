@@ -124,11 +124,11 @@ namespace rat::cc {
 		fn->retType = ret;
 		fn->offset = start.offset;
 
-		if(peek().kind == TokKind::RParen) {
+		if(check(TokKind::RParen)) {
 			fn->unprototyped = true;
-		} else if(peek().kind == TokKind::KwVoid && peek2().kind == TokKind::RParen) {
-			advance(); // (void)
-		} else if(peek().kind == TokKind::Identifier && !startsType(peek())) {
+		} else if(check(TokKind::KwVoid) && peek2().kind == TokKind::RParen) {
+			advance(); // void
+		} else if(check(TokKind::Identifier) && !startsType(peek())) {
 			if(!parseOldStyleParams(fn))
 				return nullptr;
 			if(!checkParamNames(fn))
@@ -137,9 +137,9 @@ namespace rat::cc {
 			fn->body = parseCompound();
 			curFuncName.clear();
 			return fn->body ? fn : nullptr;
-		} else if(peek().kind != TokKind::RParen) {
+		} else {
 			for(;;) {
-				if(peek().kind == TokKind::Ellipsis) {
+				if(check(TokKind::Ellipsis)) {
 					if(fn->params.empty()) {
 						fail(peek(), "'...' must be preceded by a named parameter");
 						return nullptr;
@@ -188,8 +188,7 @@ namespace rat::cc {
 		if(accept(TokKind::Semicolon))
 			return fn;
 
-		if(moreDeclarators && peek().kind == TokKind::Comma) {
-			advance();
+		if(moreDeclarators && accept(TokKind::Comma)) {
 			*moreDeclarators = true;
 			return fn;
 		}
@@ -206,12 +205,11 @@ namespace rat::cc {
 
 	B32 Parser::parseOldStyleParams(FuncDef* fn) {
 		for(;;) {
-			Token nameTok = peek();
-			if(nameTok.kind != TokKind::Identifier) {
-				fail(nameTok, "expected parameter name");
+			if(!check(TokKind::Identifier)) {
+				fail(peek(), "expected parameter name");
 				return false;
 			}
-			advance();
+			Token nameTok = advance();
 			Param p;
 			p.name = arena.make<String>(lex.text(nameTok));
 			p.type = ctInt();
@@ -306,7 +304,7 @@ namespace rat::cc {
 				bindDeclaratorType(d, gt, nameTok.offset);
 				d.offset = nameTok.offset;
 			} else {
-				if(peek().kind != TokKind::Identifier) {
+				if(!check(TokKind::Identifier)) {
 					fail(peek(), "expected declarator name");
 					return nullptr;
 				}
@@ -325,12 +323,12 @@ namespace rat::cc {
 		for(;;) {
 			CType t = base;
 			parsePointers(t);
-			if(peek().kind != TokKind::Identifier) {
+			if(!check(TokKind::Identifier)) {
 				fail(peek(), "expected declarator name");
 				return false;
 			}
 			Token nameTok = advance();
-			if(peek().kind == TokKind::LParen) {
+			if(check(TokKind::LParen)) {
 				B32 more = false;
 				FuncDef* fn = parseFunctionRest(t, nameTok, start, &more);
 				if(!fn)
@@ -366,23 +364,21 @@ namespace rat::cc {
 
 	TransUnit* Parser::parseUnit() {
 		TransUnit* unit = arena.make<TransUnit>();
-		while(!failed && peek().kind != TokKind::Eof) {
+		while(!failed && !check(TokKind::Eof)) {
 			Token start = peek();
-			if(peek().kind == TokKind::Semicolon) {
-				advance();
+			if(accept(TokKind::Semicolon))
 				continue;
-			}
-			if(peek().kind == TokKind::KwStaticAssert) {
+			if(check(TokKind::KwStaticAssert)) {
 				if(!parseStaticAssert())
 					return nullptr;
 				continue;
 			}
-			if(peek().kind == TokKind::KwTypedef) {
+			if(check(TokKind::KwTypedef)) {
 				if(!parseTypedef())
 					return nullptr;
 				continue;
 			}
-			if(peek().kind == TokKind::KwAsm) {
+			if(check(TokKind::KwAsm)) {
 				Stmt* s = parseAsmStatement();
 				if(!s)
 					return nullptr;
@@ -404,10 +400,8 @@ namespace rat::cc {
 			U32 gAlign = specAlign;
 			CType first = base;
 			parsePointers(first);
-			if(first.ptr == 0 && peek().kind == TokKind::Semicolon) {
-				advance();
+			if(first.ptr == 0 && accept(TokKind::Semicolon))
 				continue;
-			}
 
 			if(looksLikeGroupingParen()) {
 				Token nameTok;
@@ -463,12 +457,12 @@ namespace rat::cc {
 				unit->globals.push_back(g);
 				continue;
 			}
-			if(peek().kind != TokKind::Identifier) {
+			if(!check(TokKind::Identifier)) {
 				fail(peek(), "expected name");
 				return nullptr;
 			}
 			Token nameTok = advance();
-			if(peek().kind == TokKind::LParen) {
+			if(check(TokKind::LParen)) {
 				B32 more = false;
 				FuncDef* fn = parseFunctionRest(first, nameTok, start, &more);
 				if(!fn)

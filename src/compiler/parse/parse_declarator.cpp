@@ -4,7 +4,7 @@
 
 namespace rat::cc {
 	void Parser::skipArrayQualifiers() {
-		while(peek().kind == TokKind::KwStatic || detail::isTypeQualifier(peek().kind))
+		while(check(TokKind::KwStatic) || detail::isTypeQualifier(peek().kind))
 			advance();
 	}
 
@@ -29,9 +29,9 @@ namespace rat::cc {
 		advance(); // [
 		d.isArray = true;
 		skipArrayQualifiers();
-		if(peek().kind == TokKind::Star && peek2().kind == TokKind::RBracket) {
+		if(check(TokKind::Star) && peek2().kind == TokKind::RBracket) {
 			advance(); // [*]
-		} else if(peek().kind != TokKind::RBracket) {
+		} else if(!check(TokKind::RBracket)) {
 			d.arrayLen = parseConditional(); // outermost bound
 			if(!d.arrayLen)
 				return false;
@@ -71,19 +71,17 @@ namespace rat::cc {
 	}
 
 	B32 Parser::parseParamTypeList(FuncType* ft) {
-		if(peek().kind == TokKind::RParen) {
-			advance();
+		if(accept(TokKind::RParen)) {
 			ft->unprototyped = true;
 			return true;
 		}
-		if(peek().kind == TokKind::KwVoid && peek2().kind == TokKind::RParen) {
+		if(check(TokKind::KwVoid) && peek2().kind == TokKind::RParen) {
 			advance(); // void
 			advance(); // )
 			return true;
 		}
 		for(;;) {
-			if(peek().kind == TokKind::Ellipsis) {
-				advance();
+			if(accept(TokKind::Ellipsis)) {
 				ft->isVarArgs = true;
 				break;
 			}
@@ -127,7 +125,7 @@ namespace rat::cc {
 	}
 
 	B32 Parser::looksLikeGroupingParen() {
-		if(peek().kind != TokKind::LParen)
+		if(!check(TokKind::LParen))
 			return false;
 		const Token& n = peek2();
 		if(n.kind == TokKind::Star || n.kind == TokKind::LParen || n.kind == TokKind::LBracket)
@@ -171,7 +169,7 @@ namespace rat::cc {
 
 	// bound up to and including ']'; a non-constant bound is kept as a VLA expr
 	B32 Parser::parseArrayBound(U64& count, Expr*& expr) {
-		if(peek().kind != TokKind::RBracket) {
+		if(!check(TokKind::RBracket)) {
 			Expr* e = parseConditional();
 			if(!e)
 				return false;
@@ -187,25 +185,23 @@ namespace rat::cc {
 	B32 Parser::parseDeclaratorSuffixes(List<DeclOp>& ops) {
 		List<DeclOp> sfx;
 		for(;;) {
-			if(peek().kind == TokKind::LBracket) {
-				advance(); // [
+			if(accept(TokKind::LBracket)) {
 				skipArrayQualifiers();
 				DeclOp op;
 				op.kind = DeclOp::Kind::Array;
-				if(peek().kind == TokKind::Star && peek2().kind == TokKind::RBracket)
+				if(check(TokKind::Star) && peek2().kind == TokKind::RBracket)
 					advance(); // [*]
 				if(!parseArrayBound(op.count, op.countExpr))
 					return false;
 				sfx.push_back(op);
-			} else if(peek().kind == TokKind::LParen) {
-				advance(); // '('
+			} else if(accept(TokKind::LParen)) {
 				DeclOp op;
 				op.kind = DeclOp::Kind::Func;
 				op.func = arena.make<FuncType>();
 				if(!parseParamTypeList(op.func))
 					return false;
 				sfx.push_back(op);
-			} else if(peek().kind == TokKind::KwAlignas) {
+			} else if(check(TokKind::KwAlignas)) {
 				U32 ignored = 0;
 				if(!acceptTrailingAlignas(ignored))
 					return false;
@@ -228,7 +224,7 @@ namespace rat::cc {
 				return false;
 			if(!expect(TokKind::RParen, "')'"))
 				return false;
-		} else if(peek().kind == TokKind::Identifier) {
+		} else if(check(TokKind::Identifier)) {
 			nameOut = advance();
 			haveName = true;
 		}

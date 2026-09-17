@@ -72,10 +72,8 @@ namespace rat::cc {
 			fail(peek(), "expected type in typedef declaration");
 			return false;
 		}
-		if(peek().kind == TokKind::Semicolon) {
-			advance();
+		if(accept(TokKind::Semicolon))
 			return true;
-		}
 		for(;;) {
 			Token nameTok;
 			B32 haveName = false;
@@ -100,7 +98,7 @@ namespace rat::cc {
 		for(;;) {
 			B32 sawConst = false;
 			while(detail::isTypeQualifier(peek().kind)) {
-				if(peek().kind == TokKind::KwConst)
+				if(check(TokKind::KwConst))
 					sawConst = true;
 				advance();
 			}
@@ -141,7 +139,7 @@ namespace rat::cc {
 	}
 
 	B32 Parser::acceptTrailingAlignas(U32& align) {
-		while(peek().kind == TokKind::KwAlignas)
+		while(check(TokKind::KwAlignas))
 			if(!parseAlignasSpec(align))
 				return false;
 		return true;
@@ -168,8 +166,8 @@ namespace rat::cc {
 				 sk == TokKind::KwRegister)
 				++storageCount;
 		};
-		while(detail::isQualOrStorage(peek().kind) || peek().kind == TokKind::KwAlignas) {
-			if(peek().kind == TokKind::KwAlignas) {
+		while(detail::isQualOrStorage(peek().kind) || check(TokKind::KwAlignas)) {
+			if(check(TokKind::KwAlignas)) {
 				if(!parseAlignasSpec(specAlign))
 					return false;
 				continue;
@@ -179,8 +177,8 @@ namespace rat::cc {
 		}
 		auto finishSpec = [&] {
 			// an attribute marker may trail the spec
-			while(peek().kind == TokKind::KwNoinline || peek().kind == TokKind::KwAlignas) {
-				if(peek().kind == TokKind::KwAlignas) {
+			while(check(TokKind::KwNoinline) || check(TokKind::KwAlignas)) {
+				if(check(TokKind::KwAlignas)) {
 					parseAlignasSpec(specAlign);
 					continue;
 				}
@@ -195,22 +193,22 @@ namespace rat::cc {
 			fail(peek(), "more than one storage-class specifier");
 			return false;
 		}
-		if(peek().kind == TokKind::KwTypeof) {
+		if(check(TokKind::KwTypeof)) {
 			B32 ok = parseTypeofSpec(out);
 			finishSpec();
 			return ok;
 		}
-		if(peek().kind == TokKind::KwEnum) {
+		if(check(TokKind::KwEnum)) {
 			B32 ok = parseEnumSpec(out);
 			finishSpec();
 			return ok;
 		}
-		if(peek().kind == TokKind::KwStruct || peek().kind == TokKind::KwUnion) {
+		if(check(TokKind::KwStruct) || check(TokKind::KwUnion)) {
 			B32 ok = parseStructSpec(out);
 			finishSpec();
 			return ok;
 		}
-		if(peek().kind == TokKind::Identifier) {
+		if(check(TokKind::Identifier)) {
 			if(const CType* td = typedefs.get(lex.text(peek()))) {
 				advance();
 				out = *td;

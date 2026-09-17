@@ -16,7 +16,7 @@ namespace rat::cc {
 		if(!expect(TokKind::Comma, "','"))
 			return nullptr;
 		// member-designator: identifier ('.' identifier | '[' const ']')*
-		if(peek().kind != TokKind::Identifier) {
+		if(!check(TokKind::Identifier)) {
 			fail(peek(), "expected a member name in __builtin_offsetof");
 			return nullptr;
 		}
@@ -26,7 +26,7 @@ namespace rat::cc {
 		for(;;) {
 			if(first || accept(TokKind::Dot)) {
 				first = false;
-				if(peek().kind != TokKind::Identifier) {
+				if(!check(TokKind::Identifier)) {
 					fail(peek(), "expected a member name in __builtin_offsetof");
 					return nullptr;
 				}
@@ -101,13 +101,10 @@ namespace rat::cc {
 		e->generic.control = control;
 		while(accept(TokKind::Comma)) {
 			GenericAssoc assoc;
-			if(peek().kind == TokKind::KwDefault) {
-				advance();
+			if(accept(TokKind::KwDefault))
 				assoc.isDefault = true;
-			} else {
-				if(!parseTypeName(assoc.type))
-					return nullptr;
-			}
+			else if(!parseTypeName(assoc.type))
+				return nullptr;
 			if(!expect(TokKind::Colon, "':'"))
 				return nullptr;
 			Expr* result = parseAssignment();
@@ -128,7 +125,7 @@ namespace rat::cc {
 		if(tok.kind == TokKind::StringLiteral) {
 			List<Token> parts;
 			parts.push_back(advance());
-			while(peek().kind == TokKind::StringLiteral)
+			while(check(TokKind::StringLiteral))
 				parts.push_back(advance());
 			U32 unitBytes = 1;
 			for(const Token& t : parts) {
@@ -215,10 +212,9 @@ namespace rat::cc {
 				return makeInt(id, *ec, 32);
 			return makeIdent(id);
 		}
-		if(tok.kind == TokKind::LParen) {
-			advance();
+		if(accept(TokKind::LParen)) {
 			// GNU statement expression
-			if(peek().kind == TokKind::LBrace) {
+			if(check(TokKind::LBrace)) {
 				Stmt* body = parseCompound();
 				if(!body)
 					return nullptr;
@@ -283,7 +279,7 @@ namespace rat::cc {
 					callE->call.callee = nullptr;
 					callE->call.target = e;
 				}
-				if(peek().kind != TokKind::RParen) {
+				if(!check(TokKind::RParen)) {
 					for(;;) {
 						Expr* arg = parseAssignment();
 						if(!arg)
@@ -307,7 +303,7 @@ namespace rat::cc {
 				e = makeUnary(lb.offset, ExprOp::Deref, sum);
 			} else if(k == TokKind::Dot || k == TokKind::Arrow) {
 				Token t = advance();
-				if(peek().kind != TokKind::Identifier) {
+				if(!check(TokKind::Identifier)) {
 					fail(peek(),
 							 "expected member name after '" + String(k == TokKind::Arrow ? "->" : ".") + "'");
 					return nullptr;

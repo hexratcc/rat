@@ -11,13 +11,13 @@ namespace rat::cc {
 		if(!expect(TokKind::Comma, "','"))
 			return false;
 		String msg;
-		if(peek().kind != TokKind::StringLiteral) {
+		if(!check(TokKind::StringLiteral)) {
 			fail(peek(), "expected a string literal in _Static_assert");
 			return false;
 		}
 		if(!parseStringLiteral(advance(), msg))
 			return false;
-		while(peek().kind == TokKind::StringLiteral) {
+		while(check(TokKind::StringLiteral)) {
 			String more;
 			if(!parseStringLiteral(advance(), more))
 				return false;
@@ -52,9 +52,13 @@ namespace rat::cc {
 
 	Stmt* Parser::parseDeclaration() {
 		Token start = peek();
-		if(peek().kind == TokKind::KwStaticAssert || peek().kind == TokKind::KwTypedef) {
-			B32 ok = peek().kind == TokKind::KwStaticAssert ? parseStaticAssert() : parseTypedef();
-			if(!ok)
+		if(check(TokKind::KwStaticAssert)) {
+			if(!parseStaticAssert())
+				return nullptr;
+			return makeStmt(StmtKind::Empty, start.offset);
+		}
+		if(check(TokKind::KwTypedef)) {
+			if(!parseTypedef())
 				return nullptr;
 			return makeStmt(StmtKind::Empty, start.offset);
 		}
@@ -67,10 +71,8 @@ namespace rat::cc {
 		B32 isExtern = specs.isExtern;
 		U32 align = specAlign;
 		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
-		if(peek().kind == TokKind::Semicolon) {
-			advance();
+		if(accept(TokKind::Semicolon))
 			return s;
-		}
 		for(;;) {
 			CType t = base;
 			parsePointers(t);
@@ -92,12 +94,12 @@ namespace rat::cc {
 				bindDeclaratorType(d, gt, nameTok.offset);
 				d.offset = nameTok.offset;
 			} else {
-				if(peek().kind != TokKind::Identifier) {
+				if(!check(TokKind::Identifier)) {
 					fail(peek(), "expected declarator name");
 					return nullptr;
 				}
 				Token nameTok = advance();
-				if(peek().kind == TokKind::LParen) {
+				if(check(TokKind::LParen)) {
 					B32 more = false;
 					FuncDef* proto = parseFunctionRest(t, nameTok, start, &more);
 					if(!proto)
@@ -210,11 +212,11 @@ namespace rat::cc {
 
 		// init clause
 		Stmt* init = nullptr;
-		if(startsType(peek()) || peek().kind == TokKind::KwTypedef) {
+		if(startsType(peek()) || check(TokKind::KwTypedef)) {
 			init = parseDeclaration();
 			if(!init)
 				return nullptr;
-		} else if(peek().kind != TokKind::Semicolon) {
+		} else if(!accept(TokKind::Semicolon)) {
 			Token at = peek();
 			Expr* e = parseExpression();
 			if(!e)
@@ -223,13 +225,11 @@ namespace rat::cc {
 				return nullptr;
 			init = makeStmt(StmtKind::Expr, at.offset);
 			init->expr = e;
-		} else {
-			advance(); // empty init
 		}
 
 		// condition
 		Expr* cond = nullptr;
-		if(peek().kind != TokKind::Semicolon) {
+		if(!check(TokKind::Semicolon)) {
 			cond = parseExpression();
 			if(!cond)
 				return nullptr;
@@ -239,7 +239,7 @@ namespace rat::cc {
 
 		// post expression
 		Expr* post = nullptr;
-		if(peek().kind != TokKind::RParen) {
+		if(!check(TokKind::RParen)) {
 			post = parseExpression();
 			if(!post)
 				return nullptr;
@@ -265,7 +265,7 @@ namespace rat::cc {
 		if(!ctrl)
 			return nullptr;
 		Stmt* body;
-		if(peek().kind == TokKind::LBrace) {
+		if(check(TokKind::LBrace)) {
 			body = parseStatement();
 			if(!body)
 				return nullptr;
@@ -380,7 +380,7 @@ namespace rat::cc {
 		if(tok.kind == TokKind::KwReturn) {
 			Token kw = advance();
 			Stmt* s = makeStmt(StmtKind::Return, kw.offset);
-			if(peek().kind != TokKind::Semicolon) {
+			if(!check(TokKind::Semicolon)) {
 				s->expr = parseExpression();
 				if(!s->expr)
 					return nullptr;
@@ -410,7 +410,7 @@ namespace rat::cc {
 			return nullptr;
 		Stmt* block = makeStmt(StmtKind::Compound, open.offset);
 		pushScope();
-		while(!failed && peek().kind != TokKind::RBrace && peek().kind != TokKind::Eof) {
+		while(!failed && !check(TokKind::RBrace) && !check(TokKind::Eof)) {
 			Stmt* s = parseStatement();
 			if(!s)
 				return nullptr;

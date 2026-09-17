@@ -83,7 +83,7 @@ namespace rat::cc {
 		DepthScope scope(*this);
 		if(!enterDepth())
 			return nullptr;
-		if(peek().kind == TokKind::KwSizeof || peek().kind == TokKind::KwAlignof) {
+		if(check(TokKind::KwSizeof) || check(TokKind::KwAlignof)) {
 			Token kw = advance(); // sizeof / _Alignof
 			ExprKind kind;
 			if(kw.kind == TokKind::KwSizeof)
@@ -91,7 +91,7 @@ namespace rat::cc {
 			else
 				kind = ExprKind::AlignOf;
 			Expr* e = makeExpr(kind, kw.offset);
-			if(peek().kind == TokKind::LParen && startsType(peek2())) {
+			if(check(TokKind::LParen) && startsType(peek2())) {
 				advance(); // (
 				CType ty;
 				if(!parseTypeName(ty)) // sizeof(typename)
@@ -108,7 +108,7 @@ namespace rat::cc {
 			}
 			return e;
 		}
-		if(peek().kind == TokKind::LParen && startsType(peek2())) {
+		if(check(TokKind::LParen) && startsType(peek2())) {
 			Token lp = advance(); // (
 			CType ty;
 			if(!parseTypeSpec(ty))
@@ -135,7 +135,7 @@ namespace rat::cc {
 			Expr* arrLen = nullptr;
 			if(accept(TokKind::LBracket)) { // array type-name: (T[]) or (T[N])
 				isArr = true;
-				if(peek().kind != TokKind::RBracket) {
+				if(!check(TokKind::RBracket)) {
 					arrLen = parseConditional();
 					if(!arrLen)
 						return nullptr;
@@ -145,7 +145,7 @@ namespace rat::cc {
 			}
 			if(!expect(TokKind::RParen, "')'"))
 				return nullptr;
-			if(peek().kind == TokKind::LBrace) { // compound literal
+			if(check(TokKind::LBrace)) { // compound literal
 				Expr* init = parseInitializer();
 				if(!init)
 					return nullptr;
@@ -209,7 +209,7 @@ namespace rat::cc {
 		Expr* cond = parseBinary(1);
 		if(!cond)
 			return nullptr;
-		if(peek().kind != TokKind::Question)
+		if(!check(TokKind::Question))
 			return cond;
 		Token q = advance();
 		Expr* whenTrue = parseExpression();
@@ -244,7 +244,7 @@ namespace rat::cc {
 		Expr* e = parseAssignment();
 		if(!e)
 			return nullptr;
-		while(peek().kind == TokKind::Comma) {
+		while(check(TokKind::Comma)) {
 			Token c = advance();
 			Expr* rhs = parseAssignment();
 			if(!rhs)
