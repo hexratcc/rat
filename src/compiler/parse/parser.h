@@ -79,8 +79,18 @@ namespace rat::cc {
 		void fail(const Token& at, const String& msg);
 
 		// grammar
+		struct DeclSpecs {
+			B32 isStatic = false;
+			B32 isExtern = false;
+			B32 isInline = false;
+			B32 isNoInline = false;
+			B32 isConst = false;
+			U32 storageCount = 0;
+		};
 		void parsePointers(CType& t);
 		B32 parseTypeSpec(CType& out);
+		void applyQualStorage(DeclSpecs& seen, TokKind kind);
+		B32 finishTypeSpec(DeclSpecs seen, CType& out);
 		B32 parseAlignasSpec(U32& align);
 		B32 acceptTrailingAlignas(U32& align);
 		FuncDef* parseFunctionRest(CType ret,
@@ -191,12 +201,6 @@ namespace rat::cc {
 		U64 typeSizeBytes(CType t) const { return typeSize(t, lay.ptrBytes); }
 		U32 typeAlignBytes(CType t) const { return typeAlign(t, lay.ptrBytes); }
 	private:
-		struct DeclSpecs {
-			B32 isStatic = false;
-			B32 isExtern = false;
-			B32 isInline = false;
-			B32 isNoInline = false;
-		};
 		struct TagBinding {
 			StructType* type = nullptr;
 			U32 depth = 0;
