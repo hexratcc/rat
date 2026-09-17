@@ -162,20 +162,17 @@ namespace rat::cc {
 				parsePointers(pt);
 				Param p;
 				p.offset = pstart.offset;
-				Token pnameTok;
-				B32 haveName = false;
-				CType fpt;
-				if(!parseDeclaratorType(pt, pnameTok, haveName, fpt))
+				DeclResult r;
+				if(!parseDeclarator(pt, r))
 					return nullptr;
-				pt = fpt;
+				pt = r.type;
 				if(isVoidType(pt)) {
 					fail(pstart, "'void' must be the only unnamed parameter");
 					return nullptr;
 				}
 				adjustParamType(pt, &p.vlaBound);
 				p.type = pt;
-				if(haveName)
-					p.name = arena.make<String>(lex.text(pnameTok));
+				p.name = r.name;
 				fn->params.push_back(p);
 				if(!accept(TokKind::Comma))
 					break;
@@ -233,28 +230,24 @@ namespace rat::cc {
 				return false;
 			}
 			for(;;) {
-				CType t = base;
-				Token pnameTok;
-				B32 haveName = false;
-				CType decl;
-				if(!parseDeclaratorType(t, pnameTok, haveName, decl))
+				DeclResult r;
+				if(!parseDeclarator(base, r))
 					return false;
-				if(!haveName) {
+				if(!r.name) {
 					fail(peek(), "expected parameter name");
 					return false;
 				}
-				adjustParamType(decl);
-				String name = lex.text(pnameTok);
+				adjustParamType(r.type);
 				B32 matched = false;
 				for(U32 i = 0; i < fn->params.size(); i++) {
-					if(fn->params[i].name && *fn->params[i].name == name) {
-						fn->params[i].type = decl;
+					if(fn->params[i].name && *fn->params[i].name == *r.name) {
+						fn->params[i].type = r.type;
 						matched = true;
 						break;
 					}
 				}
 				if(!matched) {
-					fail(pnameTok,
+					fail(peek(),
 							 "parameter named in declaration is not in the "
 							 "identifier list");
 					return false;
@@ -299,18 +292,16 @@ namespace rat::cc {
 			d.isStatic = prev.isStatic;
 			d.align = prev.align;
 			if(looksLikeGroupingParen()) {
-				Token nameTok;
-				B32 haveName = false;
-				CType gt;
-				if(!parseDeclaratorType(t, nameTok, haveName, gt))
+				DeclResult r;
+				if(!parseDeclarator(t, r))
 					return nullptr;
-				if(!haveName) {
+				if(!r.name) {
 					fail(peek(), "expected declarator name");
 					return nullptr;
 				}
-				d.name = arena.make<String>(lex.text(nameTok));
-				bindDeclaratorType(d, gt, nameTok.offset);
-				d.offset = nameTok.offset;
+				d.name = r.name;
+				bindDeclaratorType(d, r.type, r.offset);
+				d.offset = r.offset;
 			} else {
 				if(!check(TokKind::Identifier)) {
 					fail(peek(), "expected declarator name");
@@ -418,19 +409,17 @@ namespace rat::cc {
 				continue;
 
 			if(looksLikeGroupingParen()) {
-				Token nameTok;
-				B32 haveName = false;
-				CType fpt;
-				if(!parseDeclaratorType(first, nameTok, haveName, fpt))
+				DeclResult r;
+				if(!parseDeclarator(first, r))
 					return nullptr;
-				if(!haveName) {
+				if(!r.name) {
 					fail(peek(), "expected declarator name");
 					return nullptr;
 				}
-
+				CType fpt = r.type;
 				if(fpt.func && fpt.ptr == 0) {
 					FuncDef* fn = arena.make<FuncDef>();
-					fn->name = lex.text(nameTok);
+					fn->name = *r.name;
 					fn->retType = fpt.func->ret;
 					fn->isVarArgs = fpt.func->isVarArgs;
 					fn->isStatic = gStatic;
@@ -456,9 +445,9 @@ namespace rat::cc {
 				d.isExtern = gExtern;
 				d.isStatic = gStatic;
 				d.align = gAlign;
-				d.name = arena.make<String>(lex.text(nameTok));
-				bindDeclaratorType(d, fpt, nameTok.offset);
-				d.offset = nameTok.offset;
+				d.name = r.name;
+				bindDeclaratorType(d, fpt, r.offset);
+				d.offset = r.offset;
 				Stmt* g = parseGlobalRest(base, d, start);
 				if(!g)
 					return nullptr;

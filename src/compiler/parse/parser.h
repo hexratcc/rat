@@ -78,7 +78,7 @@ namespace rat::cc {
 		B32 expect(TokKind kind, const C8* what);
 		void fail(const Token& at, const String& msg);
 
-		// grammar
+		// type specifiers
 		struct DeclSpecs {
 			B32 isStatic = false;
 			B32 isExtern = false;
@@ -87,12 +87,56 @@ namespace rat::cc {
 			B32 isConst = false;
 			U32 storageCount = 0;
 		};
-		void parsePointers(CType& t);
+		B32 startsType(const Token& tok);
 		B32 parseTypeSpec(CType& out);
 		void applyQualStorage(DeclSpecs& seen, TokKind kind);
 		B32 finishTypeSpec(DeclSpecs seen, CType& out);
 		B32 parseAlignasSpec(U32& align);
 		B32 acceptTrailingAlignas(U32& align);
+		B32 parseTypeofSpec(CType& out);
+		B32 parseEnumSpec(CType& out);
+		B32 parseStructSpec(CType& out);
+		B32 parseStructBody(StructType* st, B32 isUnion);
+		StructType* complexStruct(CType realType);
+		B32 parseTypedef();
+		B32 parseTypeName(CType& out);
+
+		// declarators
+		struct DeclOp {
+			enum class Kind : U8 { Pointer, Array, Func };
+			Kind kind = Kind::Pointer;
+			U64 count = 0;						// Pointer: star count; Array: element count, 0 when not constant
+			Expr* bound = nullptr;		// Array: the bound as written
+			FuncType* func = nullptr; // Func: parameter list
+		};
+		struct DeclResult {
+			const String* name = nullptr; // null for an abstract declarator
+			U32 offset = 0;								// of the name
+			CType type;
+			B32 outerArray = false;			// the declarator itself ends in an array suffix
+			Expr* outerBound = nullptr; // its bound as written; null for []
+			U32 align = 0;							// raised by alignas inside the declarator
+		};
+		void parsePointers(CType& t);
+		B32 parseDeclarator(CType base, DeclResult& out);
+		B32 parseDeclaratorOps(List<DeclOp>& ops, DeclResult& out);
+		B32 parseDirectDeclarator(List<DeclOp>& ops, DeclResult& out);
+		B32 parseDeclaratorSuffixes(List<DeclOp>& ops, U32& align);
+		B32 parseArrayBound(DeclOp& op);
+		void skipArrayQualifiers();
+		B32 parseParamTypeList(FuncType* ft);
+		B32 looksLikeGroupingParen();
+		CType applyDeclOps(CType base, const List<DeclOp>& ops);
+		void adjustParamType(CType& t, const Expr** vlaBound = nullptr);
+		struct Dim {
+			U64 count;
+			Expr* expr;
+		};
+		CType wrapArrayDims(CType base, const List<Dim>& dims);
+		B32 parseArraySuffix(Declarator& d, U32* align = nullptr);
+		void bindDeclaratorType(Declarator& d, CType t, U32 offset);
+
+		// declarations
 		FuncDef* parseFunctionRest(CType ret,
 															 const Token& nameTok,
 															 const Token& start,
@@ -100,30 +144,14 @@ namespace rat::cc {
 		B32 parseOldStyleParams(FuncDef* fn);
 		Stmt* parseGlobalRest(CType base, Declarator d, const Token& start);
 		B32 parseSharedDeclarators(CType base, TransUnit* unit, const Token& start);
-		struct Dim {
-			U64 count;
-			Expr* expr;
-		};
-		CType wrapArrayDims(CType base, const List<Dim>& dims);
-		B32 parseArraySuffix(Declarator& d, U32* align = nullptr);
-		void skipArrayQualifiers();
-		void bindDeclaratorType(Declarator& d, CType t, U32 offset);
-		struct DeclOp {
-			enum class Kind : U8 { Pointer, Array, Func };
-			Kind kind = Kind::Pointer;
-			U64 count = 0;						 // Pointer: star count; Array: element count
-			Expr* countExpr = nullptr; // Array: VLA bound
-			FuncType* func = nullptr;	 // Func: parameter list
-		};
-		CType applyDeclOps(CType base, const List<DeclOp>& ops);
-		B32 parseDeclaratorType(CType base, Token& nameOut, B32& haveName, CType& out);
-		B32 parseDeclaratorOps(List<DeclOp>& ops, Token& nameOut, B32& haveName);
-		B32 parseDirectDeclarator(List<DeclOp>& ops, Token& nameOut, B32& haveName);
-		B32 parseArrayBound(U64& count, Expr*& expr);
-		B32 parseDeclaratorSuffixes(List<DeclOp>& ops);
-		B32 looksLikeGroupingParen();
-		void adjustParamType(CType& t, const Expr** vlaBound = nullptr);
-		B32 parseParamTypeList(FuncType* ft);
+		B32 parseDeclAttributes(const String*& aliasOut, B32& noInlineOut, U32& alignOut);
+		B32 checkParamNames(const FuncDef* fn);
+		B32 registerFuncDef(FuncDef* fn);
+		B32 checkObjectComplete(const Declarator& d);
+		B32 parseStaticAssert();
+		Stmt* parseDeclaration();
+
+		// statements
 		Stmt* parseCompound();
 		void pushScope();
 		void popScope();
@@ -132,13 +160,7 @@ namespace rat::cc {
 		B32 parseAsmOperands(List<AsmOperand>& out);
 		B32 parseAsmStrings(List<const String*>& out);
 		B32 parseAsmTemplate(const String*& out);
-		B32 parseDeclAttributes(const String*& aliasOut, B32& noInlineOut, U32& alignOut);
 		Stmt* parseLabeledSub();
-		B32 checkParamNames(const FuncDef* fn);
-		B32 registerFuncDef(FuncDef* fn);
-		Stmt* parseDeclaration();
-		B32 checkObjectComplete(const Declarator& d);
-		B32 parseStaticAssert();
 		Expr* parseParenCond();
 		Stmt* parseIf();
 		Stmt* parseWhile();
@@ -146,6 +168,7 @@ namespace rat::cc {
 		Stmt* parseFor();
 		Stmt* parseSwitch();
 
+		// expressions
 		Expr* parseExpression();
 		Expr* parseInitializer();
 		Expr* parseAssignment();
@@ -156,7 +179,7 @@ namespace rat::cc {
 		Expr* parsePostfixTail(Expr* e);
 		Expr* parsePrimary();
 		Expr* parseGeneric();
-		B32 parseTypeName(CType& out);
+		Expr* parseBuiltinOffsetof(const Token& kw);
 
 		static constexpr U32 kMaxParseDepth = 256;
 		B32 enterDepth();
@@ -175,29 +198,18 @@ namespace rat::cc {
 		Expr* makeUnary(U32 offset, ExprOp op, Expr* operand);
 		Expr* makeBinary(U32 offset, ExprOp op, Expr* lhs, Expr* rhs);
 
+		// literals
 		B32 parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods);
 		B32 parseCharLiteral(const Token& tok, I64& value);
 		B32 parseStringLiteral(const Token& tok, String& out);
 		B32 parseWideStringLiteral(const Token& tok, U32 unitBytes, String& out);
 		B32 decodeEscape(const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out);
 		B32 decodeUcn(const String& s, U32& i, U32 end, const Token& tok, U32& cp);
-		B32 parseTypeofSpec(CType& out);
 
-		// enum support
-		B32 parseEnumSpec(CType& out);
+		// constant folding
 		B32 evalIntConst(const Expr* e, I64& out);
 		B32 tryEvalIntConst(const Expr* e, I64& out);
 		I64 castConstValue(I64 v, CType ty) const;
-
-		// struct/union support
-		StructType* complexStruct(CType realType);
-		B32 parseStructSpec(CType& out);
-		B32 parseStructBody(StructType* st, B32 isUnion);
-		Expr* parseBuiltinOffsetof(const Token& kw);
-
-		// typedef support
-		B32 parseTypedef();
-		B32 startsType(const Token& tok);
 		U64 typeSizeBytes(CType t) const { return typeSize(t, lay.ptrBytes); }
 		U32 typeAlignBytes(CType t) const { return typeAlign(t, lay.ptrBytes); }
 	private:

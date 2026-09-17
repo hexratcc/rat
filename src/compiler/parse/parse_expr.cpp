@@ -119,12 +119,10 @@ namespace rat::cc {
 				return nullptr;
 			parsePointers(ty);
 			if(looksLikeGroupingParen()) { // cast to a parenthesized declarator
-				Token ignored;
-				B32 hn = false;
-				CType ft;
-				if(!parseDeclaratorType(ty, ignored, hn, ft))
+				DeclResult r;
+				if(!parseDeclarator(ty, r))
 					return nullptr;
-				ty = ft;
+				ty = r.type;
 				if(!expect(TokKind::RParen, "')'"))
 					return nullptr;
 				Expr* operand = parseUnary();

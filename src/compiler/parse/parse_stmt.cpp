@@ -86,18 +86,16 @@ namespace rat::cc {
 			d.isExtern = isExtern;
 			d.align = align;
 			if(looksLikeGroupingParen()) {
-				Token nameTok;
-				B32 haveName = false;
-				CType gt;
-				if(!parseDeclaratorType(t, nameTok, haveName, gt))
+				DeclResult r;
+				if(!parseDeclarator(t, r))
 					return nullptr;
-				if(!haveName) {
+				if(!r.name) {
 					fail(peek(), "expected declarator name");
 					return nullptr;
 				}
-				d.name = arena.make<String>(lex.text(nameTok));
-				bindDeclaratorType(d, gt, nameTok.offset);
-				d.offset = nameTok.offset;
+				d.name = r.name;
+				bindDeclaratorType(d, r.type, r.offset);
+				d.offset = r.offset;
 			} else {
 				if(!check(TokKind::Identifier)) {
 					fail(peek(), "expected declarator name");

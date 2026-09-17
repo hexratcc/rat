@@ -73,18 +73,19 @@ namespace rat::cc {
 			return false;
 		parsePointers(ty);
 		if(looksLikeGroupingParen()) { // abstract parenthesized declarator
-			Token ignored;
-			B32 hn = false;
-			CType ft;
-			if(!parseDeclaratorType(ty, ignored, hn, ft))
+			DeclResult r;
+			if(!parseDeclarator(ty, r))
 				return false;
-			ty = ft;
+			ty = r.type;
 		} else if(check(TokKind::LBracket)) { // array type-name: T[N] or T[]
 			List<Dim> dims;
 			while(accept(TokKind::LBracket)) {
-				Dim d{0, nullptr};
-				if(!parseArrayBound(d.count, d.expr))
+				DeclOp op;
+				if(!parseArrayBound(op))
 					return false;
+				Dim d{op.count, nullptr};
+				if(op.count == 0)
+					d.expr = op.bound;
 				dims.push_back(d);
 			}
 			ty = wrapArrayDims(ty, dims);

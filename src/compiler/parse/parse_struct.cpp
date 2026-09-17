@@ -56,16 +56,19 @@ namespace rat::cc {
 				CType ft = base;
 				parsePointers(ft);
 				Token nameTok;
+				const String* name = nullptr;
 				B32 haveName = false;
 				B32 isArr = false;
 				B32 flexible = false;
 				U64 count = 0;
 				U32 memberAlign = baseAlign;
 				if(looksLikeGroupingParen()) {
-					CType fpt;
-					if(!parseDeclaratorType(ft, nameTok, haveName, fpt))
+					DeclResult r;
+					if(!parseDeclarator(ft, r))
 						return false;
-					ft = fpt;
+					ft = r.type;
+					name = r.name;
+					haveName = name != nullptr;
 					if(isArrayType(ft)) {
 						isArr = true;
 						count = ft.array->count;
@@ -75,6 +78,7 @@ namespace rat::cc {
 				} else {
 					if(check(TokKind::Identifier)) {
 						nameTok = advance();
+						name = arena.make<String>(lex.text(nameTok));
 						haveName = true;
 					}
 					if(check(TokKind::LBracket)) {
@@ -128,7 +132,7 @@ namespace rat::cc {
 					}
 					if(w > 0 && haveName) {
 						Field f;
-						f.name = arena.make<String>(lex.text(nameTok));
+						f.name = name;
 						f.type = ft;
 						f.type.bitPrec = (U32)w; // the field's values wrap at this width
 						f.set(Field::Bitfield);
@@ -179,7 +183,7 @@ namespace rat::cc {
 					falign = memberAlign;
 				U64 fsize = isArr ? esize * count : esize;
 				Field f;
-				f.name = arena.make<String>(lex.text(nameTok));
+				f.name = name;
 				f.type = ft;
 				f.set(Field::Array, isArr);
 				f.count = count;

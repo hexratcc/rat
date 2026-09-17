@@ -66,7 +66,7 @@ namespace rat::cc {
 		return tok.kind == TokKind::Identifier && typedefs.get(lex.text(tok)) != nullptr;
 	}
 
-	// typedef type-spec [ declarator [alignas]... [, declarator [alignas]...]... ] ;
+	// typedef type-spec [ declarator [, declarator]... ] ;
 	B32 Parser::parseTypedef() {
 		advance(); // typedef
 		CType base;
@@ -77,41 +77,18 @@ namespace rat::cc {
 		if(accept(TokKind::Semicolon))
 			return true;
 		for(;;) {
-			Token nameTok;
-			B32 haveName = false;
-			CType t;
-			if(!parseDeclaratorType(base, nameTok, haveName, t))
+			DeclResult r;
+			if(!parseDeclarator(base, r))
 				return false;
-			if(!haveName) {
+			if(!r.name) {
 				fail(peek(), "expected typedef name");
 				return false;
 			}
-			U32 ignored = 0;
-			if(!acceptTrailingAlignas(ignored))
-				return false;
-			typedefs.set(lex.text(nameTok), t);
+			typedefs.set(*r.name, r.type);
 			if(!accept(TokKind::Comma))
 				break;
 		}
 		return expect(TokKind::Semicolon, "';'");
-	}
-
-	// [ [qualifier]... * ]... [qualifier]...
-	// only const is kept, one bit per pointer level
-	void Parser::parsePointers(CType& t) {
-		for(;;) {
-			B32 sawConst = false;
-			while(detail::isTypeQualifier(peek().kind)) {
-				if(check(TokKind::KwConst))
-					sawConst = true;
-				advance();
-			}
-			if(sawConst && t.ptr < 32)
-				setTopConst(t);
-			if(!accept(TokKind::Star))
-				break;
-			++t.ptr;
-		}
 	}
 
 	// _Alignas ( type-name | const-expr )

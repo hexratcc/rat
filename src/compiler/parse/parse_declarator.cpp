@@ -3,6 +3,24 @@
 #include "parse/parser_detail.h"
 
 namespace rat::cc {
+	// [ [qualifier]... * ]... [qualifier]...
+	// only const is kept, one bit per pointer level
+	void Parser::parsePointers(CType& t) {
+		for(;;) {
+			B32 sawConst = false;
+			while(detail::isTypeQualifier(peek().kind)) {
+				if(check(TokKind::KwConst))
+					sawConst = true;
+				advance();
+			}
+			if(sawConst && t.ptr < 32)
+				setTopConst(t);
+			if(!accept(TokKind::Star))
+				break;
+			++t.ptr;
+		}
+	}
+
 	// [ static | qualifier ]... inside an array bound
 	void Parser::skipArrayQualifiers() {
 		while(check(TokKind::KwStatic) || detail::isTypeQualifier(peek().kind))
@@ -64,6 +82,21 @@ namespace rat::cc {
 		return acceptTrailingAlignas(objAlign);
 	}
 
+	// [cond-expr] ']'
+	// a bound that is not a positive constant is kept as a VLA expr
+	B32 Parser::parseArrayBound(DeclOp& op) {
+		if(!check(TokKind::RBracket)) {
+			Expr* e = parseConditional();
+			if(!e)
+				return false;
+			op.bound = e;
+			I64 n = 0;
+			if(tryEvalIntConst(e, n) && n > 0)
+				op.count = (U64)n;
+		}
+		return expect(TokKind::RBracket, "']'");
+	}
+
 	// a function parameter decays to a pointer, an array to a pointer to its element
 	void Parser::adjustParamType(CType& t, const Expr** vlaBound) {
 		if(t.func != nullptr && t.ptr == 0) {
@@ -97,36 +130,18 @@ namespace rat::cc {
 				fail(peek(), "expected parameter type");
 				return false;
 			}
-			parsePointers(pt);
-			Token nameTok;
-			B32 haveName = false;
-			Param p;
-			if(!parseDeclaratorType(pt, nameTok, haveName, p.type))
+			DeclResult r;
+			if(!parseDeclarator(pt, r))
 				return false;
-			if(haveName)
-				p.name = arena.make<String>(lex.text(nameTok));
+			Param p;
+			p.name = r.name;
+			p.type = r.type;
 			adjustParamType(p.type);
 			ft->params.push_back(p);
 			if(!accept(TokKind::Comma))
 				break;
 		}
 		return expect(TokKind::RParen, "')'");
-	}
-
-	// splits an array type into the declarator's element type and length
-	void Parser::bindDeclaratorType(Declarator& d, CType t, U32 offset) {
-		if(isArrayType(t)) {
-			d.isArray = true;
-			U64 count = t.array->count;
-			d.type = t.array->elem;
-			if(count > 0) {
-				Expr* len = makeExpr(ExprKind::IntLit, offset);
-				len->intLit = {(I64)count, 32, 0};
-				d.arrayLen = len;
-			}
-		} else {
-			d.type = t;
-		}
 	}
 
 	// ( followed by * ( '[' noinline or a non-type name: a parenthesized declarator
@@ -156,7 +171,8 @@ namespace rat::cc {
 				ArrayType* at = arena.make<ArrayType>();
 				at->elem = b;
 				at->count = op.count;
-				at->countExpr = op.countExpr;
+				if(op.count == 0)
+					at->countExpr = op.bound;
 				CType a;
 				a.array = at;
 				b = a;
@@ -174,25 +190,9 @@ namespace rat::cc {
 		return b;
 	}
 
-	// [cond-expr] ']'
-	// a bound that is not a positive constant is kept as a VLA expr
-	B32 Parser::parseArrayBound(U64& count, Expr*& expr) {
-		if(!check(TokKind::RBracket)) {
-			Expr* e = parseConditional();
-			if(!e)
-				return false;
-			I64 n = 0;
-			if(tryEvalIntConst(e, n) && n > 0)
-				count = (U64)n;
-			else
-				expr = e; // VLA
-		}
-		return expect(TokKind::RBracket, "']'");
-	}
-
 	// [ '[' [ static | qualifier ]... [ * | cond-expr ] ']' | ( param-type-list | alignas ]...
 	// pushed onto ops innermost first
-	B32 Parser::parseDeclaratorSuffixes(List<DeclOp>& ops) {
+	B32 Parser::parseDeclaratorSuffixes(List<DeclOp>& ops, U32& align) {
 		List<DeclOp> sfx;
 		for(;;) {
 			if(accept(TokKind::LBracket)) {
@@ -201,7 +201,7 @@ namespace rat::cc {
 				op.kind = DeclOp::Kind::Array;
 				if(check(TokKind::Star) && peek2().kind == TokKind::RBracket)
 					advance(); // [*]
-				if(!parseArrayBound(op.count, op.countExpr))
+				if(!parseArrayBound(op))
 					return false;
 				sfx.push_back(op);
 			} else if(accept(TokKind::LParen)) {
@@ -212,8 +212,7 @@ namespace rat::cc {
 					return false;
 				sfx.push_back(op);
 			} else if(check(TokKind::KwAlignas)) {
-				U32 ignored = 0;
-				if(!acceptTrailingAlignas(ignored))
+				if(!acceptTrailingAlignas(align))
 					return false;
 			} else {
 				break;
@@ -225,21 +224,22 @@ namespace rat::cc {
 	}
 
 	// [ ( declarator ) | name ] suffixes
-	B32 Parser::parseDirectDeclarator(List<DeclOp>& ops, Token& nameOut, B32& haveName) {
+	B32 Parser::parseDirectDeclarator(List<DeclOp>& ops, DeclResult& out) {
 		B32 grouped = false;
 		List<DeclOp> inner;
 		if(looksLikeGroupingParen()) {
 			advance(); // (
 			grouped = true;
-			if(!parseDeclaratorOps(inner, nameOut, haveName))
+			if(!parseDeclaratorOps(inner, out))
 				return false;
 			if(!expect(TokKind::RParen, "')'"))
 				return false;
 		} else if(check(TokKind::Identifier)) {
-			nameOut = advance();
-			haveName = true;
+			Token nameTok = advance();
+			out.name = arena.make<String>(lex.text(nameTok));
+			out.offset = nameTok.offset;
 		}
-		if(!parseDeclaratorSuffixes(ops))
+		if(!parseDeclaratorSuffixes(ops, out.align))
 			return false;
 		if(failed)
 			return false;
@@ -250,7 +250,7 @@ namespace rat::cc {
 	}
 
 	// [ [qualifier]... * ]... [qualifier]... direct-declarator
-	B32 Parser::parseDeclaratorOps(List<DeclOp>& ops, Token& nameOut, B32& haveName) {
+	B32 Parser::parseDeclaratorOps(List<DeclOp>& ops, DeclResult& out) {
 		DepthScope scope(*this);
 		if(!enterDepth())
 			return false;
@@ -268,17 +268,37 @@ namespace rat::cc {
 			op.count = stars;
 			ops.push_back(op);
 		}
-		return parseDirectDeclarator(ops, nameOut, haveName);
+		return parseDirectDeclarator(ops, out);
 	}
 
-	// declarator, resolved against base
-	B32 Parser::parseDeclaratorType(CType base, Token& nameOut, B32& haveName, CType& out) {
-		haveName = false;
+	// pointers declarator-ops, resolved against base
+	B32 Parser::parseDeclarator(CType base, DeclResult& out) {
+		CType t = base;
+		parsePointers(t);
 		List<DeclOp> ops;
-		if(!parseDeclaratorOps(ops, nameOut, haveName) || failed)
+		if(!parseDeclaratorOps(ops, out) || failed)
 			return false;
-		out = applyDeclOps(base, ops);
+		out.type = applyDeclOps(t, ops);
+		if(!ops.empty() && ops.back().kind == DeclOp::Kind::Array) {
+			out.outerArray = true;
+			out.outerBound = ops.back().bound;
+		}
 		return true;
 	}
 
+	// splits an array type into the declarator's element type and length
+	void Parser::bindDeclaratorType(Declarator& d, CType t, U32 offset) {
+		if(isArrayType(t)) {
+			d.isArray = true;
+			U64 count = t.array->count;
+			d.type = t.array->elem;
+			if(count > 0) {
+				Expr* len = makeExpr(ExprKind::IntLit, offset);
+				len->intLit = {(I64)count, 32, 0};
+				d.arrayLen = len;
+			}
+		} else {
+			d.type = t;
+		}
+	}
 } // namespace rat::cc
