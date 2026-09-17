@@ -19,6 +19,7 @@ namespace rat::cc::detail {
 	void utf8Encode(String& out, U32 cp);
 	U32 utf8Decode(const String& bytes, U32& i, U32 n);
 	void appendCodeUnits(String& out, U32 cp, U32 unitBytes);
+	U32 escapeMaxVal(C8 prefix);
 
 	B32 isTypeQualifier(TokKind kind);
 	B32 isQualOrStorage(TokKind kind);

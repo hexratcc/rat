@@ -3,6 +3,7 @@
 #include "parse/parser_detail.h"
 
 namespace rat::cc {
+	// one shared { re, im } layout per element width
 	StructType* Parser::complexStruct(CType realType) {
 		StructType*& st = complexLayouts[realType.bits];
 		if(!st)
@@ -10,187 +11,187 @@ namespace rat::cc {
 		return st;
 	}
 
+	// appends f at the next slot that fits align; a union starts every member at 0
+	void
+	Parser::placeField(StructType* st, Field f, U64 size, U32 align, B32 isUnion, StructLayout& l) {
+		f.offset = isUnion ? 0 : detail::alignUp(l.offset, align);
+		st->fields.push_back(f);
+		if(isUnion) {
+			if(size > l.offset)
+				l.offset = size;
+		} else {
+			l.offset = f.offset + size;
+		}
+		l.bitPos = l.offset * 8;
+		if(align > l.align)
+			l.align = align;
+	}
+
+	// the members of an unnamed struct or union member become members of st
+	void
+	Parser::spliceAnonMember(StructType* st, const StructType* inner, B32 isUnion, StructLayout& l) {
+		U64 mbase = isUnion ? 0 : detail::alignUp(l.offset, inner->align);
+		B32 first = true;
+		for(const Field& sub : inner->fields) {
+			Field f = sub;
+			f.offset = mbase + sub.offset;
+			f.set(Field::AnonMember);
+			f.set(Field::AnonFirst, first);
+			f.set(Field::AnonUnion, inner->isUnion);
+			first = false;
+			st->fields.push_back(f);
+		}
+		if(isUnion) {
+			if(inner->size > l.offset)
+				l.offset = inner->size;
+		} else {
+			l.offset = mbase + inner->size;
+		}
+		if(inner->align > l.align)
+			l.align = inner->align;
+		l.bitPos = l.offset * 8;
+	}
+
+	// array members need a constant, non-negative bound on every level
+	B32 Parser::arrayMemberCount(CType t, U64& count) {
+		count = t.array->count;
+		if(!t.array->countExpr && !hasVlaDim(t.array->elem))
+			return true;
+		I64 n = 0;
+		if(hasVlaDim(t.array->elem) || !evalIntConst(t.array->countExpr, n) || n < 0) {
+			fail(peek(), "array member size must be a constant");
+			return false;
+		}
+		count = (U64)n;
+		return true;
+	}
+
+	// const-expr after the ':' of a member
+	// an unnamed or zero-width bitfield only takes space; the unit is the member's own type
+	B32 Parser::parseBitfield(
+			StructType* st, Field f, U32 memberAlign, B32 isUnion, StructLayout& l) {
+		Expr* wE = parseConditional();
+		if(!wE)
+			return false;
+		I64 w = 0;
+		if(!evalIntConst(wE, w) || w < 0) {
+			fail(peek(), "bitfield width must be a non-negative constant");
+			return false;
+		}
+		U32 unitBytes = typeSizeBytes(f.type);
+		if(unitBytes == 0)
+			unitBytes = 4;
+		U32 falign = typeAlignBytes(f.type);
+		if(memberAlign > falign)
+			falign = memberAlign;
+		U32 unitBits = unitBytes * 8;
+		U32 unitStart = 0;
+		if(isUnion) {
+			if(unitBytes > l.offset)
+				l.offset = unitBytes;
+		} else {
+			if(w == 0 || l.bitPos % unitBits + (U32)w > unitBits)
+				l.bitPos = detail::alignUp(l.bitPos, unitBits);
+			unitStart = l.bitPos / unitBits * unitBytes;
+		}
+		if(w > 0 && f.name) {
+			f.type.bitPrec = (U32)w; // the field's values wrap at this width
+			f.set(Field::Bitfield);
+			f.bitWidth = (U32)w;
+			f.bitOffset = isUnion ? 0 : l.bitPos % unitBits;
+			f.offset = unitStart;
+			st->fields.push_back(f);
+		}
+		if(isUnion) {
+			l.bitPos = l.offset * 8;
+		} else {
+			l.bitPos += (U32)w;
+			l.offset = (l.bitPos + 7) / 8;
+		}
+		if(falign > l.align)
+			l.align = falign;
+		return true;
+	}
+
+	// declarator [ : bitfield ]
+	// only a bitfield may be unnamed; an array with no bound at all is a flexible array member
+	B32 Parser::parseStructMember(
+			StructType* st, CType base, U32 baseAlign, B32 isUnion, StructLayout& l) {
+		DeclResult r;
+		r.align = baseAlign;
+		if(!parseDeclarator(base, r))
+			return false;
+		CType ft = r.type;
+		B32 isArr = isArrayType(ft);
+		U64 count = 0;
+		if(isArr) {
+			if(!arrayMemberCount(ft, count))
+				return false;
+			ft = ft.array->elem;
+		}
+		Field f;
+		f.name = r.name;
+		f.type = ft;
+		if(accept(TokKind::Colon)) {
+			if(isArr || ft.ptr != 0 || ft.isFloat() || ft.isComplex() || ft.isVoid() || isStruct(ft) ||
+				 ft.func != nullptr) {
+				fail(peek(), "bit-field has invalid type");
+				return false;
+			}
+			return parseBitfield(st, f, r.align, isUnion, l);
+		}
+		if(!r.name) {
+			fail(peek(), "expected member name");
+			return false;
+		}
+		if(isStruct(ft) && !ft.strukt->complete) {
+			fail(peek(), "member has incomplete struct type");
+			return false;
+		}
+		if(isArr && count == 0 && !r.outerBound) {
+			if(isUnion) {
+				fail(peek(), "flexible array member not allowed in union");
+				return false;
+			}
+			if(st->fields.empty()) {
+				fail(peek(), "flexible array member in struct with no other members");
+				return false;
+			}
+			if(!(check(TokKind::Semicolon) && peek2().kind == TokKind::RBrace)) {
+				fail(peek(), "flexible array member must be the last member");
+				return false;
+			}
+		}
+		f.set(Field::Array, isArr);
+		f.count = count;
+		U64 size = typeSizeBytes(ft);
+		if(isArr)
+			size *= count;
+		U32 falign = typeAlignBytes(ft);
+		if(r.align > falign)
+			falign = r.align;
+		placeField(st, f, size, falign, isUnion, l);
+		return true;
+	}
+
+	// [ struct-spec ; | type-spec member [, member]... ; ]... }
+	// a bare struct-spec ; splices an anonymous struct or union member
 	B32 Parser::parseStructBody(StructType* st, B32 isUnion) {
-		U64 offset = 0;
-		U32 align = 1;
-		U32 bitPos = 0;
-		while(peek().kind != TokKind::RBrace && peek().kind != TokKind::Eof) {
+		StructLayout l;
+		while(!check(TokKind::RBrace) && !check(TokKind::Eof)) {
 			CType base;
 			if(!parseTypeSpec(base)) {
 				fail(peek(), "expected member type");
 				return false;
 			}
 			U32 baseAlign = specAlign;
-			if(peek().kind == TokKind::Semicolon && isStruct(base)) {
-				advance();
-				const StructType* inner = base.strukt;
-				U32 mAlign = inner->align;
-				U64 mbase = isUnion ? 0 : detail::alignUp(offset, mAlign);
-				B32 first = true;
-				for(const Field& sub : inner->fields) {
-					Field f = sub;
-					f.offset = isUnion ? sub.offset : mbase + sub.offset;
-					f.set(Field::AnonMember);
-					f.set(Field::AnonFirst, first);
-					f.set(Field::AnonUnion, inner->isUnion);
-					first = false;
-					st->fields.push_back(f);
-				}
-				U64 mEnd = mbase + inner->size;
-				if(isUnion) {
-					if(inner->size > offset)
-						offset = inner->size;
-				} else {
-					offset = mEnd;
-				}
-				if(mAlign > align)
-					align = mAlign;
-				bitPos = offset * 8;
+			if(isStruct(base) && accept(TokKind::Semicolon)) {
+				spliceAnonMember(st, base.strukt, isUnion, l);
 				continue;
 			}
 			for(;;) {
-				CType ft = base;
-				parsePointers(ft);
-				Token nameTok;
-				B32 haveName = false;
-				B32 isArr = false;
-				B32 flexible = false;
-				U64 count = 0;
-				U32 memberAlign = baseAlign;
-				if(looksLikeGroupingParen()) {
-					CType fpt;
-					if(!parseDeclaratorType(ft, nameTok, haveName, fpt))
-						return false;
-					ft = fpt;
-					if(isArrayType(ft)) {
-						isArr = true;
-						count = ft.array->count;
-						flexible = count == 0;
-						ft = ft.array->elem;
-					}
-				} else {
-					if(peek().kind == TokKind::Identifier) {
-						nameTok = advance();
-						haveName = true;
-					}
-					if(peek().kind == TokKind::LBracket) {
-						Declarator d;
-						d.type = ft;
-						if(!parseArraySuffix(d, &memberAlign))
-							return false;
-						ft = d.type;
-						isArr = true;
-						I64 n = 0;
-						if(d.arrayLen) {
-							if(!evalIntConst(d.arrayLen, n) || n < 0) {
-								fail(nameTok, "array member size must be a constant");
-								return false;
-							}
-						} else {
-							flexible = true; // type name[] with no bound
-						}
-						count = (U64)n; // 0 == flexible array member
-					}
-				}
-				// optional bitfield : width
-				if(accept(TokKind::Colon)) {
-					if(isArr || ft.ptr != 0 || ft.isFloat() || ft.isComplex() || ft.isVoid() ||
-						 isStruct(ft) || ft.func != nullptr) {
-						fail(nameTok, "bit-field has invalid type");
-						return false;
-					}
-					Expr* wE = parseConditional();
-					if(!wE)
-						return false;
-					I64 w = 0;
-					if(!evalIntConst(wE, w) || w < 0) {
-						fail(peek(), "bitfield width must be a non-negative constant");
-						return false;
-					}
-					U32 unitBytes = typeSizeBytes(ft);
-					if(unitBytes == 0)
-						unitBytes = 4;
-					U32 falign = typeAlignBytes(ft);
-					if(memberAlign > falign)
-						falign = memberAlign;
-					U32 unitBits = unitBytes * 8;
-					U32 unitStart = 0;
-					if(isUnion) {
-						if(unitBytes > offset)
-							offset = unitBytes;
-					} else {
-						if(w == 0 || bitPos % unitBits + (U32)w > unitBits)
-							bitPos = detail::alignUp(bitPos, unitBits);
-						unitStart = bitPos / unitBits * unitBytes;
-					}
-					if(w > 0 && haveName) {
-						Field f;
-						f.name = arena.make<String>(lex.text(nameTok));
-						f.type = ft;
-						f.type.bitPrec = (U32)w; // the field's values wrap at this width
-						f.set(Field::Bitfield);
-						f.bitWidth = (U32)w;
-						f.bitOffset = isUnion ? 0 : bitPos % unitBits;
-						f.offset = unitStart;
-						st->fields.push_back(f);
-					}
-					if(isUnion)
-						bitPos = offset * 8;
-					else {
-						bitPos += (U32)w;
-						offset = (bitPos + 7) / 8;
-					}
-					if(falign > align)
-						align = falign;
-					if(!accept(TokKind::Comma))
-						break;
-					continue;
-				}
-				if(!haveName) {
-					fail(peek(), "expected member name");
+				if(!parseStructMember(st, base, baseAlign, isUnion, l))
 					return false;
-				}
-				if(isStruct(ft) && !ft.strukt->complete) {
-					fail(nameTok, "member has incomplete struct type");
-					return false;
-				}
-				if(flexible) {
-					if(isUnion) {
-						fail(nameTok, "flexible array member not allowed in union");
-						return false;
-					}
-					if(st->fields.empty()) {
-						fail(nameTok, "flexible array member in struct with no other members");
-						return false;
-					}
-					if(!(peek().kind == TokKind::Semicolon && peek2().kind == TokKind::RBrace)) {
-						fail(nameTok, "flexible array member must be the last member");
-						return false;
-					}
-				}
-				if(!acceptTrailingAlignas(memberAlign)) // trailing form: int a __attribute__(...)
-					return false;
-				U64 esize = typeSizeBytes(ft);
-				U32 falign = typeAlignBytes(ft);
-				if(memberAlign > falign)
-					falign = memberAlign;
-				U64 fsize = isArr ? esize * count : esize;
-				Field f;
-				f.name = arena.make<String>(lex.text(nameTok));
-				f.type = ft;
-				f.set(Field::Array, isArr);
-				f.count = count;
-				f.offset = isUnion ? 0 : detail::alignUp(offset, falign);
-				st->fields.push_back(f);
-				if(isUnion) {
-					if(fsize > offset)
-						offset = fsize;
-				} else {
-					offset = f.offset + fsize;
-				}
-				bitPos = offset * 8;
-				if(falign > align)
-					align = falign;
 				if(!accept(TokKind::Comma))
 					break;
 			}
@@ -199,14 +200,16 @@ namespace rat::cc {
 		}
 		if(!expect(TokKind::RBrace, "'}'"))
 			return false;
-		st->align = align;
-		st->size = detail::alignUp(offset, align);
+		st->align = l.align;
+		st->size = detail::alignUp(l.offset, l.align);
 		st->complete = true;
 		return true;
 	}
 
+	// tag-kw [alignas]... [tag] [ { body ] [alignas]...
+	// tag-kw: struct | union
 	B32 Parser::parseStructSpec(CType& out) {
-		B32 isUnion = peek().kind == TokKind::KwUnion;
+		B32 isUnion = check(TokKind::KwUnion);
 		advance(); // 'struct' or 'union'
 
 		U32 declAlign = 0;
@@ -214,10 +217,10 @@ namespace rat::cc {
 			return false;
 
 		const String* tag = nullptr;
-		if(peek().kind == TokKind::Identifier)
+		if(check(TokKind::Identifier))
 			tag = arena.make<String>(lex.text(advance()));
 
-		B32 hasBody = peek().kind == TokKind::LBrace;
+		B32 hasBody = check(TokKind::LBrace);
 		StructType* st = nullptr;
 		if(tag) {
 			const TagBinding* bound = structTypes.get(*tag);
@@ -232,7 +235,7 @@ namespace rat::cc {
 		}
 
 		if(hasBody) {
-			advance();
+			advance(); // {
 			if(!st)
 				st = arena.make<StructType>(); // anon aggregate
 			st->isUnion = isUnion;
@@ -256,6 +259,7 @@ namespace rat::cc {
 		return true;
 	}
 
+	// typeof ( type-name | expr )
 	B32 Parser::parseTypeofSpec(CType& out) {
 		advance(); // typeof / __typeof / __typeof__
 		if(!expect(TokKind::LParen, "'('"))
@@ -273,22 +277,23 @@ namespace rat::cc {
 		return expect(TokKind::RParen, "')'");
 	}
 
+	// enum [alignas]... [tag] [ { [ enumerator [, enumerator]... [,] ] } ]
+	// enumerator: name [= const-expr]
 	B32 Parser::parseEnumSpec(CType& out) {
 		advance(); // enum
 		String tag;
 		U32 ignored = 0; // an enum's alignment is its underlying type's
 		if(!acceptTrailingAlignas(ignored))
 			return false;
-		if(peek().kind == TokKind::Identifier)
+		if(check(TokKind::Identifier))
 			tag = lex.text(advance());
 
 		B32 anyNegative = false;
-		B32 haveList = peek().kind == TokKind::LBrace;
-		if(peek().kind == TokKind::LBrace) {
-			advance();
+		B32 haveList = accept(TokKind::LBrace);
+		if(haveList) {
 			I64 next = 0;
-			while(peek().kind != TokKind::RBrace && peek().kind != TokKind::Eof) {
-				if(peek().kind != TokKind::Identifier) {
+			while(!check(TokKind::RBrace) && !check(TokKind::Eof)) {
+				if(!check(TokKind::Identifier)) {
 					fail(peek(), "expected enumerator name");
 					return false;
 				}

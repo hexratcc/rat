@@ -185,12 +185,19 @@ namespace rat::cc {
 		return false;
 	}
 
+	struct Param {
+		const String* name = nullptr;
+		CType type = ctInt();
+		U32 offset = 0;
+		const Expr* vlaBound = nullptr;
+	};
+
 	struct FuncType {
 		CType ret;
-		List<CType> params;
-		List<const String*> paramNames;
+		List<Param> params;
 		B32 isVarArgs = false;
-		B32 unprototyped = false;
+		B32 unprototyped = false; // ()
+		B32 oldStyle = false;			// (a, b): types follow in a declaration list
 	};
 
 	StructType* makeComplexLayout(Arena& arena, CType complexType);
@@ -430,13 +437,6 @@ namespace rat::cc {
 	CType defaultArgPromote(CType t);
 	CType usualArithmetic(CType a, CType b);
 	String typeName(CType t);
-
-	struct Param {
-		const String* name = nullptr;
-		CType type = ctInt();
-		U32 offset = 0;
-		const Expr* vlaBound = nullptr;
-	};
 
 	struct FuncDef {
 		String name;

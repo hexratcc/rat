@@ -59,12 +59,14 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
+	// a type keyword, qualifier, storage class or typedef name
 	B32 Parser::startsType(const Token& tok) {
 		if(detail::isTypeStart(tok.kind))
 			return true;
 		return tok.kind == TokKind::Identifier && typedefs.get(lex.text(tok)) != nullptr;
 	}
 
+	// typedef type-spec [ declarator [, declarator]... ] ;
 	B32 Parser::parseTypedef() {
 		advance(); // typedef
 		CType base;
@@ -72,46 +74,25 @@ namespace rat::cc {
 			fail(peek(), "expected type in typedef declaration");
 			return false;
 		}
-		if(peek().kind == TokKind::Semicolon) {
-			advance();
+		if(accept(TokKind::Semicolon))
 			return true;
-		}
 		for(;;) {
-			Token nameTok;
-			B32 haveName = false;
-			CType t;
-			if(!parseDeclaratorType(base, nameTok, haveName, t))
+			DeclResult r;
+			if(!parseDeclarator(base, r))
 				return false;
-			if(!haveName) {
+			if(!r.name) {
 				fail(peek(), "expected typedef name");
 				return false;
 			}
-			U32 ignored = 0;
-			if(!acceptTrailingAlignas(ignored))
-				return false;
-			typedefs.set(lex.text(nameTok), t);
+			typedefs.set(*r.name, r.type);
 			if(!accept(TokKind::Comma))
 				break;
 		}
 		return expect(TokKind::Semicolon, "';'");
 	}
 
-	void Parser::parsePointers(CType& t) {
-		for(;;) {
-			B32 sawConst = false;
-			while(detail::isTypeQualifier(peek().kind)) {
-				if(peek().kind == TokKind::KwConst)
-					sawConst = true;
-				advance();
-			}
-			if(sawConst && t.ptr < 32)
-				setTopConst(t);
-			if(!accept(TokKind::Star))
-				break;
-			++t.ptr;
-		}
-	}
-
+	// _Alignas ( type-name | const-expr )
+	// raises align, never lowers it
 	B32 Parser::parseAlignasSpec(U32& align) {
 		Token kw = advance(); // _Alignas
 		if(!expect(TokKind::LParen, "'('"))
@@ -140,82 +121,96 @@ namespace rat::cc {
 		return true;
 	}
 
+	// [alignas]...
 	B32 Parser::acceptTrailingAlignas(U32& align) {
-		while(peek().kind == TokKind::KwAlignas)
+		while(check(TokKind::KwAlignas))
 			if(!parseAlignasSpec(align))
 				return false;
 		return true;
 	}
 
-	B32 Parser::parseTypeSpec(CType& out) {
-		DeclSpecs seen;
-		B32 isConst = false;
-		I32 storageCount = 0;
-		specs = DeclSpecs{};
-		specAlign = 0;
-		auto applyQualStorage = [&](TokKind sk) {
-			if(sk == TokKind::KwStatic)
-				seen.isStatic = true;
-			if(sk == TokKind::KwExtern)
-				seen.isExtern = true;
-			if(sk == TokKind::KwInline)
-				seen.isInline = true;
-			if(sk == TokKind::KwConst)
-				isConst = true;
-			if(sk == TokKind::KwNoinline)
-				seen.isNoInline = true;
-			if(sk == TokKind::KwStatic || sk == TokKind::KwExtern || sk == TokKind::KwAuto ||
-				 sk == TokKind::KwRegister)
-				++storageCount;
-		};
-		while(detail::isQualOrStorage(peek().kind) || peek().kind == TokKind::KwAlignas) {
-			if(peek().kind == TokKind::KwAlignas) {
+	// records one qualifier or storage-class keyword
+	void Parser::applyQualStorage(DeclSpecs& seen, TokKind kind) {
+		switch(kind) {
+		case TokKind::KwStatic:
+			seen.isStatic = true;
+			++seen.storageCount;
+			break;
+		case TokKind::KwExtern:
+			seen.isExtern = true;
+			++seen.storageCount;
+			break;
+		case TokKind::KwAuto:
+		case TokKind::KwRegister:
+			++seen.storageCount;
+			break;
+		case TokKind::KwInline:
+			seen.isInline = true;
+			break;
+		case TokKind::KwConst:
+			seen.isConst = true;
+			break;
+		case TokKind::KwNoinline:
+			seen.isNoInline = true;
+			break;
+		default:
+			break;
+		}
+	}
+
+	// [ noinline | alignas ]...
+	// then publishes the specs to the caller
+	B32 Parser::finishTypeSpec(DeclSpecs seen, CType& out) {
+		for(;;) {
+			if(check(TokKind::KwAlignas)) {
 				if(!parseAlignasSpec(specAlign))
 					return false;
 				continue;
 			}
-			applyQualStorage(peek().kind);
-			advance();
-		}
-		auto finishSpec = [&] {
-			// an attribute marker may trail the spec
-			while(peek().kind == TokKind::KwNoinline || peek().kind == TokKind::KwAlignas) {
-				if(peek().kind == TokKind::KwAlignas) {
-					parseAlignasSpec(specAlign);
-					continue;
-				}
+			if(accept(TokKind::KwNoinline)) {
 				seen.isNoInline = true;
-				advance();
+				continue;
 			}
-			if(isConst)
-				out.quals |= 1u;
-			specs = seen;
-		};
-		if(storageCount > 1) {
+			break;
+		}
+		if(seen.isConst)
+			out.quals |= 1u;
+		specs = seen;
+		return true;
+	}
+
+	// [ qualifier | storage | alignas ]... spec-body [ noinline | alignas ]...
+	// spec-body: typeof-spec | enum-spec | struct-spec | typedef-name
+	//          | type-keyword [ type-keyword | qualifier | storage | alignas ]...
+	B32 Parser::parseTypeSpec(CType& out) {
+		DeclSpecs seen;
+		specs = DeclSpecs{};
+		specAlign = 0;
+		for(;;) {
+			if(check(TokKind::KwAlignas)) {
+				if(!parseAlignasSpec(specAlign))
+					return false;
+				continue;
+			}
+			if(!detail::isQualOrStorage(peek().kind))
+				break;
+			applyQualStorage(seen, advance().kind);
+		}
+		if(seen.storageCount > 1) {
 			fail(peek(), "more than one storage-class specifier");
 			return false;
 		}
-		if(peek().kind == TokKind::KwTypeof) {
-			B32 ok = parseTypeofSpec(out);
-			finishSpec();
-			return ok;
-		}
-		if(peek().kind == TokKind::KwEnum) {
-			B32 ok = parseEnumSpec(out);
-			finishSpec();
-			return ok;
-		}
-		if(peek().kind == TokKind::KwStruct || peek().kind == TokKind::KwUnion) {
-			B32 ok = parseStructSpec(out);
-			finishSpec();
-			return ok;
-		}
-		if(peek().kind == TokKind::Identifier) {
+		if(check(TokKind::KwTypeof))
+			return parseTypeofSpec(out) && finishTypeSpec(seen, out);
+		if(check(TokKind::KwEnum))
+			return parseEnumSpec(out) && finishTypeSpec(seen, out);
+		if(check(TokKind::KwStruct) || check(TokKind::KwUnion))
+			return parseStructSpec(out) && finishTypeSpec(seen, out);
+		if(check(TokKind::Identifier)) {
 			if(const CType* td = typedefs.get(lex.text(peek()))) {
 				advance();
 				out = *td;
-				finishSpec();
-				return true;
+				return finishTypeSpec(seen, out);
 			}
 		}
 
@@ -254,8 +249,7 @@ namespace rat::cc {
 					return false;
 				continue;
 			} else if(detail::isQualOrStorage(k)) {
-				applyQualStorage(k);
-				advance();
+				applyQualStorage(seen, advance().kind);
 				continue;
 			} else
 				break;
@@ -264,7 +258,7 @@ namespace rat::cc {
 		}
 		if(count == 0)
 			return false;
-		if(storageCount > 1) {
+		if(seen.storageCount > 1) {
 			fail(peek(), "more than one storage-class specifier");
 			return false;
 		}
@@ -297,12 +291,7 @@ namespace rat::cc {
 			} else
 				t.bits = 32;
 		}
-		if(!acceptTrailingAlignas(specAlign))
-			return false;
-		if(isConst)
-			t.quals |= 1u;
 		out = t;
-		specs = seen;
-		return true;
+		return finishTypeSpec(seen, out);
 	}
 } // namespace rat::cc

@@ -105,7 +105,7 @@ namespace rat::cc {
 			for(U32 i = 0; i < t.func->params.size(); ++i) {
 				if(i)
 					s += ", ";
-				s += typeName(t.func->params[i]);
+				s += typeName(t.func->params[i].type);
 			}
 			if(t.func->isVarArgs)
 				s += t.func->params.empty() ? "..." : ", ...";

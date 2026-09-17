@@ -1,24 +1,27 @@
 #include "parse/parser.h"
 
 namespace rat::cc {
+	// { [ [designation] initializer [, [designation] initializer]... [,] ] } | assignment
+	// designation: designator... =
+	// designator: . name | '[' const-expr [ '...' const-expr ] ']'
+	// a '...' range is allowed on the first designator only
 	Expr* Parser::parseInitializer() {
-		if(peek().kind == TokKind::LBrace) {
-			Token lb = advance();
+		if(check(TokKind::LBrace)) {
+			Token lb = advance(); // {
 			Expr* e = makeExpr(ExprKind::InitList, lb.offset);
-			if(peek().kind != TokKind::RBrace) {
+			if(!check(TokKind::RBrace)) {
 				for(;;) {
 					Designator des;
 					I64 rangeEnd = -1; // GNU range designator [a ... b]
-					if(peek().kind == TokKind::Dot || peek().kind == TokKind::LBracket) {
+					if(check(TokKind::Dot) || check(TokKind::LBracket)) {
 						Designator* cur = &des;
 						for(B32 first = true;; first = false) {
 							if(accept(TokKind::Dot)) {
-								Token id = peek();
-								if(id.kind != TokKind::Identifier) {
-									fail(id, "expected a field name after '.'");
+								if(!check(TokKind::Identifier)) {
+									fail(peek(), "expected a field name after '.'");
 									return nullptr;
 								}
-								advance();
+								Token id = advance();
 								cur->isIndex = false;
 								cur->field = arena.make<String>(lex.text(id));
 							} else if(accept(TokKind::LBracket)) {
@@ -46,7 +49,7 @@ namespace rat::cc {
 							} else {
 								break;
 							}
-							if(peek().kind == TokKind::Dot || peek().kind == TokKind::LBracket) {
+							if(check(TokKind::Dot) || check(TokKind::LBracket)) {
 								Designator* nxt = arena.make<Designator>();
 								nxt->isSet = true;
 								cur->next = nxt;
@@ -77,7 +80,7 @@ namespace rat::cc {
 					}
 					if(!accept(TokKind::Comma))
 						break;
-					if(peek().kind == TokKind::RBrace)
+					if(check(TokKind::RBrace))
 						break;
 				}
 			}
@@ -88,6 +91,7 @@ namespace rat::cc {
 		return parseAssignment();
 	}
 
+	// wraps v to the width and signedness of an integer type
 	I64 Parser::castConstValue(I64 v, CType ty) const {
 		if(!isInteger(ty) || ty.typeofExpr)
 			return v;
@@ -102,6 +106,7 @@ namespace rat::cc {
 		return (I64)low;
 	}
 
+	// folds an integer constant expression; anything else is a diagnostic
 	B32 Parser::evalIntConst(const Expr* e, I64& out) {
 		switch(e->kind) {
 		case ExprKind::IntLit:
@@ -198,6 +203,7 @@ namespace rat::cc {
 		}
 	}
 
+	// evalIntConst without the diagnostic
 	B32 Parser::tryEvalIntConst(const Expr* e, I64& out) {
 		B32 savedFailed = failed;
 		String savedMsg = errMsg;
