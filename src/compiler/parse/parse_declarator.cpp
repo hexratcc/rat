@@ -98,18 +98,15 @@ namespace rat::cc {
 				return false;
 			}
 			parsePointers(pt);
-			const String* pname = nullptr;
 			Token nameTok;
 			B32 haveName = false;
-			CType fpt;
-			if(!parseDeclaratorType(pt, nameTok, haveName, fpt))
+			Param p;
+			if(!parseDeclaratorType(pt, nameTok, haveName, p.type))
 				return false;
 			if(haveName)
-				pname = arena.make<String>(lex.text(nameTok));
-			pt = fpt;
-			adjustParamType(pt);
-			ft->params.push_back(pt);
-			ft->paramNames.push_back(pname);
+				p.name = arena.make<String>(lex.text(nameTok));
+			adjustParamType(p.type);
+			ft->params.push_back(p);
 			if(!accept(TokKind::Comma))
 				break;
 		}

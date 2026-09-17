@@ -122,7 +122,7 @@ namespace rat::cc {
 		if(!genericTypesMatch(a->ret, b->ret))
 			return false;
 		for(U32 i = 0; i < a->params.size(); ++i)
-			if(!genericTypesMatch(a->params[i], b->params[i]))
+			if(!genericTypesMatch(a->params[i].type, b->params[i].type))
 				return false;
 		return true;
 	}

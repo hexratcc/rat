@@ -130,7 +130,11 @@ namespace rat::cc {
 	CType Emitter::funcPtrType(const FnSig& sig) {
 		FuncType* ft = arena.make<FuncType>();
 		ft->ret = sig.ret;
-		ft->params = sig.params;
+		for(CType pt : sig.params) {
+			Param p;
+			p.type = pt;
+			ft->params.push_back(p);
+		}
 		ft->isVarArgs = sig.isVarArgs;
 		CType t;
 		t.func = ft;

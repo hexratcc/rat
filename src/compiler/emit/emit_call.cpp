@@ -64,7 +64,7 @@ namespace rat::cc {
 				return false;
 			CType pt;
 			if(i < nparams) {
-				pt = c.direct ? c.sig.params[i] : c.ft->params[i];
+				pt = c.direct ? c.sig.params[i] : c.ft->params[i].type;
 			} else {
 				pt = defaultArgPromote(a.type);
 				if(isComplexType(pt)) {

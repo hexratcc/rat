@@ -437,13 +437,7 @@ namespace rat::cc {
 					fn->isNoInline = gNoinline;
 					fn->align = gAlign;
 					fn->offset = start.offset;
-					for(U32 i = 0; i < fpt.func->params.size(); ++i) {
-						Param p;
-						p.type = fpt.func->params[i];
-						if(i < fpt.func->paramNames.size())
-							p.name = fpt.func->paramNames[i];
-						fn->params.push_back(p);
-					}
+					fn->params = fpt.func->params;
 					if(accept(TokKind::Semicolon)) {
 						unit->functions.push_back(fn); // prototype
 						continue;
