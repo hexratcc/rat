@@ -301,4 +301,15 @@ namespace rat::cc {
 			d.type = t;
 		}
 	}
+
+	// declarator without a name
+	B32 Parser::parseAbstractDeclarator(CType base, DeclResult& out) {
+		if(!parseDeclarator(base, out))
+			return false;
+		if(out.name) {
+			fail(peek(), "unexpected name in a type name");
+			return false;
+		}
+		return true;
+	}
 } // namespace rat::cc

@@ -65,32 +65,15 @@ namespace rat::cc {
 									 (U8)(CType::Unsigned | CType::Long | (lay.longBits < 64 ? CType::LongLong : 0)));
 	}
 
-	// type-spec [qualifier | *]... [ ( declarator ) suffixes | [ '[' [cond-expr] ']' ]... ]
-	// a declarator name, if any, is ignored
+	// type-spec abstract-declarator
 	B32 Parser::parseTypeName(CType& out) {
 		CType ty;
 		if(!parseTypeSpec(ty))
 			return false;
-		parsePointers(ty);
-		if(looksLikeGroupingParen()) { // abstract parenthesized declarator
-			DeclResult r;
-			if(!parseDeclarator(ty, r))
-				return false;
-			ty = r.type;
-		} else if(check(TokKind::LBracket)) { // array type-name: T[N] or T[]
-			List<Dim> dims;
-			while(accept(TokKind::LBracket)) {
-				DeclOp op;
-				if(!parseArrayBound(op))
-					return false;
-				Dim d{op.count, nullptr};
-				if(op.count == 0)
-					d.expr = op.bound;
-				dims.push_back(d);
-			}
-			ty = wrapArrayDims(ty, dims);
-		}
-		out = ty;
+		DeclResult r;
+		if(!parseAbstractDeclarator(ty, r))
+			return false;
+		out = r.type;
 		return true;
 	}
 
@@ -250,7 +233,7 @@ namespace rat::cc {
 	}
 
 	// [ ( [ assignment [, assignment]... ] ) | '[' expr ']' | . name | -> name | ++ | -- ]...
-	// __builtin_va_arg ( assignment , type-spec [qualifier | *]... ) is a call in form only
+	// __builtin_va_arg ( assignment , type-name ) is a call in form only
 	Expr* Parser::parsePostfixTail(Expr* e) {
 		for(;;) {
 			TokKind k = peek().kind;
@@ -263,11 +246,10 @@ namespace rat::cc {
 					if(!expect(TokKind::Comma, "','"))
 						return nullptr;
 					CType ty;
-					if(!parseTypeSpec(ty)) {
+					if(!parseTypeName(ty)) {
 						fail(peek(), "expected a type in __builtin_va_arg");
 						return nullptr;
 					}
-					parsePointers(ty);
 					if(!expect(TokKind::RParen, "')'"))
 						return nullptr;
 					Expr* va = makeExpr(ExprKind::VaArg, lp.offset);

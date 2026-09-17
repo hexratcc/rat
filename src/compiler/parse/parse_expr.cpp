@@ -79,10 +79,47 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
-	// size-op ( type-name ) | size-op unary | ( cast-type ) unary | ( cast-type ) braced-initializer
-	// postfix-tail | unary-op unary | ++ unary | -- unary | postfix
+	// ( type-name ) unary | ( type-name ) initializer postfix-tail
+	// only a braced initializer starts a compound literal
+	Expr* Parser::parseCastOrCompound() {
+		Token lp = advance(); // (
+		CType ty;
+		if(!parseTypeSpec(ty))
+			return nullptr;
+		DeclResult r;
+		if(!parseAbstractDeclarator(ty, r))
+			return nullptr;
+		if(!expect(TokKind::RParen, "')'"))
+			return nullptr;
+		if(check(TokKind::LBrace)) {
+			Expr* init = parseInitializer();
+			if(!init)
+				return nullptr;
+			Expr* e = makeExpr(ExprKind::CompoundLit, lp.offset);
+			e->compound.type = r.type;
+			if(r.outerArray) // a typedef'd array type stays whole
+				e->compound.type = r.type.array->elem;
+			e->compound.init = init;
+			e->compound.arrayLen = r.outerBound;
+			e->compound.isArray = r.outerArray;
+			return parsePostfixTail(e); // allow [..], .x, etc. after the literal
+		}
+		if(r.outerArray) {
+			fail(lp, "array types may not be used in a cast");
+			return nullptr;
+		}
+		Expr* operand = parseUnary();
+		if(!operand)
+			return nullptr;
+		Expr* e = makeExpr(ExprKind::Cast, lp.offset);
+		e->cast.type = r.type;
+		e->cast.operand = operand;
+		return e;
+	}
+
+	// size-op ( type-name ) | size-op unary | cast-or-compound
+	// | unary-op unary | ++ unary | -- unary | postfix
 	// size-op: sizeof | _Alignof
-	// cast-type: type-spec [qualifier | *]... [ ( declarator ) suffixes | '[' [cond-expr] ']' ]
 	Expr* Parser::parseUnary() {
 		DepthScope scope(*this);
 		if(!enterDepth())
@@ -112,64 +149,8 @@ namespace rat::cc {
 			}
 			return e;
 		}
-		if(check(TokKind::LParen) && startsType(peek2())) {
-			Token lp = advance(); // (
-			CType ty;
-			if(!parseTypeSpec(ty))
-				return nullptr;
-			parsePointers(ty);
-			if(looksLikeGroupingParen()) { // cast to a parenthesized declarator
-				DeclResult r;
-				if(!parseDeclarator(ty, r))
-					return nullptr;
-				ty = r.type;
-				if(!expect(TokKind::RParen, "')'"))
-					return nullptr;
-				Expr* operand = parseUnary();
-				if(!operand)
-					return nullptr;
-				Expr* e = makeExpr(ExprKind::Cast, lp.offset);
-				e->cast.type = ty;
-				e->cast.operand = operand;
-				return e;
-			}
-			B32 isArr = false;
-			Expr* arrLen = nullptr;
-			if(accept(TokKind::LBracket)) { // array type-name: (T[]) or (T[N])
-				isArr = true;
-				if(!check(TokKind::RBracket)) {
-					arrLen = parseConditional();
-					if(!arrLen)
-						return nullptr;
-				}
-				if(!expect(TokKind::RBracket, "']'"))
-					return nullptr;
-			}
-			if(!expect(TokKind::RParen, "')'"))
-				return nullptr;
-			if(check(TokKind::LBrace)) { // compound literal
-				Expr* init = parseInitializer();
-				if(!init)
-					return nullptr;
-				Expr* e = makeExpr(ExprKind::CompoundLit, lp.offset);
-				e->compound.type = ty;
-				e->compound.init = init;
-				e->compound.arrayLen = arrLen;
-				e->compound.isArray = isArr;
-				return parsePostfixTail(e); // allow [..], .x, etc. after the literal
-			}
-			if(isArr) {
-				fail(lp, "array types may not be used in a cast");
-				return nullptr;
-			}
-			Expr* operand = parseUnary();
-			if(!operand)
-				return nullptr;
-			Expr* e = makeExpr(ExprKind::Cast, lp.offset);
-			e->cast.type = ty;
-			e->cast.operand = operand;
-			return e;
-		}
+		if(check(TokKind::LParen) && startsType(peek2()))
+			return parseCastOrCompound();
 		ExprOp op;
 		if(detail::unaryOp(peek().kind, op)) {
 			Token t = advance();

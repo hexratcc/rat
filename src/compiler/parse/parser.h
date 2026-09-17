@@ -129,6 +129,7 @@ namespace rat::cc {
 		};
 		void parsePointers(CType& t);
 		B32 parseDeclarator(CType base, DeclResult& out);
+		B32 parseAbstractDeclarator(CType base, DeclResult& out);
 		B32 parseDeclaratorOps(List<DeclOp>& ops, DeclResult& out);
 		B32 parseDirectDeclarator(List<DeclOp>& ops, DeclResult& out);
 		B32 parseDeclaratorSuffixes(List<DeclOp>& ops, U32& align);
@@ -185,6 +186,7 @@ namespace rat::cc {
 		Expr* parseConditional();
 		Expr* parseBinary(I32 minPrec);
 		Expr* parseUnary();
+		Expr* parseCastOrCompound();
 		Expr* parsePostfix();
 		Expr* parsePostfixTail(Expr* e);
 		Expr* parsePrimary();
