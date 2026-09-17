@@ -194,7 +194,8 @@ namespace rat::cc {
 		CType ret;
 		List<Param> params;
 		B32 isVarArgs = false;
-		B32 unprototyped = false;
+		B32 unprototyped = false; // ()
+		B32 oldStyle = false;			// (a, b): types follow in a declaration list
 	};
 
 	StructType* makeComplexLayout(Arena& arena, CType complexType);

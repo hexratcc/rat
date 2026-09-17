@@ -120,6 +120,7 @@ namespace rat::cc {
 			FuncType* func = nullptr; // Func: parameter list
 		};
 		struct DeclResult {
+			B32 allowOldStyle = false;		// in: an old-style name list may end the declarator
 			const String* name = nullptr; // null for an abstract declarator
 			U32 offset = 0;								// of the name
 			CType type;
@@ -136,25 +137,25 @@ namespace rat::cc {
 		B32 parseArrayBound(DeclOp& op);
 		void skipArrayQualifiers();
 		B32 parseParamTypeList(FuncType* ft);
+		B32 parseParamNames(FuncType* ft);
 		B32 looksLikeGroupingParen();
 		CType applyDeclOps(CType base, const List<DeclOp>& ops);
 		void adjustParamType(CType& t, const Expr** vlaBound = nullptr);
-		struct Dim {
-			U64 count;
-			Expr* expr;
-		};
-		CType wrapArrayDims(CType base, const List<Dim>& dims);
-		B32 parseArraySuffix(Declarator& d, U32* align = nullptr);
-		void bindDeclaratorType(Declarator& d, CType t, U32 offset);
+		Expr* declaredArrayLen(const DeclResult& r);
+		void bindDeclarator(Declarator& d, const DeclResult& r);
 
 		// declarations
-		FuncDef* parseFunctionRest(CType ret,
-															 const Token& nameTok,
-															 const Token& start,
-															 B32* moreDeclarators = nullptr);
-		B32 parseOldStyleParams(FuncDef* fn);
-		Stmt* parseGlobalRest(CType base, Declarator d, const Token& start);
-		B32 parseSharedDeclarators(CType base, TransUnit* unit, const Token& start);
+		B32 parseDeclarators(CType base, const Token& start, Stmt* s, TransUnit* unit);
+		B32 parseFunctionDeclarator(const DeclResult& r,
+																const Token& start,
+																const DeclSpecs& ds,
+																TransUnit* unit,
+																B32& defined);
+		B32 parseObjectDeclarator(
+				const DeclResult& r, const Token& start, const DeclSpecs& ds, Stmt* s, B32 fileScope);
+		FuncDef* makeFuncDef(const DeclResult& r, const Token& start, const DeclSpecs& ds);
+		B32 parseFunctionDef(FuncDef* fn, B32 oldStyle);
+		B32 parseOldStyleDecls(FuncDef* fn);
 		B32 parseDeclAttributes(const String*& aliasOut, B32& noInlineOut, U32& alignOut);
 		B32 checkParamNames(const FuncDef* fn);
 		B32 registerFuncDef(FuncDef* fn);

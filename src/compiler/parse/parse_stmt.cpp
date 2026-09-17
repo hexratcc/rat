@@ -52,9 +52,7 @@ namespace rat::cc {
 		return true;
 	}
 
-	// static-assert | typedef | type-spec [ init-declarator [, init-declarator]... ] ;
-	// init-declarator: declarator [alignas]... [= initializer] | name function-rest
-	// a prototype's function-rest eats its own ; or , itself
+	// static-assert | typedef | type-spec ; | type-spec declarators
 	Stmt* Parser::parseDeclaration() {
 		Token start = peek();
 		if(check(TokKind::KwStaticAssert)) {
@@ -72,72 +70,10 @@ namespace rat::cc {
 			fail(peek(), "expected type specifier");
 			return nullptr;
 		}
-		B32 isStatic = specs.isStatic;
-		B32 isExtern = specs.isExtern;
-		U32 align = specAlign;
 		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
 		if(accept(TokKind::Semicolon))
 			return s;
-		for(;;) {
-			CType t = base;
-			parsePointers(t);
-			Declarator d;
-			d.isStatic = isStatic;
-			d.isExtern = isExtern;
-			d.align = align;
-			if(looksLikeGroupingParen()) {
-				DeclResult r;
-				if(!parseDeclarator(t, r))
-					return nullptr;
-				if(!r.name) {
-					fail(peek(), "expected declarator name");
-					return nullptr;
-				}
-				d.name = r.name;
-				bindDeclaratorType(d, r.type, r.offset);
-				d.offset = r.offset;
-			} else {
-				if(!check(TokKind::Identifier)) {
-					fail(peek(), "expected declarator name");
-					return nullptr;
-				}
-				Token nameTok = advance();
-				if(check(TokKind::LParen)) {
-					B32 more = false;
-					FuncDef* proto = parseFunctionRest(t, nameTok, start, &more);
-					if(!proto)
-						return nullptr;
-					blockProtos.push_back(proto);
-					if(more)
-						continue;
-					return s;
-				}
-				d.name = arena.make<String>(lex.text(nameTok));
-				d.type = t;
-				d.offset = nameTok.offset;
-				if(!parseArraySuffix(d))
-					return nullptr;
-				if(!d.isArray)
-					bindDeclaratorType(d, t, nameTok.offset);
-			}
-			if(!acceptTrailingAlignas(d.align))
-				return nullptr;
-			if(accept(TokKind::Assign)) {
-				if(isExtern) {
-					fail(start, "'extern' variable cannot have an initializer");
-					return nullptr;
-				}
-				d.init = parseInitializer();
-				if(!d.init)
-					return nullptr;
-			}
-			if(!checkObjectComplete(d))
-				return nullptr;
-			s->decls.push_back(d);
-			if(!accept(TokKind::Comma))
-				break;
-		}
-		if(!expect(TokKind::Semicolon, "';'"))
+		if(!parseDeclarators(base, start, s, nullptr))
 			return nullptr;
 		for(const Declarator& d : s->decls)
 			typedefs.erase(*d.name);

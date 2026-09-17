@@ -113,116 +113,39 @@ namespace rat::cc {
 		return true;
 	}
 
-	// ( [ void | param [, param]... [, '...'] ] ) [attrs] tail
-	// param: type-spec declarator
-	// tail: ; | , | compound
-	// an old-style name list goes through parseOldStyleParams straight to compound instead
-	FuncDef* Parser::parseFunctionRest(CType ret,
-																		 const Token& nameTok,
-																		 const Token& start,
-																		 B32* moreDeclarators) {
-		if(!expect(TokKind::LParen, "'('"))
-			return nullptr;
-
-		FuncDef* fn = arena.make<FuncDef>();
-		fn->name = lex.text(nameTok);
-		fn->retType = ret;
-		fn->offset = start.offset;
-
-		if(check(TokKind::RParen)) {
-			fn->unprototyped = true;
-		} else if(check(TokKind::KwVoid) && peek2().kind == TokKind::RParen) {
-			advance(); // void
-		} else if(check(TokKind::Identifier) && !startsType(peek())) {
-			if(!parseOldStyleParams(fn))
-				return nullptr;
-			if(!checkParamNames(fn))
-				return nullptr;
-			curFuncName = fn->name;
-			fn->body = parseCompound();
-			curFuncName.clear();
-			return fn->body ? fn : nullptr;
-		} else {
-			for(;;) {
-				if(check(TokKind::Ellipsis)) {
-					if(fn->params.empty()) {
-						fail(peek(), "'...' must be preceded by a named parameter");
-						return nullptr;
-					}
-					advance();
-					fn->isVarArgs = true;
-					break;
-				}
-				Token pstart = peek();
-				CType pt;
-				if(!parseTypeSpec(pt)) {
-					fail(peek(), "expected parameter type");
-					return nullptr;
-				}
-				parsePointers(pt);
-				Param p;
-				p.offset = pstart.offset;
-				DeclResult r;
-				if(!parseDeclarator(pt, r))
-					return nullptr;
-				pt = r.type;
-				if(isVoidType(pt)) {
-					fail(pstart, "'void' must be the only unnamed parameter");
-					return nullptr;
-				}
-				adjustParamType(pt, &p.vlaBound);
-				p.type = pt;
-				p.name = r.name;
-				fn->params.push_back(p);
-				if(!accept(TokKind::Comma))
-					break;
-			}
-		}
-		if(!expect(TokKind::RParen, "')'"))
-			return nullptr;
-
-		// attribute markers may trail the parameter list
-		B32 noInline = false;
-		if(!parseDeclAttributes(fn->aliasOf, noInline, fn->align))
-			return nullptr;
-		fn->isNoInline |= noInline;
-
-		if(accept(TokKind::Semicolon))
-			return fn;
-
-		if(moreDeclarators && accept(TokKind::Comma)) {
-			*moreDeclarators = true;
-			return fn;
-		}
-
-		if(!checkParamNames(fn))
-			return nullptr;
-		curFuncName = fn->name;
-		fn->body = parseCompound();
-		curFuncName.clear();
+	// a function body may be given once per unit
+	B32 Parser::registerFuncDef(FuncDef* fn) {
 		if(!fn->body)
-			return nullptr;
+			return true;
+		auto it = funcDefs.find(fn->name);
+		if(it != funcDefs.end()) {
+			fail(peek(), "redefinition of function");
+			return false;
+		}
+		funcDefs.emplace(fn->name, fn);
+		return true;
+	}
+
+	// the FuncDef of a function declarator, with the storage of its type-spec
+	FuncDef* Parser::makeFuncDef(const DeclResult& r, const Token& start, const DeclSpecs& ds) {
+		const FuncType* ft = r.type.func;
+		FuncDef* fn = arena.make<FuncDef>();
+		fn->name = *r.name;
+		fn->retType = ft->ret;
+		fn->params = ft->params;
+		fn->isVarArgs = ft->isVarArgs;
+		fn->unprototyped = ft->unprototyped;
+		fn->isExternInline = ds.isExtern && ds.isInline;
+		fn->isStatic = ds.isStatic;
+		fn->isNoInline = ds.isNoInline;
+		fn->align = r.align;
+		fn->offset = start.offset;
 		return fn;
 	}
 
-	// name [, name]... ) [ type-spec declarator [, declarator]... ; ]...
-	B32 Parser::parseOldStyleParams(FuncDef* fn) {
-		for(;;) {
-			if(!check(TokKind::Identifier)) {
-				fail(peek(), "expected parameter name");
-				return false;
-			}
-			Token nameTok = advance();
-			Param p;
-			p.name = arena.make<String>(lex.text(nameTok));
-			p.type = ctInt();
-			p.offset = nameTok.offset;
-			fn->params.push_back(p);
-			if(!accept(TokKind::Comma))
-				break;
-		}
-		if(!expect(TokKind::RParen, "')'"))
-			return false;
+	// [ type-spec declarator [, declarator]... ; ]...
+	// each declarator names a parameter of the old-style list and gives it its type
+	B32 Parser::parseOldStyleDecls(FuncDef* fn) {
 		while(startsType(peek())) {
 			CType base;
 			if(!parseTypeSpec(base)) {
@@ -239,17 +162,15 @@ namespace rat::cc {
 				}
 				adjustParamType(r.type);
 				B32 matched = false;
-				for(U32 i = 0; i < fn->params.size(); i++) {
-					if(fn->params[i].name && *fn->params[i].name == *r.name) {
-						fn->params[i].type = r.type;
+				for(Param& p : fn->params) {
+					if(p.name && *p.name == *r.name) {
+						p.type = r.type;
 						matched = true;
 						break;
 					}
 				}
 				if(!matched) {
-					fail(peek(),
-							 "parameter named in declaration is not in the "
-							 "identifier list");
+					fail(peek(), "parameter named in declaration is not in the identifier list");
 					return false;
 				}
 				if(!accept(TokKind::Comma))
@@ -261,111 +182,103 @@ namespace rat::cc {
 		return true;
 	}
 
-	// [array-dims] [attrs] [= initializer] [, declarator [array-dims] [attrs] [= initializer]]... ;
-	// the first declarator's name is already in d
-	Stmt* Parser::parseGlobalRest(CType base, Declarator d, const Token& start) {
-		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
-		for(;;) {
-			CType raw = d.type;
-			if(!parseArraySuffix(d))
-				return nullptr;
-			if(!d.isArray)
-				bindDeclaratorType(d, raw, d.offset);
-			B32 noInline = false;
-			if(!parseDeclAttributes(d.aliasOf, noInline, d.align))
-				return nullptr;
-			if(accept(TokKind::Assign)) {
-				d.init = parseInitializer();
-				if(!d.init)
-					return nullptr;
-			}
-			if(!checkObjectComplete(d))
-				return nullptr;
-			s->decls.push_back(d);
-			if(!accept(TokKind::Comma))
-				break;
-			CType t = base;
-			parsePointers(t);
-			Declarator prev = d;
-			d = Declarator{};
-			d.isExtern = prev.isExtern;
-			d.isStatic = prev.isStatic;
-			d.align = prev.align;
-			if(looksLikeGroupingParen()) {
-				DeclResult r;
-				if(!parseDeclarator(t, r))
-					return nullptr;
-				if(!r.name) {
-					fail(peek(), "expected declarator name");
-					return nullptr;
-				}
-				d.name = r.name;
-				bindDeclaratorType(d, r.type, r.offset);
-				d.offset = r.offset;
-			} else {
-				if(!check(TokKind::Identifier)) {
-					fail(peek(), "expected declarator name");
-					return nullptr;
-				}
-				Token nameTok = advance();
-				d.name = arena.make<String>(lex.text(nameTok));
-				d.type = t;
-				d.offset = nameTok.offset;
-			}
-		}
-		if(!expect(TokKind::Semicolon, "';'"))
-			return nullptr;
-		return s;
+	// [old-style-decls] compound
+	B32 Parser::parseFunctionDef(FuncDef* fn, B32 oldStyle) {
+		if(oldStyle && !parseOldStyleDecls(fn))
+			return false;
+		if(!checkParamNames(fn))
+			return false;
+		curFuncName = fn->name;
+		fn->body = parseCompound();
+		curFuncName.clear();
+		return fn->body != nullptr;
 	}
 
-	// [qualifier | *]... name function-rest | [qualifier | *]... name global-rest
-	// the declarators after a prototype's ',' ; repeats while a function-rest ends in ','
-	B32 Parser::parseSharedDeclarators(CType base, TransUnit* unit, const Token& start) {
-		for(;;) {
-			CType t = base;
-			parsePointers(t);
-			if(!check(TokKind::Identifier)) {
-				fail(peek(), "expected declarator name");
-				return false;
-			}
-			Token nameTok = advance();
-			if(check(TokKind::LParen)) {
-				B32 more = false;
-				FuncDef* fn = parseFunctionRest(t, nameTok, start, &more);
-				if(!fn)
-					return false;
-				unit->functions.push_back(fn);
-				if(more)
-					continue;
-				return true;
-			}
-			Declarator d;
-			d.name = arena.make<String>(lex.text(nameTok));
-			d.type = t;
-			d.offset = nameTok.offset;
-			Stmt* g = parseGlobalRest(base, d, start);
-			if(!g)
-				return false;
-			unit->globals.push_back(g);
-			return true;
-		}
-	}
-
-	// a function body may be given once per unit
-	B32 Parser::registerFuncDef(FuncDef* fn) {
-		if(!fn->body)
-			return true;
-		auto it = funcDefs.find(fn->name);
-		if(it != funcDefs.end()) {
-			fail(peek(), "redefinition of function");
+	// [attrs] [function-def]
+	// a prototype goes to the unit, or to blockProtos inside a block; defined reports a body
+	B32 Parser::parseFunctionDeclarator(
+			const DeclResult& r, const Token& start, const DeclSpecs& ds, TransUnit* unit, B32& defined) {
+		FuncDef* fn = makeFuncDef(r, start, ds);
+		B32 noInline = false;
+		if(!parseDeclAttributes(fn->aliasOf, noInline, fn->align))
+			return false;
+		fn->isNoInline |= noInline;
+		B32 oldStyle = r.type.func->oldStyle;
+		defined = check(TokKind::LBrace) || (oldStyle && startsType(peek()));
+		if(oldStyle && !defined) {
+			fail(peek(), "parameter names (without types) in function declaration");
 			return false;
 		}
-		funcDefs.emplace(fn->name, fn);
+		if(defined) {
+			if(!parseFunctionDef(fn, oldStyle))
+				return false;
+			if(unit && !registerFuncDef(fn))
+				return false;
+		}
+		List<FuncDef*>& into = unit ? unit->functions : blockProtos;
+		into.push_back(fn);
 		return true;
 	}
 
-	// [ ; | static-assert | typedef | asm-stmt | type-spec ; | type-spec declarator-list ;
-	// | function-def ]... eof
+	// [attrs] [= initializer]
+	// an extern object may only take an initializer at file scope
+	B32 Parser::parseObjectDeclarator(
+			const DeclResult& r, const Token& start, const DeclSpecs& ds, Stmt* s, B32 fileScope) {
+		Declarator d;
+		d.isExtern = ds.isExtern;
+		d.isStatic = ds.isStatic;
+		bindDeclarator(d, r);
+		B32 noInline = false;
+		if(!parseDeclAttributes(d.aliasOf, noInline, d.align))
+			return false;
+		if(accept(TokKind::Assign)) {
+			if(!fileScope && d.isExtern) {
+				fail(start, "'extern' variable cannot have an initializer");
+				return false;
+			}
+			d.init = parseInitializer();
+			if(!d.init)
+				return false;
+		}
+		if(!checkObjectComplete(d))
+			return false;
+		s->decls.push_back(d);
+		return true;
+	}
+
+	// init-declarator [, init-declarator]... ;
+	// init-declarator: declarator function-declarator | declarator object-declarator
+	// a function body ends the list without the ;
+	// objects go to s, functions to the unit or, in a block, to blockProtos
+	B32 Parser::parseDeclarators(CType base, const Token& start, Stmt* s, TransUnit* unit) {
+		DeclSpecs ds = specs;
+		U32 align = specAlign;
+		for(;;) {
+			DeclResult r;
+			r.allowOldStyle = true;
+			r.align = align;
+			if(!parseDeclarator(base, r))
+				return false;
+			if(!r.name) {
+				fail(peek(), "expected declarator name");
+				return false;
+			}
+			if(r.type.func && r.type.ptr == 0) {
+				B32 defined = false;
+				if(!parseFunctionDeclarator(r, start, ds, unit, defined))
+					return false;
+				if(defined)
+					return true;
+			} else if(!parseObjectDeclarator(r, start, ds, s, unit != nullptr)) {
+				return false;
+			}
+			if(!accept(TokKind::Comma))
+				break;
+		}
+		return expect(TokKind::Semicolon, "';'");
+	}
+
+	// [ ; | static-assert | typedef | asm-stmt | type-spec ; | type-spec declarators ]... eof
 	// a file-scope asm-stmt must have an empty template
 	TransUnit* Parser::parseUnit() {
 		TransUnit* unit = arena.make<TransUnit>();
@@ -398,97 +311,13 @@ namespace rat::cc {
 				fail(peek(), "expected type specifier");
 				return nullptr;
 			}
-			B32 gExtern = specs.isExtern;
-			B32 gExternInline = specs.isExtern && specs.isInline;
-			B32 gStatic = specs.isStatic;
-			B32 gNoinline = specs.isNoInline;
-			U32 gAlign = specAlign;
-			CType first = base;
-			parsePointers(first);
-			if(first.ptr == 0 && accept(TokKind::Semicolon))
+			if(accept(TokKind::Semicolon))
 				continue;
-
-			if(looksLikeGroupingParen()) {
-				DeclResult r;
-				if(!parseDeclarator(first, r))
-					return nullptr;
-				if(!r.name) {
-					fail(peek(), "expected declarator name");
-					return nullptr;
-				}
-				CType fpt = r.type;
-				if(fpt.func && fpt.ptr == 0) {
-					FuncDef* fn = arena.make<FuncDef>();
-					fn->name = *r.name;
-					fn->retType = fpt.func->ret;
-					fn->isVarArgs = fpt.func->isVarArgs;
-					fn->isStatic = gStatic;
-					fn->isNoInline = gNoinline;
-					fn->align = gAlign;
-					fn->offset = start.offset;
-					fn->params = fpt.func->params;
-					if(accept(TokKind::Semicolon)) {
-						unit->functions.push_back(fn); // prototype
-						continue;
-					}
-					curFuncName = fn->name;
-					fn->body = parseCompound();
-					curFuncName.clear();
-					if(!fn->body)
-						return nullptr;
-					if(!registerFuncDef(fn))
-						return nullptr;
-					unit->functions.push_back(fn);
-					continue;
-				}
-				Declarator d;
-				d.isExtern = gExtern;
-				d.isStatic = gStatic;
-				d.align = gAlign;
-				d.name = r.name;
-				bindDeclaratorType(d, fpt, r.offset);
-				d.offset = r.offset;
-				Stmt* g = parseGlobalRest(base, d, start);
-				if(!g)
-					return nullptr;
-				unit->globals.push_back(g);
-				continue;
-			}
-			if(!check(TokKind::Identifier)) {
-				fail(peek(), "expected name");
+			Stmt* s = makeStmt(StmtKind::Decl, start.offset);
+			if(!parseDeclarators(base, start, s, unit))
 				return nullptr;
-			}
-			Token nameTok = advance();
-			if(check(TokKind::LParen)) {
-				B32 more = false;
-				FuncDef* fn = parseFunctionRest(first, nameTok, start, &more);
-				if(!fn)
-					return nullptr;
-				fn->isExternInline = gExternInline;
-				fn->isStatic = gStatic;
-				fn->isNoInline |= gNoinline;
-				if(gAlign > fn->align)
-					fn->align = gAlign;
-				if(!registerFuncDef(fn))
-					return nullptr;
-				unit->functions.push_back(fn);
-				if(more) {
-					if(!parseSharedDeclarators(base, unit, start))
-						return nullptr;
-				}
-			} else {
-				Declarator d;
-				d.isExtern = gExtern;
-				d.isStatic = gStatic;
-				d.align = gAlign;
-				d.name = arena.make<String>(lex.text(nameTok));
-				d.type = first;
-				d.offset = nameTok.offset;
-				Stmt* g = parseGlobalRest(base, d, start);
-				if(!g)
-					return nullptr;
-				unit->globals.push_back(g);
-			}
+			if(!s->decls.empty())
+				unit->globals.push_back(s);
 		}
 		if(failed)
 			return nullptr;
