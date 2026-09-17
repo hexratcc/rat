@@ -278,7 +278,36 @@ namespace rat::cc {
 		return expect(TokKind::Semicolon, "';'");
 	}
 
-	// [ ; | static-assert | typedef | asm-stmt | type-spec ; | type-spec declarators ]... eof
+	// static-assert | typedef | type-spec ; | type-spec declarators
+	// the Decl stmt lists the objects; functions go to the unit or, in a block, to blockProtos
+	Stmt* Parser::parseDeclaration(TransUnit* unit) {
+		Token start = peek();
+		if(check(TokKind::KwStaticAssert)) {
+			if(!parseStaticAssert())
+				return nullptr;
+			return makeStmt(StmtKind::Empty, start.offset);
+		}
+		if(check(TokKind::KwTypedef)) {
+			if(!parseTypedef())
+				return nullptr;
+			return makeStmt(StmtKind::Empty, start.offset);
+		}
+		CType base;
+		if(!parseTypeSpec(base)) {
+			fail(peek(), "expected type specifier");
+			return nullptr;
+		}
+		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
+		if(accept(TokKind::Semicolon))
+			return s;
+		if(!parseDeclarators(base, start, s, unit))
+			return nullptr;
+		for(const Declarator& d : s->decls)
+			typedefs.erase(*d.name);
+		return s;
+	}
+
+	// [ ; | asm-stmt | declaration ]... eof
 	// a file-scope asm-stmt must have an empty template
 	TransUnit* Parser::parseUnit() {
 		TransUnit* unit = arena.make<TransUnit>();
@@ -286,16 +315,6 @@ namespace rat::cc {
 			Token start = peek();
 			if(accept(TokKind::Semicolon))
 				continue;
-			if(check(TokKind::KwStaticAssert)) {
-				if(!parseStaticAssert())
-					return nullptr;
-				continue;
-			}
-			if(check(TokKind::KwTypedef)) {
-				if(!parseTypedef())
-					return nullptr;
-				continue;
-			}
 			if(check(TokKind::KwAsm)) {
 				Stmt* s = parseAsmStatement();
 				if(!s)
@@ -306,15 +325,8 @@ namespace rat::cc {
 				}
 				continue;
 			}
-			CType base;
-			if(!parseTypeSpec(base)) {
-				fail(peek(), "expected type specifier");
-				return nullptr;
-			}
-			if(accept(TokKind::Semicolon))
-				continue;
-			Stmt* s = makeStmt(StmtKind::Decl, start.offset);
-			if(!parseDeclarators(base, start, s, unit))
+			Stmt* s = parseDeclaration(unit);
+			if(!s)
 				return nullptr;
 			if(!s->decls.empty())
 				unit->globals.push_back(s);

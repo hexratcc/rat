@@ -52,34 +52,6 @@ namespace rat::cc {
 		return true;
 	}
 
-	// static-assert | typedef | type-spec ; | type-spec declarators
-	Stmt* Parser::parseDeclaration() {
-		Token start = peek();
-		if(check(TokKind::KwStaticAssert)) {
-			if(!parseStaticAssert())
-				return nullptr;
-			return makeStmt(StmtKind::Empty, start.offset);
-		}
-		if(check(TokKind::KwTypedef)) {
-			if(!parseTypedef())
-				return nullptr;
-			return makeStmt(StmtKind::Empty, start.offset);
-		}
-		CType base;
-		if(!parseTypeSpec(base)) {
-			fail(peek(), "expected type specifier");
-			return nullptr;
-		}
-		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
-		if(accept(TokKind::Semicolon))
-			return s;
-		if(!parseDeclarators(base, start, s, nullptr))
-			return nullptr;
-		for(const Declarator& d : s->decls)
-			typedefs.erase(*d.name);
-		return s;
-	}
-
 	// ( expr )
 	Expr* Parser::parseParenCond() {
 		if(!expect(TokKind::LParen, "'('"))
@@ -157,7 +129,7 @@ namespace rat::cc {
 
 		Stmt* init = nullptr;
 		if(startsType(peek()) || check(TokKind::KwTypedef)) {
-			init = parseDeclaration();
+			init = parseDeclaration(nullptr);
 			if(!init)
 				return nullptr;
 		} else if(!accept(TokKind::Semicolon)) {
@@ -275,7 +247,7 @@ namespace rat::cc {
 		}
 
 		if(startsType(tok) || tok.kind == TokKind::KwTypedef || tok.kind == TokKind::KwStaticAssert)
-			return parseDeclaration();
+			return parseDeclaration(nullptr);
 
 		if(tok.kind == TokKind::KwIf)
 			return parseIf();

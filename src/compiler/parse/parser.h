@@ -161,7 +161,7 @@ namespace rat::cc {
 		B32 registerFuncDef(FuncDef* fn);
 		B32 checkObjectComplete(const Declarator& d);
 		B32 parseStaticAssert();
-		Stmt* parseDeclaration();
+		Stmt* parseDeclaration(TransUnit* unit);
 
 		// statements
 		Stmt* parseCompound();
