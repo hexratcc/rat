@@ -41,6 +41,18 @@ namespace rat::cc {
 			return cp;
 		}
 
+		U32 escapeMaxVal(C8 prefix) {
+			switch(prefix) {
+			case 'u':
+				return 0xFFFFu;
+			case 'L':
+			case 'U':
+				return 0xFFFFFFFFu;
+			default:
+				return 0xFFu;
+			}
+		}
+
 		void appendCodeUnits(String& out, U32 cp, U32 unitBytes) {
 			if(unitBytes == 2 && cp >= 0x10000) { // UTF-16 surrogate pair
 				U32 v = cp - 0x10000;
@@ -147,18 +159,6 @@ namespace rat::cc {
 		return true;
 	}
 
-	static U32 escapeMaxVal(C8 prefix) {
-		switch(prefix) {
-		case 'u':
-			return 0xFFFFu;
-		case 'L':
-		case 'U':
-			return 0xFFFFFFFFu;
-		default:
-			return 0xFFu;
-		}
-	}
-
 	B32 Parser::decodeEscape(
 			const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out) {
 		if(i >= end) {
@@ -234,7 +234,7 @@ namespace rat::cc {
 
 	B32 Parser::parseCharLiteral(const Token& tok, I64& value) {
 		String s = lex.text(tok);
-		U32 maxVal = escapeMaxVal(s.size() ? s[0] : '\'');
+		U32 maxVal = detail::escapeMaxVal(s.size() ? s[0] : '\'');
 		B32 prefixed = s.size() != 0 && s[0] != '\'';
 		// skip any encoding prefix
 		U32 i = 0;
@@ -286,7 +286,7 @@ namespace rat::cc {
 		String s = lex.text(tok);
 		U32 maxVal = (s.size() && s[0] == 'u' && s.size() > 1 && s[1] == '8')
 										 ? 0xFFu
-										 : escapeMaxVal(s.size() ? s[0] : '"');
+										 : detail::escapeMaxVal(s.size() ? s[0] : '"');
 		U32 i = 0;
 		while(i < s.size() && s[i] != '"')
 			++i;
@@ -320,7 +320,7 @@ namespace rat::cc {
 
 	B32 Parser::parseWideStringLiteral(const Token& tok, U32 unitBytes, String& out) {
 		String s = lex.text(tok);
-		U32 maxVal = escapeMaxVal(s.size() ? s[0] : '"');
+		U32 maxVal = detail::escapeMaxVal(s.size() ? s[0] : '"');
 		U32 i = 0;
 		while(i < s.size() && s[i] != '"')
 			++i;
