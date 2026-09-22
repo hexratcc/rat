@@ -317,10 +317,18 @@ namespace rat {
 		return (Var)(varTypes.size() - 1);
 	}
 
+	Node** Function::findDef(Block* block, Var var) {
+		for(U32 i = (U32)block->defs.size(); i > 0; --i)
+			if(block->defs[i - 1].first == var)
+				return &block->defs[i - 1].second;
+		return nullptr;
+	}
+
 	void Function::cacheDef(Block* block, Var var, Node* val) {
-		if(var >= block->defs.size())
-			block->defs.resize(var + 1, nullptr);
-		block->defs[var] = val;
+		if(Node** slot = findDef(block, var))
+			*slot = val;
+		else
+			block->defs.push_back({var, val});
 		if(PhiNode* p = dyn_cast<PhiNode>(val))
 			phiDefSites[p].push_back({block, var});
 	}
@@ -329,8 +337,9 @@ namespace rat {
 	Node* Function::readVar(Var var) { return readVariable(var, cur); }
 
 	Node* Function::readVariable(Var var, Block* block) {
-		if(var < block->defs.size() && block->defs[var])
-			return block->defs[var];
+		Node** slot = findDef(block, var);
+		if(slot && *slot)
+			return *slot;
 		return readVariableRecursive(var, block);
 	}
 
@@ -369,10 +378,10 @@ namespace rat {
 			return;
 		List<std::pair<Block*, Var>> sites = std::move(it->second);
 		phiDefSites.erase(it);
-		for(const std::pair<Block*, Var>& site : sites) {
-			List<Node*>& d = site.first->defs;
-			if(site.second < d.size() && d[site.second] == phi)
-				cacheDef(site.first, site.second, with);
+		for(const auto& [block, var] : sites) {
+			Node** slot = findDef(block, var);
+			if(slot && *slot == phi)
+				cacheDef(block, var, with);
 		}
 	}
 

@@ -108,7 +108,6 @@ namespace rat {
 		List<std::pair<I32, U64>> pinsByPoint;
 		List<Interval*> expiredBuf;
 		List<I32> segEnd;
-		List<VRegSet> liveIn, liveOut;
 		VRegSet live;
 		List<U64> freeRegs;
 	};

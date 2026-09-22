@@ -33,6 +33,7 @@ namespace rat {
 		buildCFG();
 		computeDominators();
 		computeLoops();
+		computeHoistBounds();
 		List<Node*> work;
 		for(Node* n : fn)
 			if(isFloating(n))
@@ -372,6 +373,17 @@ namespace rat {
 		}
 	}
 
+	// a hoist only ever moves a node to a shallower loop, so record how shallow the
+	// idom path gets: straight-line code then never has to walk it
+	void Schedule::computeHoistBounds() {
+		for(I32 b : rpoOrder) {
+			Block& bl = blocks[b];
+			bl.minDepthAbove = bl.loopDepth;
+			if(b != entryBlock)
+				bl.minDepthAbove = std::min(bl.loopDepth, blocks[bl.idom].minDepthAbove);
+		}
+	}
+
 	B32 Schedule::isFloating(const Node* n) {
 		Opcode op = n->getOpcode();
 		if(op == Opcode::Alloc)
@@ -393,6 +405,8 @@ namespace rat {
 	I32 Schedule::homeBlock(Node* n) const { return headBlock(headOf(n->getControlInput())); }
 
 	I32 Schedule::hoistTarget(const Node* n, I32 late, I32 early) const {
+		if(blocks[late].minDepthAbove >= blocks[late].loopDepth)
+			return late; // nothing above is shallower, so the walk cannot move it
 		Opcode op = n->getOpcode();
 		B32 remat = op == Opcode::Constant || op == Opcode::Global;
 		B32 trapping = mayTrap(n);

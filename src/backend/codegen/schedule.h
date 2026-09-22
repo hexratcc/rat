@@ -45,9 +45,10 @@ namespace rat {
 			List<I32> caseB;						// switch successors, slot order
 			List<I32> preds;						// predecessor block indices
 
-			I32 idom = -1;		 // immediate dominator (entry dominates itself)
-			I32 domDepth = 0;	 // depth in the dominator tree
-			I32 loopDepth = 0; // number of natural loops containing this block
+			I32 idom = -1;				 // immediate dominator (entry dominates itself)
+			I32 domDepth = 0;			 // depth in the dominator tree
+			I32 loopDepth = 0;		 // number of natural loops containing this block
+			I32 minDepthAbove = 0; // least loopDepth on the idom path up to entry
 
 			List<PhiNode*> phis; // data phis merged at this block (region only)
 			List<Node*> nodes;	 // scheduled compute nodes, in emit order
@@ -81,6 +82,7 @@ namespace rat {
 		void buildCFG();
 		void computeDominators();
 		void computeLoops();
+		void computeHoistBounds();
 		void scheduleEarly(const List<Node*>& work, List<I32>& early);
 		void scheduleLate(const List<Node*>& work, const List<I32>& early);
 		void placeLoads(const List<Node*>& work, const List<I32>& early);
