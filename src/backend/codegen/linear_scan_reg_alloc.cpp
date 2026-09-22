@@ -23,7 +23,7 @@ namespace rat {
 	}
 
 	void LinearScanRegAllocPass::buildIntervals() {
-		liveness(liveIn, liveOut);
+		liveness();
 
 		if(intervals.size() < fn->nextVReg)
 			intervals.resize(fn->nextVReg);
@@ -39,14 +39,22 @@ namespace rat {
 
 		// backward walk per block
 		segEnd.assign(fn->nextVReg, 0);
+		live.resetAll(fn->nextVReg);
 		for(U32 b = 0; b < fn->blocks.size(); ++b) {
 			if(blkPts[b].empty())
 				continue;
 			I32 first = (I32)blkPts[b].front();
 			I32 last = (I32)blkPts[b].back();
 
-			live.copyFrom(liveOut[b]);
-			live.forEach([&](VReg v) { segEnd[v] = last; });
+			if(liveIsDense) {
+				live.copyFrom(denseLive.out[b]);
+				live.forEach([&](VReg v) { segEnd[v] = last; });
+			} else {
+				for(VReg v : sparseLive.out[b]) {
+					live.set(v);
+					segEnd[v] = last;
+				}
+			}
 
 			// an inner-loop reference costs more than a straight-line one
 			U32 weight = 1;
@@ -75,7 +83,13 @@ namespace rat {
 						}
 					}
 			}
-			live.forEach([&](VReg v) { ivFor(v).segs.push_back({first, segEnd[v]}); });
+			if(liveIsDense)
+				live.forEach([&](VReg v) { ivFor(v).segs.push_back({first, segEnd[v]}); });
+			else
+				for(VReg v : sparseLive.in[b]) {
+					ivFor(v).segs.push_back({first, segEnd[v]});
+					live.reset(v); // leaves the set empty for the next block
+				}
 		}
 
 		for(U32 v = 1; v < fn->nextVReg; ++v) {

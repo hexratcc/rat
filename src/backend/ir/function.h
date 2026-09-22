@@ -53,6 +53,8 @@ namespace rat {
 			return node;
 		}
 
+		using Var = U32;
+
 		// builder until seal() fixes the predecessor set
 		struct Block {
 			RegionNode* region = nullptr;
@@ -62,11 +64,9 @@ namespace rat {
 			B32 sealed = false;
 			B32 active = false;		// ctrl established
 			B32 finished = false; // ended in a terminator
-			List<Node*> defs;			// current SSA value per Var
+			List<std::pair<Var, Node*>> defs;
 			List<std::pair<U32, PhiNode*>> incompletePhis;
 		};
-
-		using Var = U32;
 
 		// types
 		Type* boolTy() const;
@@ -198,6 +198,7 @@ namespace rat {
 		// tracks (block, var) slots holding a phi so trivial-phi removal patches
 		// them without scanning every block
 		void cacheDef(Block* block, Var var, Node* val);
+		static Node** findDef(Block* block, Var var);
 		Node* addPhiOperands(Var var, PhiNode* phi, Block* block);
 		Node* tryRemoveTrivialPhi(PhiNode* phi);
 		PhiNode* newIncompletePhi(Var var, Block* block);

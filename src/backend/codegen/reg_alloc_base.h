@@ -41,6 +41,26 @@ namespace rat {
 		List<U64> words;
 	};
 
+	using VRegList = List<VReg>;
+
+	namespace detail {
+		void vregUnion(const VRegList& a, const VRegList& b, VRegList& dst); // dst = a | b
+		void vregUnionMasked(const VRegList& a,
+												 const VRegList& b,
+												 const VRegList& mask,
+												 VRegList& dst); // dst = a | (b & ~mask)
+	} // namespace detail
+
+	struct DenseLive {
+		List<VRegSet> in, out, use, def;
+		void prep(U32 nb, U32 nv);
+	};
+
+	struct SparseLive {
+		List<VRegList> in, out, use, def;
+		void prep(U32 nb);
+	};
+
 	struct RegAllocBase : MachinePass {
 		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;
 	protected:
@@ -86,7 +106,7 @@ namespace rat {
 		void pinFixedArgWindows();
 		void collectCopyHints();
 		void collectRematDefs();
-		void liveness(List<VRegSet>& liveIn, List<VRegSet>& liveOut);
+		void liveness();
 
 		// allocation preferences derived from copies
 		List<PhysReg> hintedRegs(VReg v, const Delegate<PhysReg(VReg)>& colorOf) const;
@@ -135,9 +155,17 @@ namespace rat {
 		B32 ok = true;
 		Memo memo;
 		Set<VReg> slotReadByCall;
-		List<VRegSet> liveUseScratch;
-		List<VRegSet> liveDefScratch;
+		B32 liveIsDense = false;
+		DenseLive denseLive;
+		SparseLive sparseLive;
 	private:
+		B32 denseLivenessFits() const;
+		void livenessDense();
+		void livenessSparse();
+		void blockUseDefsDense();
+		void blockUseDefsSparse();
+		void liveOutOf(U32 b, VRegList& out, VRegList& tmp);
+
 		struct PooledSlot {
 			I32 slot;
 			I32 freeEnd; // last point of the current occupant's live range

@@ -117,31 +117,136 @@ namespace rat {
 		return slot;
 	}
 
-	void RegAllocBase::liveness(List<VRegSet>& liveIn, List<VRegSet>& liveOut) {
-		U32 nb = (U32)fn->blocks.size();
-		U32 nv = fn->nextVReg;
-		auto prep = [&](List<VRegSet>& v) {
-			if(v.size() < nb)
-				v.resize(nb);
+	void DenseLive::prep(U32 nb, U32 nv) {
+		for(List<VRegSet>* v : {&in, &out, &use, &def}) {
+			if(v->size() < nb)
+				v->resize(nb);
 			for(U32 i = 0; i < nb; ++i)
-				v[i].resetAll(nv);
-		};
-		prep(liveUseScratch);
-		prep(liveDefScratch);
-		List<VRegSet>& useSet = liveUseScratch;
-		List<VRegSet>& defSet = liveDefScratch;
-		for(U32 b = 0; b < nb; ++b) {
-			for(const MachineInstr& in : fn->blocks[b].insts) {
-				for(const MachineOperand& u : in.uses)
-					if(u.isVReg() && !defSet[b].test(u.vreg))
-						useSet[b].set(u.vreg);
-				for(const MachineOperand& d : in.defs)
-					if(d.isVReg())
-						defSet[b].set(d.vreg);
+				(*v)[i].resetAll(nv);
+		}
+	}
+
+	void SparseLive::prep(U32 nb) {
+		for(List<VRegList>* v : {&in, &out, &use, &def}) {
+			if(v->size() < nb)
+				v->resize(nb);
+			for(U32 i = 0; i < nb; ++i)
+				(*v)[i].clear();
+		}
+	}
+
+	void detail::vregUnion(const VRegList& a, const VRegList& b, VRegList& dst) {
+		dst.clear();
+		U32 i = 0, j = 0;
+		while(i < a.size() && j < b.size()) {
+			if(a[i] < b[j])
+				dst.push_back(a[i++]);
+			else if(b[j] < a[i])
+				dst.push_back(b[j++]);
+			else {
+				dst.push_back(a[i++]);
+				++j;
 			}
 		}
-		prep(liveIn);
-		prep(liveOut);
+		while(i < a.size())
+			dst.push_back(a[i++]);
+		while(j < b.size())
+			dst.push_back(b[j++]);
+	}
+
+	void detail::vregUnionMasked(const VRegList& a,
+															 const VRegList& b,
+															 const VRegList& mask,
+															 VRegList& dst) {
+		dst.clear();
+		U32 i = 0, m = 0;
+		for(U32 j = 0; j < b.size(); ++j) {
+			while(m < mask.size() && mask[m] < b[j])
+				++m;
+			if(m < mask.size() && mask[m] == b[j]) // killed by a def in this block
+				continue;
+			while(i < a.size() && a[i] < b[j])
+				dst.push_back(a[i++]);
+			if(i < a.size() && a[i] == b[j])
+				++i;
+			dst.push_back(b[j]);
+		}
+		while(i < a.size())
+			dst.push_back(a[i++]);
+	}
+
+	void RegAllocBase::blockUseDefsSparse() {
+		VRegSet used(fn->nextVReg), defd(fn->nextVReg);
+		for(U32 b = 0; b < (U32)fn->blocks.size(); ++b) {
+			VRegList& use = sparseLive.use[b];
+			VRegList& def = sparseLive.def[b];
+			for(const MachineInstr& in : fn->blocks[b].insts) {
+				for(const MachineOperand& u : in.uses)
+					if(u.isVReg() && !defd.test(u.vreg) && !used.test(u.vreg)) {
+						used.set(u.vreg);
+						use.push_back(u.vreg);
+					}
+				for(const MachineOperand& d : in.defs)
+					if(d.isVReg() && !defd.test(d.vreg)) {
+						defd.set(d.vreg);
+						def.push_back(d.vreg);
+					}
+			}
+			for(VReg v : use)
+				used.reset(v);
+			for(VReg v : def)
+				defd.reset(v);
+			std::sort(use.begin(), use.end());
+			std::sort(def.begin(), def.end());
+		}
+	}
+
+	void RegAllocBase::liveOutOf(U32 b, VRegList& out, VRegList& tmp) {
+		const List<I32>& succs = fn->blocks[b].succs;
+		if(succs.empty()) {
+			out.clear();
+			return;
+		}
+		out = sparseLive.in[(U32)succs[0]];
+		for(U32 i = 1; i < (U32)succs.size(); ++i) {
+			detail::vregUnion(out, sparseLive.in[(U32)succs[i]], tmp);
+			out.swap(tmp);
+		}
+	}
+
+	constexpr U64 kDenseLivenessBytes = 64ull << 20;
+
+	B32 RegAllocBase::denseLivenessFits() const {
+		U64 words = (fn->nextVReg + 63) / 64;
+		U64 perBlock = words * 8 * 4; // in, out, use and def, eight bytes to the word
+		return (U64)fn->blocks.size() * perBlock <= kDenseLivenessBytes;
+	}
+
+	void RegAllocBase::liveness() {
+		liveIsDense = denseLivenessFits();
+		if(liveIsDense)
+			livenessDense();
+		else
+			livenessSparse();
+	}
+
+	void RegAllocBase::blockUseDefsDense() {
+		for(U32 b = 0; b < (U32)fn->blocks.size(); ++b)
+			for(const MachineInstr& in : fn->blocks[b].insts) {
+				for(const MachineOperand& u : in.uses)
+					if(u.isVReg() && !denseLive.def[b].test(u.vreg))
+						denseLive.use[b].set(u.vreg);
+				for(const MachineOperand& d : in.defs)
+					if(d.isVReg())
+						denseLive.def[b].set(d.vreg);
+			}
+	}
+
+	void RegAllocBase::livenessDense() {
+		U32 nb = (U32)fn->blocks.size();
+		U32 nv = fn->nextVReg;
+		denseLive.prep(nb, nv);
+		blockUseDefsDense();
 		B32 changed = true;
 		VRegSet out, in;
 		out.resetAll(nv);
@@ -151,12 +256,33 @@ namespace rat {
 			for(I32 b = (I32)nb - 1; b >= 0; --b) {
 				out.resetAll(nv);
 				for(I32 s : fn->blocks[b].succs)
-					out.orWith(liveIn[s]);
-				in.assignUnionMasked(useSet[b], out, defSet[b]); // use | (out & ~def)
-				if(!(in == liveIn[b]) || !(out == liveOut[b])) {
+					out.orWith(denseLive.in[s]);
+				in.assignUnionMasked(denseLive.use[b], out, denseLive.def[b]); // use | (out & ~def)
+				if(!(in == denseLive.in[b]) || !(out == denseLive.out[b])) {
 					changed = true;
-					liveIn[b].copyFrom(in);
-					liveOut[b].copyFrom(out);
+					denseLive.in[b].copyFrom(in);
+					denseLive.out[b].copyFrom(out);
+				}
+			}
+		}
+	}
+
+	void RegAllocBase::livenessSparse() {
+		U32 nb = (U32)fn->blocks.size();
+		sparseLive.prep(nb);
+		blockUseDefsSparse();
+		B32 changed = true;
+		VRegList out, in, tmp;
+		while(changed) {
+			changed = false;
+			for(I32 b = (I32)nb - 1; b >= 0; --b) {
+				liveOutOf((U32)b, out, tmp);
+				// use | (out & ~def)
+				detail::vregUnionMasked(sparseLive.use[b], out, sparseLive.def[b], in);
+				if(in != sparseLive.in[b] || out != sparseLive.out[b]) {
+					changed = true;
+					sparseLive.in[b] = in;
+					sparseLive.out[b] = out;
 				}
 			}
 		}
