@@ -119,7 +119,6 @@ namespace rat {
 		U32 classOf(VReg v) const;
 		const RegClass& regClass(U32 cls) const;
 		static B32 isCalleeSaved(const RegClass& rc, PhysReg p);
-		static B32 isAllocatable(const RegClass& rc, PhysReg p);
 		// a slot just written from a register nothing has touched since
 		struct Memo {
 			B32 on = false;
