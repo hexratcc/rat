@@ -156,6 +156,10 @@ namespace rat {
 		const MachineOperand& s = in.uses[0];
 		if(d.isVReg() && s.isVReg() && fn.vregClass[d.vreg] == fn.vregClass[s.vreg])
 			copies.push_back({~0u - weight, {d.vreg, s.vreg}});
+		else if(d.isVReg() && s.isPhys())
+			iv[d.vreg].hint = s.phys;
+		else if(d.isPhys() && s.isVReg())
+			iv[s.vreg].hint = d.phys;
 	}
 
 	// backward walk per block from its live-out set, blocks in reverse
@@ -255,6 +259,8 @@ namespace rat {
 				t.segs.emplace_back(start, end);
 		o.segs = {};
 		t.weight += o.weight;
+		if(t.hint == kNoReg)
+			t.hint = o.hint;
 		o.root = a;
 	}
 
@@ -285,6 +291,9 @@ namespace rat {
 		for(const auto& [start, end] : iv[v].segs)
 			for(I32 s = start; s <= end && blocked != ~0ull; ++s)
 				blocked |= busy[(U64)s];
+		PhysReg hint = iv[v].hint;
+		if(hint != kNoReg && !((blocked >> hint) & 1))
+			return hint;
 		return detail::firstFree(rc.allocatable, blocked);
 	}
 

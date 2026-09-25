@@ -16,6 +16,7 @@ namespace rat {
 			List<RaSeg> segs;
 			F32 weight = 0;
 			VReg root = kNoVReg;
+			PhysReg hint = kNoReg;
 			PhysReg reg = kNoReg;
 			I32 slot = 0;
 		};
