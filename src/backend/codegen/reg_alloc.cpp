@@ -11,6 +11,8 @@ namespace rat {
 		// per-loop-level operand weight
 		constexpr U32 kLoopUseWeight = 3;
 		constexpr U32 kMaxUseWeight = 100000;
+		// a bundle stops growing past this many segments, so merging stays cheap
+		constexpr U32 kMaxBundleSegs = 256;
 
 		PhysReg firstFree(const List<PhysReg>& regs, U64 blocked) {
 			for(PhysReg p : regs)
@@ -263,7 +265,8 @@ namespace rat {
 		for(const auto& [cold, pair] : copies) {
 			VReg a = find(pair.first);
 			VReg b = find(pair.second);
-			if(a != b && !overlaps(a, b))
+			if(a != b && iv[a].segs.size() + iv[b].segs.size() <= detail::kMaxBundleSegs &&
+				 !overlaps(a, b))
 				merge(a, b);
 		}
 		for(VReg v = 1; v < nv; ++v) {
