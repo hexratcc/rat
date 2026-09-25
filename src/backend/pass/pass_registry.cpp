@@ -7,7 +7,7 @@
 
 #include "pass/verify.h"
 
-#include "codegen/linear_scan_reg_alloc.h"
+#include "codegen/reg_alloc.h"
 #include "pass/emit/graph_emitter.h"
 #include "pass/emit/text_emitter.h"
 #include "pass/emit/x86/x86_encode.h"
@@ -62,7 +62,7 @@ namespace rat {
 		// the default x86 machine pipeline, in order
 		constexpr MachineEntry kMachinePasses[] = {
 				{"x86-lower", "lower IR to x86 machine instructions", &mk<MachinePass, X86LowerPass>},
-				{"regalloc", "linear-scan register allocation", &mk<MachinePass, LinearScanRegAllocPass>},
+				{"regalloc", "priority bin-packing register allocation", &mk<MachinePass, RegAllocPass>},
 				{"x86-peephole", "post-RA copy and spill-slot cleanup", &mk<MachinePass, X86PeepholePass>},
 				{"x86-layout", "block ordering and frame layout", &mk<MachinePass, X86LayoutPass>},
 				{"x86-encode", "instruction encoding and object emission", &mk<MachinePass, X86EncodePass>},
