@@ -36,6 +36,7 @@ namespace rat {
 		number();
 		liveness();
 		buildIntervals();
+		coalesce();
 		assignRegs();
 		rewrite();
 		fn.usedCalleeSaved.clear();
@@ -45,6 +46,12 @@ namespace rat {
 
 	B32 detail::RegAllocFunc::isCopy(const MachineInstr& in) const {
 		return hooks.isCopy && in.defs.size() == 1 && in.uses.size() == 1 && hooks.isCopy(in);
+	}
+
+	const detail::RaInterval& detail::RegAllocFunc::bundle(VReg v) const { return iv[iv[v].root]; }
+
+	B32 detail::RegAllocFunc::sameBundle(const MachineOperand& a, const MachineOperand& b) const {
+		return a.isVReg() && b.isVReg() && iv[a.vreg].root == iv[b.vreg].root;
 	}
 
 	void detail::RegAllocFunc::number() {
@@ -142,9 +149,18 @@ namespace rat {
 			segs.emplace_back(start, end);
 	}
 
+	void detail::RegAllocFunc::noteCopy(const MachineInstr& in, U32 weight) {
+		const MachineOperand& d = in.defs[0];
+		const MachineOperand& s = in.uses[0];
+		if(d.isVReg() && s.isVReg() && fn.vregClass[d.vreg] == fn.vregClass[s.vreg])
+			copies.push_back({~0u - weight, {d.vreg, s.vreg}});
+	}
+
 	// backward walk per block from its live-out set, blocks in reverse
 	void detail::RegAllocFunc::buildIntervals() {
 		iv.resize(nv);
+		for(VReg v = 0; v < nv; ++v)
+			iv[v].root = v;
 		List<U8> live(nv, 0);
 		List<I32> segEnd(nv, 0);
 		List<VReg> liveList;
@@ -174,8 +190,10 @@ namespace rat {
 					live[o.vreg] = 0;
 				}
 				I32 useEnd = u + 1;
-				if(isCopy(in))
+				if(isCopy(in)) {
 					useEnd = u;
+					noteCopy(in, weight);
+				}
 				for(const MachineOperand& o : in.uses) {
 					if(!o.isVReg())
 						continue;
@@ -194,13 +212,67 @@ namespace rat {
 				}
 			liveList.clear();
 		}
-		for(RaInterval& t : iv) {
+		for(RaInterval& t : iv)
 			std::reverse(t.segs.begin(), t.segs.end());
+	}
+
+	// path halving
+	VReg detail::RegAllocFunc::find(VReg v) {
+		while(iv[v].root != v)
+			v = iv[v].root = iv[iv[v].root].root;
+		return v;
+	}
+
+	B32 detail::RegAllocFunc::overlaps(VReg a, VReg b) const {
+		const List<RaSeg>& x = iv[a].segs;
+		const List<RaSeg>& y = iv[b].segs;
+		U32 i = 0;
+		U32 j = 0;
+		while(i < x.size() && j < y.size()) {
+			if(x[i].second < y[j].first)
+				++i;
+			else if(y[j].second < x[i].first)
+				++j;
+			else
+				return true;
+		}
+		return false;
+	}
+
+	// b joins a, their segments do not overlap
+	void detail::RegAllocFunc::merge(VReg a, VReg b) {
+		RaInterval& t = iv[a];
+		RaInterval& o = iv[b];
+		List<RaSeg> segs(t.segs.size() + o.segs.size());
+		std::merge(t.segs.begin(), t.segs.end(), o.segs.begin(), o.segs.end(), segs.begin());
+		t.segs.clear();
+		for(const auto& [start, end] : segs) // join touching segments
+			if(!t.segs.empty() && t.segs.back().second + 1 == start)
+				t.segs.back().second = end;
+			else
+				t.segs.emplace_back(start, end);
+		o.segs = {};
+		t.weight += o.weight;
+		o.root = a;
+	}
+
+	// copy-related vregs whose ranges do not overlap share one register or slot, hottest
+	// copies first
+	void detail::RegAllocFunc::coalesce() {
+		std::sort(copies.begin(), copies.end());
+		for(const auto& [cold, pair] : copies) {
+			VReg a = find(pair.first);
+			VReg b = find(pair.second);
+			if(a != b && !overlaps(a, b))
+				merge(a, b);
+		}
+		for(VReg v = 1; v < nv; ++v) {
+			iv[v].root = find(v);
 			I32 len = 0;
-			for(const auto& [start, end] : t.segs)
+			for(const auto& [start, end] : iv[v].segs)
 				len += end - start + 1;
 			if(len)
-				t.weight /= std::sqrt((F32)len);
+				iv[v].weight /= std::sqrt((F32)len);
 		}
 	}
 
@@ -214,7 +286,7 @@ namespace rat {
 	}
 
 	void detail::RegAllocFunc::assignRegs() {
-		List<Pair<F32, VReg>> order; // (-weight, vreg)
+		List<Pair<F32, VReg>> order; // (-weight, bundle)
 		for(VReg v = 1; v < nv; ++v)
 			if(!iv[v].segs.empty())
 				order.emplace_back(-iv[v].weight, v);
@@ -252,8 +324,9 @@ namespace rat {
 
 	PhysReg
 	detail::RegAllocFunc::spillReg(List<MachineInstr>& out, const MachineOperand& o, U32 i, B32 use) {
+		VReg root = iv[o.vreg].root;
 		for(const auto& [v, r] : temps)
-			if(v == o.vreg)
+			if(v == root)
 				return r;
 		U32 cls = fn.vregClass[o.vreg];
 		U64 hard = (busy[2 * (U64)i] | busy[2 * (U64)i + 1]) & ~own;
@@ -261,9 +334,9 @@ namespace rat {
 			hard |= taken;
 		PhysReg r = pickTemp(cls, hard, own | taken);
 		if(use)
-			out.push_back(hooks.makeReload(r, iv[o.vreg].slot, cls, o.width));
+			out.push_back(hooks.makeReload(r, iv[root].slot, cls, o.width));
 		taken |= (U64)1 << r;
-		temps.emplace_back(o.vreg, r);
+		temps.emplace_back(root, r);
 		return r;
 	}
 
@@ -277,9 +350,9 @@ namespace rat {
 		for(MachineOperand& o : in.uses) {
 			if(!o.isVReg())
 				continue;
-			PhysReg r = iv[o.vreg].reg;
+			PhysReg r = bundle(o.vreg).reg;
 			if(r == kNoReg && in.isCall) { // the call reads the slot itself
-				o = MachineOperand::frameSlot(iv[o.vreg].slot, o.width);
+				o = MachineOperand::frameSlot(bundle(o.vreg).slot, o.width);
 				continue;
 			}
 			if(r == kNoReg)
@@ -289,7 +362,7 @@ namespace rat {
 		for(MachineOperand& o : in.defs) {
 			if(!o.isVReg())
 				continue;
-			const RaInterval& t = iv[o.vreg];
+			const RaInterval& t = bundle(o.vreg);
 			PhysReg r = t.reg;
 			if(r == kNoReg) {
 				r = spillReg(out, o, i, false);
@@ -302,6 +375,7 @@ namespace rat {
 			out.push_back(std::move(s));
 	}
 
+	// copies inside a bundle vanish
 	void detail::RegAllocFunc::rewrite() {
 		List<MachineInstr> out;
 		for(U32 b = 0; b < fn.blocks.size(); ++b) {
@@ -311,6 +385,8 @@ namespace rat {
 			for(U32 k = 0; k < insts.size(); ++k) {
 				MachineInstr& in = insts[k];
 				U32 i = blockFirst[b] + k;
+				if(isCopy(in) && sameBundle(in.defs[0], in.uses[0]))
+					continue;
 				rewriteInstr(out, in, i);
 			}
 			insts.swap(out);

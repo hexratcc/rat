@@ -15,6 +15,7 @@ namespace rat {
 		struct RaInterval {
 			List<RaSeg> segs;
 			F32 weight = 0;
+			VReg root = kNoVReg;
 			PhysReg reg = kNoReg;
 			I32 slot = 0;
 		};
@@ -29,7 +30,12 @@ namespace rat {
 			void liveness();
 			void buildIntervals();
 			void addSeg(VReg v, I32 start, I32 end);
+			void noteCopy(const MachineInstr& in, U32 weight);
 			// assignment
+			void coalesce();
+			VReg find(VReg v);
+			B32 overlaps(VReg a, VReg b) const;
+			void merge(VReg a, VReg b);
 			void assignRegs();
 			PhysReg pick(VReg v) const;
 			// rewrite
@@ -39,6 +45,8 @@ namespace rat {
 			PhysReg pickTemp(U32 cls, U64 hard, U64 soft);
 			// queries
 			B32 isCopy(const MachineInstr& in) const;
+			const RaInterval& bundle(VReg v) const;
+			B32 sameBundle(const MachineOperand& a, const MachineOperand& b) const;
 		private:
 			MachineFunc& fn;
 			const RegisterInfo& ri;
@@ -50,11 +58,12 @@ namespace rat {
 			List<U32> blockFirst; // block -> first instruction, one past the end at the back
 			List<U64> busy;				// slot -> busy physical registers
 			U64 usedCallee = 0;
-			// liveness
+			// liveness and bundles
 			List<List<VReg>> liveOut; // block -> live-out vregs
 			List<RaInterval> iv;
+			List<Pair<U32, Pair<VReg, VReg>>> copies; // (~weight, (def, source))
 			// rewrite of the current instruction
-			List<Pair<VReg, PhysReg>> temps; // spilled vreg -> its temp
+			List<Pair<VReg, PhysReg>> temps; // spilled bundle -> its temp
 			U64 taken = 0;									 // temps
 			U64 own = 0;										 // clobbers
 			List<MachineInstr> stores;
