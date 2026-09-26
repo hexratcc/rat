@@ -11,6 +11,7 @@ namespace rat {
 
 	X86ArgAssigner::Loc X86ArgAssigner::next(Kind k) {
 		if(k == Kind::X87) {
+			stackBytes = (stackBytes + 15u) & ~15u;
 			Loc l{-1, stackBytes};
 			stackBytes += 16;
 			return l;

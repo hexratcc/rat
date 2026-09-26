@@ -232,6 +232,8 @@ namespace rat {
 		void emitConvert(ConvertNode* n);
 		void emitU64ToFP(ConvertNode* n, VReg s, U32 w);
 		void emitFPToU64(ConvertNode* n, Node* src);
+		void emitUIntToX87(ConvertNode* n, VReg s, U32 bits);
+		void emitX87ToU64(ConvertNode* n, Node* src);
 		void emitConvertX87(ConvertNode* n, Node* src, Opcode op);
 		List<PhysReg> callerSavedClobbers() const;
 		List<PhysReg> allRegClobbers() const;

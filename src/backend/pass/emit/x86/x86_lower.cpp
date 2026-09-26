@@ -515,6 +515,8 @@ namespace rat {
 		const Schedule::Block& tb = sched->block(targetBlock);
 		List<PhiNode*> live;
 		List<VReg> tmp;
+		List<PhiNode*> liveX87;
+		List<I32> tmpX87;
 		for(PhiNode* phi : tb.phis) {
 			Node* v = phi->getValue(predIdx);
 			if(v == phi)
@@ -523,7 +525,10 @@ namespace rat {
 			if(cls == detail::kX87) {
 				I32 s = x87Value(v);
 				needScratch();
-				x87Move(x87SlotOf(phi), s);
+				I32 t = reserve(16);
+				x87Move(t, s);
+				liveX87.push_back(phi);
+				tmpX87.push_back(t);
 				continue;
 			}
 			VReg t = fresh(cls);
@@ -536,6 +541,8 @@ namespace rat {
 			U32 cls = classOf(phi->getType());
 			phiMove(vregFor(phi), tmp[i], cls, opWidth(phi->getType()));
 		}
+		for(U32 i = 0; i < (U32)liveX87.size(); ++i)
+			x87Move(x87SlotOf(liveX87[i]), tmpX87[i]);
 	}
 
 	void X86LowerPass::emitTerminator(I32 b) {

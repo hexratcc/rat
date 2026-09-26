@@ -133,15 +133,17 @@ namespace rat {
 		mov(d, lhs);
 		if(op == X86Op::LShr)
 			maskBits(d, bits);
-		I64 iv;
-		if(immOf(n->getRHS(), iv)) { // constant count: shift-by-imm, no RCX
+		I64 iv = 0;
+		B32 immCnt = immOf(n->getRHS(), iv);
+		if(immCnt) { // constant count: shift-by-imm, no RCX
 			shift(op, d, imm(iv & 63));
 		} else {
 			VReg rhs = gpValue(n->getRHS());
 			mov(RCX, rhs);
 			shift(op, d, RCX);
 		}
-		if(op == X86Op::Shl)
+		B32 cntMayBeZero = !immCnt || (iv & 63) == 0;
+		if(op == X86Op::Shl || (op == X86Op::LShr && cntMayBeZero))
 			signExtBits(d, bits);
 	}
 
@@ -721,6 +723,57 @@ namespace rat {
 		gpAcc(X86Op::Xor, d, lo);
 	}
 
+	void X86LowerPass::emitUIntToX87(ConvertNode* n, VReg s, U32 bits) {
+		if(bits < 64) {
+			VReg z = fresh(detail::kGp);
+			mov(z, s);
+			maskBits(z, bits);
+			fild(slot(x87SlotOf(n)), z);
+			return;
+		}
+		VReg hi = fresh(detail::kGp);
+		mov(hi, s);
+		gpShrImm(hi, 32);
+		VReg lo = fresh(detail::kGp);
+		mov(lo, s);
+		maskBits(lo, 32);
+
+		Slot fh = slot(reserve(16));
+		fild(fh, hi);
+		Slot flo = slot(reserve(16));
+		fild(flo, lo);
+		Slot k = slot(reserve(16));
+		fldImm(k, 0x41f0000000000000ull); // 2^32
+		x87Arith(X86Op::X87Mul, fh, fh, k);
+		x87Arith(X86Op::X87Add, slot(x87SlotOf(n)), fh, flo); // exact in the 64-bit mantissa
+	}
+
+	void X86LowerPass::emitX87ToU64(ConvertNode* n, Node* src) {
+		I32 x = x87Value(src);
+		needScratch();
+		Slot k = slot(reserve(16));
+		fldImm(k, 0x43e0000000000000ull); // 2^63
+
+		VReg lo = fresh(detail::kGp); // while x < 2^63
+		fistp(lo, slot(x));
+
+		Slot biased = slot(reserve(16));
+		x87Arith(X86Op::X87Sub, biased, slot(x), k);
+		VReg hi = fresh(detail::kGp);
+		fistp(hi, biased);
+		gpAcc(X86Op::Xor, hi, gpConst((I64)0x8000000000000000ull)); // undo the bias
+
+		VReg m = fresh(detail::kGp); // -(x >= 2^63)
+		fucomi(m, slot(x), k, CC_AE, false);
+		neg(m);
+
+		VReg d = vregFor(n); // d = lo ^ ((lo ^ hi) & m)
+		mov(d, hi);
+		gpAcc(X86Op::Xor, d, lo);
+		gpAcc(X86Op::And, d, m);
+		gpAcc(X86Op::Xor, d, lo);
+	}
+
 	void X86LowerPass::emitConvertX87(ConvertNode* n, Node* src, Opcode op) {
 		switch(op) {
 		case Opcode::FPExt: {
@@ -743,18 +796,29 @@ namespace rat {
 			fstpSse(vregFor(n), dw, slot(s));
 			return;
 		}
-		case Opcode::SIToFP:
-		case Opcode::UIToFP: {
+		case Opcode::SIToFP: {
 			VReg s = gpValue(src);
 			needScratch();
 			fild(slot(x87SlotOf(n)), s);
 			return;
 		}
+		case Opcode::UIToFP: {
+			VReg s = gpValue(src);
+			needScratch();
+			emitUIntToX87(n, s, intBits(src->getType()));
+			return;
+		}
 		case Opcode::FPToSI:
 		case Opcode::FPToUI: {
+			if(op == Opcode::FPToUI && intBits(n->getType()) >= 64) {
+				emitX87ToU64(n, src);
+				return;
+			}
 			I32 s = x87Value(src);
 			needScratch();
-			fistp(vregFor(n), slot(s));
+			VReg d = vregFor(n);
+			fistp(d, slot(s));
+			signExtBits(d, intBits(n->getType()));
 			return;
 		}
 		default:

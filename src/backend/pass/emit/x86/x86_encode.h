@@ -84,7 +84,7 @@ namespace rat {
 		void vaPtrToR10(const MachineInstr& in);
 		void vaLoadResult(const MachineInstr& in);
 		void emitVaStart(const MachineInstr& in);
-		void vaFetchOverflow(I32 step);
+		void vaFetchOverflow(I32 step, U32 align);
 		void vaFetch(I32 offDisp, U32 limit, I32 regStep);
 		void emitVaArg(const MachineInstr& in);
 		void emitVaStartWin64(const MachineInstr& in);
