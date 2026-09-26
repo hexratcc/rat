@@ -63,6 +63,9 @@ namespace rat {
 		busy.assign(2 * (U64)blockFirst.back(), 0);
 		for(U32 b = 0; b < fn.blocks.size(); ++b)
 			pinFixed(b);
+		chunk.assign((busy.size() + 63) / 64, 0);
+		for(U64 s = 0; s < busy.size(); ++s)
+			chunk[s >> 6] |= busy[s];
 	}
 
 	// a fixed register is busy from its def to its last use in the block (call argument
@@ -289,8 +292,14 @@ namespace rat {
 		const RegClass& rc = ri.classes[fn.vregClass[v]];
 		U64 blocked = ~allocMask[rc.id];
 		for(const auto& [start, end] : iv[v].segs)
-			for(I32 s = start; s <= end && blocked != ~0ull; ++s)
-				blocked |= busy[(U64)s];
+			for(I32 s = start; s <= end && blocked != ~0ull;) {
+				if((s & 63) == 0 && s + 63 <= end) {
+					blocked |= chunk[(U64)s >> 6];
+					s += 64;
+				} else {
+					blocked |= busy[(U64)s++];
+				}
+			}
 		PhysReg hint = iv[v].hint;
 		if(hint != kNoReg && !((blocked >> hint) & 1))
 			return hint;
@@ -314,8 +323,10 @@ namespace rat {
 			}
 			usedCallee |= ((U64)1 << t.reg) & calleeMask;
 			for(const auto& [start, end] : t.segs)
-				for(I32 s = start; s <= end; ++s)
+				for(I32 s = start; s <= end; ++s) {
 					busy[(U64)s] |= (U64)1 << t.reg;
+					chunk[(U64)s >> 6] |= (U64)1 << t.reg;
+				}
 		}
 		assignSlots(spilled);
 	}

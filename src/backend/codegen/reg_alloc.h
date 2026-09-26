@@ -61,6 +61,7 @@ namespace rat {
 			// numbering
 			List<U32> blockFirst; // block -> first instruction, one past the end at the back
 			List<U64> busy;				// slot -> busy physical registers
+			List<U64> chunk;			// 64 slots -> busy anywhere in them
 			U64 usedCallee = 0;
 			// liveness and bundles
 			List<List<VReg>> liveOut; // block -> live-out vregs
