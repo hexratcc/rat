@@ -303,22 +303,45 @@ namespace rat {
 			if(!iv[v].segs.empty())
 				order.emplace_back(-iv[v].weight, v);
 		std::sort(order.begin(), order.end());
+		List<Pair<I32, VReg>> spilled; // (start, bundle)
 		for(const auto& [negWeight, v] : order) {
 			RaInterval& t = iv[v];
 			assert(!ri.classes[fn.vregClass[v]].scratch.empty() && "vreg of a class with no scratch");
 			t.reg = pick(v);
 			if(t.reg == kNoReg) {
-				const RegClass& rc = ri.classes[fn.vregClass[v]];
-				U32 bytes = rc.spillBytes;
-				if(!bytes)
-					bytes = ri.spillSlotBytes;
-				t.slot = hooks.allocSlot(fn, rc.id, bytes);
+				spilled.emplace_back(t.segs.front().first, v);
 				continue;
 			}
 			usedCallee |= ((U64)1 << t.reg) & calleeMask;
 			for(const auto& [start, end] : t.segs)
 				for(I32 s = start; s <= end; ++s)
 					busy[(U64)s] |= (U64)1 << t.reg;
+		}
+		assignSlots(spilled);
+	}
+
+	void detail::RegAllocFunc::assignSlots(List<Pair<I32, VReg>>& spilled) {
+		std::sort(spilled.begin(), spilled.end());
+		List<Pair<I32, I32>> pool[kMaxRegClasses]; // (slot, end of its last holder)
+		for(const auto& [start, v] : spilled) {
+			RaInterval& t = iv[v];
+			U32 cls = fn.vregClass[v];
+			I32 end = t.segs.back().second;
+			B32 reused = false;
+			for(auto& [slot, freeAt] : pool[cls])
+				if(freeAt < start) {
+					t.slot = slot;
+					freeAt = end;
+					reused = true;
+					break;
+				}
+			if(reused)
+				continue;
+			U32 bytes = ri.classes[cls].spillBytes;
+			if(!bytes)
+				bytes = ri.spillSlotBytes;
+			t.slot = hooks.allocSlot(fn, cls, bytes);
+			pool[cls].emplace_back(t.slot, end);
 		}
 	}
 

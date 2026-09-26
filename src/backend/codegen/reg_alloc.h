@@ -38,6 +38,7 @@ namespace rat {
 			B32 overlaps(VReg a, VReg b) const;
 			void merge(VReg a, VReg b);
 			void assignRegs();
+			void assignSlots(List<Pair<I32, VReg>>& spilled);
 			PhysReg pick(VReg v) const;
 			// rewrite
 			void rewrite();
