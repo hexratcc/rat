@@ -46,121 +46,17 @@ namespace rat::cc {
 		const String& error() const { return errMsg; }
 		const List<String>& warnings() const { return warns; }
 	private:
+		using Block = Function::Block;
+
+		// values
 		struct Value {
 			Node* node = nullptr;
 			CType type;
 		};
-
-		B32 emitStmt(Function& fn, const Stmt* stmt);
-		B32 emitFunctionBody(const FuncDef* def);
-		void bindFunctionParams(Function& fn, const FuncDef* def, U32 paramBase);
-		B32 declareDead(Function& fn, const Stmt* stmt);
-		Value emitExpr(Function& fn, const Expr* expr);
-		Value emitAssign(Function& fn, const Expr* expr);
-		Value emitIncDec(Function& fn, const Expr* expr);
-		Value emitBinary(Function& fn, const Expr* expr);
-		Value emitLogicalBinary(Function& fn, const Expr* expr);
-		Value emitComparison(Function& fn, ExprOp op, Value lhs, Value rhs);
-		Value emitTernary(Function& fn, const Expr* expr);
-		Value emitTernarySelect(Function& fn, const Expr* expr);
-		Value emitCompoundLit(Function& fn, const Expr* expr);
-		Value emitCall(Function& fn, const Expr* expr);
-		Value emitUnary(Function& fn, const Expr* expr);
-		Value emitAddrOf(Function& fn, const Expr* expr);
-		Value emitDeref(Function& fn, const Expr* expr);
-		Value emitIdent(Function& fn, const Expr* expr);
-		Value emitSizeof(Function& fn, const Expr* expr);
-		Value emitStmtExpr(Function& fn, const Expr* expr);
-		B32 emitBuiltinCall(Function& fn, const Expr* expr, Value& out);
-		B32 emitBitCountBuiltin(Function& fn, const Expr* expr, Value& out);
-		B32 emitOverflowBuiltin(Function& fn, const Expr* expr, Value& out);
-		B32 emitAbsBuiltin(Function& fn, const Expr* expr, Value& out);
-		B32 emitBswapBuiltin(Function& fn, const Expr* expr, Value& out);
-		B32 emitClassifyBuiltin(Function& fn, const Expr* expr, Value& out);
-		B32 emitFpClassBuiltin(Function& fn, const Expr* expr, Value& out);
-		B32 emitFrameBuiltin(Function& fn, const Expr* expr, Value& out);
-		B32 emitPrefetchBuiltin(Function& fn, const Expr* expr, Value& out);
-		static I64 typeClassOf(CType t);
 		struct Wide {
 			Node* lo = nullptr;
 			Node* hi = nullptr;
 		};
-		Wide wideExtend(Function& fn, Node* v, CType from);
-		Wide wideAddSub(Function& fn, Wide a, Wide b, B32 sub);
-		Wide wideMul(Function& fn, Wide a, Wide b);
-		Node* wideFits(Function& fn, Wide v, CType rt);
-		Node* fitsIn64(Function& fn, Node* r, CType rt, B32 sgn);
-		Node* emitArith(Function& fn, ExprOp op, Node* l, Node* r, CType ct);
-		CType completeComplex(CType t);
-		Node* complexReal(Function& fn, const Value& v);
-		Node* complexImag(Function& fn, const Value& v);
-		Value makeComplex(Function& fn, CType type, Node* re, Node* im);
-		Value toComplex(Function& fn, const Value& v, CType type);
-		Value emitComplexBinary(Function& fn, ExprOp op, Value lhs, Value rhs, CType ct);
-		Value emitComplexUnary(Function& fn, ExprOp op, Value v);
-		void storeComplex(Function& fn, Node* addr, CType type, const Value& v);
-		B32 emitDecl(Function& fn, const Stmt* stmt);
-		B32 emitOneDecl(Function& fn, const Declarator& d);
-		B32 emitComplexDecl(Function& fn, const Declarator& d);
-		B32 emitStructDecl(Function& fn, const Declarator& d);
-		B32 emitArrayDecl(Function& fn, const Declarator& d);
-		B32 emitTypedefArrayDecl(Function& fn, const Declarator& d);
-		B32 emitMultiDimArrayDecl(Function& fn, const Declarator& d, I64 count, B32 haveLen);
-		B32 declareStatic(Function& fn, const Declarator& d);
-		B32 declareExtern(Function& fn, const Declarator& d);
-		B32 emitVlaDecl(Function& fn, const Declarator& d);
-		B32 declIsVla(const Declarator& d, I64& count);
-		void zeroSlot(Function& fn, Node* slot, U32 size);
-		B32 emitCompound(Function& fn, const Stmt* stmt);
-		B32 emitCaseLabel(Function& fn, const Stmt* stmt);
-		B32 emitIf(Function& fn, const Stmt* stmt);
-		B32 emitWhile(Function& fn, const Stmt* stmt);
-		B32 emitDoWhile(Function& fn, const Stmt* stmt);
-		B32 emitFor(Function& fn, const Stmt* stmt);
-		B32 emitSwitch(Function& fn, const Stmt* stmt);
-		B32 emitReturn(Function& fn, const Stmt* stmt);
-
-		B32 emitLabel(Function& fn, const Stmt* stmt);
-		B32 emitGoto(Function& fn, const Stmt* stmt);
-		B32 emitAsm(Function& fn, const Stmt* stmt);
-		B32 asmFitsRegister(CType t) const;
-		void collectSwitchCases(const Stmt* s, List<const Stmt*>& cases, const Stmt*& def);
-		B32 evalConst(const Expr* expr, I64& out);
-		B32 evalConstTyped(const Expr* expr, I64& out, CType& ty);
-		B32 evalConstUnary(ExprOp op, I64 v, CType opTy, I64& out, CType& ty);
-		B32 evalConstBinary(ExprOp op, I64 a, CType aTy, I64 b, CType bTy, I64& out, CType& ty);
-		B32 evalFloatConst(const Expr* expr, F80& out);
-		void encodeFloatBytes(CType dt, F80 v, List<U8>& out);
-		B32 evalAddrConst(const Expr* expr, String& symbol, I64& addend);
-		B32 addrConstOf(const Expr* lv, String& symbol, I64& addend);
-		String internString(const Expr* strLit);
-		Node* floatLit(Function& fn, CType t, F80 v);
-		B32 internCompoundLiteral(const Expr* compound, String& outSym);
-
-		B32 resolveType(CType& t);
-		B32 typeOf(const Expr* expr, CType& out);
-		B32 typeOfUnary(const Expr* expr, CType& out);
-		B32 typeOfBinary(const Expr* expr, CType& out);
-
-		const Expr* genericSelect(const Expr* e);
-		B32 exprRefersTo(const Expr* expr, const String& name) const;
-		Node* convert(Function& fn, Node* n, CType from, CType to);
-		Node* reduceBitfield(Function& fn, Node* n, CType t);
-		Type* irType(CType t);
-		U64 byteSize(CType t) const;
-		U32 alignOf(CType t) const;
-		B32 alignofValue(const Expr* e, U32& out);
-		CType ctSize() const;
-		CType ctPtrDiff() const;
-		Node* constSize(Function& fn, U64 value);
-		Node* allocBytes(Function& fn, U32 size);
-		Node* declSlot(Function& fn, const Declarator& d, Type* ty, U32 size);
-		Type* byteArrayType(U32 n);
-		B32 identIsArray(const String& name);
-		B32 sizeofOperand(const Expr* operand, U64& out);
-		Node* emitArrayElemCount(Function& fn, CType t);
-		Node* emitArrayByteSize(Function& fn, CType t);
-
 		struct LValue {
 			enum class Kind : U8 { Var, Addr };
 			Kind kind = Kind::Addr;
@@ -174,27 +70,6 @@ namespace rat::cc {
 
 			B32 isVar() const { return kind == Kind::Var; }
 		};
-
-		B32 emitLValue(Function& fn, const Expr* e, LValue& out);
-		B32 emitMemberLValue(Function& fn, const Expr* e, LValue& out);
-		B32 emitCompoundLitLValue(Function& fn, const Expr* e, LValue& out);
-		Value emitStructAssign(Function& fn, const Expr* e, const LValue& lv, Value rhs);
-		Value emitComplexAssign(Function& fn, const Expr* e, const LValue& lv, Value rhs);
-		Node* loadLValue(Function& fn, const LValue& lv);
-		void storeLValue(Function& fn, const LValue& lv, Node* value);
-
-		void emitMemCopy(Function& fn, Node* dst, Node* src, U32 size);
-		Node* vaListRef(Function& fn, const Expr* ap);
-		Node* offsetPtr(Function& fn, Node* base, U64 byteOff);
-		Node* elemStride(Function& fn, CType ptrType);
-		Value emitPtrArith(Function& fn, ExprOp op, Value lhs, Value rhs);
-
-		Node* toBool(Function& fn, const Value& v);
-		Node* fromBool(Function& fn, Node* boolean);
-
-		B32
-		emitCondBranch(Function& fn, const Expr* cond, Function::Block* trueB, Function::Block* falseB);
-
 		struct Local {
 			enum class Kind : U8 { Var, Mem };
 			Kind kind = Kind::Var;
@@ -227,38 +102,26 @@ namespace rat::cc {
 				return l;
 			}
 		};
-		void pushScope();
-		void popScope();
-		void declare(const String& name, Local local);
-		B32 lookup(const String& name, Local& out) const;
-
-		void fail(const String& msg);
-		void warn(const String& msg);
-		void failUndeclared(const String& name) { fail("use of undeclared identifier '" + name + "'"); }
-		void failArrayCount() { fail("array size must be a positive integer constant"); }
-		void failArrayUnknownSize(const String& name) { fail("array '" + name + "' has unknown size"); }
-		void failFieldInArray() { fail("field designator in an array initializer"); }
-		void failTooManyInits() { fail("too many initializers for the array"); }
-		void failScalarInit() { fail("invalid initializer for a scalar"); }
-		void failNonConstInit() { fail("initializer element is not a constant expression"); }
-		void failStringNeedsCharArray() { fail("string initializer requires a 'char' array"); }
-
+		// flat scope stack: one table + undo log rolled back on popScope
+		struct ScopeUndo {
+			const String* name; // table key, stable across rehash
+			Local prev;
+			B32 hadPrev;
+		};
 		struct LoopFrame {
-			Function::Block* brk = nullptr;
-			Function::Block* cont = nullptr;
+			Block* brk = nullptr;
+			Block* cont = nullptr;
 			B32 exitReachable = false;
 			B32 isSwitch = false;
 			Node* sp = nullptr;
 		};
+		struct GlobalVar {
+			CType type;
+			B32 isArray = false;
+			U32 count = 0;
+		};
 
-		Node* curSp = nullptr;
-		Map<String, Node*> labelSp;
-		B32 sawAlloca = false;
-		B32 declMayBeVla(const Declarator& d);
-		B32 stmtHasVla(const Stmt* s);
-		B32 blockDeclaresVla(const Stmt* s);
-		void restoreStack(Function& fn, Node* sp);
-
+		// call signatures
 		struct FnSig {
 			CType ret;
 			List<CType> params;
@@ -267,7 +130,6 @@ namespace rat::cc {
 			B32 noInline = false;
 			U32 align = 0;
 		};
-
 		struct Callee {
 			Node* target = nullptr;
 			const FuncType* ft = nullptr;
@@ -276,83 +138,7 @@ namespace rat::cc {
 			B32 prototyped = false;
 		};
 
-		B32 resolveCallee(Function& fn, const Expr* e, Callee& out);
-		B32 emitCallArgs(Function& fn, const Expr* e, const Callee& c, U32 nparams, List<Node*>& args);
-		Node* callNode(Function& fn,
-									 const Callee& c,
-									 const String& sym,
-									 Type* retTy,
-									 const List<Node*>& args,
-									 B32 va);
-
-		CType funcPtrType(const FnSig& sig);
-		List<Reloc> relocs;
-		Module& mod;
-		TargetLayout lay;
-		Arena arena;
-		Type* i32 = nullptr;
-		B32 failed = false;
-		String errMsg;
-		List<String> warns;
-		Set<String> implicitFuncs;
-		U32 curOffset = 0;
-		U32 flexCount = 0;
-		String curFunc;
-		// flat scope stack: one table + undo log rolled back on popScope
-		struct ScopeUndo {
-			const String* name; // table key, stable across rehash
-			Local prev;
-			B32 hadPrev;
-		};
-		Map<String, Local> localTable;
-		List<ScopeUndo> scopeUndo;
-		List<U32> scopeMarks;
-		List<LoopFrame> loops;
-		List<Map<const Stmt*, Function::Block*>> switches;
-		Map<String, FnSig> funcs;
-		struct GlobalVar {
-			CType type;
-			B32 isArray = false;
-			U32 count = 0;
-		};
-		Map<String, GlobalVar> globalVars;
-		Map<String, String> aliasTargets;
-		const String& globalSymbol(const String& name) const;
-		Map<U32, StructType*> complexLayouts;
-		CType curRet;
-		Node* sretSlot = nullptr;
-
-		Set<String> memVars;
-		void collectAddrTaken(const Stmt* s);
-
-		U32 strCounter = 0;
-		Map<String, String> strPool; // string-literal bytes -> interned symbol
-
-		Map<String, Function::Block*> labelBlocks;
-		void collectLabels(Function& fn, const Stmt* s);
-		static B32 containsLabel(const Stmt* s);
-		static B32 containsSwitchCase(const Stmt* s);
-
-		B32 registerGlobals(const TransUnit& unit);
-		B32 registerGlobalAlias(const Declarator& d);
-		B32 checkAliases();
-		B32 registerGlobalArray(const Declarator& d, const String& symbol, Function* fn);
-		B32 validateGlobalArrayLen(const Declarator& d, I64& count, B32& haveLen);
-		B32 registerGlobalArrayOfArray(const Declarator& d, const String& symbol, Function* fn);
-		B32 registerGlobalArrayOfStruct(const Declarator& d, const String& symbol, Function* fn);
-		B32 registerGlobalArrayOfScalar(const Declarator& d, const String& symbol, Function* fn);
-		void defineGlobal(const Declarator& d, const String& symbol, Type* ty, List<U8>&& img);
-		void
-		bindGlobal(const Declarator& d, const String& symbol, Function* fn, B32 isArray, U32 count);
-		B32 registerGlobalStruct(const Declarator& d, const String& symbol, Function* fn);
-		B32 registerGlobalScalar(const Declarator& d, const String& symbol, Function* fn);
-		U32 staticCounter = 0;
-		I64 fieldIndex(const StructType* st, const Designator& des);
-		const StructType* anonGroupType(const StructType* st, U32 firstIdx);
-
-		Expr* wrapNested(const Designator* sub, const Expr* val);
-		static const Expr* peelAggregateCompound(const Expr* el);
-
+		// initializer sinks
 		struct InitSink {
 			virtual ~InitSink() = default;
 			virtual B32 scalar(U32 off, CType dt, const Expr* e) = 0;
@@ -384,48 +170,255 @@ namespace rat::cc {
 			Function& fn;
 			Node* slot;
 		};
+		struct FlatList {
+			const List<Expr*>& els;
+			U32& pos;
+			const List<Designator>* des = nullptr;
+		};
 
+		// functions
+		B32 emitFunctionBody(const FuncDef* def);
+		void bindFunctionParams(Function& fn, const FuncDef* def, U32 paramBase);
+		B32 checkAliases();
+
+		// types and sizes
+		Type* irType(CType t);
+		Type* byteArrayType(U32 n);
+		CType funcPtrType(const FnSig& sig);
+		U64 byteSize(CType t) const;
+		U32 alignOf(CType t) const;
+		CType ctSize() const;
+		CType ctPtrDiff() const;
+		B32 resolveType(CType& t);
+		B32 typeOf(const Expr* expr, CType& out);
+		B32 typeOfUnary(const Expr* expr, CType& out);
+		B32 typeOfBinary(const Expr* expr, CType& out);
+		const Expr* genericSelect(const Expr* e);
+		B32 identIsArray(const String& name);
+		B32 sizeofOperand(const Expr* operand, U64& out);
+
+		// memory and conversions
+		Node* constSize(Function& fn, U64 value);
+		Node* allocBytes(Function& fn, U32 size);
+		Node* declSlot(Function& fn, const Declarator& d, Type* ty, U32 size);
+		Node* emitArrayElemCount(Function& fn, CType t);
+		Node* emitArrayByteSize(Function& fn, CType t);
+		Node* convert(Function& fn, Node* n, CType from, CType to);
+		Node* reduceBitfield(Function& fn, Node* n, CType t);
+		Node* toBool(Function& fn, const Value& v);
+		Node* fromBool(Function& fn, Node* boolean);
+		Node* offsetPtr(Function& fn, Node* base, U64 byteOff);
+		Node* elemStride(Function& fn, CType ptrType);
+		void emitMemCopy(Function& fn, Node* dst, Node* src, U32 size);
+
+		// lvalues
+		B32 emitLValue(Function& fn, const Expr* e, LValue& out);
+		B32 emitMemberLValue(Function& fn, const Expr* e, LValue& out);
+		B32 emitCompoundLitLValue(Function& fn, const Expr* e, LValue& out);
+		Node* loadLValue(Function& fn, const LValue& lv);
+		void storeLValue(Function& fn, const LValue& lv, Node* value);
+
+		// scopes and diagnostics
+		void pushScope();
+		void popScope();
+		void declare(const String& name, Local local);
+		B32 lookup(const String& name, Local& out) const;
+		void fail(const String& msg);
+		void warn(const String& msg);
+		void failUndeclared(const String& name) { fail("use of undeclared identifier '" + name + "'"); }
+		void failArrayCount() { fail("array size must be a positive integer constant"); }
+		void failArrayUnknownSize(const String& name) { fail("array '" + name + "' has unknown size"); }
+		void failFieldInArray() { fail("field designator in an array initializer"); }
+		void failTooManyInits() { fail("too many initializers for the array"); }
+		void failNonConstInit() { fail("initializer element is not a constant expression"); }
+		void failStringNeedsCharArray() { fail("string initializer requires a 'char' array"); }
+
+		// statements
+		B32 emitStmt(Function& fn, const Stmt* stmt);
+		B32 emitCompound(Function& fn, const Stmt* stmt);
+		B32 emitCaseLabel(Function& fn, const Stmt* stmt);
+		B32 emitIf(Function& fn, const Stmt* stmt);
+		B32 emitWhile(Function& fn, const Stmt* stmt);
+		B32 emitDoWhile(Function& fn, const Stmt* stmt);
+		B32 emitFor(Function& fn, const Stmt* stmt);
+		B32 emitSwitch(Function& fn, const Stmt* stmt);
+		B32 emitReturn(Function& fn, const Stmt* stmt);
+		B32 emitLabel(Function& fn, const Stmt* stmt);
+		B32 emitGoto(Function& fn, const Stmt* stmt);
+		B32 emitAsm(Function& fn, const Stmt* stmt);
+		B32 asmFitsRegister(CType t) const;
+		B32 emitCondBranch(Function& fn, const Expr* cond, Block* trueB, Block* falseB);
+		B32 declMayBeVla(const Declarator& d);
+		B32 stmtHasVla(const Stmt* s);
+		B32 blockDeclaresVla(const Stmt* s);
+		void restoreStack(Function& fn, Node* sp);
+
+		// AST scans
+		void collectAddrTaken(const Stmt* s);
+		void collectLabels(Function& fn, const Stmt* s);
+		static B32 containsLabel(const Stmt* s);
+		static B32 containsSwitchCase(const Stmt* s);
+		void collectSwitchCases(const Stmt* s, List<const Stmt*>& cases, const Stmt*& def);
+		B32 exprRefersTo(const Expr* expr, const String& name) const;
+
+		// declarations
+		B32 emitDecl(Function& fn, const Stmt* stmt);
+		B32 emitOneDecl(Function& fn, const Declarator& d);
+		B32 emitComplexDecl(Function& fn, const Declarator& d);
+		B32 emitStructDecl(Function& fn, const Declarator& d);
+		B32 emitArrayDecl(Function& fn, const Declarator& d);
+		B32 emitTypedefArrayDecl(Function& fn, const Declarator& d);
+		B32 emitMultiDimArrayDecl(Function& fn, const Declarator& d, I64 count, B32 haveLen);
+		B32 emitVlaDecl(Function& fn, const Declarator& d);
+		B32 declIsVla(const Declarator& d, I64& count);
+		B32 declareStatic(Function& fn, const Declarator& d);
+		B32 declareExtern(Function& fn, const Declarator& d);
+		B32 declareDead(Function& fn, const Stmt* stmt);
+		void zeroSlot(Function& fn, Node* slot, U32 size);
+
+		// expressions
+		Value emitExpr(Function& fn, const Expr* expr);
+		Value emitUnary(Function& fn, const Expr* expr);
+		Value emitAddrOf(Function& fn, const Expr* expr);
+		Value emitDeref(Function& fn, const Expr* expr);
+		Value emitIdent(Function& fn, const Expr* expr);
+		Value emitSizeof(Function& fn, const Expr* expr);
+		B32 alignofValue(const Expr* e, U32& out);
+		Value emitStmtExpr(Function& fn, const Expr* expr);
+		Value emitTernary(Function& fn, const Expr* expr);
+		Value emitTernarySelect(Function& fn, const Expr* expr);
+		Value emitCompoundLit(Function& fn, const Expr* expr);
+		Value emitAssign(Function& fn, const Expr* expr);
+		Value assignStruct(Function& fn, const Expr* e, const LValue& lv, Value rhs);
+		Value assignComplex(Function& fn, const Expr* e, const LValue& lv, Value rhs);
+		Value emitIncDec(Function& fn, const Expr* expr);
+		Value emitBinary(Function& fn, const Expr* expr);
+		Value emitLogicalBinary(Function& fn, const Expr* expr);
+		Value emitComparison(Function& fn, ExprOp op, Value lhs, Value rhs);
+		Value emitPtrArith(Function& fn, ExprOp op, Value lhs, Value rhs);
+		Node* emitArith(Function& fn, ExprOp op, Node* l, Node* r, CType ct);
+
+		// complex numbers
+		CType completeComplex(CType t);
+		Node* complexReal(Function& fn, const Value& v);
+		Node* complexImag(Function& fn, const Value& v);
+		Value makeComplex(Function& fn, CType type, Node* re, Node* im);
+		Value toComplex(Function& fn, const Value& v, CType type);
+		Value complexBinary(Function& fn, ExprOp op, Value lhs, Value rhs, CType ct);
+		Value complexUnary(Function& fn, ExprOp op, Value v);
+		void storeComplex(Function& fn, Node* addr, CType type, const Value& v);
+
+		// calls
+		Value emitCall(Function& fn, const Expr* expr);
+		B32 resolveCallee(Function& fn, const Expr* e, Callee& out);
+		B32 emitArgs(Function& fn, const Expr* e, const Callee& c, U32 n, List<Node*>& args);
+
+		// builtins
+		B32 emitBuiltinCall(Function& fn, const Expr* expr, Value& out);
+		B32 emitBitCountBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitOverflowBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitAbsBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitBswapBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitClassifyBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitFpClassBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitFrameBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitPrefetchBuiltin(Function& fn, const Expr* expr, Value& out);
+		static I64 typeClassOf(CType t);
+		Node* vaListRef(Function& fn, const Expr* ap);
+		Wide wideExtend(Function& fn, Node* v, CType from);
+		Wide wideAddSub(Function& fn, Wide a, Wide b, B32 sub);
+		Wide wideMul(Function& fn, Wide a, Wide b);
+		Node* wideFits(Function& fn, Wide v, CType rt);
+		Node* fitsIn64(Function& fn, Node* r, CType rt, B32 sgn);
+
+		// constants
+		B32 evalConst(const Expr* expr, I64& out);
+		B32 evalConstTyped(const Expr* expr, I64& out, CType& ty);
+		B32 evalConstUnary(ExprOp op, I64 v, CType opTy, I64& out, CType& ty);
+		B32 evalConstBinary(ExprOp op, I64 a, CType aTy, I64 b, CType bTy, I64& out, CType& ty);
+		B32 evalFloatConst(const Expr* expr, F80& out);
+		B32 evalAddrConst(const Expr* expr, String& symbol, I64& addend);
+		B32 addrConstOf(const Expr* lv, String& symbol, I64& addend);
+
+		// globals
+		String internString(const Expr* strLit);
+		Node* floatLit(Function& fn, CType t, F80 v);
+		B32 internCompoundLiteral(const Expr* compound, String& outSym);
+		B32 registerGlobals(const TransUnit& unit);
+		B32 registerGlobalAlias(const Declarator& d);
+		const String& globalSymbol(const String& name) const;
+		B32 registerGlobalArray(const Declarator& d, const String& sym, Function* fn);
+		B32 validateGlobalArrayLen(const Declarator& d, I64& count, B32& haveLen);
+		B32 registerGlobalArrayOfArray(const Declarator& d, const String& sym, Function* fn);
+		B32 registerGlobalArrayOfStruct(const Declarator& d, const String& sym, Function* fn);
+		B32 registerGlobalArrayOfScalar(const Declarator& d, const String& sym, Function* fn);
+		B32 registerGlobalStruct(const Declarator& d, const String& sym, Function* fn);
+		B32 registerGlobalScalar(const Declarator& d, const String& sym, Function* fn);
+		void defineGlobal(const Declarator& d, const String& sym, Type* ty, List<U8>&& img);
+		void bindGlobal(const Declarator& d, const String& sym, Function* fn, B32 arr, U32 n);
+
+		// initializers
+		static const Expr* peelAggregateCompound(const Expr* el);
+		Expr* wrapNested(const Designator* sub, const Expr* val);
+		I64 fieldIndex(const StructType* st, const Designator& des);
+		const StructType* anonGroupType(const StructType* st, U32 firstIdx);
 		B32 unwrapScalarInit(const Expr*& e, B32& skip);
-
-		B32 initStructInit(InitSink& sink, U32 base, const StructType* st, const Expr* init);
-		B32 initUnionInit(InitSink& sink, U32 base, const StructType* st, const Expr* init);
-		B32 initArrayInit(InitSink& sink, U32 base, CType elem, U32 count, const Expr* init);
-		B32 initArrayRow(InitSink& sink,
-										 U32 off,
-										 CType elem,
-										 const Expr* init,
-										 const Designator& des,
-										 U32& i,
-										 U32& cur);
 		B32 initListIsFlat(const Expr* init);
 		U32 initArrayCount(CType elem, const Expr* init);
 		U32 arrayInitOuterExtent(CType elem, const Expr* init);
-		B32 resolveArrayIndices(const List<Expr*>& els,
-														const List<Designator>& des,
-														List<I64>& idx,
-														I64& maxIdx);
-		B32 initFlatObject(InitSink& sink,
-											 U32 base,
-											 CType ty,
-											 const List<Expr*>& els,
-											 U32& pos,
-											 const List<Designator>* des = nullptr);
-		B32 initFlatStruct(InitSink& sink,
-											 U32 base,
-											 const StructType* st,
-											 const List<Expr*>& els,
-											 U32& pos,
-											 const List<Designator>* des = nullptr);
-		B32 initFlatArray(InitSink& sink,
-											U32 base,
-											CType elem,
-											U32 count,
-											const List<Expr*>& els,
-											U32& pos,
-											const List<Designator>* des = nullptr);
+		B32 resolveArrayIndices(const Expr* init, List<I64>& idx, I64& maxIdx);
+		B32 initStructInit(InitSink& sink, U32 base, const StructType* st, const Expr* init);
+		B32 initUnionInit(InitSink& sink, U32 base, const StructType* st, const Expr* init);
+		B32 initArrayInit(InitSink& sink, U32 base, CType elem, U32 count, const Expr* init);
+		B32 initArrayRow(InitSink& sink, U32 off, CType elem, const Expr* init, U32& i);
+		B32 initFlatObject(InitSink& sink, U32 base, CType ty, const FlatList& src);
+		B32 initFlatStruct(InitSink& sink, U32 base, const StructType* st, const FlatList& src);
+		B32 initFlatArray(InitSink& sink, U32 base, CType elem, U32 count, const FlatList& src);
 		U32 flatArrayCount(CType elem, const List<Expr*>& els);
 		void flatConsumeObject(CType ty, const List<Expr*>& els, U32& pos);
 		U32 flexElemCount(const StructType* st, const Expr* init);
+		void encodeFloatBytes(CType dt, F80 v, List<U8>& out);
+
+		// module and target
+		Module& mod;
+		TargetLayout lay;
+		Arena arena;
+		Type* i32 = nullptr;
+
+		// diagnostics
+		B32 failed = false;
+		String errMsg;
+		List<String> warns;
+		U32 curOffset = 0;
+		String curFunc;
+
+		// current function
+		CType curRet;
+		Node* sretSlot = nullptr;
+		Node* curSp = nullptr;
+		Map<String, Node*> labelSp;
+		B32 sawAlloca = false;
+		Set<String> memVars;
+		Map<String, Block*> labelBlocks;
+		List<LoopFrame> loops;
+		List<Map<const Stmt*, Block*>> switches;
+		Map<String, Local> localTable;
+		List<ScopeUndo> scopeUndo;
+		List<U32> scopeMarks;
+
+		// symbols
+		Map<String, FnSig> funcs;
+		Set<String> implicitFuncs;
+		Map<String, GlobalVar> globalVars;
+		Map<String, String> aliasTargets;
+		Map<U32, StructType*> complexLayouts;
+
+		// global data
+		List<Reloc> relocs;
+		U32 flexCount = 0;
+		U32 strCounter = 0;
+		U32 staticCounter = 0;
+		Map<String, String> strPool; // string-literal bytes -> interned symbol
 	};
 } // namespace rat::cc
 

@@ -1,10 +1,7 @@
 #include "emit/emit.h"
 
 namespace rat::cc {
-	B32 Emitter::emitCondBranch(Function& fn,
-															const Expr* e,
-															Function::Block* trueB,
-															Function::Block* falseB) {
+	B32 Emitter::emitCondBranch(Function& fn, const Expr* e, Block* trueB, Block* falseB) {
 		if(e->kind == ExprKind::Binary &&
 			 (e->binary.op == ExprOp::LogAnd || e->binary.op == ExprOp::LogOr)) {
 			B32 isAnd = e->binary.op == ExprOp::LogAnd;

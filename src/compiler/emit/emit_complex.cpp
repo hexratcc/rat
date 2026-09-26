@@ -46,8 +46,7 @@ namespace rat::cc {
 		emitMemCopy(fn, addr, c.node, byteSize(type));
 	}
 
-	Emitter::Value
-	Emitter::emitComplexBinary(Function& fn, ExprOp op, Value lhs, Value rhs, CType ct) {
+	Emitter::Value Emitter::complexBinary(Function& fn, ExprOp op, Value lhs, Value rhs, CType ct) {
 		Node* a = complexReal(fn, lhs);
 		Node* b = complexImag(fn, lhs);
 		Node* c = complexReal(fn, rhs);
@@ -85,7 +84,7 @@ namespace rat::cc {
 		}
 	}
 
-	Emitter::Value Emitter::emitComplexUnary(Function& fn, ExprOp op, Value v) {
+	Emitter::Value Emitter::complexUnary(Function& fn, ExprOp op, Value v) {
 		switch(op) {
 		case ExprOp::Pos:
 			return v;

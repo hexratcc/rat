@@ -56,14 +56,13 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::emitCallArgs(
-			Function& fn, const Expr* e, const Callee& c, U32 nparams, List<Node*>& args) {
+	B32 Emitter::emitArgs(Function& fn, const Expr* e, const Callee& c, U32 n, List<Node*>& args) {
 		for(U32 i = 0; i < e->args.size(); ++i) {
 			Value a = emitExpr(fn, e->args[i]);
 			if(!a.node)
 				return false;
 			CType pt;
-			if(i < nparams) {
+			if(i < n) {
 				pt = c.direct ? c.sig.params[i] : c.ft->params[i].type;
 			} else {
 				pt = defaultArgPromote(a.type);
@@ -121,27 +120,22 @@ namespace rat::cc {
 			resultSlot = allocBytes(fn, ret.strukt->size);
 			args.push_back(resultSlot);
 		}
-		if(!emitCallArgs(fn, e, c, nparams, args))
+		if(!emitArgs(fn, e, c, nparams, args))
 			return {};
-		if(resultSlot) {
-			callNode(fn, c, sym, mod.getPtr(), args, va);
-			return {resultSlot, ret};
-		}
-		if(isVoidType(ret)) {
-			callNode(fn, c, sym, nullptr, args, va);
-			return {fn.constInt(i32, 0), ret};
-		}
-		return {callNode(fn, c, sym, irType(ret), args, va), ret};
-	}
-
-	Node* Emitter::callNode(Function& fn,
-													const Callee& c,
-													const String& sym,
-													Type* retTy,
-													const List<Node*>& args,
-													B32 va) {
+		Type* retTy = nullptr;
+		if(resultSlot)
+			retTy = mod.getPtr();
+		else if(!isVoidType(ret))
+			retTy = irType(ret);
+		Node* call;
 		if(c.direct)
-			return fn.call(sym, retTy, args, va);
-		return fn.callIndirect(c.target, retTy, args, va);
+			call = fn.call(sym, retTy, args, va);
+		else
+			call = fn.callIndirect(c.target, retTy, args, va);
+		if(resultSlot)
+			return {resultSlot, ret};
+		if(isVoidType(ret))
+			return {fn.constInt(i32, 0), ret};
+		return {call, ret};
 	}
 } // namespace rat::cc

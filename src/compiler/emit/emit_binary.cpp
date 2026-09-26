@@ -118,8 +118,7 @@ namespace rat::cc {
 		return {isPre ? updated : old, type};
 	}
 
-	Emitter::Value
-	Emitter::emitStructAssign(Function& fn, const Expr* e, const LValue& lv, Value rhs) {
+	Emitter::Value Emitter::assignStruct(Function& fn, const Expr* e, const LValue& lv, Value rhs) {
 		CType targetType = lv.type;
 		if(e->binary.op != ExprOp::Assign) {
 			fail("invalid compound assignment to a struct or union");
@@ -134,8 +133,7 @@ namespace rat::cc {
 		return {lv.addr, targetType};
 	}
 
-	Emitter::Value
-	Emitter::emitComplexAssign(Function& fn, const Expr* e, const LValue& lv, Value rhs) {
+	Emitter::Value Emitter::assignComplex(Function& fn, const Expr* e, const LValue& lv, Value rhs) {
 		CType ct = completeComplex(lv.type);
 		Value stored;
 		if(e->binary.op == ExprOp::Assign) {
@@ -151,7 +149,7 @@ namespace rat::cc {
 			CType opType = completeComplex(usualArithmetic(ct, rhs.type));
 			Value cur = toComplex(fn, {lv.addr, ct}, opType);
 			Value rc = toComplex(fn, rhs, opType);
-			stored = emitComplexBinary(fn, base, cur, rc, opType);
+			stored = complexBinary(fn, base, cur, rc, opType);
 			if(!stored.node)
 				return {};
 		}
@@ -177,10 +175,10 @@ namespace rat::cc {
 			return {};
 
 		if(isStruct(targetType))
-			return emitStructAssign(fn, e, lv, rhs);
+			return assignStruct(fn, e, lv, rhs);
 
 		if(isComplexType(targetType))
-			return emitComplexAssign(fn, e, lv, rhs);
+			return assignComplex(fn, e, lv, rhs);
 
 		Node* stored = nullptr;
 		if(e->binary.op == ExprOp::Assign) {
@@ -301,7 +299,7 @@ namespace rat::cc {
 				Node* res = op == ExprOp::Eq ? eq : fn.eq(eq, fn.constInt(i32, 0));
 				return {fromBool(fn, res), ctInt()};
 			}
-			return emitComplexBinary(fn, op, lc, rc, ct);
+			return complexBinary(fn, op, lc, rc, ct);
 		}
 
 		switch(e->binary.op) {

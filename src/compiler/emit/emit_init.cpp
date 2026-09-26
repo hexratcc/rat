@@ -38,7 +38,7 @@ namespace rat::cc {
 			return true;
 		}
 		if(e->args.size() != 1 || e->designators[0].isSet) {
-			failScalarInit();
+			fail("invalid initializer for a scalar");
 			return false;
 		}
 		e = e->args[0];
@@ -95,10 +95,9 @@ namespace rat::cc {
 		return any ? maxIdx + 1 : 0;
 	}
 
-	B32 Emitter::resolveArrayIndices(const List<Expr*>& els,
-																	 const List<Designator>& des,
-																	 List<I64>& idx,
-																	 I64& maxIdx) {
+	B32 Emitter::resolveArrayIndices(const Expr* init, List<I64>& idx, I64& maxIdx) {
+		const List<Expr*>& els = init->args;
+		const List<Designator>& des = init->designators;
 		I64 cur = 0;
 		maxIdx = -1;
 		for(U32 i = 0; i < els.size(); ++i) {
@@ -117,14 +116,9 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::initArrayRow(InitSink& sink,
-														U32 off,
-														CType elem,
-														const Expr* init,
-														const Designator& des,
-														U32& i,
-														U32& cur) {
+	B32 Emitter::initArrayRow(InitSink& sink, U32 off, CType elem, const Expr* init, U32& i) {
 		const List<Expr*>& els = init->args;
+		const Designator& des = init->designators[i];
 		Expr* row = wrapNested(des.next, els[i]);
 		U32 rowLen = elem.array->count;
 		U32 rowFree = (U32)des.next->index + 1 < rowLen ? rowLen - ((U32)des.next->index + 1) : 0;
@@ -135,7 +129,6 @@ namespace rat::cc {
 		}
 		if(!initArrayInit(sink, off, arrayElem(elem), elem.array->count, row))
 			return false;
-		++cur;
 		i = j;
 		return true;
 	}
@@ -165,8 +158,9 @@ namespace rat::cc {
 			U32 off = base + cur * esz;
 			const Expr* el = els[i];
 			if(des.isSet && des.next && isArrayType(elem) && des.next->isIndex) {
-				if(!initArrayRow(sink, off, elem, init, des, i, cur))
+				if(!initArrayRow(sink, off, elem, init, i))
 					return false;
+				++cur;
 				continue;
 			}
 			if(des.isSet && des.next) {
@@ -188,7 +182,7 @@ namespace rat::cc {
 			if((isStruct(elem) || isArrayType(elem)) && el->kind != ExprKind::InitList &&
 				 el->kind != ExprKind::CompoundLit &&
 				 !(isArrayType(elem) && elemIsChar && el->kind == ExprKind::StrLit)) {
-				if(!initFlatObject(sink, off, elem, els, i, &init->designators))
+				if(!initFlatObject(sink, off, elem, {els, i, &init->designators}))
 					return false;
 				++cur;
 				continue;
@@ -254,13 +248,13 @@ namespace rat::cc {
 			if(els[0]->kind == ExprKind::InitList && els.size() == 1)
 				return initArrayInit(sink, off, f.type, f.count, els[0]);
 			U32 pos = des.isSet ? 1 : 0;
-			return initFlatArray(sink, off, f.type, f.count, els, pos);
+			return initFlatArray(sink, off, f.type, f.count, {els, pos});
 		}
 		if(isStruct(f.type)) {
 			if(els[0]->kind == ExprKind::InitList && els.size() == 1)
 				return initStructInit(sink, off, f.type.strukt, els[0]);
 			U32 pos = des.isSet ? 1 : 0;
-			return initFlatStruct(sink, off, f.type.strukt, els, pos);
+			return initFlatStruct(sink, off, f.type.strukt, {els, pos});
 		}
 		if(els.size() > 1) {
 			fail("too many initializers for the union");
@@ -303,7 +297,7 @@ namespace rat::cc {
 					++i;
 					if(!initStructInit(sink, off, g, el))
 						return false;
-				} else if(!initFlatStruct(sink, off, g, els, i, &init->designators))
+				} else if(!initFlatStruct(sink, off, g, {els, i, &init->designators}))
 					return false;
 				for(++cur; cur < fields.size() && fields[cur].anonMember() && !fields[cur].anonFirst();
 						++cur)
@@ -329,14 +323,14 @@ namespace rat::cc {
 				continue;
 			}
 			if(f.isArray() && el->kind != ExprKind::InitList && el->kind != ExprKind::StrLit) {
-				if(!initFlatArray(sink, off, f.type, fcount, els, i))
+				if(!initFlatArray(sink, off, f.type, fcount, {els, i}))
 					return false;
 				++cur;
 				continue;
 			}
 			if(!f.isArray() && isStruct(f.type) && el->kind != ExprKind::InitList &&
 				 el->kind != ExprKind::CompoundLit) {
-				if(!initFlatObject(sink, off, f.type, els, i))
+				if(!initFlatObject(sink, off, f.type, {els, i}))
 					return false;
 				++cur;
 				continue;

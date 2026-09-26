@@ -70,7 +70,7 @@ namespace rat::cc {
 			return {fn.constInt(irType(v.type), 0), v.type};
 		}
 		if(isComplexType(v.type) && (e->unary.op == ExprOp::Pos || e->unary.op == ExprOp::Neg))
-			return emitComplexUnary(fn, e->unary.op, v);
+			return complexUnary(fn, e->unary.op, v);
 		switch(e->unary.op) {
 		case ExprOp::Pos: {
 			if(!isInteger(v.type) && !isFloating(v.type)) {
@@ -454,7 +454,7 @@ namespace rat::cc {
 			} else if(init->kind == ExprKind::InitList) {
 				List<I64> idx(init->args.size());
 				I64 maxIdx;
-				if(!resolveArrayIndices(init->args, init->designators, idx, maxIdx))
+				if(!resolveArrayIndices(init, idx, maxIdx))
 					return {};
 				count = maxIdx + 1;
 			}

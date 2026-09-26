@@ -272,10 +272,9 @@ namespace rat::cc {
 
 		if(d.init && d.init->kind == ExprKind::InitList) {
 			const List<Expr*>& els = d.init->args;
-			const List<Designator>& des = d.init->designators;
 			List<I64> idx(els.size());
 			I64 maxIdx = -1;
-			if(!resolveArrayIndices(els, des, idx, maxIdx))
+			if(!resolveArrayIndices(d.init, idx, maxIdx))
 				return false;
 			if(!haveLen)
 				count = maxIdx + 1;

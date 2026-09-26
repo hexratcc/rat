@@ -86,21 +86,20 @@ namespace rat::cc {
 		return true;
 	}
 
-	void Emitter::bindGlobal(
-			const Declarator& d, const String& symbol, Function* fn, B32 isArray, U32 count) {
+	void Emitter::bindGlobal(const Declarator& d, const String& sym, Function* fn, B32 arr, U32 n) {
 		if(fn) {
-			Local loc = Local::mem(fn->global(symbol), d.type);
-			loc.isArray = isArray;
-			loc.count = count;
-			loc.staticSym = arena.make<String>(symbol);
+			Local loc = Local::mem(fn->global(sym), d.type);
+			loc.isArray = arr;
+			loc.count = n;
+			loc.staticSym = arena.make<String>(sym);
 			declare(*d.name, loc);
 		} else {
-			globalVars[*d.name] = GlobalVar{d.type, isArray, count};
+			globalVars[*d.name] = GlobalVar{d.type, arr, n};
 		}
 	}
 
-	void Emitter::defineGlobal(const Declarator& d, const String& symbol, Type* ty, List<U8>&& img) {
-		Global* g = mod.createGlobal(symbol, ty, false, std::move(img), std::move(relocs));
+	void Emitter::defineGlobal(const Declarator& d, const String& sym, Type* ty, List<U8>&& img) {
+		Global* g = mod.createGlobal(sym, ty, false, std::move(img), std::move(relocs));
 		if(d.isStatic)
 			g->setLinkage(Global::Linkage::Internal);
 		g->setAlign(d.align);
@@ -116,7 +115,7 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::registerGlobalArrayOfArray(const Declarator& d, const String& symbol, Function* fn) {
+	B32 Emitter::registerGlobalArrayOfArray(const Declarator& d, const String& sym, Function* fn) {
 		B32 haveLen;
 		I64 count;
 		if(!validateGlobalArrayLen(d, count, haveLen))
@@ -137,14 +136,12 @@ namespace rat::cc {
 			if(!initArrayInit(sink, 0, d.type, (U32)count, d.init))
 				return false;
 		}
-		defineGlobal(d, symbol, byteArrayType(total), std::move(img));
-		bindGlobal(d, symbol, fn, true, (U32)count);
+		defineGlobal(d, sym, byteArrayType(total), std::move(img));
+		bindGlobal(d, sym, fn, true, (U32)count);
 		return true;
 	}
 
-	B32 Emitter::registerGlobalArrayOfStruct(const Declarator& d,
-																					 const String& symbol,
-																					 Function* fn) {
+	B32 Emitter::registerGlobalArrayOfStruct(const Declarator& d, const String& sym, Function* fn) {
 		U32 structSize = d.type.strukt->size;
 		B32 haveLen;
 		I64 count;
@@ -168,19 +165,17 @@ namespace rat::cc {
 			ImageSink sink(*this, img);
 			if(flat) {
 				U32 pos = 0;
-				if(!initFlatArray(sink, 0, d.type, (U32)count, d.init->args, pos))
+				if(!initFlatArray(sink, 0, d.type, (U32)count, {d.init->args, pos}))
 					return false;
 			} else if(!initArrayInit(sink, 0, d.type, (U32)count, d.init))
 				return false;
 		}
-		defineGlobal(d, symbol, byteArrayType(total), std::move(img));
-		bindGlobal(d, symbol, fn, true, (U32)count);
+		defineGlobal(d, sym, byteArrayType(total), std::move(img));
+		bindGlobal(d, sym, fn, true, (U32)count);
 		return true;
 	}
 
-	B32 Emitter::registerGlobalArrayOfScalar(const Declarator& d,
-																					 const String& symbol,
-																					 Function* fn) {
+	B32 Emitter::registerGlobalArrayOfScalar(const Declarator& d, const String& sym, Function* fn) {
 		U32 elemSize = byteSize(d.type);
 		B32 haveLen;
 		I64 count;
@@ -205,10 +200,9 @@ namespace rat::cc {
 					init[(U32)(i * elemSize) + k] = (U8)bytes[(U32)(i * charWidth + k)];
 		} else if(d.init && d.init->kind == ExprKind::InitList) {
 			const List<Expr*>& els = d.init->args;
-			const List<Designator>& des = d.init->designators;
 			List<I64> idx(els.size());
 			I64 maxIdx = -1;
-			if(!resolveArrayIndices(els, des, idx, maxIdx))
+			if(!resolveArrayIndices(d.init, idx, maxIdx))
 				return false;
 			if(!haveLen)
 				count = maxIdx + 1;
@@ -237,21 +231,21 @@ namespace rat::cc {
 			}
 		}
 
-		defineGlobal(d, symbol, mod.getArray(irType(d.type), (U32)count), std::move(init));
-		bindGlobal(d, symbol, fn, true, (U32)count);
+		defineGlobal(d, sym, mod.getArray(irType(d.type), (U32)count), std::move(init));
+		bindGlobal(d, sym, fn, true, (U32)count);
 		return true;
 	}
 
-	B32 Emitter::registerGlobalArray(const Declarator& d, const String& symbol, Function* fn) {
+	B32 Emitter::registerGlobalArray(const Declarator& d, const String& sym, Function* fn) {
 		relocs.clear();
 		if(isArrayType(d.type))
-			return registerGlobalArrayOfArray(d, symbol, fn);
+			return registerGlobalArrayOfArray(d, sym, fn);
 		if(isStruct(d.type))
-			return registerGlobalArrayOfStruct(d, symbol, fn);
-		return registerGlobalArrayOfScalar(d, symbol, fn);
+			return registerGlobalArrayOfStruct(d, sym, fn);
+		return registerGlobalArrayOfScalar(d, sym, fn);
 	}
 
-	B32 Emitter::registerGlobalStruct(const Declarator& d, const String& symbol, Function* fn) {
+	B32 Emitter::registerGlobalStruct(const Declarator& d, const String& sym, Function* fn) {
 		relocs.clear();
 		const StructType* st = d.type.strukt;
 		const Expr* sinit = d.init ? peelAggregateCompound(d.init) : nullptr;
@@ -275,12 +269,12 @@ namespace rat::cc {
 		if(!ok)
 			return false;
 
-		defineGlobal(d, symbol, byteArrayType(total), std::move(init));
-		bindGlobal(d, symbol, fn, false, 0);
+		defineGlobal(d, sym, byteArrayType(total), std::move(init));
+		bindGlobal(d, sym, fn, false, 0);
 		return true;
 	}
 
-	B32 Emitter::registerGlobalScalar(const Declarator& d, const String& symbol, Function* fn) {
+	B32 Emitter::registerGlobalScalar(const Declarator& d, const String& sym, Function* fn) {
 		relocs.clear();
 		if(d.type.isVoid() && !isPointer(d.type)) {
 			fail("variable '" + *d.name + "' has incomplete type 'void'");
@@ -305,13 +299,13 @@ namespace rat::cc {
 			} else {
 				I64 iv = 0;
 				if(!evalConst(dinit, iv)) {
-					String sym;
+					String target;
 					I64 add = 0;
 					B32 isIntScalar = !isPointer(d.type) && !isFloating(d.type) && !isAggregate(d.type) &&
 														!isVoidType(d.type);
 					B32 fits = isPointer(d.type) || (isIntScalar && byteSize(d.type) >= 8);
-					if(fits && evalAddrConst(dinit, sym, add)) {
-						relocs.push_back(Reloc{0, sym, add});
+					if(fits && evalAddrConst(dinit, target, add)) {
+						relocs.push_back(Reloc{0, target, add});
 					} else {
 						fail("initializer for '" + *d.name + "' is not a constant expression");
 						return false;
@@ -329,8 +323,8 @@ namespace rat::cc {
 			for(U32 i = 0; i < bytes; ++i)
 				init.push_back((U8)(value >> (8 * i)));
 		}
-		defineGlobal(d, symbol, irType(d.type), std::move(init));
-		bindGlobal(d, symbol, fn, false, 0);
+		defineGlobal(d, sym, irType(d.type), std::move(init));
+		bindGlobal(d, sym, fn, false, 0);
 		return true;
 	}
 
