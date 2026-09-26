@@ -38,6 +38,8 @@ namespace rat {
 		// if-conversion
 		static B32 freeValue(Node* v);
 		static B32 cheapOp(Opcode op);
+		B32 walkCone(Node* root);
+		B32 coneMayTrap(Node* v, Node* pred);
 		static I32 speculationCost(Node* v, Node* phi, U32 depth);
 		static B32 selectableType(Type* t);
 		U32 ifToSelect(Function& fn);
@@ -51,6 +53,8 @@ namespace rat {
 		List<Node*> selectRegions;
 		List<PhiNode*> phis;
 		List<PhiNode*> detachPhis;
+		Set<Node*> coneSeen;
+		List<Node*> coneWork;
 	};
 } // namespace rat
 

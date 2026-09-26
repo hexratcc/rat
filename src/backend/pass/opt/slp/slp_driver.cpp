@@ -115,7 +115,8 @@ namespace rat {
 		return provablyDisjoint(aa, a->getPointer(), ka, ka.size, b->getPointer(), kb, kb.size);
 	}
 
-	// skip the maximal run of stores that are disjoint from loadBase purely by object identity
+	// skip the maximal run of stores that are disjoint from loadBase purely by object identity,
+	// within the control of s
 	Node* slp::Slp::skipDisjointRun(StoreNode* s, Node* loadBase) {
 		Map<const Node*, Node*>& memo = skipMemo[loadBase];
 		List<const Node*> run;
@@ -123,8 +124,8 @@ namespace rat {
 		Node* endpoint = nullptr;
 		while(true) {
 			StoreNode* cs = dyn_cast<StoreNode>(cur);
-			if(!cs) {
-				endpoint = cur; // reached function entry / a non-store producer
+			if(!cs || cs->getControl() != s->getControl()) {
+				endpoint = cur; // function entry, a non-store producer, or another control
 				break;
 			}
 			auto it = memo.find(cur);
@@ -180,6 +181,8 @@ namespace rat {
 
 			Node* m = l->getMemory();
 			while(StoreNode* s = dyn_cast<StoreNode>(m)) {
+				if(s->getControl() != l->getControl())
+					break;
 				if(fastPath) {
 					Node* jumped = skipDisjointRun(s, lk.base);
 					if(jumped != m) {

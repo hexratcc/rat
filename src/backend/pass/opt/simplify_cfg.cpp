@@ -1,5 +1,6 @@
 #include "pass/opt/simplify_cfg.h"
 
+#include "codegen/schedule.h"
 #include "ir/function.h"
 #include "ir/node.h"
 #include "ir/type.h"
@@ -84,6 +85,29 @@ namespace rat {
 		}
 	}
 
+	B32 SimplifyCFGPass::walkCone(Node* root) {
+		B32 trap = false;
+		coneWork.clear();
+		coneWork.push_back(root);
+		while(!coneWork.empty()) {
+			Node* n = coneWork.back();
+			coneWork.pop_back();
+			if(!coneSeen.insert(n).second || freeValue(n))
+				continue;
+			trap |= Schedule::mayTrap(n);
+			for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
+				if(Node* in = n->getInput(i))
+					coneWork.push_back(in);
+		}
+		return trap;
+	}
+
+	B32 SimplifyCFGPass::coneMayTrap(Node* v, Node* pred) {
+		coneSeen.clear();
+		walkCone(pred);
+		return walkCone(v);
+	}
+
 	I32 SimplifyCFGPass::speculationCost(Node* v, Node* phi, U32 depth) {
 		if(freeValue(v))
 			return 0;
@@ -140,6 +164,8 @@ namespace rat {
 			I32 c0 = speculationCost(tv, phi, kSpeculationDepth);
 			I32 c1 = speculationCost(fv, phi, kSpeculationDepth);
 			if(!selectableType(phi->getType()) || c0 < 0 || c1 < 0)
+				return false;
+			if(coneMayTrap(tv, pred) || coneMayTrap(fv, pred))
 				return false;
 			cost += c0 + c1;
 		}

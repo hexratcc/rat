@@ -92,8 +92,13 @@ namespace rat {
 		a->storeMem(R10, 16, R11, 8);
 	}
 
-	void X86EncodePass::vaFetchOverflow(I32 step) {
-		a->load64(R11, R10, 8);									 // R11 = overflow_arg_area
+	void X86EncodePass::vaFetchOverflow(I32 step, U32 align) {
+		a->load64(R11, R10, 8); // R11 = overflow_arg_area
+		if(align > 8) {
+			// round up to the argument alignment
+			a->addRegImm32(R11, (I32)align - 1);
+			a->aluImm(4, R11, -(I32)align); // and
+		}
 		a->storeMem(RBP, fl->ldScratch, R11, 8); // stash address
 		a->addRegImm32(R11, step);							 // advance
 		a->storeMem(R10, 8, R11, 8);						 // write back overflow_arg_area
@@ -111,7 +116,7 @@ namespace rat {
 		a->addRegMem(R11, R10, 16);					// R11 += reg_save_area base
 		U32 done = a->jmpRel32();
 		a->patchRel32(toStack, a->here());
-		vaFetchOverflow(8);
+		vaFetchOverflow(8, 8);
 		a->patchRel32(done, a->here());
 	}
 
@@ -121,7 +126,7 @@ namespace rat {
 		vaPtrToR10(in);
 		VaArgKind kind = (VaArgKind)in.imm;
 		if(kind == VaArgKind::X87)
-			vaFetchOverflow(16);
+			vaFetchOverflow(16, 16);
 		else if(kind == VaArgKind::Sse)
 			vaFetch(4, conv->regSaveBytes, (I32)conv->sseSlotBytes);
 		else
@@ -150,6 +155,7 @@ namespace rat {
 			const MachineOperand& u = in.uses[i];
 			if(u.kind == MachineOperand::Kind::FrameSlot) {
 				if(u.width == 16) { // by-value x87
+					off = (off + 15) & ~15;
 					fldSlot(u.slot);
 					a->fstpT(RSP, off);
 					off += 16;

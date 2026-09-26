@@ -478,7 +478,8 @@ namespace rat {
 		Set<Node*> dead;
 		List<Node*> work;
 		for(Node* n : nodes) {
-			B32 anchored = isa<LoadNode>(n) || isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n);
+			B32 anchored = isa<LoadNode>(n) || isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n) ||
+										 isa<PhiNode>(n);
 			if(anchored && !n->getControlInput()) {
 				dead.insert(n);
 				work.push_back(n);
