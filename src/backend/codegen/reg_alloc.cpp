@@ -387,6 +387,33 @@ namespace rat {
 			out.push_back(std::move(s));
 	}
 
+	// a copy between a register and a spilled bundle is its reload or its spill
+	B32 detail::RegAllocFunc::rewriteCopy(List<MachineInstr>& out, const MachineInstr& in, U32 i) {
+		const MachineOperand& d = in.defs[0];
+		const MachineOperand& s = in.uses[0];
+		if(!(d.isVReg() || d.isPhys()) || !(s.isVReg() || s.isPhys()))
+			return false;
+		PhysReg dr = regOf(d);
+		PhysReg sr = regOf(s);
+		if(dr != kNoReg && sr != kNoReg)
+			return false;
+		if(sr == kNoReg) {
+			if(dr == kNoReg)
+				dr = pickTemp(fn.vregClass[s.vreg], busy[2 * (U64)i] | busy[2 * (U64)i + 1], 0);
+			out.push_back(hooks.makeReload(dr, bundle(s.vreg).slot, fn.vregClass[s.vreg], s.width));
+			sr = dr;
+		}
+		if(d.isVReg() && bundle(d.vreg).reg == kNoReg)
+			out.push_back(hooks.makeSpill(bundle(d.vreg).slot, sr, fn.vregClass[d.vreg], d.width));
+		return true;
+	}
+
+	PhysReg detail::RegAllocFunc::regOf(const MachineOperand& o) const {
+		if(o.isPhys())
+			return o.phys;
+		return bundle(o.vreg).reg;
+	}
+
 	// copies inside a bundle vanish
 	void detail::RegAllocFunc::rewrite() {
 		List<MachineInstr> out;
@@ -397,7 +424,7 @@ namespace rat {
 			for(U32 k = 0; k < insts.size(); ++k) {
 				MachineInstr& in = insts[k];
 				U32 i = blockFirst[b] + k;
-				if(isCopy(in) && sameBundle(in.defs[0], in.uses[0]))
+				if(isCopy(in) && (sameBundle(in.defs[0], in.uses[0]) || rewriteCopy(out, in, i)))
 					continue;
 				rewriteInstr(out, in, i);
 			}

@@ -41,6 +41,8 @@ namespace rat {
 			PhysReg pick(VReg v) const;
 			// rewrite
 			void rewrite();
+			B32 rewriteCopy(List<MachineInstr>& out, const MachineInstr& in, U32 i);
+			PhysReg regOf(const MachineOperand& o) const;
 			void rewriteInstr(List<MachineInstr>& out, MachineInstr& in, U32 i);
 			PhysReg spillReg(List<MachineInstr>& out, const MachineOperand& o, U32 i, B32 use);
 			PhysReg pickTemp(U32 cls, U64 hard, U64 soft);
