@@ -63,7 +63,7 @@ namespace rat {
 
 		using RelBuckets = List<const Rel*>[kSections];
 		void partitionRelocs(RelBuckets buckets) const;
-
+	private:
 		ObjectFormat format;
 		List<U8> raw[kByteSections];
 		U32 bssSize = 0;
