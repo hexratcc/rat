@@ -35,12 +35,11 @@ namespace rat {
 	}
 
 	PhysReg X86LowerPass::xmmReg(U32 n) { return detail::xmmPhys(n); }
-	B32 X86LowerPass::isFloatTy(const Type* t) { return t && t->isFloat(); }
 	B32 X86LowerPass::isX87Ty(const Type* t) {
 		return t && t->isFloat() && t->getFloatWidth() == 128;
 	}
 	B32 X86LowerPass::isSseTy(const Type* t) {
-		return (isFloatTy(t) && !isX87Ty(t)) || (t && t->isVec());
+		return t && (t->isVec() || (t->isFloat() && !isX87Ty(t)));
 	}
 	U32 X86LowerPass::intBits(const Type* t) { return t && t->isInt() ? t->getIntWidth() : 64; }
 
@@ -55,22 +54,18 @@ namespace rat {
 		return true;
 	}
 
-	B32 X86LowerPass::isIntCompare(Node* n) {
+	B32 X86LowerPass::fusableCompare(Node* n) {
 		Opcode op = n->getOpcode();
-		return isCompareOpcode(op) && op < Opcode::FEq;
-	}
-
-	B32 X86LowerPass::fusableFpCompare(Node* n) {
-		Opcode op = n->getOpcode();
-		if(!isCompareOpcode(op) || op < Opcode::FLt)
+		if(!isCompareOpcode(op))
 			return false;
-		CompareNode* c = cast<CompareNode>(n);
-		return !isX87Ty(c->getLHS()->getType());
+		if(op < Opcode::FEq)
+			return true;
+		return op >= Opcode::FLt && !isX87Ty(cast<CompareNode>(n)->getLHS()->getType());
 	}
 
 	// every user is a select reading n as its condition only
-	B32 X86LowerPass::onlySelectCondUsers(Node* n) {
-		if(n->getUsers().empty())
+	B32 X86LowerPass::selectOnlyCompare(Node* n) {
+		if(!fusableCompare(n) || n->getUsers().empty())
 			return false;
 		for(Node* u : n->getUsers()) {
 			SelectNode* s = dyn_cast<SelectNode>(u);
@@ -81,30 +76,13 @@ namespace rat {
 		return true;
 	}
 
-	B32 X86LowerPass::selectOnlyCompare(Node* n) { return isIntCompare(n) && onlySelectCondUsers(n); }
-
-	B32 X86LowerPass::fpSelectOnlyCompare(Node* n) {
-		return fusableFpCompare(n) && onlySelectCondUsers(n);
-	}
-
 	B32 X86LowerPass::branchOnlyCompare(Node* n) {
-		if(!isIntCompare(n) && !fusableFpCompare(n))
+		if(!fusableCompare(n))
 			return false;
 		for(Node* u : n->getUsers())
 			if(!isa<IfNode>(u))
 				return false;
 		return !n->getUsers().empty();
-	}
-
-	void X86LowerPass::reset(const Function& f, Schedule& s, MachineFunc& o, X86FrameLayout& layout) {
-		fn = &f;
-		sched = &s;
-		out = &o;
-		fl = &layout;
-		vregOf.assign(f.idBound(), kNoVReg);
-		x87Slot.assign(f.idBound(), kNoSlot);
-		allocOff.assign(f.idBound(), kNoSlot);
-		mb = nullptr;
 	}
 
 	void X86LowerPass::needScratch() {
@@ -113,46 +91,29 @@ namespace rat {
 	}
 
 	I32 X86LowerPass::reserve(U32 bytes, U32 align) {
-		if(align < 8)
-			align = 8;
-		if(align > 16)
-			align = 16;
+		align = std::clamp(align, 8u, 16u);
 		out->frameBytes += bytes;
 		out->frameBytes = (out->frameBytes + align - 1u) & ~(align - 1u);
 		return -(I32)out->frameBytes;
 	}
 
 	void X86LowerPass::layout() {
-		for(const Node* n : *fn) {
+		for(const Node* n : *fn)
 			if(const AllocNode* al = dyn_cast<AllocNode>(n)) {
-				U32 sz = al->getAllocType()->byteSize(ptrBytes);
-				if(sz == 0)
-					sz = 8;
-				sz = (sz + 7u) & ~7u;
-				allocOff[n->getId()] = reserve(sz, al->getAlign());
+				U32 sz = std::max(al->getAllocType()->byteSize(ptrBytes), 8u);
+				allocOff[n->getId()] = reserve((sz + 7u) & ~7u, al->getAlign());
 			}
-		}
 		if(conv->x87ByRef && isX87Ty(fn->getReturnType()))
 			fl->sretSlot = reserve(8); // stash for the hidden x87 sret pointer
 		fl->variadic = fn->getAttrs().variadic;
-		if(fl->variadic) {
-			needScratch(); // va_arg fetch sequences stash through the scratch slot
-			layoutVariadic();
-		}
-	}
-
-	void X86LowerPass::layoutVariadic() {
-		using Kind = X86ArgAssigner::Kind;
+		if(!fl->variadic)
+			return;
+		needScratch(); // va_arg fetch sequences stash through the scratch slot
 		X86ArgAssigner as(*conv);
 		if(conv->x87ByRef && isX87Ty(fn->getReturnType()))
 			as.next(Kind::Int); // hidden sret pointer
-		for(U32 i = 0; i < fn->getParamCount(); ++i) {
-			Type* t = fn->getParamType(i);
-			if(isX87Ty(t))
-				as.next(conv->x87ByRef ? Kind::Int : Kind::X87);
-			else
-				as.next(isSseTy(t) ? Kind::Sse : Kind::Int);
-		}
+		for(U32 i = 0; i < fn->getParamCount(); ++i)
+			as.next(argKind(fn->getParamType(i)));
 		if(conv->vaList == X86VaList::CharPtr) {
 			fl->namedGp = as.slot;
 			fl->overflowOff = conv->homeOff + 8 * (I32)as.slot;
@@ -164,33 +125,35 @@ namespace rat {
 		fl->saveArea = reserve(conv->regSaveBytes);
 	}
 
+	X86LowerPass::Kind X86LowerPass::argKind(const Type* t) const {
+		if(isX87Ty(t))
+			return conv->x87ByRef ? Kind::Int : Kind::X87;
+		return isSseTy(t) ? Kind::Sse : Kind::Int;
+	}
+
 	U32 X86LowerPass::classOf(const Type* t) const {
 		if(isX87Ty(t))
 			return detail::kX87;
-		if(isFloatTy(t) || (t && t->isVec()))
+		if(t && (t->isFloat() || t->isVec()))
 			return detail::kFp;
 		return detail::kGp;
 	}
 
 	VReg X86LowerPass::fresh(U32 cls) { return out->newVReg(cls); }
 
-	I32 X86LowerPass::x87SlotOf(const Node* n) {
-		I32& slot = x87Slot[n->getId()];
-		if(slot == kNoSlot)
-			slot = reserve(16);
-		return slot;
+	Slot X86LowerPass::x87SlotOf(const Node* n) {
+		I32& s = x87Slot[n->getId()];
+		if(s == kNoSlot)
+			s = reserve(16);
+		return slot(s);
 	}
 
 	VReg X86LowerPass::vregFor(const Node* n) {
-		VReg& v0 = vregOf[n->getId()];
-		if(v0 != kNoVReg)
-			return v0;
-		VReg v = fresh(classOf(n->getType()));
-		v0 = v;
+		VReg& v = vregOf[n->getId()];
+		if(v == kNoVReg)
+			v = fresh(classOf(n->getType()));
 		return v;
 	}
-
-	void X86LowerPass::emit(MachineInstr in) { mb->insts.push_back(std::move(in)); }
 
 	VReg X86LowerPass::gpValue(Node* n) {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
@@ -208,49 +171,50 @@ namespace rat {
 			lea(d, g->getSymbol());
 			return d;
 		}
-		if(AllocNode* al = dyn_cast<AllocNode>(n)) {
-			VReg d = fresh(detail::kGp);
-			leaFrame(d, allocOff[al->getId()]);
-			return d;
-		}
+		if(isa<AllocNode>(n))
+			return frameAddr(allocOff[n->getId()]);
 		return vregFor(n);
+	}
+
+	U32 X86LowerPass::log2Scale(I64 c) {
+		if(c == 2)
+			return 1;
+		if(c == 4)
+			return 2;
+		if(c == 8)
+			return 3;
+		return 0;
+	}
+
+	BinaryNode* X86LowerPass::asAdd(Node* n) {
+		BinaryNode* b = dyn_cast<BinaryNode>(n);
+		if(!b || b->getOpcode() != Opcode::Add)
+			return nullptr;
+		return b;
 	}
 
 	B32 X86LowerPass::scaleOf(Node* n, Node*& idx, U32& scaleLog2) {
 		BinaryNode* b = dyn_cast<BinaryNode>(n);
-		if(!b)
+		if(!b || opWidth(n->getType()) != 8)
 			return false;
-		if(opWidth(n->getType()) != 8)
-			return false;
-		I64 c;
-		if(b->getOpcode() == Opcode::Shl) {
-			if(immOf(b->getRHS(), c) && c >= 1 && c <= 3) {
-				idx = b->getLHS();
-				scaleLog2 = (U32)c;
-				return true;
-			}
-			return false;
-		}
-		if(b->getOpcode() == Opcode::Mul) {
-			Node* other = nullptr;
+		I64 c = 0;
+		Node* x = nullptr;
+		U32 sc = 0;
+		if(b->getOpcode() == Opcode::Shl && immOf(b->getRHS(), c) && c >= 1 && c <= 3) {
+			x = b->getLHS();
+			sc = (U32)c;
+		} else if(b->getOpcode() == Opcode::Mul) {
 			if(immOf(b->getRHS(), c))
-				other = b->getLHS();
+				x = b->getLHS();
 			else if(immOf(b->getLHS(), c))
-				other = b->getRHS();
-			if(!other)
-				return false;
-			if(c == 2)
-				scaleLog2 = 1;
-			else if(c == 4)
-				scaleLog2 = 2;
-			else if(c == 8)
-				scaleLog2 = 3;
-			else
-				return false;
-			idx = other;
-			return true;
+				x = b->getRHS();
+			sc = log2Scale(c);
 		}
-		return false;
+		if(!x || sc == 0)
+			return false;
+		idx = x;
+		scaleLog2 = sc;
+		return true;
 	}
 
 	I64 X86LowerPass::sibBits(I64 sign, const AddrParts& a) {
@@ -259,43 +223,30 @@ namespace rat {
 
 	X86LowerPass::AddrMatch X86LowerPass::decodeAddr(Node* ptr) {
 		AddrMatch m;
-		m.base = ptr;
 		Node* work = ptr;
-		if(BinaryNode* add = dyn_cast<BinaryNode>(work)) {
-			if(add->getOpcode() == Opcode::Add) {
-				I64 c;
-				if(immOf(add->getRHS(), c)) {
-					m.disp = (I32)c;
-					work = add->getLHS();
-				} else if(immOf(add->getLHS(), c)) {
-					m.disp = (I32)c;
-					work = add->getRHS();
-				}
-			}
-		}
-		if(BinaryNode* add = dyn_cast<BinaryNode>(work)) {
-			if(add->getOpcode() == Opcode::Add) {
-				Node* idx = nullptr;
-				U32 sc = 0;
-				if(scaleOf(add->getRHS(), idx, sc)) {
-					m.base = add->getLHS();
-					m.index = idx;
-					m.scaleNode = add->getRHS();
-					m.scaleLog2 = sc;
-					m.hasIndex = true;
-					return m;
-				}
-				if(scaleOf(add->getLHS(), idx, sc)) {
-					m.base = add->getRHS();
-					m.index = idx;
-					m.scaleNode = add->getLHS();
-					m.scaleLog2 = sc;
-					m.hasIndex = true;
-					return m;
-				}
+		I64 c;
+		if(BinaryNode* add = asAdd(work)) {
+			if(immOf(add->getRHS(), c)) {
+				m.disp = (I32)c;
+				work = add->getLHS();
+			} else if(immOf(add->getLHS(), c)) {
+				m.disp = (I32)c;
+				work = add->getRHS();
 			}
 		}
 		m.base = work;
+		BinaryNode* add = asAdd(work);
+		if(!add)
+			return m;
+		Node* ops[2] = {add->getRHS(), add->getLHS()};
+		for(U32 i = 0; i < 2; ++i) {
+			if(!scaleOf(ops[i], m.index, m.scaleLog2))
+				continue;
+			m.base = ops[1 - i];
+			m.scaleNode = ops[i];
+			m.hasIndex = true;
+			return m;
+		}
 		return m;
 	}
 
@@ -323,14 +274,12 @@ namespace rat {
 	}
 
 	B32 X86LowerPass::addressOnlyAdd(Node* n) {
-		BinaryNode* add = dyn_cast<BinaryNode>(n);
-		if(!add || add->getOpcode() != Opcode::Add)
+		BinaryNode* add = asAdd(n);
+		if(!add || n->getUsers().empty())
 			return false;
 		AddrMatch m = decodeAddr(n);
 		I64 c;
 		if(!m.hasIndex && !immOf(add->getRHS(), c) && !immOf(add->getLHS(), c))
-			return false;
-		if(n->getUsers().empty())
 			return false;
 		for(Node* u : n->getUsers()) {
 			// x87 memory ops carry the operand width in imm and cannot fold a
@@ -341,9 +290,9 @@ namespace rat {
 			} else if(StoreNode* st = dyn_cast<StoreNode>(u)) {
 				if(st->getPointer() != n || st->getValue() == n || isX87Ty(st->getValue()->getType()))
 					return false;
-			} else if(BinaryNode* ua = dyn_cast<BinaryNode>(u)) {
+			} else if(isa<BinaryNode>(u)) {
 				// ptr + const chains decompose n through the user's own addr match
-				if(ua->getOpcode() != Opcode::Add || !addressOnlyAdd(u))
+				if(!addressOnlyAdd(u))
 					return false;
 				AddrMatch um = decodeAddr(u);
 				if(um.base == n || um.index == n)
@@ -358,19 +307,11 @@ namespace rat {
 	B32 X86LowerPass::addressOnlyScale(Node* n) {
 		Node* idx = nullptr;
 		U32 sc = 0;
-		if(!scaleOf(n, idx, sc))
+		if(!scaleOf(n, idx, sc) || n->getUsers().empty())
 			return false;
-		if(n->getUsers().empty())
-			return false;
-		for(Node* u : n->getUsers()) {
-			BinaryNode* add = dyn_cast<BinaryNode>(u);
-			if(!add || add->getOpcode() != Opcode::Add)
+		for(Node* u : n->getUsers())
+			if(!addressOnlyAdd(u) || decodeAddr(u).scaleNode != n)
 				return false;
-			if(!addressOnlyAdd(add))
-				return false;
-			if(decodeAddr(add).scaleNode != n)
-				return false;
-		}
 		return true;
 	}
 
@@ -387,7 +328,7 @@ namespace rat {
 
 	String X86LowerPass::fpPoolSym(U64 bits, U32 width) {
 		C8 buf[40];
-		std::snprintf(buf, sizeof buf, "__rat_fp%u_%016llx", width, (unsigned long long)bits);
+		std::snprintf(buf, sizeof buf, "__rat_fp%u_%016lx", width, bits);
 		String name(buf);
 		if(!mod->getGlobal(name)) {
 			List<U8> init(width);
@@ -405,37 +346,25 @@ namespace rat {
 		ldf(dst, w, fpPoolSym((U64)c->getValue(), w));
 	}
 
-	VReg X86LowerPass::fpConst(U64 bits, U32 width) {
-		VReg d = fresh(detail::kFp);
-		ldf(d, width, fpPoolSym(bits, width));
-		return d;
-	}
-
-	I32 X86LowerPass::x87Value(Node* n) {
+	Slot X86LowerPass::x87Value(Node* n) {
+		Slot s = x87SlotOf(n);
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
-			I32 s = x87SlotOf(n);
 			needScratch();
-			fldImm(slot(s), (U64)c->getValue());
-			return s;
+			fldImm(s, (U64)c->getValue());
 		}
-		return x87SlotOf(n);
+		return s;
 	}
-
-	void X86LowerPass::x87Move(I32 dst, I32 src) { fldSlot(slot(dst), slot(src)); }
 
 	void X86LowerPass::emitNode(Node* n) {
-		switch(n->getOpcode()) {
-		case Opcode::Global: {
-			GlobalNode* g = cast<GlobalNode>(n);
-			lea(vregFor(n), g->getSymbol());
+		Opcode op = n->getOpcode();
+		switch(op) {
+		case Opcode::Global:
+			lea(vregFor(n), cast<GlobalNode>(n)->getSymbol());
 			return;
-		}
-		case Opcode::Constant: {
-			ConstantNode* c = cast<ConstantNode>(n);
+		case Opcode::Constant:
 			if(isSseTy(n->getType()))
-				fpConstLoad(c, vregFor(n));
+				fpConstLoad(cast<ConstantNode>(n), vregFor(n));
 			return;
-		}
 		case Opcode::Store:
 			emitStore(cast<StoreNode>(n));
 			return;
@@ -450,14 +379,16 @@ namespace rat {
 			return;
 		case Opcode::Alloc:
 			return;
-		case Opcode::StackAlloc:
-			emitStackAlloc(n);
+		case Opcode::StackAlloc: {
+			VReg sz = gpValue(cast<StackAllocNode>(n)->getSize());
+			stackAlloc(vregFor(n), sz);
 			return;
+		}
 		case Opcode::StackSave:
-			emitStackSave(n);
+			stackSave(vregFor(n));
 			return;
 		case Opcode::StackRestore:
-			emitStackRestore(n);
+			stackRestore(gpValue(cast<StackRestoreNode>(n)->getSaved()));
 			return;
 		case Opcode::Splat:
 			emitSplat(cast<SplatNode>(n));
@@ -468,42 +399,37 @@ namespace rat {
 		case Opcode::Pack:
 			emitPack(cast<PackNode>(n));
 			return;
-		case Opcode::Shuffle:
-			emitShuffle(cast<ShuffleNode>(n));
+		case Opcode::Shuffle: {
+			VReg v = sseValue(cast<ShuffleNode>(n)->getVector());
+			vshuf(vregFor(n), v, cast<ShuffleNode>(n)->getSelector());
 			return;
+		}
 		case Opcode::Select:
 			emitSelect(cast<SelectNode>(n));
 			return;
 		default:
 			break;
 		}
-		if(isCompareOpcode(n->getOpcode())) {
+		if(isCompareOpcode(op)) {
 			if(branchOnlyCompare(n))
 				return; // no value users; each If re-emits the compare fused with its jcc
-			if(selectOnlyCompare(n) || fpSelectOnlyCompare(n))
+			if(selectOnlyCompare(n))
 				return; // each select re-emits it fused with its cmov
 			emitCompare(cast<CompareNode>(n));
-			return;
-		}
-		if(isConvertOpcode(n->getOpcode())) {
+		} else if(isConvertOpcode(op)) {
 			emitConvert(cast<ConvertNode>(n));
-			return;
-		}
-		if(isUnaryOpcode(n->getOpcode())) {
+		} else if(isUnaryOpcode(op)) {
 			emitUnary(cast<UnaryNode>(n));
-			return;
-		}
-		if(isBinaryOpcode(n->getOpcode())) {
+		} else if(isBinaryOpcode(op)) {
 			if(addressOnlyAdd(n))
 				return; // folded into base+index*scale+disp of every using load/store
 			if(addressOnlyScale(n))
 				return; // folded into the SIB scale of every using address
 			emitBinary(cast<BinaryNode>(n));
-			return;
 		}
 	}
 
-	void X86LowerPass::phiMove(VReg dst, VReg src, U32 cls, U32 w) {
+	void X86LowerPass::moveValue(VReg dst, VReg src, U32 cls, U32 w) {
 		if(cls == detail::kFp)
 			movaps(dst, src, w);
 		else
@@ -513,36 +439,29 @@ namespace rat {
 	// parallel-move semantics
 	void X86LowerPass::emitPhiCopies(I32 targetBlock, I32 predIdx) {
 		const Schedule::Block& tb = sched->block(targetBlock);
-		List<PhiNode*> live;
-		List<VReg> tmp;
-		List<PhiNode*> liveX87;
-		List<I32> tmpX87;
+		List<Pair<PhiNode*, VReg>> moves;
+		List<Pair<PhiNode*, Slot>> x87Moves;
 		for(PhiNode* phi : tb.phis) {
 			Node* v = phi->getValue(predIdx);
 			if(v == phi)
 				continue;
 			U32 cls = classOf(phi->getType());
 			if(cls == detail::kX87) {
-				I32 s = x87Value(v);
+				Slot s = x87Value(v);
 				needScratch();
-				I32 t = reserve(16);
-				x87Move(t, s);
-				liveX87.push_back(phi);
-				tmpX87.push_back(t);
+				Slot t = slot(reserve(16));
+				fldSlot(t, s);
+				x87Moves.push_back({phi, t});
 				continue;
 			}
 			VReg t = fresh(cls);
-			phiMove(t, cls == detail::kFp ? sseValue(v) : gpValue(v), cls, opWidth(phi->getType()));
-			live.push_back(phi);
-			tmp.push_back(t);
+			moveValue(t, cls == detail::kFp ? sseValue(v) : gpValue(v), cls, opWidth(phi->getType()));
+			moves.push_back({phi, t});
 		}
-		for(U32 i = 0; i < (U32)live.size(); ++i) {
-			PhiNode* phi = live[i];
-			U32 cls = classOf(phi->getType());
-			phiMove(vregFor(phi), tmp[i], cls, opWidth(phi->getType()));
-		}
-		for(U32 i = 0; i < (U32)liveX87.size(); ++i)
-			x87Move(x87SlotOf(liveX87[i]), tmpX87[i]);
+		for(const auto& [phi, t] : moves)
+			moveValue(vregFor(phi), t, classOf(phi->getType()), opWidth(phi->getType()));
+		for(const auto& [phi, t] : x87Moves)
+			fldSlot(x87SlotOf(phi), t);
 	}
 
 	void X86LowerPass::emitTerminator(I32 b) {
@@ -552,17 +471,10 @@ namespace rat {
 			emitReturn(cast<ReturnNode>(blk.termNode));
 			return;
 		case Schedule::TermKind::Branch: {
-			IfNode* iff = cast<IfNode>(blk.termNode);
-			Node* pred = iff->getPredicate();
-			if(isIntCompare(pred)) {
+			Node* pred = cast<IfNode>(blk.termNode)->getPredicate();
+			if(fusableCompare(pred)) {
 				// fuse the compare into the branch: cmp lhs, rhs; jcc
-				U8 cc = emitIntCmp(cast<CompareNode>(pred));
-				jcc(cc, blk.thenB, blk.elseB);
-				return;
-			}
-			if(fusableFpCompare(pred)) {
-				// fuse: ucomis lhs, rhs; jcc
-				U8 cc = fusedFpCmp(cast<CompareNode>(pred));
+				U8 cc = emitCmp(cast<CompareNode>(pred));
 				jcc(cc, blk.thenB, blk.elseB);
 				return;
 			}
@@ -572,8 +484,7 @@ namespace rat {
 		}
 		case Schedule::TermKind::Switch: {
 			// per-edge trampoline blocks carry phi copies, so the table jump is direct
-			SwitchNode* sw = cast<SwitchNode>(blk.termNode);
-			VReg sel = gpValue(sw->getSelector());
+			VReg sel = gpValue(cast<SwitchNode>(blk.termNode)->getSelector());
 			switchJump(sel, blk.caseB);
 			return;
 		}
@@ -584,7 +495,7 @@ namespace rat {
 		}
 	}
 
-	void X86LowerPass::lowerFunction() {
+	void X86LowerPass::lowerBlocks() {
 		layout();
 		const List<I32>& order = sched->rpo();
 		out->blocks.assign(sched->numBlocks(), {});
@@ -600,14 +511,11 @@ namespace rat {
 				emitNode(n);
 			emitTerminator(b);
 		}
-		for(U32 i = 0; i < order.size(); ++i) {
-			I32 b = order[i];
-			MachineBlock& block = out->blocks[b];
+		for(I32 b : order)
 			for(I32 s : sched->successors(b)) {
-				block.succs.push_back(s);
+				out->blocks[b].succs.push_back(s);
 				out->blocks[s].preds.push_back(b);
 			}
-		}
 
 		// x87 sequences stage through r10/r11 in the encoder; declare so the
 		// allocator can use them elsewhere
@@ -620,27 +528,29 @@ namespace rat {
 	}
 
 	B32 X86LowerPass::run(Module& module, MachineModule& mm, const TargetInfo& target) {
-		B32 changed = false;
 		mod = &module;
-		for(const Function* fn : module) {
-			runOnMachineFunction(*fn, mm.get(fn), target);
-			changed = true;
-		}
-		return changed;
+		for(const Function* f : module)
+			lowerFn(*f, mm.get(f), target);
+		return module.begin() != module.end();
 	}
 
-	void X86LowerPass::runOnMachineFunction(const Function& fn,
-																					MachineFunc& mf,
-																					const TargetInfo& target) {
+	void X86LowerPass::lowerFn(const Function& f, MachineFunc& mf, const TargetInfo& target) {
 		conv = &x86CallConv(target.getTriple().os);
 		regs = target.registers();
 		ptrBytes = target.getPointerSizeInBytes();
 		sse41 = target.hasSse41();
-		Schedule sched(fn);
-		X86FrameLayout fl;
-		reset(fn, sched, mf, fl);
-		lowerFunction();
-		mf.aux = std::make_unique<X86FrameLayout>(fl); // the layout rides along on mf.aux
+		Schedule s(f);
+		X86FrameLayout frame;
+		fn = &f;
+		sched = &s;
+		out = &mf;
+		fl = &frame;
+		mb = nullptr;
+		vregOf.assign(f.idBound(), kNoVReg);
+		x87Slot.assign(f.idBound(), kNoSlot);
+		allocOff.assign(f.idBound(), kNoSlot);
+		lowerBlocks();
+		mf.aux = std::make_unique<X86FrameLayout>(frame); // the layout rides along on mf.aux
 	}
 
 	RegAllocHooks X86Target::regAllocHooks() const {

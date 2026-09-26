@@ -22,7 +22,6 @@ namespace rat {
 	struct PackNode;
 	struct ProjNode;
 	struct SelectNode;
-	struct ShuffleNode;
 	struct ReturnNode;
 	struct SplatNode;
 	struct StoreNode;
@@ -42,39 +41,48 @@ namespace rat {
 			B32 hasIndex = false;
 			B32 frameBase = false; // rbp-rel
 		};
+		struct AddrMatch {
+			Node* base = nullptr;
+			Node* index = nullptr;
+			Node* scaleNode = nullptr;
+			U32 scaleLog2 = 0;
+			I32 disp = 0;
+			B32 hasIndex = false;
+		};
+		using Kind = X86ArgAssigner::Kind;
+		using Ops = List<MachineOperand>;
+		struct CallArg {
+			MachineOperand val; // vreg, or a 16-byte frame slot for by-value x87
+			Kind cls;
+			I32 reg;
+		};
 
-		void runOnMachineFunction(const Function& fn, MachineFunc& mf, const TargetInfo& target);
-
-		void reset(const Function& f, Schedule& s, MachineFunc& o, X86FrameLayout& layout);
-		void lowerFunction();
+		void lowerFn(const Function& f, MachineFunc& mf, const TargetInfo& target);
+		void lowerBlocks();
 
 		static PhysReg gpReg(Reg r);
 		static PhysReg xmmReg(U32 n);
-		static B32 isFloatTy(const Type* t);
 		static B32 isX87Ty(const Type* t);
 		static B32 isSseTy(const Type* t);
 		static U32 intBits(const Type* t);
-		static B32 isIntCompare(Node* n);
 		static B32 immOf(Node* n, I64& out);
 		static B32 branchOnlyCompare(Node* n);
-		static B32 onlySelectCondUsers(Node* n);
 		static B32 selectOnlyCompare(Node* n);
-		static B32 fpSelectOnlyCompare(Node* n);
-		static B32 fusableFpCompare(Node* n);
+		static B32 fusableCompare(Node* n);
+		static U32 log2Scale(I64 c);
+		static BinaryNode* asAdd(Node* n);
 		static B32 zextOnlyLoad(const LoadNode* l);
 		static U32 opWidth(const Type* t);
 
 		I32 reserve(U32 bytes, U32 align = 8);
 		void needScratch();
 		void layout();
-		void layoutVariadic();
 		U32 classOf(const Type* t) const;
+		Kind argKind(const Type* t) const;
 		VReg fresh(U32 cls);
-		I32 x87SlotOf(const Node* n);
+		Slot x87SlotOf(const Node* n);
 		VReg vregFor(const Node* n);
-		void emit(MachineInstr in);
-		MachineInstr&
-		put(X86Op op, List<MachineOperand> defs, List<MachineOperand> uses, I64 imm = 0, I64 imm2 = 0);
+		MachineInstr& put(X86Op op, Ops defs, Ops uses, I64 imm = 0, I64 imm2 = 0);
 
 		// data movement
 		void mov(VReg d, VReg s);
@@ -170,14 +178,6 @@ namespace rat {
 
 		VReg gpValue(Node* n);
 
-		struct AddrMatch {
-			Node* base = nullptr;
-			Node* index = nullptr;
-			Node* scaleNode = nullptr;
-			U32 scaleLog2 = 0;
-			I32 disp = 0;
-			B32 hasIndex = false;
-		};
 		B32 scaleOf(Node* n, Node*& idx, U32& scaleLog2);
 		AddrMatch decodeAddr(Node* ptr);
 		AddrParts matchAddr(Node* ptr);
@@ -189,84 +189,82 @@ namespace rat {
 		VReg sseValue(Node* n);
 		String fpPoolSym(U64 bits, U32 width);
 		void fpConstLoad(ConstantNode* c, VReg dst);
-		VReg fpConst(U64 bits, U32 width);
-		I32 x87Value(Node* n);
-		void x87Move(I32 dst, I32 src);
+		Slot x87Value(Node* n);
 		void emitStore(StoreNode* s);
 		void emitLoad(LoadNode* l);
-		void emitStackAlloc(Node* n);
-		void emitStackSave(Node* n);
-		void emitStackRestore(Node* n);
-		void twoAddr(X86Op op, VReg d, VReg lhs, VReg rhs);
 		VReg frameAddr(I64 disp);
 		void maskBits(VReg d, U32 bits);
 		void signExtBits(VReg d, U32 bits);
 		void emitDivLike(BinaryNode* n, X86Op op);
 		void emitShift(BinaryNode* n, X86Op op);
-		void emitRotate(BinaryNode* n, B32 left);
+		void emitRotate(BinaryNode* n, X86Op op);
+		void emitAlu(BinaryNode* n, X86Op op);
+		void mulImm(VReg d, VReg s, I64 v);
 		void emitBinary(BinaryNode* n);
 		void emitFloatBinary(BinaryNode* n);
 		void emitVecBinary(BinaryNode* n);
 		void emitSplat(SplatNode* n);
 		void emitExtract(ExtractNode* n);
+		B32 emitConstPack(PackNode* n, U32 esz);
 		void emitPack(PackNode* n);
-		void emitShuffle(ShuffleNode* n);
 		void emitSelect(SelectNode* n);
-		void needVecScratch();
 		String vecPoolSym(const List<U8>& bytes);
-		void emitX87Binary(BinaryNode* n, U32 idx);
-		void gpAcc(X86Op op, VReg d, VReg s);
-		void gpShrImm(VReg d, U32 cnt);
 		VReg gpConst(I64 v);
 		void emitBitScan(UnaryNode* n, B32 reverse);
 		void emitPopcnt(UnaryNode* n);
-		void emitBswap(UnaryNode* n);
-		B32 emitInlineIntrinsic(CallNode* n);
+		void emitFNeg(UnaryNode* n);
 		void emitUnary(UnaryNode* n);
-		U8 emitIntCmp(CompareNode* n);
-		U8 fusedFpCmp(CompareNode* n);
+		U8 emitCmp(CompareNode* n);
 		void emitCompare(CompareNode* n);
-		void emitFloatCompare(CompareNode* n);
-		void unorderedFixup(Opcode op, VReg d);
 		static I64 cvtDesc(U8 pfx, U8 opc, B32 w);
 		void emitConvert(ConvertNode* n);
+		void emitIntResize(ConvertNode* n, Node* src);
+		void emitIntToFP(ConvertNode* n, Node* src);
+		void emitFPToInt(ConvertNode* n, Node* src);
+		Pair<VReg, VReg> splitHalves(VReg s);
+		void blendU64(ConvertNode* n, VReg lo, VReg hi, VReg m);
 		void emitU64ToFP(ConvertNode* n, VReg s, U32 w);
 		void emitFPToU64(ConvertNode* n, Node* src);
 		void emitUIntToX87(ConvertNode* n, VReg s, U32 bits);
-		void emitX87ToU64(ConvertNode* n, Node* src);
+		void emitX87ToU64(ConvertNode* n, Slot x);
 		void emitConvertX87(ConvertNode* n, Node* src, Opcode op);
 		List<PhysReg> callerSavedClobbers() const;
 		List<PhysReg> allRegClobbers() const;
+		B32 emitBuiltin(CallNode* c);
 		void emitCall(CallNode* c);
+		Ops callUses(CallNode* c, const List<CallArg>& args, U32 sseUsed);
+		CallArg callArg(Node* arg, X86ArgAssigner& as);
+		MachineOperand argToReg(const CallArg& a);
+		void callResult(Node* vp, const Type* rt, B32 sret, I32 retTemp);
 		void emitAsm(AsmNode* a);
 		B32 emitMathIntrinsic(CallNode* c);
-		VReg x87ByRefArg(Node* arg);
 		void emitPrologue();
-		void loadStackParam(ProjNode* p, Type* t, I32 disp);
-		void emitVaStart(CallNode* c);
+		void lowerParam(ProjNode* p, Type* t, X86ArgAssigner& as);
+		void x87Param(ProjNode* p, X86ArgAssigner::Loc l);
+		VReg stackParamAddr(U32 off);
 		void emitVaArg(CallNode* c);
-		void emitSetJmp(CallNode* c);
-		void emitLongJmp(CallNode* c);
 		void emitNode(Node* n);
 		void emitReturn(ReturnNode* r);
-		void phiMove(VReg dst, VReg src, U32 cls, U32 w);
+		void moveValue(VReg dst, VReg src, U32 cls, U32 w);
 		void emitPhiCopies(I32 targetBlock, I32 predIdx);
 		void emitTerminator(I32 b);
-	private:
-		const Function* fn = nullptr;
+		static constexpr I32 kNoSlot = INT32_MIN;
+		// target
 		const X86CallConv* conv = &abi::kSysV;
 		const RegisterInfo* regs = nullptr;
 		U32 ptrBytes = 8;
 		B32 sse41 = true;
+		// current module, function and block
+		Module* mod = nullptr;
+		const Function* fn = nullptr;
 		Schedule* sched = nullptr;
 		MachineFunc* out = nullptr;
 		X86FrameLayout* fl = nullptr;
-		static constexpr I32 kNoSlot = INT32_MIN;
+		MachineBlock* mb = nullptr;
+		// per node id
 		List<VReg> vregOf;
-		Module* mod = nullptr;
 		List<I32> x87Slot;
 		List<I32> allocOff;
-		MachineBlock* mb = nullptr;
 	};
 } // namespace rat
 
