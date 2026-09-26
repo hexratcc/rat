@@ -65,7 +65,7 @@ namespace rat {
 				return h;
 			}
 		};
-
+	private:
 		List<LoadNode*> loads;
 		List<Node*> defs;
 		List<U32> chainHops;

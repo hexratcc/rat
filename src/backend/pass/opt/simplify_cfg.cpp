@@ -9,49 +9,63 @@ namespace rat {
 	void SimplifyCFGPass::reachableControl(Function& fn) {
 		reach.clear();
 		reach.insert(fn.getStart());
-		work.clear();
+		stack.clear();
 		if(Node* e = fn.getStart()->projection(StartNode::controlProjIndex()))
-			work.push_back(e);
-		while(!work.empty()) {
-			Node* n = work.back();
-			work.pop_back();
+			stack.push_back(e);
+		while(!stack.empty()) {
+			Node* n = stack.back();
+			stack.pop_back();
 			if(!reach.insert(n).second)
 				continue;
 			for(Node* u : n->getUsers()) {
 				if(isControlNode(u)) {
-					work.push_back(u);
+					stack.push_back(u);
 				} else if(isa<CallNode>(u) || isa<AsmNode>(u)) {
 					if(u->getControlInput() == n)
 						if(Node* cp = u->projection(CallNode::controlProjIndex()))
-							work.push_back(cp);
+							stack.push_back(cp);
 				}
 			}
 		}
 	}
 
-	void SimplifyCFGPass::collectPhis(Node* region, List<PhiNode*>& out) {
-		out.clear();
+	void SimplifyCFGPass::collectPhis(Node* region) {
+		phis.clear();
 		for(Node* u : region->getUsers())
 			if(PhiNode* p = dyn_cast<PhiNode>(u))
-				out.push_back(p);
+				phis.push_back(p);
 	}
 
-	void SimplifyCFGPass::detachFromRegions(Node* ctrl) {
-		regionUsers.clear();
-		for(Node* u : ctrl->getUsers())
-			if(isa<RegionNode>(u))
-				regionUsers.push_back(u);
-		for(Node* n : regionUsers) {
-			RegionNode* r = cast<RegionNode>(n);
-			collectPhis(r, detachPhis);
-			for(I32 i = (I32)r->getPredecessorCount() - 1; i >= 0; --i) {
-				if(r->getPredecessor(i) != ctrl)
-					continue;
-				for(PhiNode* phi : detachPhis)
-					phi->removeInput(1 + i);
-				r->removeInput(i);
+	void SimplifyCFGPass::removePred(RegionNode* r, U32 i) {
+		for(Node* u : r->getUsers())
+			if(PhiNode* p = dyn_cast<PhiNode>(u))
+				p->removeInput(1 + i);
+		r->removeInput(i);
+	}
+
+	// keep the taken arm, cut the other out of the regions it reaches
+	void SimplifyCFGPass::foldIf(Function& fn, IfNode* iff, B32 thenTaken) {
+		ProjNode* taken = iff->projection(IfNode::thenProjIndex());
+		ProjNode* dead = iff->projection(IfNode::elseProjIndex());
+		if(!thenTaken)
+			std::swap(taken, dead);
+		if(taken)
+			taken->replaceAllUsesWith(iff->getControl());
+		for(U32 k = 0; dead && k < dead->getUsers().size();) {
+			RegionNode* r = dyn_cast<RegionNode>(dead->getUsers()[k]);
+			if(!r) {
+				++k;
+				continue;
 			}
+			for(U32 i = r->getPredecessorCount(); i-- > 0;)
+				if(r->getPredecessor(i) == dead)
+					removePred(r, i);
 		}
+		fn.removeNode(iff);
+		if(taken)
+			fn.removeNode(taken);
+		if(dead)
+			fn.removeNode(dead);
 	}
 
 	// already materialized, or anchored to control this rewrite does not touch
@@ -87,17 +101,17 @@ namespace rat {
 
 	B32 SimplifyCFGPass::walkCone(Node* root) {
 		B32 trap = false;
-		coneWork.clear();
-		coneWork.push_back(root);
-		while(!coneWork.empty()) {
-			Node* n = coneWork.back();
-			coneWork.pop_back();
+		stack.clear();
+		stack.push_back(root);
+		while(!stack.empty()) {
+			Node* n = stack.back();
+			stack.pop_back();
 			if(!coneSeen.insert(n).second || freeValue(n))
 				continue;
 			trap |= Schedule::mayTrap(n);
 			for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
 				if(Node* in = n->getInput(i))
-					coneWork.push_back(in);
+					stack.push_back(in);
 		}
 		return trap;
 	}
@@ -129,8 +143,6 @@ namespace rat {
 		return total;
 	}
 
-	B32 SimplifyCFGPass::selectableType(Type* t) { return t && (t->isInt() || t->isPtr()); }
-
 	// try to rewrite one empty-armed diamond as selects
 	B32 SimplifyCFGPass::regionToSelect(Function& fn, RegionNode* r) {
 		if(r->isLoopHeader() || r->getPredecessorCount() != 2)
@@ -152,7 +164,7 @@ namespace rat {
 		// predecessor slot carrying the then-edge
 		U32 thenSlot = a->getIndex() == IfNode::thenProjIndex() ? 0u : 1u;
 
-		collectPhis(r, phis);
+		collectPhis(r);
 		I32 cost = 0;
 		for(PhiNode* phi : phis) {
 			if(phi->getValueCount() != 2)
@@ -163,7 +175,8 @@ namespace rat {
 				continue; // degenerate
 			I32 c0 = speculationCost(tv, phi, kSpeculationDepth);
 			I32 c1 = speculationCost(fv, phi, kSpeculationDepth);
-			if(!selectableType(phi->getType()) || c0 < 0 || c1 < 0)
+			Type* t = phi->getType();
+			if(!t || !(t->isInt() || t->isPtr()) || c0 < 0 || c1 < 0)
 				return false;
 			if(coneMayTrap(tv, pred) || coneMayTrap(fv, pred))
 				return false;
@@ -183,27 +196,107 @@ namespace rat {
 		}
 		// splice the merge out of the control chain, then drop the diamond
 		r->replaceAllUsesWith(iff->getControl());
-		auto drop = [&](Node* dead) {
-			if(dead && !dead->hasUsers())
-				fn.removeNode(dead);
-		};
 		for(PhiNode* phi : phis)
-			drop(phi);
-		drop(r);
-		drop(a);
-		drop(b);
-		drop(iff);
+			if(!phi->hasUsers())
+				fn.removeNode(phi);
+		fn.removeNode(r);
+		fn.removeNode(a);
+		fn.removeNode(b);
+		fn.removeNode(iff);
 		return true;
 	}
 
-	U32 SimplifyCFGPass::ifToSelect(Function& fn) {
-		selectRegions.clear();
-		for(Node* n : fn)
-			if(RegionNode* r = dyn_cast<RegionNode>(n))
-				selectRegions.push_back(r);
+	// keeps the ifs it did not fold
+	U32 SimplifyCFGPass::foldConstantIfs(Function& fn) {
 		U32 changed = 0;
-		for(Node* n : selectRegions)
-			changed += regionToSelect(fn, cast<RegionNode>(n));
+		U32 kept = 0;
+		for(Node* n : ifs) {
+			IfNode* iff = cast<IfNode>(n);
+			ConstantNode* c = dyn_cast<ConstantNode>(iff->getPredicate());
+			if(!c) {
+				ifs[kept++] = n;
+				continue;
+			}
+			foldIf(fn, iff, c->getValue() != 0);
+			++changed;
+		}
+		ifs.resize(kept);
+		return changed;
+	}
+
+	// detach unreachable control and everything anchored to it
+	U32 SimplifyCFGPass::clearUnreachable(Function& fn) {
+		U32 changed = 0;
+		if(StopNode* stop = fn.getStop())
+			for(U32 i = stop->getInputCount(); i-- > 0;) {
+				Node* r = stop->getInput(i);
+				if(r && !reach.count(r)) {
+					stop->removeInput(i);
+					++changed;
+				}
+			}
+		for(Node* n : fn) {
+			if(n == fn.getStart() || n == fn.getStop())
+				continue;
+			B32 dead = false;
+			if(isControlNode(n))
+				dead = !reach.count(n);
+			else if(Node* ci = n->getControlInput())
+				dead = ci != fn.getStart() && !reach.count(ci);
+			if(!dead)
+				continue;
+			if(n->getInputCount() > 0) {
+				n->clearInputs();
+				++changed;
+			}
+		}
+		return changed;
+	}
+
+	U32 SimplifyCFGPass::dropDeadPreds() {
+		U32 changed = 0;
+		for(Node* n : regions) {
+			RegionNode* r = cast<RegionNode>(n);
+			if(!reach.count(r))
+				continue;
+			for(U32 i = r->getPredecessorCount(); i-- > 0;)
+				if(!reach.count(r->getPredecessor(i))) {
+					removePred(r, i);
+					++changed;
+				}
+		}
+		return changed;
+	}
+
+	// an if with one used arm is straight-line control
+	U32 SimplifyCFGPass::foldDegenerateIfs(Function& fn) {
+		U32 changed = 0;
+		for(Node* n : ifs) {
+			IfNode* iff = cast<IfNode>(n);
+			ProjNode* thenP = iff->projection(IfNode::thenProjIndex());
+			ProjNode* elseP = iff->projection(IfNode::elseProjIndex());
+			B32 thenLive = thenP && thenP->hasUsers();
+			B32 elseLive = elseP && elseP->hasUsers();
+			if(thenLive == elseLive)
+				continue;
+			foldIf(fn, iff, thenLive);
+			++changed;
+		}
+		return changed;
+	}
+
+	U32 SimplifyCFGPass::collapseRegions() {
+		U32 changed = 0;
+		for(Node* n : regions) {
+			RegionNode* r = cast<RegionNode>(n);
+			if(!reach.count(r) || r->getPredecessorCount() != 1)
+				continue;
+			collectPhis(r);
+			for(PhiNode* phi : phis)
+				phi->replaceAllUsesWith(phi->getValue(0));
+			r->replaceAllUsesWith(r->getPredecessor(0));
+			++changed;
+		}
 		return changed;
 	}
 
@@ -211,146 +304,27 @@ namespace rat {
 
 	U32 SimplifyCFGPass::runOnFunction(Function& fn, const TargetInfo&) {
 		U32 changed = 0;
-		B32 again = true;
-		while(again) {
-			again = false;
-
+		while(true) {
 			ifs.clear();
 			regions.clear();
 			for(Node* n : fn) {
-				Opcode op = n->getOpcode();
-				if(op == Opcode::If)
+				if(isa<IfNode>(n))
 					ifs.push_back(n);
-				else if(op == Opcode::Region)
+				else if(isa<RegionNode>(n))
 					regions.push_back(n);
 			}
-
-			U32 live = 0;
-			for(Node* n : ifs) {
-				IfNode* iff = cast<IfNode>(n);
-				Node* pred = iff->getPredicate();
-				ConstantNode* c = dyn_cast<ConstantNode>(pred);
-				if(!c) {
-					ifs[live++] = n;
-					continue;
-				}
-				U32 takenIdx = c->getValue() != 0 ? IfNode::thenProjIndex() : IfNode::elseProjIndex();
-				U32 deadIdx =
-						takenIdx == IfNode::thenProjIndex() ? IfNode::elseProjIndex() : IfNode::thenProjIndex();
-				Node* ctrl = iff->getControl();
-				ProjNode* taken = iff->projection(takenIdx);
-				ProjNode* dead = iff->projection(deadIdx);
-				if(taken)
-					taken->replaceAllUsesWith(ctrl);
-				if(dead)
-					detachFromRegions(dead);
-				fn.removeNode(iff);
-				if(taken)
-					fn.removeNode(taken);
-				if(dead)
-					fn.removeNode(dead);
-				++changed;
-				again = true;
-			}
-			ifs.resize(live);
-
+			U32 sweep = foldConstantIfs(fn);
 			reachableControl(fn);
-
-			if(StopNode* stop = fn.getStop()) {
-				for(I32 i = (I32)stop->getInputCount() - 1; i >= 0; --i) {
-					Node* r = stop->getInput((U32)i);
-					if(r && !reach.count(r)) {
-						stop->removeInput((U32)i);
-						++changed;
-						again = true;
-					}
-				}
-			}
-
-			for(Node* n : fn) {
-				if(n == fn.getStart() || n == fn.getStop())
-					continue;
-				B32 dead = false;
-				if(isControlNode(n))
-					dead = !reach.count(n);
-				else if(Node* ci = n->getControlInput())
-					dead = ci != fn.getStart() && !reach.count(ci);
-				if(!dead)
-					continue;
-				if(RegionNode* r = dyn_cast<RegionNode>(n)) {
-					collectPhis(r, phis);
-					for(PhiNode* phi : phis)
-						if(phi->getInputCount() > 0) {
-							phi->clearInputs();
-							++changed;
-							again = true;
-						}
-				}
-				if(n->getInputCount() > 0) {
-					n->clearInputs();
-					++changed;
-					again = true;
-				}
-			}
-
-			// drop region predecessors whose control is no longer reachable
-			for(Node* n : regions) {
-				RegionNode* r = cast<RegionNode>(n);
-				if(!reach.count(r))
-					continue;
-				collectPhis(r, phis);
-				for(I32 i = (I32)r->getPredecessorCount() - 1; i >= 0; --i) {
-					if(reach.count(r->getPredecessor(i)))
-						continue;
-					for(PhiNode* phi : phis)
-						phi->removeInput(1 + i);
-					r->removeInput(i);
-					++changed;
-					again = true;
-				}
-			}
-
-			// fold ifs whose successor structure has degenerated
-			for(Node* n : ifs) {
-				IfNode* iff = cast<IfNode>(n);
-				ProjNode* thenP = iff->projection(IfNode::thenProjIndex());
-				ProjNode* elseP = iff->projection(IfNode::elseProjIndex());
-				B32 thenLive = thenP && thenP->hasUsers();
-				B32 elseLive = elseP && elseP->hasUsers();
-				if(thenLive == elseLive)
-					continue;
-				ProjNode* live = thenLive ? thenP : elseP;
-				Node* ctrl = iff->getControl();
-				live->replaceAllUsesWith(ctrl);
-				fn.removeNode(iff);
-				if(thenP)
-					fn.removeNode(thenP);
-				if(elseP)
-					fn.removeNode(elseP);
-				++changed;
-				again = true;
-			}
-
-			// collapse single predecessor regions
-			for(Node* n : regions) {
-				RegionNode* r = cast<RegionNode>(n);
-				if(!reach.count(r) || r->getPredecessorCount() != 1)
-					continue;
-				collectPhis(r, phis);
-				for(PhiNode* phi : phis)
-					phi->replaceAllUsesWith(phi->getValue(0));
-				r->replaceAllUsesWith(r->getPredecessor(0));
-				++changed;
-				again = true;
-			}
-
-			if(U32 sel = ifToSelect(fn)) {
-				changed += sel;
-				again = true;
-			}
-
+			sweep += clearUnreachable(fn);
+			sweep += dropDeadPreds();
+			sweep += foldDegenerateIfs(fn);
+			sweep += collapseRegions();
+			for(Node* n : regions)
+				sweep += regionToSelect(fn, cast<RegionNode>(n));
 			fn.eliminateDeadNodes(true);
+			changed += sweep;
+			if(!sweep)
+				return changed;
 		}
-		return changed;
 	}
 } // namespace rat

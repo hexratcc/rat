@@ -55,7 +55,7 @@ namespace rat {
 		B32 shouldInline(const Function& caller, CallNode* call, Function* callee);
 		B32
 		inlineCallSite(Function& caller, CallNode* call, Function& callee, List<CallNode*>& newCalls);
-
+	private:
 		Module* module = nullptr;
 		Map<const Function*, Info> infos;
 		Map<String, Function*> byName;
