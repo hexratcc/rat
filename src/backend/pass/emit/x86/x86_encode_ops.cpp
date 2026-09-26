@@ -8,25 +8,20 @@ namespace rat {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& s = in.uses[0];
 		if(in.regClass == detail::kFp) {
-			U32 w = d.width;
-			if(d.kind == MachineOperand::Kind::Phys && s.kind == MachineOperand::Kind::Phys) {
-				if(xmmOf(d) != xmmOf(s))
-					a->movaps(xmmOf(d), xmmOf(s));
-			} else if(d.kind == MachineOperand::Kind::Phys && s.kind == MachineOperand::Kind::FrameSlot)
-				a->loadXmm(xmmOf(d), RBP, s.slot, w);
-			else if(d.kind == MachineOperand::Kind::FrameSlot && s.kind == MachineOperand::Kind::Phys)
-				a->storeXmm(xmmOf(s), RBP, d.slot, w);
+			if(d.isPhys() && s.isPhys())
+				copyXmm(xmmOf(d), xmmOf(s));
+			else if(d.isPhys() && s.kind == MachineOperand::Kind::FrameSlot)
+				a->loadXmm(xmmOf(d), RBP, s.slot, d.width);
+			else if(d.kind == MachineOperand::Kind::FrameSlot && s.isPhys())
+				a->storeXmm(xmmOf(s), RBP, d.slot, d.width);
 			return;
 		}
-		if(d.kind == MachineOperand::Kind::Phys) {
+		if(d.isPhys()) {
 			readGp(s, gpOf(d));
 		} else if(d.kind == MachineOperand::Kind::FrameSlot) {
-			if(s.kind == MachineOperand::Kind::Phys)
-				a->storeMem(RBP, d.slot, gpOf(s), 8);
-			else {
-				readGp(s, R11);
-				a->storeMem(RBP, d.slot, R11, 8);
-			}
+			Reg r = s.isPhys() ? gpOf(s) : R11;
+			readGp(s, r);
+			a->storeMem(RBP, d.slot, r, 8);
 		}
 	}
 
@@ -77,17 +72,12 @@ namespace rat {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& addr = in.uses[0];
 		U32 w = d.width;
-		if(addr.kind == MachineOperand::Kind::FrameSlot) {
-			a->load64(gpOf(d), RBP, addr.slot);
-			return;
-		}
+		if(addr.kind == MachineOperand::Kind::FrameSlot)
+			return a->load64(gpOf(d), RBP, addr.slot);
 		B32 sign = (in.imm2 & 1) != 0;
 		Reg base = gpOf(addr);
-		if(in.imm2 & 2) { // scaled index in use[1]
-			Reg index = gpOf(in.uses[1]);
-			a->loadExtSib(gpOf(d), base, index, (U32)((in.imm2 >> 2) & 3), (I32)in.imm, w, sign);
-			return;
-		}
+		if(in.imm2 & 2) // scaled index in use[1]
+			return a->loadExtSib(gpOf(d), base, gpOf(in.uses[1]), scaleOf(in), (I32)in.imm, w, sign);
 		a->loadExt(gpOf(d), base, (I32)in.imm, w, sign);
 	}
 
@@ -96,24 +86,17 @@ namespace rat {
 		const MachineOperand& src = in.uses[1];
 		if(a0.kind == MachineOperand::Kind::FrameSlot) {
 			if(src.kind == MachineOperand::Kind::Imm)
-				a->storeMemImm(RBP, a0.slot, src.imm, 8);
-			else
-				a->storeMem(RBP, a0.slot, gpOf(src), 8);
-			return;
+				return a->storeMemImm(RBP, a0.slot, src.imm, 8);
+			return a->storeMem(RBP, a0.slot, gpOf(src), 8);
 		}
 		if(in.imm2 & 2) { // scaled index in use[2]
 			Reg index = gpOf(in.uses[2]);
-			U32 sc = (U32)((in.imm2 >> 2) & 3);
 			if(src.kind == MachineOperand::Kind::Imm)
-				a->storeMemImmSib(gpOf(a0), index, sc, (I32)in.imm, src.imm, src.width);
-			else
-				a->storeMemSib(gpOf(a0), index, sc, (I32)in.imm, gpOf(src), src.width);
-			return;
+				return a->storeMemImmSib(gpOf(a0), index, scaleOf(in), (I32)in.imm, src.imm, src.width);
+			return a->storeMemSib(gpOf(a0), index, scaleOf(in), (I32)in.imm, gpOf(src), src.width);
 		}
-		if(src.kind == MachineOperand::Kind::Imm) {
-			a->storeMemImm(gpOf(a0), (I32)in.imm, src.imm, src.width);
-			return;
-		}
+		if(src.kind == MachineOperand::Kind::Imm)
+			return a->storeMemImm(gpOf(a0), (I32)in.imm, src.imm, src.width);
 		a->storeMem(gpOf(a0), (I32)in.imm, gpOf(src), src.width);
 	}
 
@@ -121,60 +104,42 @@ namespace rat {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& addr = in.uses[0];
 		U32 w = d.width;
-		if(addr.kind == MachineOperand::Kind::Sym) {
-			a->loadXmmRipSym(xmmOf(d), addr.sym(), w);
-			return;
-		}
+		if(addr.kind == MachineOperand::Kind::Sym)
+			return a->loadXmmRipSym(xmmOf(d), addr.sym(), w);
 		if(addr.kind == MachineOperand::Kind::Imm) {
-			a->movRegImm64(R11, (U64)addr.imm);
-			a->storeMem(RBP, fl->ldScratch, R11, 8);
-			a->loadXmm(xmmOf(d), RBP, fl->ldScratch, w);
-			return;
+			immToScratch(addr.imm);
+			return a->loadXmm(xmmOf(d), RBP, fl->ldScratch, w);
 		}
-		if(addr.kind == MachineOperand::Kind::FrameSlot) {
-			a->loadXmm(xmmOf(d), RBP, addr.slot, w);
-			return;
-		}
-		if(in.imm2 & 2) { // scaled index in use[1]
-			Reg index = gpOf(in.uses[1]);
-			a->loadXmmSib(xmmOf(d), gpOf(addr), index, (U32)((in.imm2 >> 2) & 3), (I32)in.imm, w);
-			return;
-		}
+		if(addr.kind == MachineOperand::Kind::FrameSlot)
+			return a->loadXmm(xmmOf(d), RBP, addr.slot, w);
+		if(in.imm2 & 2) // scaled index in use[1]
+			return a->loadXmmSib(xmmOf(d), gpOf(addr), gpOf(in.uses[1]), scaleOf(in), (I32)in.imm, w);
 		a->loadXmm(xmmOf(d), gpOf(addr), (I32)in.imm, w);
 	}
 
 	void X86EncodePass::emitFStore(const MachineInstr& in) {
 		const MachineOperand& a0 = in.uses[0];
 		const MachineOperand& src = in.uses[1];
-		if(a0.kind == MachineOperand::Kind::FrameSlot) {
-			a->storeXmm(xmmOf(src), RBP, a0.slot, src.width);
-			return;
-		}
+		if(a0.kind == MachineOperand::Kind::FrameSlot)
+			return a->storeXmm(xmmOf(src), RBP, a0.slot, src.width);
 		if(in.imm2 & 2) { // scaled index in use[2]
 			Reg index = gpOf(in.uses[2]);
-			U32 sc = (U32)((in.imm2 >> 2) & 3);
-			a->storeXmmSib(xmmOf(src), gpOf(a0), index, sc, (I32)in.imm, src.width);
-			return;
+			return a->storeXmmSib(xmmOf(src), gpOf(a0), index, scaleOf(in), (I32)in.imm, src.width);
 		}
 		a->storeXmm(xmmOf(src), gpOf(a0), (I32)in.imm, src.width);
 	}
 
 	void X86EncodePass::emitAlu(const MachineInstr& in, U8 aluOp) {
 		Reg d = gpOf(in.defs[0]);
-		if(in.uses[1].kind == MachineOperand::Kind::Imm) {
-			// group-1 /ext for each RR opcode byte: add 01->0, or 09->1, and 21->4, sub 29->5, xor 31->6
-			U8 ext = (U8)(aluOp >> 3);
-			a->aluImm(ext, d, (I32)in.uses[1].imm);
-			return;
-		}
+		// group-1 /ext for each RR opcode byte: add 01->0, or 09->1, and 21->4, sub 29->5, xor 31->6
+		if(in.uses[1].kind == MachineOperand::Kind::Imm)
+			return a->aluImm((U8)(aluOp >> 3), d, (I32)in.uses[1].imm);
 		a->aluRR(aluOp, d, gpOf(in.uses[1]));
 	}
 
 	void X86EncodePass::emitShift(const MachineInstr& in, U8 ext) {
-		if(in.uses.size() > 1 && in.uses[1].kind == MachineOperand::Kind::Imm) {
-			a->shiftImm(ext, gpOf(in.defs[0]), (U8)(in.uses[1].imm & 63));
-			return;
-		}
+		if(in.uses.size() > 1 && in.uses[1].kind == MachineOperand::Kind::Imm)
+			return a->shiftImm(ext, gpOf(in.defs[0]), (U8)(in.uses[1].imm & 63));
 		a->shiftCL(ext, gpOf(in.defs[0]));
 	}
 
@@ -193,47 +158,33 @@ namespace rat {
 		}
 	}
 
-	void X86EncodePass::emitMaskBits(const MachineInstr& in) {
+	void X86EncodePass::emitExtBits(const MachineInstr& in, B32 sign) {
 		U32 bits = (U32)in.imm;
 		if(bits == 0 || bits >= 64)
 			return;
 		Reg d = gpOf(in.defs[0]);
-		if(bits == 32) {
-			a->movRR32(d, d); // 32-bit self-move zero-extends
-			return;
+		if(sign && bits == 32)
+			return a->movsxd32(d, d);
+		if(sign) {
+			U8 sh = (U8)(64 - bits);
+			a->shiftImm(4, d, sh);				// shl
+			return a->shiftImm(7, d, sh); // sar
 		}
-		if(bits < 32) {
-			a->aluImm(4, d, (I32)(((U32)1 << bits) - 1)); // and d, imm
-			return;
-		}
+		if(bits == 32)
+			return a->movRR32(d, d); // 32-bit self-move zero-extends
+		if(bits < 32)
+			return a->aluImm(4, d, (I32)(((U32)1 << bits) - 1)); // and d, imm
 		a->movRegImm64(R11, ((U64)1 << bits) - 1);
 		a->andRR(d, R11);
 	}
 
-	void X86EncodePass::emitSignExtBits(const MachineInstr& in) {
-		U32 bits = (U32)in.imm;
-		if(bits == 0 || bits >= 64)
-			return;
-		Reg d = gpOf(in.defs[0]);
-		if(bits == 32) {
-			a->movsxd32(d, d);
-			return;
-		}
-		U8 sh = (U8)(64 - bits);
-		a->shiftImm(4, d, sh); // shl
-		a->shiftImm(7, d, sh); // sar
-	}
-
 	void X86EncodePass::emitCmp(const MachineInstr& in) {
-		if(in.uses[1].kind == MachineOperand::Kind::Imm) {
-			Reg l = gpOf(in.uses[0]);
-			if(in.uses[1].imm == 0)
-				a->testRR(l, l); // shorter encoding, same flags for eq/ne/sign
-			else
-				a->cmpRegImm32(l, (I32)in.uses[1].imm);
-			return;
-		}
-		a->cmpRR(gpOf(in.uses[0]), gpOf(in.uses[1]));
+		Reg l = gpOf(in.uses[0]);
+		if(in.uses[1].kind != MachineOperand::Kind::Imm)
+			return a->cmpRR(l, gpOf(in.uses[1]));
+		if(in.uses[1].imm == 0)
+			return a->testRR(l, l); // shorter encoding, same flags for eq/ne/sign
+		a->cmpRegImm32(l, (I32)in.uses[1].imm);
 	}
 
 	void X86EncodePass::setccExt(U8 cc, Reg d) {
@@ -241,43 +192,29 @@ namespace rat {
 		a->movzxByte(d, d);
 	}
 
-	void X86EncodePass::emitVArith(const MachineInstr& in) {
-		a->ssePacked((U8)((U64)in.imm >> 8),
-								 (U8)in.imm,
-								 xmmOf(in.defs[0]),
-								 xmmOf(in.uses[1]),
-								 ((U64)in.imm >> 16) != 0);
+	U8 X86EncodePass::laneSel(U32 lane, U32 esz) {
+		if(esz == 4)
+			return (U8)(lane | (lane << 2) | (lane << 4) | (lane << 6));
+		U32 lo = 2 * lane;
+		return (U8)(lo | ((lo + 1) << 2) | (lo << 4) | ((lo + 1) << 6));
 	}
 
 	void X86EncodePass::emitVSplat(const MachineInstr& in) {
 		U32 d = xmmOf(in.defs[0]);
 		U32 esz = (U32)in.imm;
-		U8 sel = esz == 4 ? 0x00 : 0x44; // dword 0 everywhere / qword 0 twice
-		if(in.imm2) {										 // integer lane arrives in a gp register
+		if(in.imm2) { // integer lane arrives in a gp register
 			a->movdXmmGp(d, gpOf(in.uses[0]), esz == 8);
-			a->pshufd(d, d, sel);
-			return;
+			return a->pshufd(d, d, laneSel(0, esz));
 		}
-		a->pshufd(d, xmmOf(in.uses[0]), sel);
+		a->pshufd(d, xmmOf(in.uses[0]), laneSel(0, esz));
 	}
 
 	void X86EncodePass::emitVExtract(const MachineInstr& in) {
 		U32 lane = (U32)in.imm;
 		U32 esz = (U32)((U64)in.imm2 >> 1);
-		B32 isInt = (in.imm2 & 1) != 0;
 		U32 src = xmmOf(in.uses[0]);
-		if(!isInt) {
-			U32 d = xmmOf(in.defs[0]);
-			U8 sel;
-			if(esz == 4) {
-				sel = (U8)(lane | (lane << 2) | (lane << 4) | (lane << 6));
-			} else {
-				U32 lo = 2 * lane;
-				sel = (U8)(lo | ((lo + 1) << 2) | (lo << 4) | ((lo + 1) << 6));
-			}
-			a->pshufd(d, src, sel);
-			return;
-		}
+		if((in.imm2 & 1) == 0)
+			return a->pshufd(xmmOf(in.defs[0]), src, laneSel(lane, esz));
 		Reg d = gpOf(in.defs[0]);
 		if(lane == 0) {
 			a->movGpXmm(d, src, esz == 8);
@@ -287,10 +224,7 @@ namespace rat {
 		}
 		// staged through the 16-byte scratch slot
 		a->storeXmm(src, RBP, fl->vecScratch, 16);
-		if(esz == 8)
-			a->load64(d, RBP, fl->vecScratch + (I32)(lane * 8));
-		else
-			a->loadExt(d, RBP, fl->vecScratch + (I32)(lane * 4), 4, true);
+		a->loadExt(d, RBP, fl->vecScratch + (I32)(lane * esz), esz, true);
 	}
 
 	// the lanes are gathered through the 16-byte vec scratch slot (float, or int without
@@ -304,57 +238,31 @@ namespace rat {
 			a->storeXmm(xmmOf(in.uses[0]), RBP, disp, esz);
 	}
 
-	// the lanes are already in the slot, just pick the whole vector up
-	void X86EncodePass::emitVPack(const MachineInstr& in) {
-		a->loadXmm(xmmOf(in.defs[0]), RBP, fl->vecScratch, 16);
+	void X86EncodePass::copyXmm(U32 d, U32 s) {
+		if(d != s)
+			a->movaps(d, s);
 	}
 
-	// build the vector in-register (sse4.1, int lanes): movd/movq lane 0, then one
-	// pinsrd/pinsrq per remaining lane
-	void X86EncodePass::emitVPackReg(const MachineInstr& in) {
-		a->movdXmmGp(xmmOf(in.defs[0]), gpOf(in.uses[0]), (U32)in.imm == 8);
-	}
-
-	void X86EncodePass::emitVInsertReg(const MachineInstr& in) {
-		a->pinsr(xmmOf(in.defs[0]), gpOf(in.uses[1]), (U8)in.imm2, (U32)in.imm == 8);
-	}
-
-	void X86EncodePass::emitFNeg(const MachineInstr& in) {
+	void X86EncodePass::emitFSign(const MachineInstr& in, B32 abs) {
 		U32 w = (U32)in.imm;
 		U32 d = xmmOf(in.defs[0]);
 		U32 s = xmmOf(in.uses[0]);
+		if(abs) {
+			copyXmm(d, s);
+			a->sseShiftImm(w * 8, 6, d, 1);
+			return a->sseShiftImm(w * 8, 2, d, 1);
+		}
 		U32 z = conv->sseVolatileCount - 1; // top volatile xmm is encoder scratch
 		// flip the sign bit, 0-x would turn -0.0 into +0.0 and quiet a NaN
 		a->pcmpeqd(z, z);
 		a->sseShiftImm(w * 8, 6, z, (U8)(w * 8 - 1));
-		if(d != s)
-			a->movaps(d, s);
+		copyXmm(d, s);
 		a->pxor(d, z);
 	}
 
-	void X86EncodePass::emitFAbs(const MachineInstr& in) {
-		U32 w = (U32)in.imm;
-		U32 d = xmmOf(in.defs[0]);
-		U32 s = xmmOf(in.uses[0]);
-		if(d != s)
-			a->movaps(d, s);
-		a->sseShiftImm(w * 8, 6, d, 1);
-		a->sseShiftImm(w * 8, 2, d, 1);
-	}
-
-	void X86EncodePass::emitFCmp(const MachineInstr& in) {
-		emitFCmpFlags(in);
-		setccExt((U8)in.imm, gpOf(in.defs[0]));
-	}
-
 	void X86EncodePass::emitFCmpFlags(const MachineInstr& in) {
-		U32 w = in.uses[0].width;
-		U32 lhs = xmmOf(in.uses[0]);
-		U32 rhs = xmmOf(in.uses[1]);
-		if(in.imm2)
-			a->ucomis(w, rhs, lhs);
-		else
-			a->ucomis(w, lhs, rhs);
+		U32 s = in.imm2 != 0;
+		a->ucomis(in.uses[0].width, xmmOf(in.uses[s]), xmmOf(in.uses[1 - s]));
 	}
 
 	void X86EncodePass::emitCvt(const MachineInstr& in) {
@@ -365,57 +273,26 @@ namespace rat {
 		const MachineOperand& s = in.uses[0];
 		U32 dst = (in.regClass == detail::kGp) ? (U32)gpOf(d) : xmmOf(d);
 		// src is xmm for fp->fp and xmm->gp (FPToSI/UI); gp only for gp->xmm (SIToFP/UIToFP)
-		U32 srcReg;
+		U32 srcReg = (U32)gpOf(s);
 		if(in.regClass == detail::kGp || X86Target::isXmm(s.phys))
 			srcReg = xmmOf(s);
-		else
-			srcReg = (U32)gpOf(s);
 		a->cvtRR(pfx, opc, w, dst, srcReg);
 	}
 
-	void X86EncodePass::fldSlot(I32 slot) { a->fldT(RBP, slot); }
-	void X86EncodePass::fstpSlot(I32 slot) { a->fstpT(RBP, slot); }
-
-	void X86EncodePass::emitX87LoadMem(const MachineInstr& in) {
-		if(in.imm == -1) {
-			fldSlot(in.uses[0].slot);
-			return;
-		}
-		Reg base = gpOf(in.uses[0]);
-		a->fldT(base, 0);
-		fstpSlot(in.defs[0].slot);
-	}
+	void X86EncodePass::fldSlot(const MachineOperand& o) { a->fldT(RBP, o.slot); }
+	void X86EncodePass::fstpSlot(const MachineOperand& o) { a->fstpT(RBP, o.slot); }
 
 	void X86EncodePass::emitX87StoreMem(const MachineInstr& in) {
-		if(in.imm == -1) {
-			fstpSlot(in.defs[0].slot);
-			return;
-		}
-		if(in.imm == -2) {
-			a->fstpReg0();
-			return;
-		}
-		Reg base = gpOf(in.uses[0]);
-		fldSlot(in.uses[1].slot);
-		a->fstpT(base, 0);
-	}
-
-	void X86EncodePass::emitX87LoadImmD(const MachineInstr& in) {
-		a->movRegImm64(R11, (U64)in.uses[0].imm);
-		a->storeMem(RBP, fl->ldScratch, R11, 8);
-		a->fldL(RBP, fl->ldScratch);
-		fstpSlot(in.defs[0].slot);
-	}
-
-	void X86EncodePass::emitX87FromInt(const MachineInstr& in) {
-		readGp(in.uses[0], R11);
-		a->storeMem(RBP, fl->ldScratch, R11, 8);
-		a->fildQ(RBP, fl->ldScratch);
-		fstpSlot(in.defs[0].slot);
+		if(in.imm == -1)
+			return fstpSlot(in.defs[0]);
+		if(in.imm == -2)
+			return a->fstpReg0();
+		fldSlot(in.uses[1]);
+		a->fstpT(gpOf(in.uses[0]), 0);
 	}
 
 	void X86EncodePass::emitX87ToInt(const MachineInstr& in) {
-		fldSlot(in.uses[0].slot);
+		fldSlot(in.uses[0]);
 		a->fnstcw(RBP, fl->ldScratch + 8);
 		a->loadExt(R10, RBP, fl->ldScratch + 8, 2, false);
 		a->movRegImm64(R11, 0x0c00);
@@ -424,13 +301,13 @@ namespace rat {
 		a->fldcw(RBP, fl->ldScratch + 10);
 		a->fistpQ(RBP, fl->ldScratch);
 		a->fldcw(RBP, fl->ldScratch + 8);
-		a->load64(gpOf(in.defs[0]), RBP, fl->ldScratch);
+		unstash(gpOf(in.defs[0]));
 	}
 
 	void X86EncodePass::emitX87FromSse(const MachineInstr& in) {
 		if(in.imm == 80) {
-			fldSlot(in.uses[0].slot);
-			fstpSlot(in.defs[0].slot);
+			fldSlot(in.uses[0]);
+			fstpSlot(in.defs[0]);
 			return;
 		}
 		U32 sw = (U32)in.imm;
@@ -439,12 +316,12 @@ namespace rat {
 			a->fldD(RBP, fl->ldScratch);
 		else
 			a->fldL(RBP, fl->ldScratch);
-		fstpSlot(in.defs[0].slot);
+		fstpSlot(in.defs[0]);
 	}
 
 	void X86EncodePass::emitX87ToSse(const MachineInstr& in) {
 		U32 dw = (U32)in.imm;
-		fldSlot(in.uses[0].slot);
+		fldSlot(in.uses[0]);
 		if(dw == 4)
 			a->fstpD(RBP, fl->ldScratch);
 		else
@@ -453,23 +330,17 @@ namespace rat {
 	}
 
 	void X86EncodePass::emitX87Binary(const MachineInstr& in, U32 idx) {
-		fldSlot(in.uses[0].slot);
-		fldSlot(in.uses[1].slot);
+		fldSlot(in.uses[0]);
+		fldSlot(in.uses[1]);
 		static const U8 kArith[] = {0xc1, 0xe9, 0xc9, 0xf9}; // faddp fsubp fmulp fdivp
 		a->fArithP(kArith[idx]);
-		fstpSlot(in.defs[0].slot);
-	}
-
-	void X86EncodePass::emitX87Neg(const MachineInstr& in) {
-		fldSlot(in.uses[0].slot);
-		a->fchs();
-		fstpSlot(in.defs[0].slot);
+		fstpSlot(in.defs[0]);
 	}
 
 	void X86EncodePass::emitX87Cmp(const MachineInstr& in) {
 		U32 s = in.imm2 != 0;
-		fldSlot(in.uses[1 - s].slot); // -> st(1)
-		fldSlot(in.uses[s].slot);			// -> st(0)
+		fldSlot(in.uses[1 - s]); // -> st(1)
+		fldSlot(in.uses[s]);		 // -> st(0)
 		a->fucomip();
 		a->fstpReg0();
 		setccExt((U8)in.imm, gpOf(in.defs[0]));
