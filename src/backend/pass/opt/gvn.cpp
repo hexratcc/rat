@@ -1,5 +1,6 @@
 #include "pass/opt/gvn.h"
 
+#include "codegen/schedule.h"
 #include "ir/function.h"
 #include "ir/node.h"
 
@@ -43,6 +44,8 @@ namespace rat {
 
 	B32 GVNPass::isPureValue(Node* n) {
 		Opcode op = n->getOpcode();
+		if(Schedule::mayTrap(n))
+			return false;
 		return op == Opcode::Constant || op == Opcode::Global || isArithmeticOpcode(op) ||
 					 isVectorUtilOpcode(op);
 	}

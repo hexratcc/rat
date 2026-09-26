@@ -100,6 +100,7 @@ namespace rat {
 		I32 predBlockForRegionInput(I32 regionBlock, U32 i) const;
 		I32 hoistTarget(const Node* n, I32 late, I32 early) const;
 		I32 homeBlock(Node* n) const;
+		void markGuarded(const List<Node*>& work);
 
 		struct TopoScratch {
 			List<I32> localOf; // node id -> local index in the current block (-1)
@@ -125,6 +126,7 @@ namespace rat {
 		List<I32> rpoOrder;
 		I32 entryBlock = -1;
 		mutable List<Node*> headMemo;
+		List<C8> guarded;
 	};
 } // namespace rat
 

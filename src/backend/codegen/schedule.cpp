@@ -44,6 +44,7 @@ namespace rat {
 			placeLoads(work, early);
 			return;
 		}
+		markGuarded(work);
 		scheduleLate(work, early);
 		buildBlockLists();
 	}
@@ -398,8 +399,33 @@ namespace rat {
 
 	B32 Schedule::mayTrap(const Node* n) {
 		Opcode op = n->getOpcode();
-		return op == Opcode::Load || op == Opcode::SDiv || op == Opcode::UDiv || op == Opcode::SRem ||
-					 op == Opcode::URem;
+		if(op == Opcode::Load)
+			return true;
+		if(op != Opcode::SDiv && op != Opcode::UDiv && op != Opcode::SRem && op != Opcode::URem)
+			return false;
+		const ConstantNode* c = dyn_cast<ConstantNode>(cast<BinaryNode>(n)->getRHS());
+		if(!c)
+			return true;
+		I64 d = signExtend(c->getValue(), n->getType()->getIntWidth());
+		B32 isSigned = op == Opcode::SDiv || op == Opcode::SRem;
+		return d == 0 || (isSigned && d == -1); // INT_MIN / -1 traps
+	}
+
+	void Schedule::markGuarded(const List<Node*>& work) {
+		guarded.assign(fn.idBound(), 0);
+		List<Node*> stack;
+		for(Node* n : work)
+			if(mayTrap(n))
+				stack.push_back(n);
+		while(!stack.empty()) {
+			Node* n = stack.back();
+			stack.pop_back();
+			if(guarded[n->getId()] || isa<LoadNode>(n) || !isFloating(n))
+				continue;
+			guarded[n->getId()] = 1;
+			for(Node* u : n->getUsers())
+				stack.push_back(u);
+		}
 	}
 
 	I32 Schedule::homeBlock(Node* n) const { return headBlock(headOf(n->getControlInput())); }
@@ -409,7 +435,7 @@ namespace rat {
 			return late; // nothing above is shallower, so the walk cannot move it
 		Opcode op = n->getOpcode();
 		B32 remat = op == Opcode::Constant || op == Opcode::Global;
-		B32 trapping = mayTrap(n);
+		B32 trapping = mayTrap(n) || (n->getId() < guarded.size() && guarded[n->getId()]);
 		I32 cur = late, pick = late;
 		while(true) {
 			if(blocks[cur].loopDepth < blocks[pick].loopDepth) {
