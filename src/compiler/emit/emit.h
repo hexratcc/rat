@@ -134,6 +134,7 @@ namespace rat::cc {
 		B32 evalAddrConst(const Expr* expr, String& symbol, I64& addend);
 		B32 addrConstOf(const Expr* lv, String& symbol, I64& addend);
 		String internString(const Expr* strLit);
+		Node* floatLit(Function& fn, CType t, F80 v);
 		B32 internCompoundLiteral(const Expr* compound, String& outSym);
 
 		B32 resolveType(CType& t);

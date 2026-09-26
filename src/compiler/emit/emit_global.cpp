@@ -21,6 +21,17 @@ namespace rat::cc {
 		return name;
 	}
 
+	Node* Emitter::floatLit(Function& fn, CType t, F80 v) {
+		if(t.bits != 128 || (F80)(F64)v == v)
+			return fn.constFloat(irType(t), (F64)v);
+		List<U8> init;
+		encodeFloatBytes(t, v, init);
+		String name = "__ratcc_ld" + std::to_string(strCounter++);
+		Global* g = mod.createGlobal(name, irType(t), true, std::move(init));
+		g->setLinkage(Global::Linkage::Internal);
+		return fn.load(irType(t), fn.global(name));
+	}
+
 	B32 Emitter::internCompoundLiteral(const Expr* e, String& outSym) {
 		CType ty = e->compound.type;
 		const Expr* init = e->compound.init;
