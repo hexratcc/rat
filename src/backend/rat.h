@@ -3,7 +3,7 @@
 
 #include "ir/module.h"
 
-#include "codegen/linear_scan_reg_alloc.h"
+#include "codegen/reg_alloc.h"
 #include "target/target.h"
 
 #include "pass/pass_manager.h"

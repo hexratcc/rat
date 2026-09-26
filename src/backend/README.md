@@ -114,8 +114,11 @@ Code generation turns the floating graph back into linear code in three stages: 
 [`CodeGen/MachineFunction.h:`](./codegen/machine_function.h) a minimal, target-independent instruction form: blocks of `MachineInstr`s with defs, uses, clobbers, a register class, and backend-defined immediates. Operands are virtual registers, physical registers, immediates, frame slots, symbols, or block references. Calls are flagged so allocators apply clobbers and bound live ranges correctly.
 
 ## register allocation
-The allocator builds on [`CodeGen/RegAllocBase.h`](./codegen/reg_alloc_base.h): per-block liveness over dense vreg bitsets, a linearized instruction order, copy-hint collection, and a common rewrite step that patches assignments in and inserts spills/reloads. It is fully backend-agnostic (register classes come from the target's `RegisterInfo`, and spill/reload/slot construction goes through `RegAllocHooks` callbacks), so the allocator never names a single target opcode.
-- [**linear scan:**](./codegen/linear_scan_reg_alloc.h) Live ranges are hole-aware segment lists: the gaps between segments are provably off every def-use path, so fixed-register pins inside a hole don't constrain the value and call clobbers inside a hole don't force a callee-saved register. Assignment scans ranges in start order per class. Copy hints bias the choice so coalescable moves become elided self-moves. Under pressure a value spills to a frame slot.
+[`CodeGen/RegAlloc.h`:](./codegen/reg_alloc.h) priority bin-packing over a per-slot register bitmap. It is fully backend-agnostic (register classes come from the target's `RegisterInfo`, and spill/reload/slot construction goes through `RegAllocHooks` callbacks), so the allocator never names a single target opcode.
+- **slots:** instruction `i` reads at slot `2i` and writes at `2i + 1`. A copy's source dies at the read slot, so the copy's def can take its register; other uses never share a register with a def of the same instruction.
+- **live ranges:** exact per-block liveness gives each vreg a segment list with lifetime holes. Fixed-register operands, call argument windows and clobbers are marked busy up front, so values live across a call land in callee-saved registers.
+- **coalescing:** copy-related vregs whose ranges do not overlap merge into one bundle; the copies inside it are deleted.
+- **assignment:** bundles in descending spill weight (loop-weighted uses over the square root of the length) take their copy hint or the first register free over all their segments. A bundle with none is spilled whole to a slot; spill code goes through the scratch registers, which are never allocated.
 
 # x86-64 backend
 Two machine passes:

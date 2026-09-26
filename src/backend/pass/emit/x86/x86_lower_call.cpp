@@ -167,10 +167,9 @@ namespace rat {
 		call.isCall = true;
 		call.clobbers = callerSavedClobbers();
 
-		if(c->isIndirect()) {
-			VReg t = gpValue(c->getTarget());
-			mov(R11, t);
-		}
+		VReg target = kNoVReg;
+		if(c->isIndirect())
+			target = gpValue(c->getTarget());
 
 		// classify and materialize every argument up front
 		X86ArgAssigner as(*conv);
@@ -233,6 +232,9 @@ namespace rat {
 			if(al.reg < 0)
 				call.uses.push_back(al.val);
 		call.imm = (I64)as.stackBytes;
+		// R11 last: argument setup may use it as encoder scratch (x87 constants)
+		if(c->isIndirect())
+			mov(R11, target);
 		emit(std::move(call));
 
 		// return value

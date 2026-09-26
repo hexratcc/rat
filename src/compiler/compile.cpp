@@ -22,7 +22,7 @@ namespace rat::cc {
 				pm.add(std::move(p));
 		} else {
 			pm.add<X86LowerPass>();
-			pm.add<LinearScanRegAllocPass>();
+			pm.add<RegAllocPass>();
 			pm.add<X86PeepholePass>();
 			pm.add<X86LayoutPass>();
 			pm.add<X86EncodePass>(out);
