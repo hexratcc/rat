@@ -54,6 +54,7 @@ namespace rat {
 		}
 
 		using Var = U32;
+		using Nodes = List<Node*>;
 
 		// builder until seal() fixes the predecessor set
 		struct Block {
@@ -62,10 +63,9 @@ namespace rat {
 			List<Block*> predBlocks; // source block per pred (parallel)
 			Node* ctrl = nullptr;		 // control anchor once active
 			B32 sealed = false;
-			B32 active = false;		// ctrl established
 			B32 finished = false; // ended in a terminator
-			List<std::pair<Var, Node*>> defs;
-			List<std::pair<U32, PhiNode*>> incompletePhis;
+			List<Pair<Var, Node*>> defs;
+			List<Pair<Var, PhiNode*>> incompletePhis;
 		};
 
 		// types
@@ -92,22 +92,22 @@ namespace rat {
 		Node* lshr(Node* lhs, Node* rhs);
 		Node* ashr(Node* lhs, Node* rhs);
 
-		Node* unary(Opcode op, Node* operand);
-		Node* neg(Node* operand);
-		Node* bitNot(Node* operand);
-		Node* ctz(Node* operand);
-		Node* bswap(Node* operand);
+		Node* unary(Opcode op, Node* in);
+		Node* neg(Node* in);
+		Node* bitNot(Node* in);
+		Node* ctz(Node* in);
+		Node* bswap(Node* in);
 
 		Node* compare(Opcode op, Node* lhs, Node* rhs);
 		Node* eq(Node* lhs, Node* rhs);
 		Node* ne(Node* lhs, Node* rhs);
 
-		Node* convert(Opcode op, Node* operand, Type* destType);
-		Node* trunc(Node* operand, Type* destType);
-		Node* sext(Node* operand, Type* destType);
-		Node* zext(Node* operand, Type* destType);
+		Node* convert(Opcode op, Node* in, Type* to);
+		Node* trunc(Node* in, Type* to);
+		Node* sext(Node* in, Type* to);
+		Node* zext(Node* in, Type* to);
 
-		Node* load(Type* valueType, Node* pointer);
+		Node* load(Type* ty, Node* ptr);
 		void store(Node* pointer, Node* value);
 
 		Node* global(const String& name);
@@ -117,15 +117,15 @@ namespace rat {
 		Node* stackSave();
 		void stackRestore(Node* saved);
 
-		Node* call(const String& callee, Type* retType, const List<Node*>& args, B32 varArgs = true);
-		Node* callIndirect(Node* target, Type* retType, const List<Node*>& args, B32 varArgs = true);
+		Node* call(const String& callee, Type* retType, const Nodes& args, B32 varArgs = true);
+		Node* callIndirect(Node* target, Type* retType, const Nodes& args, B32 varArgs = true);
 
-		List<Node*> inlineAsm(const String& text, const List<Type*>& outputs, const List<Node*>& args);
+		List<Node*> inlineAsm(const String& text, const List<Type*>& outs, const Nodes& args);
 
 		// control
 		IfNode* iff(Node* predicate);
 		ProjNode* proj(Node* tuple, U32 index, Type* type, String label = "");
-		PhiNode* phi(Type* type, RegionNode* region, const List<Node*>& values);
+		PhiNode* phi(Type* type, RegionNode* region, const Nodes& values);
 
 		// block api
 		Block* createBlock(String name = "");
@@ -189,29 +189,29 @@ namespace rat {
 		U32 allocateId();
 		Node** allocEdges(U32 count) { return arena.makeArray<Node*>(count); }
 		const C8* internString(const C8* s, U64 len) { return arena.internString(s, len); }
+		B32 isDeadNode(Node* n, B32 includeControl) const;
+		U32 eraseMarked(const List<U8>& mark);
 
-		void writeVar(Var var, Node* value);
-		Node* readVar(Var var);
-
-		Node* readVariable(Var var, Block* block);
-		Node* readVariableRecursive(Var var, Block* block);
+		// ssa construction
+		Node* mem();
+		Node* read(Var var, Block* block);
+		Node* readRecursive(Var var, Block* block);
 		// tracks (block, var) slots holding a phi so trivial-phi removal patches
 		// them without scanning every block
 		void cacheDef(Block* block, Var var, Node* val);
 		static Node** findDef(Block* block, Var var);
 		Node* addPhiOperands(Var var, PhiNode* phi, Block* block);
 		Node* tryRemoveTrivialPhi(PhiNode* phi);
-		PhiNode* newIncompletePhi(Var var, Block* block);
 		void replacePhiEverywhere(PhiNode* phi, Node* with);
-		Map<PhiNode*, List<std::pair<Block*, Var>>> phiDefSites;
 
-		Block* makeBlock(B32 loopHeader);
-		void addEdge(Node* exitControl, Block* from, Block* to);
+		// blocks
+		void addEdge(Node* exit, Block* to);
 		void activateOnSeal(Block* block);
 
-		Type* callTupleType(Type* retType);
-		Node* attachCallProjections(CallNode* c, Type* retType);
-	private:
+		// calls
+		void bindEffects(Node* n);
+		Node* emitCall(const String& sym, const Nodes& ins, Type* ret, B32 indirect, B32 va);
+
 		// signature
 		Module* mod;
 		String name;
@@ -235,6 +235,7 @@ namespace rat {
 		Block* cur = nullptr; // current insertion block
 		List<Type*> varTypes;
 		Var memVar = 0; // reserved variable carrying the memory token
+		Map<PhiNode*, List<Pair<Block*, Var>>> phiDefSites;
 	};
 } // namespace rat
 

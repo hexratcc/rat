@@ -10,40 +10,30 @@
 #include "target/target.h"
 #include "target/x86/x86_asm.h"
 
+#include <functional>
+
 namespace rat {
 	Reg X86EncodePass::toGp(PhysReg p) { return (Reg)(p - X86Target::kGpBase); }
-	U32 X86EncodePass::toXmm(PhysReg p) { return p - X86Target::kXmmBase; }
 	Reg X86EncodePass::gpOf(const MachineOperand& o) { return toGp(o.phys); }
-	U32 X86EncodePass::xmmOf(const MachineOperand& o) { return toXmm(o.phys); }
-
-	void X86EncodePass::reset(const MachineFunc& f,
-														const X86FrameLayout& layout,
-														Asm& asm_,
-														List<PhysReg> callee) {
-		fn = &f;
-		fl = &layout;
-		a = &asm_;
-		blockOffset.clear();
-		fixes.clear();
-		tables.clear();
-		frameSize = 0;
-		calleeSaved = std::move(callee);
-	}
+	U32 X86EncodePass::xmmOf(const MachineOperand& o) { return o.phys - X86Target::kXmmBase; }
+	U32 X86EncodePass::scaleOf(const MachineInstr& in) { return (U32)((in.imm2 >> 2) & 3); }
 
 	void X86EncodePass::readGp(const MachineOperand& o, Reg r) {
 		if(o.kind == MachineOperand::Kind::Imm)
 			a->movRegImm64(r, (U64)o.imm);
-		else if(o.kind == MachineOperand::Kind::Phys) {
+		else if(o.isPhys()) {
 			if(gpOf(o) != r)
 				a->movRR(r, gpOf(o));
 		} else if(o.kind == MachineOperand::Kind::FrameSlot)
 			a->load64(r, RBP, o.slot);
 	}
 
-	void X86EncodePass::vaPtrToR10(const MachineInstr& in) {
-		Reg ptr = gpOf(in.uses[0]);
-		if(ptr != R10)
-			a->movRR(R10, ptr);
+	void X86EncodePass::stash(Reg r) { a->storeMem(RBP, fl->ldScratch, r, 8); }
+	void X86EncodePass::unstash(Reg r) { a->load64(r, RBP, fl->ldScratch); }
+
+	void X86EncodePass::immToScratch(I64 v) {
+		a->movRegImm64(R11, (U64)v);
+		stash(R11);
 	}
 
 	// kind in imm, width and sign in imm2; the value address is in r11
@@ -52,39 +42,22 @@ namespace rat {
 		U32 width = (U32)(in.imm2 & 0xffffffff);
 		if(kind == VaArgKind::X87) {
 			a->fldT(R11, 0);
-			return fstpSlot(in.defs[0].slot);
+			return fstpSlot(in.defs[0]);
 		}
 		if(kind == VaArgKind::Sse)
 			return a->loadXmm(xmmOf(in.defs[0]), R11, 0, width);
 		a->loadExt(gpOf(in.defs[0]), R11, 0, width, (in.imm2 >> 32) != 0);
 	}
 
-	void X86EncodePass::emitVaStartWin64(const MachineInstr& in) {
-		vaPtrToR10(in);
-		a->leaMem(R11, RBP, fl->overflowOff);
-		a->storeMem(R10, 0, R11, 8);
-	}
-
-	void X86EncodePass::emitVaArgWin64(const MachineInstr& in) {
-		vaPtrToR10(in);
-		a->load64(R11, R10, 0);
-		a->storeMem(RBP, fl->ldScratch, R11, 8);
-		a->addRegImm32(R11, 8);
-		a->storeMem(R10, 0, R11, 8);
-		a->load64(R11, RBP, fl->ldScratch);
-		if((VaArgKind)in.imm == VaArgKind::X87)
-			a->load64(R11, R11, 0); // slot holds a pointer to the value
-		vaLoadResult(in);
-	}
-
 	void X86EncodePass::emitVaStart(const MachineInstr& in) {
-		if(conv->vaList == X86VaList::CharPtr)
-			return emitVaStartWin64(in);
-		vaPtrToR10(in);
-		U32 namedGp = (U32)in.imm, namedFp = (U32)in.imm2;
-		a->movRegImm64(R11, namedGp * 8);
+		readGp(in.uses[0], R10);
+		if(conv->vaList == X86VaList::CharPtr) {
+			a->leaMem(R11, RBP, fl->overflowOff);
+			return a->storeMem(R10, 0, R11, 8);
+		}
+		a->movRegImm64(R11, (U32)in.imm * 8);
 		a->storeMem(R10, 0, R11, 4);
-		a->movRegImm64(R11, conv->gpSaveBytes + namedFp * conv->sseSlotBytes);
+		a->movRegImm64(R11, conv->gpSaveBytes + (U32)in.imm2 * conv->sseSlotBytes);
 		a->storeMem(R10, 4, R11, 4);
 		a->leaMem(R11, RBP, fl->overflowOff);
 		a->storeMem(R10, 8, R11, 8);
@@ -99,21 +72,21 @@ namespace rat {
 			a->addRegImm32(R11, (I32)align - 1);
 			a->aluImm(4, R11, -(I32)align); // and
 		}
-		a->storeMem(RBP, fl->ldScratch, R11, 8); // stash address
-		a->addRegImm32(R11, step);							 // advance
-		a->storeMem(R10, 8, R11, 8);						 // write back overflow_arg_area
-		a->load64(R11, RBP, fl->ldScratch);			 // R11 = stashed address
+		stash(R11);									 // stash address
+		a->addRegImm32(R11, step);	 // advance
+		a->storeMem(R10, 8, R11, 8); // write back overflow_arg_area
+		unstash(R11);								 // R11 = stashed address
 	}
 
 	void X86EncodePass::vaFetch(I32 offDisp, U32 limit, I32 regStep) {
 		a->loadExt(R11, R10, offDisp, 4, false); // R11 = cur offset
 		a->cmpRegImm32(R11, (I32)limit);				 // offset vs limit
 		U32 toStack = a->jccRel32(CC_AE);				 // offset >= limit -> overflow path
-		a->storeMem(RBP, fl->ldScratch, R11, 8); // stash original offset
+		stash(R11);															 // stash original offset
 		a->addRegImm32(R11, regStep);
-		a->storeMem(R10, offDisp, R11, 4);	// write advanced offset
-		a->load64(R11, RBP, fl->ldScratch); // R11 = original offset
-		a->addRegMem(R11, R10, 16);					// R11 += reg_save_area base
+		a->storeMem(R10, offDisp, R11, 4); // write advanced offset
+		unstash(R11);											 // R11 = original offset
+		a->addRegMem(R11, R10, 16);				 // R11 += reg_save_area base
 		U32 done = a->jmpRel32();
 		a->patchRel32(toStack, a->here());
 		vaFetchOverflow(8, 8);
@@ -121,11 +94,17 @@ namespace rat {
 	}
 
 	void X86EncodePass::emitVaArg(const MachineInstr& in) {
-		if(conv->vaList == X86VaList::CharPtr)
-			return emitVaArgWin64(in);
-		vaPtrToR10(in);
+		readGp(in.uses[0], R10);
 		VaArgKind kind = (VaArgKind)in.imm;
-		if(kind == VaArgKind::X87)
+		if(conv->vaList == X86VaList::CharPtr) {
+			a->load64(R11, R10, 0);
+			stash(R11);
+			a->addRegImm32(R11, 8);
+			a->storeMem(R10, 0, R11, 8);
+			unstash(R11);
+			if(kind == VaArgKind::X87)
+				a->load64(R11, R11, 0); // slot holds a pointer to the value
+		} else if(kind == VaArgKind::X87)
 			vaFetchOverflow(16, 16);
 		else if(kind == VaArgKind::Sse)
 			vaFetch(4, conv->regSaveBytes, (I32)conv->sseSlotBytes);
@@ -135,19 +114,17 @@ namespace rat {
 	}
 
 	void X86EncodePass::emitCall(const MachineInstr& in) {
-		I32 stackBytes = (I32)in.imm;
 		B32 indirect = in.imm2 != 0;
-
 		U32 targetIdx = 0;
 		for(U32 i = 0; i < in.uses.size(); ++i) {
 			const MachineOperand& u = in.uses[i];
 			if(!indirect && u.kind == MachineOperand::Kind::Sym)
 				targetIdx = i;
-			else if(indirect && u.kind == MachineOperand::Kind::Phys && u.phys == detail::gpPhys(R11))
+			else if(indirect && u.isPhys() && u.phys == detail::gpPhys(R11))
 				targetIdx = i;
 		}
 
-		U32 total = ((U32)stackBytes + conv->shadowBytes + 15u) & ~15u;
+		U32 total = ((U32)in.imm + conv->shadowBytes + 15u) & ~15u;
 		if(total)
 			a->subRegImm32(RSP, (I32)total);
 		I32 off = (I32)conv->shadowBytes;
@@ -156,7 +133,7 @@ namespace rat {
 			if(u.kind == MachineOperand::Kind::FrameSlot) {
 				if(u.width == 16) { // by-value x87
 					off = (off + 15) & ~15;
-					fldSlot(u.slot);
+					fldSlot(u);
 					a->fstpT(RSP, off);
 					off += 16;
 					continue;
@@ -174,11 +151,9 @@ namespace rat {
 			// variadic callees read every register argument from the gp set
 			for(U32 i = targetIdx + 1; i-- > 0;) {
 				const MachineOperand& u = in.uses[i];
-				if(u.kind != MachineOperand::Kind::Phys || !X86Target::isXmm(u.phys))
+				if(!u.isPhys() || !X86Target::isXmm(u.phys) || xmmOf(u) >= conv->gpArgCount)
 					continue;
-				U32 x = toXmm(u.phys);
-				if(x < conv->gpArgCount)
-					a->movGpXmm(conv->gpArgs[x], x, true);
+				a->movGpXmm(conv->gpArgs[xmmOf(u)], xmmOf(u), true);
 			}
 		}
 
@@ -190,21 +165,16 @@ namespace rat {
 			a->addRegImm32(RSP, (I32)total);
 	}
 
-	void X86EncodePass::recordFix(U32 dispAt, I32 targetBlock) {
-		fixes.push_back({dispAt, targetBlock});
-	}
-
 	void X86EncodePass::emitRet() {
-		if(omitFrame) {
-			a->ret();
-			return;
-		}
-		if(!calleeSaved.empty()) {
+		if(omitFrame)
+			return a->ret();
+		const List<PhysReg>& saved = fn->usedCalleeSaved;
+		if(!saved.empty()) {
 			// dynamic allocas move rsp, so re-point it at the save area first
 			if(hasDynAlloca)
-				a->leaMem(RSP, RBP, -(I32)(frameSize + 8u * (U32)calleeSaved.size()));
-			for(U32 i = (U32)calleeSaved.size(); i-- > 0;)
-				a->pop(toGp(calleeSaved[i]));
+				a->leaMem(RSP, RBP, -(I32)(frameSize + 8u * (U32)saved.size()));
+			for(U32 i = (U32)saved.size(); i-- > 0;)
+				a->pop(toGp(saved[i]));
 		}
 		a->leave();
 		a->ret();
@@ -227,13 +197,6 @@ namespace rat {
 		tables.push_back(std::move(t));
 	}
 
-	void X86EncodePass::emitJmp(const MachineInstr& in, I32 fallthrough) {
-		I32 target = in.uses[0].block;
-		if(target == fallthrough)
-			return;
-		recordFix(a->jmpRel32(), target);
-	}
-
 	void X86EncodePass::emitBr(const MachineInstr& in, I32 fallthrough) {
 		U8 cc;
 		I32 thenB, elseB;
@@ -248,17 +211,16 @@ namespace rat {
 			thenB = in.uses[1].block;
 			elseB = in.uses[2].block;
 		}
-		if(thenB == fallthrough) { // invert so the taken edge is the non-adjacent one
-			recordFix(a->jccRel32((U8)(cc ^ 1)), elseB);
-			return;
-		}
-		recordFix(a->jccRel32(cc), thenB);
+		if(thenB == fallthrough) // invert so the taken edge is the non-adjacent one
+			return fixes.push_back({a->jccRel32((U8)(cc ^ 1)), elseB});
+		fixes.push_back({a->jccRel32(cc), thenB});
 		if(elseB != fallthrough)
-			recordFix(a->jmpRel32(), elseB);
+			fixes.push_back({a->jmpRel32(), elseB});
 	}
 
 	void X86EncodePass::emitInst(const MachineInstr& in, I32 fallthrough) {
-		switch((X86Op)in.op) {
+		X86Op op = (X86Op)in.op;
+		switch(op) {
 		case X86Op::Copy:
 			return emitCopy(in);
 		case X86Op::LoadImm:
@@ -280,9 +242,10 @@ namespace rat {
 			return emitSetJmp(in);
 		case X86Op::LongJmp:
 			return emitLongJmp(in);
-		case X86Op::Lea:
-			return a->leaSib(
-					gpOf(in.defs[0]), gpOf(in.uses[0]), gpOf(in.uses[1]), (U32)(in.imm2 & 3), (I32)in.imm);
+		case X86Op::Lea: {
+			U32 sc = (U32)(in.imm2 & 3);
+			return a->leaSib(gpOf(in.defs[0]), gpOf(in.uses[0]), gpOf(in.uses[1]), sc, (I32)in.imm);
+		}
 		case X86Op::Load:
 			return emitLoad(in);
 		case X86Op::Store:
@@ -295,7 +258,7 @@ namespace rat {
 			static const U8 kAlu[] = {
 					detail::kAluAdd, detail::kAluSub, 0, detail::kAluAnd, detail::kAluOr, detail::kAluXor};
 			static_assert((U32)X86Op::Xor - (U32)X86Op::Add + 1 == 6, "kAlu must cover Add..Xor");
-			return emitAlu(in, kAlu[(U32)in.op - (U32)X86Op::Add]);
+			return emitAlu(in, kAlu[(U32)op - (U32)X86Op::Add]);
 		}
 		case X86Op::Mul:
 			if(in.uses[1].kind == MachineOperand::Kind::Imm)
@@ -309,12 +272,11 @@ namespace rat {
 		case X86Op::AShr:
 		case X86Op::LShr: {
 			static const U8 kShift[] = {4, 7, 5}; // group-2 /ext for shl, sar, shr
-			return emitShift(in, kShift[(U32)in.op - (U32)X86Op::Shl]);
+			return emitShift(in, kShift[(U32)op - (U32)X86Op::Shl]);
 		}
 		case X86Op::Rotl:
 		case X86Op::Rotr:
-			return a->rotImm(
-					(X86Op)in.op == X86Op::Rotr, gpOf(in.defs[0]), (U8)in.uses[1].imm, in.imm == 64);
+			return a->rotImm(op == X86Op::Rotr, gpOf(in.defs[0]), (U8)in.uses[1].imm, in.imm == 64);
 		case X86Op::SDiv:
 		case X86Op::SRem:
 			return emitDiv(in, true);
@@ -323,8 +285,7 @@ namespace rat {
 			return emitDiv(in, false);
 		case X86Op::BitScanF:
 		case X86Op::BitScanR:
-			return a->bitScan(
-					(X86Op)in.op == X86Op::BitScanR, gpOf(in.defs[0]), gpOf(in.uses[0]), in.imm == 64);
+			return a->bitScan(op == X86Op::BitScanR, gpOf(in.defs[0]), gpOf(in.uses[0]), in.imm == 64);
 		case X86Op::Cmp:
 			return emitCmp(in);
 		case X86Op::SetCC:
@@ -332,9 +293,9 @@ namespace rat {
 		case X86Op::CMov:
 			return a->cmovcc((U8)in.imm, gpOf(in.defs[0]), gpOf(in.uses[1]));
 		case X86Op::MaskBits:
-			return emitMaskBits(in);
+			return emitExtBits(in, false);
 		case X86Op::SignExtBits:
-			return emitSignExtBits(in);
+			return emitExtBits(in, true);
 		case X86Op::Bswap:
 			return a->bswap(gpOf(in.defs[0]), in.imm == 64);
 		case X86Op::Ud2:
@@ -348,47 +309,58 @@ namespace rat {
 		case X86Op::FAdd:
 		case X86Op::FSub:
 		case X86Op::FMul:
-		case X86Op::FDiv:
-			return a->sseArith(detail::kSseOp[(U32)in.op - (U32)X86Op::FAdd],
-												 (U32)in.imm,
-												 xmmOf(in.defs[0]),
-												 xmmOf(in.uses[1]));
+		case X86Op::FDiv: {
+			U8 sseOp = detail::kSseOp[(U32)op - (U32)X86Op::FAdd];
+			return a->sseArith(sseOp, (U32)in.imm, xmmOf(in.defs[0]), xmmOf(in.uses[1]));
+		}
 		case X86Op::FNeg:
-			return emitFNeg(in);
+			return emitFSign(in, false);
 		case X86Op::FSqrt:
 			return a->sseArith(0x51, (U32)in.imm, xmmOf(in.defs[0]), xmmOf(in.uses[0]));
 		case X86Op::FAbs:
-			return emitFAbs(in);
+			return emitFSign(in, true);
 		case X86Op::FCmp:
-			return emitFCmp(in);
+			emitFCmpFlags(in);
+			return setccExt((U8)in.imm, gpOf(in.defs[0]));
 		case X86Op::FCmpFlags:
 			return emitFCmpFlags(in);
 		case X86Op::Cvt:
 			return emitCvt(in);
-		case X86Op::VArith:
-			return emitVArith(in);
+		case X86Op::VArith: {
+			U64 imm = (U64)in.imm;
+			U32 d = xmmOf(in.defs[0]), s = xmmOf(in.uses[1]);
+			return a->ssePacked((U8)(imm >> 8), (U8)imm, d, s, (imm >> 16) != 0);
+		}
 		case X86Op::VSplat:
 			return emitVSplat(in);
 		case X86Op::VExtract:
 			return emitVExtract(in);
 		case X86Op::VPack:
-			return emitVPack(in);
+			return a->loadXmm(xmmOf(in.defs[0]), RBP, fl->vecScratch, 16);
 		case X86Op::VPackLane:
 			return emitVPackLane(in);
 		case X86Op::VPackReg:
-			return emitVPackReg(in);
+			return a->movdXmmGp(xmmOf(in.defs[0]), gpOf(in.uses[0]), (U32)in.imm == 8);
 		case X86Op::VInsertReg:
-			return emitVInsertReg(in);
+			return a->pinsr(xmmOf(in.defs[0]), gpOf(in.uses[1]), (U8)in.imm2, (U32)in.imm == 8);
 		case X86Op::VShuf:
 			return a->pshufd(xmmOf(in.defs[0]), xmmOf(in.uses[0]), (U8)in.imm);
 		case X86Op::X87LoadMem:
-			return emitX87LoadMem(in);
+			if(in.imm == -1)
+				return fldSlot(in.uses[0]);
+			a->fldT(gpOf(in.uses[0]), 0);
+			return fstpSlot(in.defs[0]);
 		case X86Op::X87StoreMem:
 			return emitX87StoreMem(in);
 		case X86Op::X87LoadImmD:
-			return emitX87LoadImmD(in);
+			immToScratch(in.uses[0].imm);
+			a->fldL(RBP, fl->ldScratch);
+			return fstpSlot(in.defs[0]);
 		case X86Op::X87FromInt:
-			return emitX87FromInt(in);
+			readGp(in.uses[0], R11);
+			stash(R11);
+			a->fildQ(RBP, fl->ldScratch);
+			return fstpSlot(in.defs[0]);
 		case X86Op::X87ToInt:
 			return emitX87ToInt(in);
 		case X86Op::X87FromSse:
@@ -399,9 +371,11 @@ namespace rat {
 		case X86Op::X87Sub:
 		case X86Op::X87Mul:
 		case X86Op::X87Div:
-			return emitX87Binary(in, (U32)in.op - (U32)X86Op::X87Add);
+			return emitX87Binary(in, (U32)op - (U32)X86Op::X87Add);
 		case X86Op::X87Neg:
-			return emitX87Neg(in);
+			fldSlot(in.uses[0]);
+			a->fchs();
+			return fstpSlot(in.defs[0]);
 		case X86Op::X87Cmp:
 			return emitX87Cmp(in);
 		case X86Op::Call:
@@ -409,7 +383,9 @@ namespace rat {
 		case X86Op::Ret:
 			return emitRet();
 		case X86Op::Jmp:
-			return emitJmp(in, fallthrough);
+			if(in.uses[0].block != fallthrough)
+				fixes.push_back({a->jmpRel32(), in.uses[0].block});
+			return;
 		case X86Op::SwitchJump:
 			return emitSwitchJump(in);
 		case X86Op::Br:
@@ -440,18 +416,17 @@ namespace rat {
 			a->subRegImm32(RSP, (I32)frameSize);
 		}
 		// callee saves below the frame slots, via push/pop
-		for(U32 i = 0; i < calleeSaved.size(); ++i)
-			a->push(toGp(calleeSaved[i]));
+		for(PhysReg r : fn->usedCalleeSaved)
+			a->push(toGp(r));
 		if(!fl->variadic)
 			return;
-		if(conv->vaList == X86VaList::CharPtr) {
-			// spill the positional register arguments into their home slots
-			for(U32 i = 0; i < conv->gpArgCount; ++i)
-				a->storeMem(RBP, conv->homeOff + (I32)(i * 8), conv->gpArgs[i], 8);
-			return;
-		}
+		// spill the positional register arguments into their home slots
+		B32 win64 = conv->vaList == X86VaList::CharPtr;
+		I32 gpBase = win64 ? conv->homeOff : fl->saveArea;
 		for(U32 i = 0; i < conv->gpArgCount; ++i)
-			a->storeMem(RBP, fl->saveArea + (I32)(i * 8), conv->gpArgs[i], 8);
+			a->storeMem(RBP, gpBase + (I32)(i * 8), conv->gpArgs[i], 8);
+		if(win64)
+			return;
 		a->testRR(RAX, RAX);
 		U32 skip = a->jccRel32(CC_E);
 		for(U32 i = 0; i < conv->sseArgCount; ++i)
@@ -467,50 +442,58 @@ namespace rat {
 		return (U32)(maxId + 1);
 	}
 
-	void X86EncodePass::encodeFunction() {
+	B32 X86EncodePass::needsFrame(const MachineInstr& in) {
+		X86Op op = (X86Op)in.op;
+		if(in.isCall || op == X86Op::FrameAddr)
+			return true;
+		if(op == X86Op::VaStart || op == X86Op::VaArg || op == X86Op::RetAddr || op == X86Op::SetJmp ||
+			 op == X86Op::LongJmp || (op >= X86Op::X87LoadMem && op <= X86Op::X87Cmp))
+			return true; // reading [rbp+8] or jumping across frames needs rbp to survive
+		if(op == X86Op::FLoad && !in.uses.empty() && in.uses[0].kind == MachineOperand::Kind::Imm)
+			return true; // materializes through the rbp scratch slot
+		for(const List<MachineOperand>* ops : {&in.defs, &in.uses})
+			for(const MachineOperand& o : *ops)
+				if(o.kind == MachineOperand::Kind::FrameSlot || (o.isPhys() && gpOf(o) == RBP))
+					return true;
+		return false;
+	}
+
+	void X86EncodePass::encodeFunction(const MachineFunc& f, Asm& asm_) {
+		fn = &f;
+		fl = static_cast<const X86FrameLayout*>(f.aux.get());
+		a = &asm_;
+		fixes.clear();
+		tables.clear();
+
 		// frame slots in [rbp-frameSize, rbp); saves pushed below, total 16-aligned
-		U32 saveBytes = 8u * (U32)calleeSaved.size();
-		frameSize = ((fn->frameBytes + saveBytes + 15u) & ~15u) - saveBytes;
+		U32 saveBytes = 8u * (U32)f.usedCalleeSaved.size();
+		frameSize = ((f.frameBytes + saveBytes + 15u) & ~15u) - saveBytes;
 
 		// frameless when nothing touches rbp/rsp: no slots, saves, calls, variadic,
 		// or frame-addressing instruction
 		hasDynAlloca = false;
-		B32 framey = fn->frameBytes != 0 || !calleeSaved.empty() || fl->variadic;
-		B32 hasCall = false;
-		PhysReg rbpPhys = X86Target::kGpBase + (PhysReg)RBP;
-		for(const MachineBlock& blk : fn->blocks)
+		B32 framey = f.frameBytes != 0 || saveBytes != 0 || fl->variadic;
+		U32 instCount = 0;
+		for(const MachineBlock& blk : f.blocks)
 			for(const MachineInstr& in : blk.insts) {
 				X86Op op = (X86Op)in.op;
-				if(op == X86Op::FrameAddr)
-					framey = true;
-				if(op == X86Op::StackAlloc || op == X86Op::StackSave || op == X86Op::StackRestore) {
-					framey = true;
+				if(op == X86Op::StackAlloc || op == X86Op::StackSave || op == X86Op::StackRestore)
 					hasDynAlloca = true;
-				}
-				if(op == X86Op::VaStart || op == X86Op::VaArg || op == X86Op::RetAddr ||
-					 op == X86Op::SetJmp || op == X86Op::LongJmp ||
-					 (op >= X86Op::X87LoadMem && op <= X86Op::X87Cmp))
-					framey = true; // reading [rbp+8] or jumping across frames needs rbp to survive
-				if(op == X86Op::FLoad && !in.uses.empty() && in.uses[0].kind == MachineOperand::Kind::Imm)
-					framey = true; // materializes through the rbp scratch slot
-				if(in.isCall)
-					hasCall = true;
-				for(const List<MachineOperand>* ops : {&in.defs, &in.uses})
-					for(const MachineOperand& o : *ops)
-						if(o.kind == MachineOperand::Kind::FrameSlot ||
-							 (o.kind == MachineOperand::Kind::Phys && o.phys == rbpPhys))
-							framey = true;
+				if(!framey && needsFrame(in))
+					framey = true;
+				++instCount;
 			}
-		omitFrame = !framey && !hasCall;
+		omitFrame = !framey && !hasDynAlloca;
+		a->code.reserve((U64)instCount * 16u + 64u); // cheap upper estimate
 
-		blockOffset.assign(blockIdBound(*fn), 0);
+		blockOffset.assign(blockIdBound(f), 0);
 		prologue();
-		for(U32 bi = 0; bi < fn->blocks.size(); ++bi) {
-			const MachineBlock& blk = fn->blocks[bi];
+		for(U32 bi = 0; bi < f.blocks.size(); ++bi) {
+			const MachineBlock& blk = f.blocks[bi];
 			if(blk.id < 0)
 				continue;
 			blockOffset[blk.id] = a->here();
-			I32 fallthrough = (bi + 1 < fn->blocks.size()) ? (I32)fn->blocks[bi + 1].id : -1;
+			I32 fallthrough = (bi + 1 < f.blocks.size()) ? (I32)f.blocks[bi + 1].id : -1;
 			for(const MachineInstr& in : blk.insts)
 				emitInst(in, fallthrough);
 		}
@@ -521,8 +504,8 @@ namespace rat {
 			for(I32 tb : t.targets)
 				a->d32(blockOffset[tb] - base);
 		}
-		for(const JumpFix& f : fixes)
-			a->patchRel32(f.dispAt, blockOffset[f.targetBlock]);
+		for(const JumpFix& jf : fixes)
+			a->patchRel32(jf.dispAt, blockOffset[jf.targetBlock]);
 	}
 
 	void X86EncodePass::emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes) {
@@ -533,21 +516,21 @@ namespace rat {
 		if(size == 0)
 			size = 1;
 
-		B32 allZero = g->getRelocs().empty() &&
-									std::all_of(init.begin(), init.end(), [](U8 v) { return v == 0; });
+		B32 allZero =
+				g->getRelocs().empty() && std::all_of(init.begin(), init.end(), std::logical_not<U8>());
 		ObjectFile::Section sec = ObjectFile::Data;
 		if(allZero)
 			sec = ObjectFile::Bss;
 		else if(g->isConstant())
 			sec = ObjectFile::Rodata;
-		obj.align(sec, g->getAlign() > 8 ? g->getAlign() : 8u);
+		obj.align(sec, std::max(g->getAlign(), 8u));
 
 		U32 off;
 		if(allZero) {
 			off = obj.appendZero(sec, size);
 		} else {
 			List<U8> img(size, 0);
-			std::copy_n(init.begin(), init.size() < size ? init.size() : size, img.begin());
+			std::copy_n(init.begin(), std::min((U32)init.size(), size), img.begin());
 			off = obj.append(sec, img.data(), size);
 		}
 		obj.defineSymbol(g->getName(), sec, off, !g->isInternal(), false);
@@ -566,28 +549,14 @@ namespace rat {
 
 		List<U8> code;
 		List<AsmReloc> relocs;
-
-		for(const Function* fn : mod) {
-			MachineFunc& mf = mm.get(fn);
-
-			const X86FrameLayout& fl = *static_cast<const X86FrameLayout*>(mf.aux.get());
-
+		for(const Function* f : mod) {
 			code.clear();
 			relocs.clear();
-			U32 instCount = 0;
-			for(const MachineBlock& blk : mf.blocks)
-				instCount += (U32)blk.insts.size();
-			code.reserve((U64)instCount * 16u + 64u); // cheap upper estimate
-
 			Asm a(code, relocs);
-			reset(mf, fl, a, mf.usedCalleeSaved);
-			encodeFunction();
-
-			U32 align = fn->getAttrs().align;
-			obj->align(ObjectFile::Text, align > 16 ? align : 16u);
+			encodeFunction(mm.get(f), a);
+			obj->align(ObjectFile::Text, std::max(f->getAttrs().align, 16u));
 			U32 off = obj->append(ObjectFile::Text, code.data(), (U32)code.size());
-			B32 global = !fn->getAttrs().isInternal();
-			obj->defineSymbol(fn->getName(), ObjectFile::Text, off, global, true);
+			obj->defineSymbol(f->getName(), ObjectFile::Text, off, !f->getAttrs().isInternal(), true);
 			for(const AsmReloc& r : relocs)
 				obj->addReloc(ObjectFile::Text, off + r.offset, r.symbol, r.kind, r.addend);
 		}

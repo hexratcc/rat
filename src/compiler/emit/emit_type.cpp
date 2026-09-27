@@ -15,10 +15,10 @@ namespace rat::cc {
 
 	B32 Emitter::identIsArray(const String& name) {
 		Local loc;
-		if(lookup(name, loc))
+		if(func.scopes.lookup(name, loc))
 			return loc.isArray;
-		auto gv = globalVars.find(name);
-		return gv != globalVars.end() && gv->second.isArray;
+		auto gv = syms.globals.find(name);
+		return gv != syms.globals.end() && gv->second.isArray;
 	}
 
 	B32 Emitter::sizeofOperand(const Expr* operand, U64& out) {
@@ -29,20 +29,20 @@ namespace rat::cc {
 		if(operand->kind == ExprKind::Ident) {
 			const String& name = *operand->ident.name;
 			Local loc;
-			B32 isLocal = lookup(name, loc);
+			B32 isLocal = func.scopes.lookup(name, loc);
 			if(isLocal && loc.isArray) {
 				if(loc.lengthNode)
 					return false;
 				out = loc.count * byteSize(loc.type);
 				return true;
 			}
-			auto gv = globalVars.find(name);
-			if(gv != globalVars.end()) {
+			auto gv = syms.globals.find(name);
+			if(gv != syms.globals.end()) {
 				if(gv->second.isArray) {
 					out = gv->second.count * byteSize(gv->second.type);
 					return true;
 				}
-			} else if(!isLocal && funcs.count(name)) {
+			} else if(!isLocal && syms.functions.count(name)) {
 				out = 1;
 				return true;
 			}
@@ -74,11 +74,7 @@ namespace rat::cc {
 	static B32 funcTypesMatch(const FuncType* a, const FuncType* b);
 
 	static B32 genericTypesMatch(const CType& a, const CType& b) {
-		if(a.ptr != b.ptr)
-			return false;
-		if(a.quals != b.quals)
-			return false;
-		if((a.func != nullptr) != (b.func != nullptr))
+		if(a.ptr != b.ptr || a.quals != b.quals || (a.func != nullptr) != (b.func != nullptr))
 			return false;
 		if(a.func && b.func)
 			return funcTypesMatch(a.func, b.func);
@@ -86,40 +82,25 @@ namespace rat::cc {
 		B32 bArr = b.array != nullptr && b.ptr == 0;
 		if(aArr != bArr)
 			return false;
-		if(aArr && bArr) {
-			if(a.array->count != b.array->count)
-				return false;
-			return genericTypesMatch(a.array->elem, b.array->elem);
-		}
+		if(aArr && bArr)
+			return a.array->count == b.array->count && genericTypesMatch(a.array->elem, b.array->elem);
 		if((a.strukt != nullptr) != (b.strukt != nullptr))
 			return false;
 		if(a.strukt && b.strukt)
 			return a.strukt == b.strukt;
-		if(a.isVoid() != b.isVoid())
+		if(a.isVoid() != b.isVoid() || a.isFloat() != b.isFloat() || a.bits != b.bits)
 			return false;
-		if(a.isFloat() != b.isFloat())
-			return false;
-		if(a.bits != b.bits)
-			return false;
-		if(!a.isFloat() && !a.isVoid()) {
-			if(a.isUnsigned() != b.isUnsigned())
-				return false;
-			if(a.bits == 8 && a.isPlainChar() != b.isPlainChar())
-				return false;
-			if(a.bits == 32 && a.isLong() != b.isLong())
-				return false;
-			if(a.bits == 64 && a.isLongLong() != b.isLongLong())
-				return false;
-		}
-		return true;
+		if(a.isFloat() || a.isVoid())
+			return true;
+		return a.isUnsigned() == b.isUnsigned() &&
+					 !(a.bits == 8 && a.isPlainChar() != b.isPlainChar()) &&
+					 !(a.bits == 32 && a.isLong() != b.isLong()) &&
+					 !(a.bits == 64 && a.isLongLong() != b.isLongLong());
 	}
 
 	static B32 funcTypesMatch(const FuncType* a, const FuncType* b) {
-		if(a->isVarArgs != b->isVarArgs)
-			return false;
-		if(a->params.size() != b->params.size())
-			return false;
-		if(!genericTypesMatch(a->ret, b->ret))
+		if(a->isVarArgs != b->isVarArgs || a->params.size() != b->params.size() ||
+			 !genericTypesMatch(a->ret, b->ret))
 			return false;
 		for(U32 i = 0; i < a->params.size(); ++i)
 			if(!genericTypesMatch(a->params[i].type, b->params[i].type))
@@ -146,36 +127,33 @@ namespace rat::cc {
 		}
 		if(fallback)
 			return fallback;
-		fail("no _Generic association matches the controlling type");
+		diag.fail("no _Generic association matches the controlling type");
 		return nullptr;
 	}
 
 	B32 Emitter::typeOfUnary(const Expr* e, CType& out) {
-		switch(e->unary.op) {
-		case ExprOp::Not:
+		if(e->unary.op == ExprOp::Not) {
 			out = ctInt();
 			return true;
+		}
+		const Expr* operand = e->unary.operand;
+		CType t;
+		if(!typeOf(operand, t))
+			return false;
+		switch(e->unary.op) {
 		case ExprOp::PreInc:
 		case ExprOp::PreDec:
 		case ExprOp::PostInc:
 		case ExprOp::PostDec:
-			return typeOf(e->unary.operand, out);
-		case ExprOp::Addr: {
-			const Expr* operand = e->unary.operand;
-			CType t;
-			if(!typeOf(operand, t))
-				return false;
-			if(operand->kind == ExprKind::Ident && identIsArray(*operand->ident.name)) {
-				out = t;
-				return true;
-			}
-			out = pointerTo(t);
+			out = t;
 			return true;
-		}
-		case ExprOp::Deref: {
-			CType t;
-			if(!typeOf(e->unary.operand, t))
-				return false;
+		case ExprOp::Addr:
+			if(operand->kind == ExprKind::Ident && identIsArray(*operand->ident.name))
+				out = t;
+			else
+				out = pointerTo(t);
+			return true;
+		case ExprOp::Deref:
 			if(t.func && t.ptr == 1) {
 				out = t;
 				return true;
@@ -183,27 +161,18 @@ namespace rat::cc {
 			if(isArrayType(t))
 				t = decay(t);
 			if(!isPointer(t)) {
-				fail("indirection requires a pointer operand");
+				diag.fail("indirection requires a pointer operand");
 				return false;
 			}
 			out = pointee(t);
 			return true;
-		}
 		case ExprOp::Real:
-		case ExprOp::Imag: {
-			CType t;
-			if(!typeOf(e->unary.operand, t))
-				return false;
+		case ExprOp::Imag:
 			out = isComplexType(t) ? complexElem(t) : t;
 			return true;
-		}
-		default: {
-			CType t;
-			if(!typeOf(e->unary.operand, t))
-				return false;
+		default:
 			out = isPointer(t) ? t : promote(t);
 			return true;
-		}
 		}
 	}
 
@@ -247,7 +216,7 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::typeOf(const Expr* e, CType& out) {
-		curOffset = e->offset;
+		diag.offset = e->offset;
 		switch(e->kind) {
 		case ExprKind::IntLit:
 			out.bits = e->intLit.bits;
@@ -272,17 +241,17 @@ namespace rat::cc {
 			return true;
 		case ExprKind::Ident: {
 			Local loc;
-			if(lookup(*e->ident.name, loc)) {
+			if(func.scopes.lookup(*e->ident.name, loc)) {
 				out = loc.isArray ? pointerTo(loc.type) : loc.type;
 				return true;
 			}
-			auto g = globalVars.find(*e->ident.name);
-			if(g != globalVars.end()) {
+			auto g = syms.globals.find(*e->ident.name);
+			if(g != syms.globals.end()) {
 				out = g->second.isArray ? pointerTo(g->second.type) : g->second.type;
 				return true;
 			}
-			auto f = funcs.find(*e->ident.name);
-			if(f != funcs.end()) {
+			auto f = syms.functions.find(*e->ident.name);
+			if(f != syms.functions.end()) {
 				out = funcPtrType(f->second);
 				return true;
 			}
@@ -300,20 +269,20 @@ namespace rat::cc {
 					out = ctInt();
 					return true;
 				}
-				auto found = funcs.find(*e->call.callee);
-				if(found != funcs.end()) {
-					out = found->second.ret;
+				auto found = syms.functions.find(*e->call.callee);
+				if(found != syms.functions.end()) {
+					out = found->second.returnType;
 					return true;
 				}
 				if(builtinReturnType(*e->call.callee, lay.longBits, out))
 					return true;
 				Local loc;
-				if(lookup(*e->call.callee, loc) && isFuncPtr(loc.type)) {
+				if(func.scopes.lookup(*e->call.callee, loc) && isFuncPtr(loc.type)) {
 					out = loc.type.func->ret;
 					return true;
 				}
-				auto g = globalVars.find(*e->call.callee);
-				if(g != globalVars.end() && !g->second.isArray && isFuncPtr(g->second.type)) {
+				auto g = syms.globals.find(*e->call.callee);
+				if(g != syms.globals.end() && !g->second.isArray && isFuncPtr(g->second.type)) {
 					out = g->second.type.func->ret;
 					return true;
 				}
@@ -355,12 +324,12 @@ namespace rat::cc {
 				return false;
 			CType st = e->member.arrow ? pointee(base) : base;
 			if(!isStruct(st)) {
-				fail("member reference base type is not a struct or union");
+				diag.fail("member reference base type is not a struct or union");
 				return false;
 			}
 			const Field* f = st.strukt->find(*e->member.name);
 			if(!f) {
-				fail("no member named '" + *e->member.name + "' in '" + typeName(st) + "'");
+				diag.fail("no member named '" + *e->member.name + "' in '" + typeName(st) + "'");
 				return false;
 			}
 			if(f->isArray())
@@ -370,7 +339,7 @@ namespace rat::cc {
 			return true;
 		}
 		case ExprKind::InitList:
-			fail("initializer list has no type");
+			diag.fail("initializer list has no type");
 			return false;
 		case ExprKind::CompoundLit:
 			out = e->compound.isArray ? pointerTo(e->compound.type) : e->compound.type;

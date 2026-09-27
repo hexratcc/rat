@@ -4,13 +4,13 @@ namespace rat::cc {
 	Emitter::Value Emitter::emitPtrArith(Function& fn, ExprOp op, Value lhs, Value rhs) {
 		if(op == ExprOp::Add) {
 			if(isPointer(lhs.type) && isPointer(rhs.type)) {
-				fail("invalid operands to binary '+' (two pointers)");
+				diag.fail("invalid operands to binary '+' (two pointers)");
 				return {};
 			}
 			Value p = isPointer(lhs.type) ? lhs : rhs;
 			Value i = isPointer(lhs.type) ? rhs : lhs;
 			if(!isInteger(i.type)) {
-				fail("pointer arithmetic requires an integer operand");
+				diag.fail("pointer arithmetic requires an integer operand");
 				return {};
 			}
 			Node* idx = convert(fn, i.node, i.type, ctSize());
@@ -31,7 +31,7 @@ namespace rat::cc {
 				return {fn.sdiv(diff, stride), pd};
 			}
 			if(!isPointer(lhs.type) || !isInteger(rhs.type)) {
-				fail("invalid operands to binary '-'");
+				diag.fail("invalid operands to binary '-'");
 				return {};
 			}
 			Node* idx = convert(fn, rhs.node, rhs.type, ctSize());
@@ -40,7 +40,7 @@ namespace rat::cc {
 				return {};
 			return {fn.sub(lhs.node, fn.mul(idx, stride)), lhs.type};
 		}
-		fail("invalid operands to binary expression on a pointer");
+		diag.fail("invalid operands to binary expression on a pointer");
 		return {};
 	}
 
@@ -48,7 +48,7 @@ namespace rat::cc {
 		if(isFloating(ct)) {
 			if(op >= ExprOp::Add && op <= ExprOp::Div) // Add..Div map onto FAdd..FDiv
 				return fn.binary((Opcode)((U32)Opcode::FAdd + ((U32)op - (U32)ExprOp::Add)), l, r);
-			fail("invalid operator on a floating-point operand");
+			diag.fail("invalid operator on a floating-point operand");
 			return nullptr;
 		}
 		struct Sel {
@@ -74,7 +74,7 @@ namespace rat::cc {
 									"kArith must cover Add..BitXor");
 		U32 idx = (U32)op - (U32)ExprOp::Add;
 		if(op < ExprOp::Add || op > ExprOp::BitXor || kArith[idx].s == Opcode::Start) {
-			fail("unsupported arithmetic operator");
+			diag.fail("unsupported arithmetic operator");
 			return nullptr;
 		}
 		return fn.binary(ct.isUnsigned() ? kArith[idx].u : kArith[idx].s, l, r);
@@ -85,7 +85,7 @@ namespace rat::cc {
 		if(!emitLValue(fn, e->unary.operand, lv))
 			return {};
 		if(isTopConst(lv.type)) {
-			fail("cannot modify a const-qualified lvalue");
+			diag.fail("cannot modify a const-qualified lvalue");
 			return {};
 		}
 		CType type = lv.type;
@@ -118,24 +118,22 @@ namespace rat::cc {
 		return {isPre ? updated : old, type};
 	}
 
-	Emitter::Value
-	Emitter::emitStructAssign(Function& fn, const Expr* e, const LValue& lv, Value rhs) {
+	Emitter::Value Emitter::assignStruct(Function& fn, const Expr* e, const LValue& lv, Value rhs) {
 		CType targetType = lv.type;
 		if(e->binary.op != ExprOp::Assign) {
-			fail("invalid compound assignment to a struct or union");
+			diag.fail("invalid compound assignment to a struct or union");
 			return {};
 		}
 		if(!isStruct(rhs.type) || rhs.type.strukt != targetType.strukt) {
-			fail("assigning to '" + typeName(targetType) + "' from incompatible '" + typeName(rhs.type) +
-					 "'");
+			diag.fail("assigning to '" + typeName(targetType) + "' from incompatible '" +
+								typeName(rhs.type) + "'");
 			return {};
 		}
 		emitMemCopy(fn, lv.addr, rhs.node, targetType.strukt->size);
 		return {lv.addr, targetType};
 	}
 
-	Emitter::Value
-	Emitter::emitComplexAssign(Function& fn, const Expr* e, const LValue& lv, Value rhs) {
+	Emitter::Value Emitter::assignComplex(Function& fn, const Expr* e, const LValue& lv, Value rhs) {
 		CType ct = completeComplex(lv.type);
 		Value stored;
 		if(e->binary.op == ExprOp::Assign) {
@@ -145,13 +143,13 @@ namespace rat::cc {
 			B32 ok = compoundBaseOp(e->binary.op, base) && (base == ExprOp::Add || base == ExprOp::Sub ||
 																											base == ExprOp::Mul || base == ExprOp::Div);
 			if(!ok) {
-				fail("invalid compound assignment to a complex operand");
+				diag.fail("invalid compound assignment to a complex operand");
 				return {};
 			}
 			CType opType = completeComplex(usualArithmetic(ct, rhs.type));
 			Value cur = toComplex(fn, {lv.addr, ct}, opType);
 			Value rc = toComplex(fn, rhs, opType);
-			stored = emitComplexBinary(fn, base, cur, rc, opType);
+			stored = complexBinary(fn, base, cur, rc, opType);
 			if(!stored.node)
 				return {};
 		}
@@ -164,11 +162,11 @@ namespace rat::cc {
 		if(!emitLValue(fn, e->binary.lhs, lv))
 			return {};
 		if(lv.isArray) {
-			fail("array is not assignable");
+			diag.fail("array is not assignable");
 			return {};
 		}
 		if(isTopConst(lv.type)) {
-			fail("cannot assign to a const-qualified lvalue");
+			diag.fail("cannot assign to a const-qualified lvalue");
 			return {};
 		}
 		CType targetType = lv.type;
@@ -177,10 +175,10 @@ namespace rat::cc {
 			return {};
 
 		if(isStruct(targetType))
-			return emitStructAssign(fn, e, lv, rhs);
+			return assignStruct(fn, e, lv, rhs);
 
 		if(isComplexType(targetType))
-			return emitComplexAssign(fn, e, lv, rhs);
+			return assignComplex(fn, e, lv, rhs);
 
 		Node* stored = nullptr;
 		if(e->binary.op == ExprOp::Assign) {
@@ -195,7 +193,7 @@ namespace rat::cc {
 		} else {
 			ExprOp base;
 			if(!compoundBaseOp(e->binary.op, base)) {
-				fail("unsupported assignment operator");
+				diag.fail("unsupported assignment operator");
 				return {};
 			}
 			CType ct = usualArithmetic(targetType, rhs.type);
@@ -216,7 +214,7 @@ namespace rat::cc {
 		if(!lhs.node)
 			return {};
 		if(isAggregate(lhs.type) && !isComplexType(lhs.type)) {
-			fail("operand of logical operator must have scalar type");
+			diag.fail("operand of logical operator must have scalar type");
 			return {};
 		}
 		Node* lpred = toBool(fn, lhs);
@@ -231,7 +229,7 @@ namespace rat::cc {
 		if(!rhs.node)
 			return {};
 		if(isAggregate(rhs.type) && !isComplexType(rhs.type)) {
-			fail("operand of logical operator must have scalar type");
+			diag.fail("operand of logical operator must have scalar type");
 			return {};
 		}
 		fn.set(var, fromBool(fn, toBool(fn, rhs)));
@@ -301,7 +299,7 @@ namespace rat::cc {
 				Node* res = op == ExprOp::Eq ? eq : fn.eq(eq, fn.constInt(i32, 0));
 				return {fromBool(fn, res), ctInt()};
 			}
-			return emitComplexBinary(fn, op, lc, rc, ct);
+			return complexBinary(fn, op, lc, rc, ct);
 		}
 
 		switch(e->binary.op) {
@@ -312,7 +310,7 @@ namespace rat::cc {
 		case ExprOp::BitOr:
 		case ExprOp::BitXor:
 			if(!isInteger(lhs.type) || !isInteger(rhs.type)) {
-				fail("operands of this operator must have integer type");
+				diag.fail("operands of this operator must have integer type");
 				return {};
 			}
 			break;

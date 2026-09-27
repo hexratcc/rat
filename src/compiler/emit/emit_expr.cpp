@@ -3,21 +3,21 @@
 namespace rat::cc {
 	Emitter::Value Emitter::emitAddrOf(Function& fn, const Expr* e) {
 		if(e->unary.operand->kind == ExprKind::Ident) {
-			auto f = funcs.find(*e->unary.operand->ident.name);
-			if(f != funcs.end())
+			auto f = syms.functions.find(*e->unary.operand->ident.name);
+			if(f != syms.functions.end())
 				return {fn.global(*e->unary.operand->ident.name), funcPtrType(f->second)};
 			Local loc;
-			if(lookup(*e->unary.operand->ident.name, loc) && loc.isArray)
+			if(func.scopes.lookup(*e->unary.operand->ident.name, loc) && loc.isArray)
 				return {loc.addr, pointerTo(loc.type)};
-			auto gvo = globalVars.find(*e->unary.operand->ident.name);
-			if(gvo != globalVars.end() && gvo->second.isArray)
+			auto gvo = syms.globals.find(*e->unary.operand->ident.name);
+			if(gvo != syms.globals.end() && gvo->second.isArray)
 				return emitExpr(fn, e->unary.operand);
 		}
 		LValue lv;
 		if(!emitLValue(fn, e->unary.operand, lv))
 			return {};
 		if(lv.isVar()) {
-			fail("cannot take the address of an SSA value");
+			diag.fail("cannot take the address of an SSA value");
 			return {};
 		}
 		return {lv.addr, pointerTo(lv.type)};
@@ -30,8 +30,8 @@ namespace rat::cc {
 		if(p.type.func && p.type.ptr == 1)
 			return p;
 		if(!isPointer(p.type)) {
-			curOffset = e->offset;
-			fail("indirection requires a pointer operand");
+			diag.offset = e->offset;
+			diag.fail("indirection requires a pointer operand");
 			return {};
 		}
 		CType pt = pointee(p.type);
@@ -69,12 +69,17 @@ namespace rat::cc {
 				return {complexImag(fn, v), complexElem(v.type)};
 			return {fn.constInt(irType(v.type), 0), v.type};
 		}
-		if(isComplexType(v.type) && (e->unary.op == ExprOp::Pos || e->unary.op == ExprOp::Neg))
-			return emitComplexUnary(fn, e->unary.op, v);
+		if(isComplexType(v.type) && e->unary.op == ExprOp::Pos)
+			return v;
+		if(isComplexType(v.type) && e->unary.op == ExprOp::Neg)
+			return makeComplex(fn,
+												 v.type,
+												 fn.unary(Opcode::FNeg, complexReal(fn, v)),
+												 fn.unary(Opcode::FNeg, complexImag(fn, v)));
 		switch(e->unary.op) {
 		case ExprOp::Pos: {
 			if(!isInteger(v.type) && !isFloating(v.type)) {
-				fail("wrong type argument to unary plus");
+				diag.fail("wrong type argument to unary plus");
 				return {};
 			}
 			CType t = promote(v.type);
@@ -82,7 +87,7 @@ namespace rat::cc {
 		}
 		case ExprOp::Neg: {
 			if(!isInteger(v.type) && !isFloating(v.type)) {
-				fail("wrong type argument to unary minus");
+				diag.fail("wrong type argument to unary minus");
 				return {};
 			}
 			CType t = promote(v.type);
@@ -93,7 +98,7 @@ namespace rat::cc {
 		}
 		case ExprOp::BitNot: {
 			if(!isInteger(v.type)) {
-				fail("wrong type argument to bit-complement");
+				diag.fail("wrong type argument to bit-complement");
 				return {};
 			}
 			CType t = promote(v.type);
@@ -101,7 +106,7 @@ namespace rat::cc {
 		}
 		case ExprOp::Not:
 			if(isAggregate(v.type) && !isComplexType(v.type)) {
-				fail("wrong type argument to unary exclamation mark");
+				diag.fail("wrong type argument to unary exclamation mark");
 				return {};
 			}
 			if(isComplexType(v.type))
@@ -111,14 +116,14 @@ namespace rat::cc {
 								ctInt()};
 			return {fromBool(fn, fn.eq(v.node, fn.constInt(irType(v.type), 0))), ctInt()};
 		default:
-			fail("unsupported unary operator");
+			diag.fail("unsupported unary operator");
 			return {};
 		}
 	}
 
 	Emitter::Value Emitter::emitIdent(Function& fn, const Expr* e) {
 		Local loc;
-		if(lookup(*e->ident.name, loc)) {
+		if(func.scopes.lookup(*e->ident.name, loc)) {
 			if(loc.isArray)
 				return {loc.addr, pointerTo(loc.type)};
 			if(isAggregate(loc.type))
@@ -127,18 +132,18 @@ namespace rat::cc {
 				return {fn.load(irType(loc.type), loc.addr), loc.type};
 			return {fn.get(loc.var), loc.type};
 		}
-		auto g = globalVars.find(*e->ident.name);
-		if(g != globalVars.end()) {
+		auto g = syms.globals.find(*e->ident.name);
+		if(g != syms.globals.end()) {
 			const CType& gt = g->second.type;
-			const String& sym = globalSymbol(*e->ident.name);
+			const String& sym = syms.resolveAlias(*e->ident.name);
 			if(g->second.isArray)
 				return {fn.global(sym), pointerTo(gt)};
 			if(isAggregate(gt))
 				return {fn.global(sym), gt};
 			return {fn.load(irType(gt), fn.global(sym)), gt};
 		}
-		auto f = funcs.find(*e->ident.name);
-		if(f != funcs.end())
+		auto f = syms.functions.find(*e->ident.name);
+		if(f != syms.functions.end())
 			return {fn.global(*e->ident.name), funcPtrType(f->second)};
 		failUndeclared(*e->ident.name);
 		return {};
@@ -148,7 +153,7 @@ namespace rat::cc {
 		CType sz = ctSize();
 		if(e->sizeOf.operand && e->sizeOf.operand->kind == ExprKind::Ident) {
 			Local loc;
-			if(lookup(*e->sizeOf.operand->ident.name, loc) && loc.lengthNode)
+			if(func.scopes.lookup(*e->sizeOf.operand->ident.name, loc) && loc.lengthNode)
 				return {loc.lengthNode, sz};
 		}
 		if(!e->sizeOf.operand && hasVlaDim(e->sizeOf.type))
@@ -165,7 +170,7 @@ namespace rat::cc {
 		} else {
 			CType t = e->sizeOf.type;
 			if(isStruct(t) && (t.strukt == nullptr || !t.strukt->complete)) {
-				fail("sizeof applied to an incomplete type");
+				diag.fail("sizeof applied to an incomplete type");
 				return {};
 			}
 			n = byteSize(e->sizeOf.type);
@@ -179,8 +184,8 @@ namespace rat::cc {
 			return true;
 		}
 		if(e->sizeOf.operand->kind == ExprKind::Ident) {
-			auto fit = funcs.find(*e->sizeOf.operand->ident.name);
-			if(fit != funcs.end()) {
+			auto fit = syms.functions.find(*e->sizeOf.operand->ident.name);
+			if(fit != syms.functions.end()) {
 				out = fit->second.align ? fit->second.align : 1u;
 				return true;
 			}
@@ -195,7 +200,7 @@ namespace rat::cc {
 	Emitter::Value Emitter::emitStmtExpr(Function& fn, const Expr* e) {
 		const Stmt* body = e->stmtExpr.body;
 		const List<Stmt*>& stmts = body->body;
-		pushScope();
+		func.scopes.push();
 		Value result{};
 		for(U32 i = 0; i < stmts.size(); ++i) {
 			const Stmt* child = stmts[i];
@@ -203,7 +208,7 @@ namespace rat::cc {
 			if(last && child->kind == StmtKind::Expr && !fn.blockFinished()) {
 				result = emitExpr(fn, child->expr);
 				if(!result.node) {
-					popScope();
+					func.scopes.pop();
 					return {};
 				}
 				break;
@@ -211,24 +216,24 @@ namespace rat::cc {
 			if(fn.blockFinished() && child->kind != StmtKind::Label && child->kind != StmtKind::Case &&
 				 child->kind != StmtKind::Default && !containsLabel(child)) {
 				if(child->kind == StmtKind::Decl && !declareDead(fn, child)) {
-					popScope();
+					func.scopes.pop();
 					return {};
 				}
 				continue;
 			}
 			if(!emitStmt(fn, child)) {
-				popScope();
+				func.scopes.pop();
 				return {};
 			}
 		}
-		popScope();
+		func.scopes.pop();
 		if(!result.node)
 			return {fn.constInt(i32, 0), ctInt()};
 		return result;
 	}
 
 	Emitter::Value Emitter::emitExpr(Function& fn, const Expr* e) {
-		curOffset = e->offset;
+		diag.offset = e->offset;
 		switch(e->kind) {
 		case ExprKind::IntLit: {
 			CType t;
@@ -236,7 +241,6 @@ namespace rat::cc {
 			t.mods = e->intLit.mods;
 			return {fn.constInt(irType(t), e->intLit.value), t};
 		}
-
 		case ExprKind::FloatLit: {
 			CType t;
 			t.base = CType::Base::Float;
@@ -249,20 +253,16 @@ namespace rat::cc {
 			}
 			return {lit, t};
 		}
-
 		case ExprKind::StrLit: {
 			CType elemPtr;
 			elemPtr.bits = e->str.isWide ? e->str.charSize * 8 : 8;
 			elemPtr.ptr = 1;
 			return {fn.global(internString(e)), elemPtr};
 		}
-
 		case ExprKind::Ident:
 			return emitIdent(fn, e);
-
 		case ExprKind::Call:
 			return emitCall(fn, e);
-
 		case ExprKind::Cast: {
 			CType castTy = e->cast.type;
 			if(!resolveType(castTy))
@@ -272,7 +272,7 @@ namespace rat::cc {
 				return {};
 			if(!isVoidType(castTy) && !isAggregate(castTy) && isAggregate(v.type) &&
 				 !isComplexType(v.type)) {
-				fail("cannot cast a struct or union to a scalar type");
+				diag.fail("cannot cast a struct or union to a scalar type");
 				return {};
 			}
 			if(isVoidType(castTy))
@@ -285,17 +285,14 @@ namespace rat::cc {
 			}
 			return {convert(fn, v.node, v.type, castTy), castTy};
 		}
-
 		case ExprKind::Sizeof:
 			return emitSizeof(fn, e);
-
 		case ExprKind::AlignOf: {
 			U32 n;
 			if(!alignofValue(e, n))
 				return {};
 			return {fn.constInt(irType(ctSize()), n), ctSize()};
 		}
-
 		case ExprKind::VaArg: {
 			Node* ap = vaListRef(fn, e->vaArg.ap);
 			if(!ap)
@@ -304,33 +301,26 @@ namespace rat::cc {
 			Node* r = fn.call("__builtin_va_arg", fetched, {ap});
 			return {r, e->vaArg.type};
 		}
-
 		case ExprKind::StmtExpr:
 			return emitStmtExpr(fn, e);
-
 		case ExprKind::Generic: {
 			const Expr* sel = genericSelect(e);
 			if(!sel)
 				return {};
 			return emitExpr(fn, sel);
 		}
-
 		case ExprKind::Unary:
 			return emitUnary(fn, e);
-
 		case ExprKind::Binary:
 			return emitBinary(fn, e);
-
 		case ExprKind::Ternary:
 			return emitTernary(fn, e);
-
 		case ExprKind::Comma: {
 			Value lhs = emitExpr(fn, e->comma.lhs);
 			if(!lhs.node)
 				return {};
 			return emitExpr(fn, e->comma.rhs);
 		}
-
 		case ExprKind::Member: {
 			LValue lv;
 			if(!emitLValue(fn, e, lv))
@@ -343,15 +333,13 @@ namespace rat::cc {
 				return {lv.addr, lv.type};
 			return {loadLValue(fn, lv), lv.type};
 		}
-
 		case ExprKind::InitList:
-			fail("initializer list is only allowed in a declaration");
+			diag.fail("initializer list is only allowed in a declaration");
 			return {};
-
 		case ExprKind::CompoundLit:
 			return emitCompoundLit(fn, e);
 		}
-		fail("unsupported expression");
+		diag.fail("unsupported expression");
 		return {};
 	}
 
@@ -452,11 +440,9 @@ namespace rat::cc {
 			} else if(init->kind == ExprKind::StrLit) {
 				count = (I64)init->str.bytes->size() + 1;
 			} else if(init->kind == ExprKind::InitList) {
-				List<I64> idx(init->args.size());
-				I64 maxIdx;
-				if(!resolveArrayIndices(init->args, init->designators, idx, maxIdx))
+				List<I64> idx;
+				if(!resolveArrayIndices(init, false, count, idx))
 					return {};
-				count = maxIdx + 1;
 			}
 			if(count <= 0) {
 				failArrayCount();

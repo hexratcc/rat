@@ -4,7 +4,7 @@ namespace rat::cc {
 	CType Emitter::completeComplex(CType t) {
 		if(!isComplexType(t) || t.strukt != nullptr)
 			return t;
-		StructType*& st = complexLayouts[t.bits];
+		StructType*& st = syms.complexTypes[t.bits];
 		if(!st)
 			st = makeComplexLayout(arena, t);
 		t.strukt = st;
@@ -46,8 +46,7 @@ namespace rat::cc {
 		emitMemCopy(fn, addr, c.node, byteSize(type));
 	}
 
-	Emitter::Value
-	Emitter::emitComplexBinary(Function& fn, ExprOp op, Value lhs, Value rhs, CType ct) {
+	Emitter::Value Emitter::complexBinary(Function& fn, ExprOp op, Value lhs, Value rhs, CType ct) {
 		Node* a = complexReal(fn, lhs);
 		Node* b = complexImag(fn, lhs);
 		Node* c = complexReal(fn, rhs);
@@ -80,22 +79,7 @@ namespace rat::cc {
 					fn, ct, fn.binary(Opcode::FDiv, rnum, denom), fn.binary(Opcode::FDiv, inum, denom));
 		}
 		default:
-			fail("invalid operator on a complex operand");
-			return {};
-		}
-	}
-
-	Emitter::Value Emitter::emitComplexUnary(Function& fn, ExprOp op, Value v) {
-		switch(op) {
-		case ExprOp::Pos:
-			return v;
-		case ExprOp::Neg:
-			return makeComplex(fn,
-												 v.type,
-												 fn.unary(Opcode::FNeg, complexReal(fn, v)),
-												 fn.unary(Opcode::FNeg, complexImag(fn, v)));
-		default:
-			fail("invalid operator on a complex operand");
+			diag.fail("invalid operator on a complex operand");
 			return {};
 		}
 	}

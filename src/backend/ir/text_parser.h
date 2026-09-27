@@ -59,7 +59,7 @@ namespace rat {
 
 			Node* operand(const ParsedNode& pn, U32 index);
 			B32 operands(const ParsedNode& pn, U32 count, List<Node*>& out);
-
+		private:
 			Map<U32, Node*> byId;			 // parsed id -> materialized node
 			Node* startCtrl = nullptr; // start control projection, if present
 			Node* startMem = nullptr;	 // Start memory projection, if present

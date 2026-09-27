@@ -3,8 +3,8 @@
 namespace rat::cc {
 	B32 Emitter::resolveCallee(Function& fn, const Expr* e, Callee& c) {
 		if(e->call.callee) {
-			auto found = funcs.find(*e->call.callee);
-			if(found != funcs.end()) {
+			auto found = syms.functions.find(*e->call.callee);
+			if(found != syms.functions.end()) {
 				c.direct = true;
 				c.sig = found->second;
 				c.prototyped = true;
@@ -14,14 +14,14 @@ namespace rat::cc {
 			CType ct;
 			B32 isObject = false;
 			Local loc;
-			if(lookup(*e->call.callee, loc) && !loc.isArray) {
+			if(func.scopes.lookup(*e->call.callee, loc) && !loc.isArray) {
 				val = loc.inMem() ? fn.load(irType(loc.type), loc.addr) : fn.get(loc.var);
 				ct = loc.type;
 				isObject = true;
 			} else {
-				auto g = globalVars.find(*e->call.callee);
-				if(g != globalVars.end() && !g->second.isArray) {
-					val = fn.load(irType(g->second.type), fn.global(globalSymbol(*e->call.callee)));
+				auto g = syms.globals.find(*e->call.callee);
+				if(g != syms.globals.end() && !g->second.isArray) {
+					val = fn.load(irType(g->second.type), fn.global(syms.resolveAlias(*e->call.callee)));
 					ct = g->second.type;
 					isObject = true;
 				}
@@ -31,15 +31,15 @@ namespace rat::cc {
 				c.ft = ct.func;
 				c.prototyped = true;
 			} else if(isObject) {
-				fail("called object is not a function or function pointer");
+				diag.fail("called object is not a function or function pointer");
 				return false;
 			} else {
 				const String& callee = *e->call.callee;
-				if(callee.rfind("__builtin_", 0) != 0 && implicitFuncs.insert(callee).second)
-					warn("implicit declaration of function '" + callee + "'");
+				if(callee.rfind("__builtin_", 0) != 0 && syms.implicitFunctions.insert(callee).second)
+					diag.warnings.push_back("warning: implicit declaration of function '" + callee + "'");
 				c.direct = true;
-				if(!builtinReturnType(callee, lay.longBits, c.sig.ret))
-					c.sig.ret = ctInt();
+				if(!builtinReturnType(callee, lay.longBits, c.sig.returnType))
+					c.sig.returnType = ctInt();
 			}
 			return true;
 		}
@@ -47,7 +47,7 @@ namespace rat::cc {
 		if(!fpv.node)
 			return false;
 		if(!isFuncPtr(fpv.type)) {
-			fail("called object is not a function");
+			diag.fail("called object is not a function");
 			return false;
 		}
 		c.target = fpv.node;
@@ -56,14 +56,13 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::emitCallArgs(
-			Function& fn, const Expr* e, const Callee& c, U32 nparams, List<Node*>& args) {
+	B32 Emitter::emitArgs(Function& fn, const Expr* e, const Callee& c, U32 n, List<Node*>& args) {
 		for(U32 i = 0; i < e->args.size(); ++i) {
 			Value a = emitExpr(fn, e->args[i]);
 			if(!a.node)
 				return false;
 			CType pt;
-			if(i < nparams) {
+			if(i < n) {
 				pt = c.direct ? c.sig.params[i] : c.ft->params[i].type;
 			} else {
 				pt = defaultArgPromote(a.type);
@@ -93,7 +92,7 @@ namespace rat::cc {
 		if(!resolveCallee(fn, e, c))
 			return {};
 
-		CType ret = c.direct ? c.sig.ret : c.ft->ret;
+		CType ret = c.direct ? c.sig.returnType : c.ft->ret;
 		U32 nparams = c.direct ? (U32)c.sig.params.size() : (U32)c.ft->params.size();
 		B32 unproto = c.direct ? c.sig.unprototyped : c.ft->unprototyped;
 		B32 variadic = c.direct ? c.sig.isVarArgs : c.ft->isVarArgs;
@@ -103,9 +102,9 @@ namespace rat::cc {
 			U32 nargs = (U32)e->args.size();
 			if(nargs < nparams || (!variadic && nargs > nparams)) {
 				if(variadic)
-					fail("too few arguments to function call");
+					diag.fail("too few arguments to function call");
 				else
-					fail("argument count does not match prototype");
+					diag.fail("argument count does not match prototype");
 				return {};
 			}
 		}
@@ -121,27 +120,22 @@ namespace rat::cc {
 			resultSlot = allocBytes(fn, ret.strukt->size);
 			args.push_back(resultSlot);
 		}
-		if(!emitCallArgs(fn, e, c, nparams, args))
+		if(!emitArgs(fn, e, c, nparams, args))
 			return {};
-		if(resultSlot) {
-			callNode(fn, c, sym, mod.getPtr(), args, va);
-			return {resultSlot, ret};
-		}
-		if(isVoidType(ret)) {
-			callNode(fn, c, sym, nullptr, args, va);
-			return {fn.constInt(i32, 0), ret};
-		}
-		return {callNode(fn, c, sym, irType(ret), args, va), ret};
-	}
-
-	Node* Emitter::callNode(Function& fn,
-													const Callee& c,
-													const String& sym,
-													Type* retTy,
-													const List<Node*>& args,
-													B32 va) {
+		Type* retTy = nullptr;
+		if(resultSlot)
+			retTy = mod.getPtr();
+		else if(!isVoidType(ret))
+			retTy = irType(ret);
+		Node* call;
 		if(c.direct)
-			return fn.call(sym, retTy, args, va);
-		return fn.callIndirect(c.target, retTy, args, va);
+			call = fn.call(sym, retTy, args, va);
+		else
+			call = fn.callIndirect(c.target, retTy, args, va);
+		if(resultSlot)
+			return {resultSlot, ret};
+		if(isVoidType(ret))
+			return {fn.constInt(i32, 0), ret};
+		return {call, ret};
 	}
 } // namespace rat::cc

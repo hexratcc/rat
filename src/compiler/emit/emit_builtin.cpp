@@ -107,14 +107,10 @@ namespace rat::cc {
 			return false;
 		String stem = name.substr(10);
 		out = CType{};
-		if(stem == "sqrt" || stem == "fabs" || stem == "copysign") {
+		B32 f32 = stem == "sqrtf" || stem == "fabsf" || stem == "copysignf";
+		if(f32 || stem == "sqrt" || stem == "fabs" || stem == "copysign") {
 			out.base = CType::Base::Float;
-			out.bits = 64;
-			return true;
-		}
-		if(stem == "sqrtf" || stem == "fabsf" || stem == "copysignf") {
-			out.base = CType::Base::Float;
-			out.bits = 32;
+			out.bits = f32 ? 32 : 64;
 			return true;
 		}
 		if(stem == "alloca" || stem == "calloc" || stem == "malloc" || stem == "realloc" ||
@@ -158,10 +154,17 @@ namespace rat::cc {
 		if(!emitLValue(fn, ap, lv))
 			return nullptr;
 		if(lv.isVar() || !lv.addr) {
-			fail("va_list operand must be addressable");
+			diag.fail("va_list operand must be addressable");
 			return nullptr;
 		}
 		return lv.addr;
+	}
+
+	B32 Emitter::oneArg(const Expr* e) {
+		if(e->args.size() == 1)
+			return true;
+		diag.fail("'" + *e->call.callee + "' expects one argument");
+		return false;
 	}
 
 	B32 Emitter::emitBitCountBuiltin(Function& fn, const Expr* e, Value& out) {
@@ -184,10 +187,8 @@ namespace rat::cc {
 		}
 		if(bits == 0)
 			return false;
-		if(e->args.size() != 1) {
-			fail("'" + b + "' expects one argument");
+		if(!oneArg(e))
 			return true;
-		}
 		Value a = emitExpr(fn, e->args[0]);
 		if(!a.node)
 			return true;
@@ -245,10 +246,8 @@ namespace rat::cc {
 			bits = 64;
 		else
 			return false;
-		if(e->args.size() != 1) {
-			fail("'" + b + "' expects one argument");
+		if(!oneArg(e))
 			return true;
-		}
 		Value a = emitExpr(fn, e->args[0]);
 		if(!a.node)
 			return true;
@@ -265,13 +264,11 @@ namespace rat::cc {
 		const String& b = *e->call.callee;
 		if(b != "__builtin_classify_type")
 			return false;
-		if(e->args.size() != 1) {
-			fail("'" + b + "' expects one argument");
+		if(!oneArg(e))
 			return true;
-		}
 		CType t;
 		if(!typeOf(e->args[0], t)) {
-			fail("cannot classify the operand of '" + b + "'");
+			diag.fail("cannot classify the operand of '" + b + "'");
 			return true;
 		}
 		out = {fn.constInt(i32, typeClassOf(t)), ctInt()};
@@ -291,10 +288,8 @@ namespace rat::cc {
 			kind = IsFinite;
 		else
 			return false;
-		if(e->args.size() != 1) {
-			fail("'" + b + "' expects one argument");
+		if(!oneArg(e))
 			return true;
-		}
 		Value a = emitExpr(fn, e->args[0]);
 		if(!a.node)
 			return true;
@@ -335,13 +330,11 @@ namespace rat::cc {
 		const String& b = *e->call.callee;
 		if(b != "__builtin_frame_address" && b != "__builtin_return_address")
 			return false;
-		if(e->args.size() != 1) {
-			fail("'" + b + "' expects one argument");
+		if(!oneArg(e))
 			return true;
-		}
 		I64 level = 0;
 		if(!evalConst(e->args[0], level)) {
-			fail("'" + b + "' expects a constant level");
+			diag.fail("'" + b + "' expects a constant level");
 			return true;
 		}
 		if(level != 0) {
@@ -357,7 +350,7 @@ namespace rat::cc {
 		if(b != "__builtin_prefetch")
 			return false;
 		if(e->args.empty()) {
-			fail("'" + b + "' expects at least one argument");
+			diag.fail("'" + b + "' expects at least one argument");
 			return true;
 		}
 		Value a = emitExpr(fn, e->args[0]);
@@ -395,7 +388,7 @@ namespace rat::cc {
 
 		if(b == "__builtin_va_copy") {
 			if(e->args.size() != 2) {
-				fail("__builtin_va_copy expects two arguments");
+				diag.fail("__builtin_va_copy expects two arguments");
 				return true;
 			}
 			Node* dst = vaListRef(fn, e->args[0]);
@@ -413,14 +406,12 @@ namespace rat::cc {
 		}
 
 		if(b == "__builtin_alloca" || b == "alloca") {
-			if(e->args.size() != 1) {
-				fail("'" + b + "' expects one argument");
+			if(!oneArg(e))
 				return true;
-			}
 			Value n = emitExpr(fn, e->args[0]);
 			if(!n.node)
 				return true;
-			sawAlloca = true;
+			func.sawAlloca = true;
 			out = {fn.stackAlloc(convert(fn, n.node, n.type, ctSize())), ctVoidPtr()};
 			return true;
 		}
@@ -428,7 +419,7 @@ namespace rat::cc {
 		if(b == "__builtin_setjmp" || b == "__builtin_longjmp") {
 			B32 isSet = b == "__builtin_setjmp";
 			if(e->args.size() != (isSet ? 1u : 2u)) {
-				fail("'" + b + "' expects " + (isSet ? "one argument" : "two arguments"));
+				diag.fail("'" + b + "' expects " + (isSet ? "one argument" : "two arguments"));
 				return true;
 			}
 			Value buf = emitExpr(fn, e->args[0]);
@@ -445,7 +436,7 @@ namespace rat::cc {
 
 		if(b == "__builtin_expect") {
 			if(e->args.size() != 2) {
-				fail("__builtin_expect expects two arguments");
+				diag.fail("__builtin_expect expects two arguments");
 				return true;
 			}
 			Value exp = emitExpr(fn, e->args[0]);
@@ -461,7 +452,7 @@ namespace rat::cc {
 		}
 		if(b == "__builtin_constant_p") {
 			if(e->args.size() != 1) {
-				fail("__builtin_constant_p expects one argument");
+				diag.fail("__builtin_constant_p expects one argument");
 				return true;
 			}
 			I64 v = 0;
@@ -495,7 +486,7 @@ namespace rat::cc {
 		if(emitPrefetchBuiltin(fn, e, out))
 			return true;
 		if(b.rfind("__builtin_", 0) == 0 && !isKnownBuiltin(b)) {
-			fail("unsupported builtin '" + b + "'");
+			diag.fail("unsupported builtin '" + b + "'");
 			return true;
 		}
 		return false;

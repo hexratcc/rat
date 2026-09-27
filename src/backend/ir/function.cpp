@@ -3,6 +3,9 @@
 #include "ir/module.h"
 
 namespace rat {
+	static_assert(AsmNode::controlProjIndex() == CallNode::controlProjIndex());
+	static_assert(AsmNode::memoryProjIndex() == CallNode::memoryProjIndex());
+
 	Module& Function::getModule() const { return *mod; }
 	TypeContext& Function::types() const { return *mod; }
 	const String& Function::getName() const { return name; }
@@ -29,58 +32,46 @@ namespace rat {
 		name(std::move(name)),
 		paramTypes(params),
 		retType(ret) {
-		TypeContext& tc = *mod;
-
 		// build the start tuple
-		List<Type*> startElems;
-		startElems.push_back(tc.getControl());
-		startElems.push_back(tc.getMemory());
-		for(Type* p : paramTypes)
-			startElems.push_back(p);
+		List<Type*> startElems{ctrlTy(), memTy()};
+		startElems.insert(startElems.end(), paramTypes.begin(), paramTypes.end());
 
-		start = create<StartNode>(tc.getTuple(startElems), getParamCount());
-		stop = create<StopNode>(tc.getControl());
+		start = create<StartNode>(mod->getTuple(startElems), getParamCount());
+		stop = create<StopNode>(ctrlTy());
+		paramCache.resize(paramTypes.size());
 
 		memVar = newVar("mem", memTy());
 
-		Block* entry = makeBlock(false);
-		entry->ctrl = proj(start, StartNode::controlProjIndex(), ctrlTy(), "ctrl");
-		entry->active = true;
-		entry->sealed = true;
-		cur = entry;
-
-		writeVar(memVar, proj(start, StartNode::memoryProjIndex(), memTy(), "mem"));
+		cur = createBlock();
+		cur->ctrl = proj(start, StartNode::controlProjIndex(), ctrlTy(), "ctrl");
+		cur->sealed = true;
+		set(memVar, proj(start, StartNode::memoryProjIndex(), memTy(), "mem"));
 	}
 
 	Node* Function::control() const { return cur->ctrl; }
 	B32 Function::blockFinished() const { return cur && cur->finished; }
 
 	Node* Function::param(U32 index) {
-		if(paramCache.size() <= index)
-			paramCache.resize(index + 1, nullptr);
-		if(!paramCache[index])
-			paramCache[index] = proj(start,
-															 StartNode::paramProjIndex(index),
-															 paramTypes[index],
-															 "arg" + std::to_string(index));
-		return paramCache[index];
+		Node*& p = paramCache[index];
+		if(!p) {
+			String label = "arg" + std::to_string(index);
+			p = proj(start, StartNode::paramProjIndex(index), paramTypes[index], std::move(label));
+		}
+		return p;
 	}
 
 	Node* Function::constInt(Type* type, I64 value) { return create<ConstantNode>(type, value); }
 	Node* Function::constBool(B32 value) { return constInt(boolTy(), value ? 1 : 0); }
 	Node* Function::constFloat(Type* type, F64 value) {
-		I64 bits = 0;
 		if(type->getFloatWidth() == 32) {
 			F32 f = (F32)value;
 			U32 u;
 			std::memcpy(&u, &f, sizeof(u));
-			bits = (I64)(U64)u;
-		} else {
-			U64 u;
-			std::memcpy(&u, &value, sizeof(u));
-			bits = (I64)u;
+			return constInt(type, (I64)(U64)u);
 		}
-		return create<ConstantNode>(type, bits);
+		I64 bits;
+		std::memcpy(&bits, &value, sizeof(bits));
+		return constInt(type, bits);
 	}
 
 	Node* Function::binary(Opcode op, Node* lhs, Node* rhs) {
@@ -96,13 +87,11 @@ namespace rat {
 	Node* Function::lshr(Node* lhs, Node* rhs) { return binary(Opcode::LShr, lhs, rhs); }
 	Node* Function::ashr(Node* lhs, Node* rhs) { return binary(Opcode::AShr, lhs, rhs); }
 
-	Node* Function::unary(Opcode op, Node* operand) {
-		return create<UnaryNode>(op, operand->getType(), operand);
-	}
-	Node* Function::neg(Node* operand) { return unary(Opcode::Neg, operand); }
-	Node* Function::bitNot(Node* operand) { return unary(Opcode::Not, operand); }
-	Node* Function::ctz(Node* operand) { return unary(Opcode::Ctz, operand); }
-	Node* Function::bswap(Node* operand) { return unary(Opcode::Bswap, operand); }
+	Node* Function::unary(Opcode op, Node* in) { return create<UnaryNode>(op, in->getType(), in); }
+	Node* Function::neg(Node* in) { return unary(Opcode::Neg, in); }
+	Node* Function::bitNot(Node* in) { return unary(Opcode::Not, in); }
+	Node* Function::ctz(Node* in) { return unary(Opcode::Ctz, in); }
+	Node* Function::bswap(Node* in) { return unary(Opcode::Bswap, in); }
 
 	Node* Function::compare(Opcode op, Node* lhs, Node* rhs) {
 		return create<CompareNode>(op, boolTy(), lhs, rhs);
@@ -110,26 +99,15 @@ namespace rat {
 	Node* Function::eq(Node* lhs, Node* rhs) { return compare(Opcode::Eq, lhs, rhs); }
 	Node* Function::ne(Node* lhs, Node* rhs) { return compare(Opcode::Ne, lhs, rhs); }
 
-	Node* Function::convert(Opcode op, Node* operand, Type* destType) {
-		return create<ConvertNode>(op, destType, operand);
-	}
-	Node* Function::trunc(Node* operand, Type* destType) {
-		return convert(Opcode::Trunc, operand, destType);
-	}
-	Node* Function::sext(Node* operand, Type* destType) {
-		return convert(Opcode::SExt, operand, destType);
-	}
-	Node* Function::zext(Node* operand, Type* destType) {
-		return convert(Opcode::ZExt, operand, destType);
-	}
+	Node* Function::convert(Opcode op, Node* in, Type* to) { return create<ConvertNode>(op, to, in); }
+	Node* Function::trunc(Node* in, Type* to) { return convert(Opcode::Trunc, in, to); }
+	Node* Function::sext(Node* in, Type* to) { return convert(Opcode::SExt, in, to); }
+	Node* Function::zext(Node* in, Type* to) { return convert(Opcode::ZExt, in, to); }
 
-	Node* Function::load(Type* valueType, Node* pointer) {
-		return create<LoadNode>(valueType, control(), readVar(memVar), pointer);
-	}
+	Node* Function::load(Type* ty, Node* ptr) { return create<LoadNode>(ty, control(), mem(), ptr); }
 
 	void Function::store(Node* pointer, Node* value) {
-		Node* nm = create<StoreNode>(memTy(), control(), readVar(memVar), pointer, value);
-		writeVar(memVar, nm);
+		set(memVar, create<StoreNode>(memTy(), control(), mem(), pointer, value));
 	}
 
 	Node* Function::global(const String& name) { return create<GlobalNode>(ptrTy(), name); }
@@ -137,72 +115,59 @@ namespace rat {
 	Node* Function::alloc(Type* type, U32 align) { return create<AllocNode>(ptrTy(), type, align); }
 
 	Node* Function::stackAlloc(Node* byteCount) {
-		return create<StackAllocNode>(ptrTy(), control(), readVar(memVar), byteCount);
+		return create<StackAllocNode>(ptrTy(), control(), mem(), byteCount);
 	}
 
-	Node* Function::stackSave() { return create<StackSaveNode>(ptrTy(), control(), readVar(memVar)); }
+	Node* Function::stackSave() { return create<StackSaveNode>(ptrTy(), control(), mem()); }
 
 	void Function::stackRestore(Node* saved) {
-		Node* nm = create<StackRestoreNode>(memTy(), control(), readVar(memVar), saved);
-		writeVar(memVar, nm);
+		set(memVar, create<StackRestoreNode>(memTy(), control(), mem(), saved));
 	}
 
-	Type* Function::callTupleType(Type* retType) {
-		List<Type*> elems{ctrlTy(), memTy()};
-		if(retType)
-			elems.push_back(retType);
-		return mod->getTuple(elems);
-	}
-
-	Node* Function::attachCallProjections(CallNode* c, Type* retType) {
-		Node* ctrlProj = proj(c, CallNode::controlProjIndex(), ctrlTy(), "ctrl");
+	void Function::bindEffects(Node* n) {
+		Node* ctrlProj = proj(n, CallNode::controlProjIndex(), ctrlTy(), "ctrl");
 		if(cur->ctrl)
 			cur->ctrl = ctrlProj;
-		writeVar(memVar, proj(c, CallNode::memoryProjIndex(), memTy(), "mem"));
-		if(retType)
-			return proj(c, CallNode::valueProjIndex(), retType, "ret");
+		set(memVar, proj(n, CallNode::memoryProjIndex(), memTy(), "mem"));
+	}
+
+	Node* Function::emitCall(const String& sym, const Nodes& ins, Type* ret, B32 indirect, B32 va) {
+		List<Type*> elems{ctrlTy(), memTy()};
+		if(ret)
+			elems.push_back(ret);
+		CallNode* c = create<CallNode>(mod->getTuple(elems), sym, ret != nullptr, ins, indirect);
+		c->setVarArgs(va);
+		bindEffects(c);
+		if(ret)
+			return proj(c, CallNode::valueProjIndex(), ret, "ret");
 		return nullptr;
 	}
 
-	Node* Function::call(const String& callee, Type* retType, const List<Node*>& args, B32 varArgs) {
-		List<Node*> ins{control(), readVar(memVar)};
-		for(Node* a : args)
-			ins.push_back(a);
-
-		CallNode* c = create<CallNode>(callTupleType(retType), callee, retType != nullptr, ins);
-		c->setVarArgs(varArgs);
-		return attachCallProjections(c, retType);
+	Node* Function::call(const String& callee, Type* retType, const Nodes& args, B32 varArgs) {
+		List<Node*> ins{control(), mem()};
+		ins.insert(ins.end(), args.begin(), args.end());
+		return emitCall(callee, ins, retType, false, varArgs);
 	}
 
-	Node* Function::callIndirect(Node* target, Type* retType, const List<Node*>& args, B32 varArgs) {
+	Node* Function::callIndirect(Node* target, Type* retType, const Nodes& args, B32 varArgs) {
 		// inputs: control, memory, target pointer, then the call arguments
-		List<Node*> ins{control(), readVar(memVar), target};
-		for(Node* a : args)
-			ins.push_back(a);
-
-		CallNode* c = create<CallNode>(callTupleType(retType), String(), retType != nullptr, ins, true);
-		c->setVarArgs(varArgs);
-		return attachCallProjections(c, retType);
+		List<Node*> ins{control(), mem(), target};
+		ins.insert(ins.end(), args.begin(), args.end());
+		return emitCall(String(), ins, retType, true, varArgs);
 	}
 
-	List<Node*>
-	Function::inlineAsm(const String& text, const List<Type*>& outputs, const List<Node*>& args) {
+	List<Node*> Function::inlineAsm(const String& text, const List<Type*>& outs, const Nodes& args) {
 		List<Type*> elems{ctrlTy(), memTy()};
-		for(Type* t : outputs)
-			elems.push_back(t);
-		List<Node*> ins{control(), readVar(memVar)};
-		for(Node* a : args)
-			ins.push_back(a);
+		elems.insert(elems.end(), outs.begin(), outs.end());
+		List<Node*> ins{control(), mem()};
+		ins.insert(ins.end(), args.begin(), args.end());
 
-		AsmNode* a = create<AsmNode>(mod->getTuple(elems), text, outputs.size(), ins);
-		Node* ctrlProj = proj(a, AsmNode::controlProjIndex(), ctrlTy(), "ctrl");
-		if(cur->ctrl)
-			cur->ctrl = ctrlProj;
-		writeVar(memVar, proj(a, AsmNode::memoryProjIndex(), memTy(), "mem"));
-		List<Node*> outs;
-		for(U32 i = 0; i < outputs.size(); ++i)
-			outs.push_back(proj(a, AsmNode::outputProjIndex(i), outputs[i], "out"));
-		return outs;
+		AsmNode* a = create<AsmNode>(mod->getTuple(elems), text, outs.size(), ins);
+		bindEffects(a);
+		List<Node*> results;
+		for(U32 i = 0; i < outs.size(); ++i)
+			results.push_back(proj(a, AsmNode::outputProjIndex(i), outs[i], "out"));
+		return results;
 	}
 
 	IfNode* Function::iff(Node* predicate) {
@@ -211,52 +176,45 @@ namespace rat {
 	ProjNode* Function::proj(Node* tuple, U32 index, Type* type, String label) {
 		return create<ProjNode>(type, tuple, index, std::move(label));
 	}
-	PhiNode* Function::phi(Type* type, RegionNode* region, const List<Node*>& values) {
+	PhiNode* Function::phi(Type* type, RegionNode* region, const Nodes& values) {
 		List<Node*> ins{region};
-		for(Node* v : values)
-			ins.push_back(v);
+		ins.insert(ins.end(), values.begin(), values.end());
 		return create<PhiNode>(type, ins);
 	}
 
-	Function::Block* Function::makeBlock(B32 loopHeader) {
-		Block* b = arena.make<Block>();
-		if(loopHeader) {
-			b->region = create<RegionNode>(ctrlTy(), List<Node*>{});
-			b->region->setLoopHeader();
-			b->ctrl = b->region;
-			b->active = true;
-		}
+	Function::Block* Function::createBlock(String) { return arena.make<Block>(); }
+
+	Function::Block* Function::createLoopHeader(String) {
+		Block* b = createBlock();
+		b->region = create<RegionNode>(ctrlTy(), List<Node*>{});
+		b->region->setLoopHeader();
+		b->ctrl = b->region;
 		return b;
 	}
 
-	Function::Block* Function::createBlock(String) { return makeBlock(false); }
-	Function::Block* Function::createLoopHeader(String) { return makeBlock(true); }
-
-	void Function::addEdge(Node* exitControl, Block* from, Block* to) {
-		to->preds.push_back(exitControl);
-		to->predBlocks.push_back(from);
+	void Function::addEdge(Node* exit, Block* to) {
+		to->preds.push_back(exit);
+		to->predBlocks.push_back(cur);
 		if(to->region)
-			to->region->addInput(exitControl);
+			to->region->addInput(exit);
 	}
 
 	void Function::activateOnSeal(Block* block) {
-		if(block->active)
+		if(block->ctrl)
 			return; // loop headers and the entry are already active
 		if(block->preds.size() >= 2) {
 			block->region = create<RegionNode>(ctrlTy(), block->preds);
 			block->ctrl = block->region;
-			block->active = true;
 		} else if(block->preds.size() == 1) {
 			block->ctrl = block->preds[0]; // single predecessor needs no region
-			block->active = true;
 		}
 		// zero predecessors: unreachable block; stays inactive
 	}
 
 	void Function::seal(Block* block) {
 		activateOnSeal(block);
-		for(auto& kv : block->incompletePhis)
-			addPhiOperands(kv.first, kv.second, block);
+		for(auto& [var, phi] : block->incompletePhis)
+			addPhiOperands(var, phi, block);
 		block->incompletePhis.clear();
 		block->sealed = true;
 	}
@@ -269,53 +227,52 @@ namespace rat {
 	}
 
 	void Function::jmp(Block* target) {
-		if(!cur->ctrl) {
-			cur->finished = true;
-			return;
-		}
-		addEdge(cur->ctrl, cur, target);
+		if(cur->ctrl)
+			addEdge(cur->ctrl, target);
 		cur->finished = true;
 	}
 
 	// multi-way jump: slot i of the range-checked selector goes to targets[i]
 	void Function::switchJump(Node* selector, const List<Block*>& targets) {
-		if(!cur->ctrl) {
-			cur->finished = true;
-			return;
-		}
-		List<Type*> elems(targets.size(), ctrlTy());
-		SwitchNode* sw = create<SwitchNode>(mod->getTuple(elems), control(), selector);
-		for(U32 i = 0; i < (U32)targets.size(); ++i) {
-			Node* p = proj(sw, i, ctrlTy(), "case");
-			addEdge(p, cur, targets[i]);
+		if(cur->ctrl) {
+			List<Type*> elems(targets.size(), ctrlTy());
+			SwitchNode* sw = create<SwitchNode>(mod->getTuple(elems), control(), selector);
+			for(U32 i = 0; i < (U32)targets.size(); ++i)
+				addEdge(proj(sw, i, ctrlTy(), "case"), targets[i]);
 		}
 		cur->finished = true;
 	}
 
 	void Function::jumpif(Node* cond, Block* target) {
-		if(!cur->ctrl) {
-			Block* fall = createBlock("ft");
-			cur->finished = true;
-			seal(fall);
-			setInsertBlock(fall);
-			return;
+		Node* elseP = nullptr;
+		if(cur->ctrl) {
+			IfNode* branch = iff(cond);
+			Node* thenP = proj(branch, IfNode::thenProjIndex(), ctrlTy(), "then");
+			elseP = proj(branch, IfNode::elseProjIndex(), ctrlTy(), "else");
+			addEdge(thenP, target);
 		}
-		IfNode* branch = iff(cond);
-		Node* thenP = proj(branch, IfNode::thenProjIndex(), ctrlTy(), "then");
-		Node* elseP = proj(branch, IfNode::elseProjIndex(), ctrlTy(), "else");
-		addEdge(thenP, cur, target);
 		// the false path falls through into a fresh continuation block
 		Block* fall = createBlock("ft");
-		addEdge(elseP, cur, fall);
+		if(elseP)
+			addEdge(elseP, fall);
 		cur->finished = true;
-		seal(fall);
-		setInsertBlock(fall);
+		enterBlock(fall);
 	}
 
 	Function::Var Function::newVar(String, Type* type) {
 		varTypes.push_back(type);
 		return (Var)(varTypes.size() - 1);
 	}
+
+	Function::Var Function::declareLocal(String name, Node* init) {
+		Var v = newVar(std::move(name), init->getType());
+		set(v, init);
+		return v;
+	}
+
+	Node* Function::get(Var var) { return read(var, cur); }
+	void Function::set(Var var, Node* value) { cacheDef(cur, var, value); }
+	Node* Function::mem() { return get(memVar); }
 
 	Node** Function::findDef(Block* block, Var var) {
 		for(U32 i = (U32)block->defs.size(); i > 0; --i)
@@ -333,31 +290,24 @@ namespace rat {
 			phiDefSites[p].push_back({block, var});
 	}
 
-	void Function::writeVar(Var var, Node* value) { cacheDef(cur, var, value); }
-	Node* Function::readVar(Var var) { return readVariable(var, cur); }
-
-	Node* Function::readVariable(Var var, Block* block) {
+	Node* Function::read(Var var, Block* block) {
 		Node** slot = findDef(block, var);
 		if(slot && *slot)
 			return *slot;
-		return readVariableRecursive(var, block);
+		return readRecursive(var, block);
 	}
 
-	PhiNode* Function::newIncompletePhi(Var var, Block* block) {
-		return create<PhiNode>(varTypes[var], List<Node*>{block->region});
-	}
-
-	Node* Function::readVariableRecursive(Var var, Block* block) {
+	Node* Function::readRecursive(Var var, Block* block) {
 		Node* val = nullptr;
 		if(!block->sealed) {
 			// unsealed (loop header): an incomplete phi, completed at seal()
-			PhiNode* p = newIncompletePhi(var, block);
+			PhiNode* p = phi(varTypes[var], block->region, {});
 			block->incompletePhis.push_back({var, p});
 			val = p;
 		} else if(block->preds.size() == 1) {
-			val = readVariable(var, block->predBlocks[0]);
+			val = read(var, block->predBlocks[0]);
 		} else {
-			PhiNode* p = newIncompletePhi(var, block);
+			PhiNode* p = phi(varTypes[var], block->region, {});
 			cacheDef(block, var, p); // break cycles before reading predecessors
 			val = addPhiOperands(var, p, block);
 		}
@@ -367,7 +317,7 @@ namespace rat {
 
 	Node* Function::addPhiOperands(Var var, PhiNode* phi, Block* block) {
 		for(Block* p : block->predBlocks)
-			phi->addInput(readVariable(var, p)); // aligns with region inputs by order
+			phi->addInput(read(var, p)); // aligns with region inputs by order
 		return tryRemoveTrivialPhi(phi);
 	}
 
@@ -376,7 +326,7 @@ namespace rat {
 		auto it = phiDefSites.find(phi);
 		if(it == phiDefSites.end())
 			return;
-		List<std::pair<Block*, Var>> sites = std::move(it->second);
+		List<Pair<Block*, Var>> sites = std::move(it->second);
 		phiDefSites.erase(it);
 		for(const auto& [block, var] : sites) {
 			Node** slot = findDef(block, var);
@@ -410,19 +360,11 @@ namespace rat {
 		return same;
 	}
 
-	Function::Var Function::declareLocal(String name, Node* init) {
-		Var v = newVar(std::move(name), init->getType());
-		writeVar(v, init);
-		return v;
-	}
-	Node* Function::get(Var var) { return readVar(var); }
-	void Function::set(Var var, Node* value) { writeVar(var, value); }
-
 	void Function::ret(Node* value) {
 		cur->finished = true;
 		if(!cur->ctrl)
 			return; // unreachable block
-		List<Node*> ins{control(), readVar(memVar)};
+		List<Node*> ins{control(), mem()};
 		if(value)
 			ins.push_back(value);
 		stop->addInput(create<ReturnNode>(ctrlTy(), ins));
@@ -437,25 +379,30 @@ namespace rat {
 		return false;
 	}
 
+	B32 Function::isDeadNode(Node* n, B32 includeControl) const {
+		B32 unused = !n->hasUsers() && !n->hasSideEffects() && (includeControl || !n->isCFG());
+		B32 effect = isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n);
+		return (unused && n != start && n != stop) || (effect && !n->getControlInput());
+	}
+
+	U32 Function::eraseMarked(const List<U8>& mark) {
+		U32 kept = 0;
+		for(Node* n : nodes)
+			if(!mark[n->getId()])
+				nodes[kept++] = n;
+		U32 removed = (U32)nodes.size() - kept;
+		nodes.resize(kept);
+		return removed;
+	}
+
 	U32 Function::eliminateDeadNodes(B32 includeControl) {
 		List<U8> deadMark(nextId, 0); // id-indexed
 		List<Node*> work(nodes.begin(), nodes.end());
 		U32 count = 0;
-
-		auto isDead = [&](Node* n) -> B32 {
-			if(deadMark[n->getId()])
-				return false; // already processed
-			B32 d = !n->hasUsers() && !n->hasSideEffects() && (includeControl || !n->isCFG()) &&
-							n != start && n != stop;
-			if(!d && (isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n)) && !n->getControlInput())
-				d = true;
-			return d;
-		};
-
 		while(!work.empty()) {
 			Node* n = work.back();
 			work.pop_back();
-			if(!isDead(n))
+			if(deadMark[n->getId()] || !isDeadNode(n, includeControl))
 				continue;
 			deadMark[n->getId()] = 1;
 			++count;
@@ -464,13 +411,10 @@ namespace rat {
 					work.push_back(in);
 			n->clearInputs();
 		}
-
-		if(!count)
-			return 0;
-		touch();
-		nodes.erase(std::remove_if(
-										nodes.begin(), nodes.end(), [&](Node* n) { return deadMark[n->getId()] != 0; }),
-								nodes.end());
+		if(count) {
+			touch();
+			eraseMarked(deadMark);
+		}
 		return count;
 	}
 
@@ -494,17 +438,12 @@ namespace rat {
 		}
 		if(dead.empty())
 			return 0;
-		for(Node* n : dead)
+		List<U8> deadMark(nextId, 0);
+		for(Node* n : dead) {
 			n->clearInputs();
-		U32 removed = 0;
-		for(auto it = nodes.begin(); it != nodes.end();) {
-			if(dead.count(*it)) {
-				it = nodes.erase(it);
-				++removed;
-			} else {
-				++it;
-			}
+			deadMark[n->getId()] = 1;
 		}
+		U32 removed = eraseMarked(deadMark);
 		if(removed)
 			touch();
 		return removed;

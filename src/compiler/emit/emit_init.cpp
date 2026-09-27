@@ -19,13 +19,13 @@ namespace rat::cc {
 
 	I64 Emitter::fieldIndex(const StructType* st, const Designator& des) {
 		if(des.isIndex) {
-			fail("array designator in a struct initializer");
+			diag.fail("array designator in a struct initializer");
 			return -1;
 		}
 		for(U32 i = 0; i < st->fields.size(); ++i)
 			if(st->fields[i].name && *st->fields[i].name == *des.field)
 				return (I64)i;
-		fail("no field named '" + *des.field + "' in the struct");
+		diag.fail("no field named '" + *des.field + "' in the struct");
 		return -1;
 	}
 
@@ -38,7 +38,7 @@ namespace rat::cc {
 			return true;
 		}
 		if(e->args.size() != 1 || e->designators[0].isSet) {
-			failScalarInit();
+			diag.fail("invalid initializer for a scalar");
 			return false;
 		}
 		e = e->args[0];
@@ -95,12 +95,11 @@ namespace rat::cc {
 		return any ? maxIdx + 1 : 0;
 	}
 
-	B32 Emitter::resolveArrayIndices(const List<Expr*>& els,
-																	 const List<Designator>& des,
-																	 List<I64>& idx,
-																	 I64& maxIdx) {
-		I64 cur = 0;
-		maxIdx = -1;
+	B32 Emitter::resolveArrayIndices(const Expr* init, B32 haveLen, I64& count, List<I64>& idx) {
+		const List<Expr*>& els = init->args;
+		const List<Designator>& des = init->designators;
+		idx.assign(els.size(), 0);
+		I64 cur = 0, maxIdx = -1;
 		for(U32 i = 0; i < els.size(); ++i) {
 			if(des[i].isSet) {
 				if(!des[i].isIndex) {
@@ -114,17 +113,21 @@ namespace rat::cc {
 				maxIdx = cur;
 			++cur;
 		}
-		return true;
+		if(!haveLen)
+			count = maxIdx + 1;
+		else if(maxIdx >= count) {
+			failTooManyInits();
+			return false;
+		}
+		if(count > 0)
+			return true;
+		failArrayCount();
+		return false;
 	}
 
-	B32 Emitter::initArrayRow(InitSink& sink,
-														U32 off,
-														CType elem,
-														const Expr* init,
-														const Designator& des,
-														U32& i,
-														U32& cur) {
+	B32 Emitter::initArrayRow(InitSink& sink, U32 off, CType elem, const Expr* init, U32& i) {
 		const List<Expr*>& els = init->args;
+		const Designator& des = init->designators[i];
 		Expr* row = wrapNested(des.next, els[i]);
 		U32 rowLen = elem.array->count;
 		U32 rowFree = (U32)des.next->index + 1 < rowLen ? rowLen - ((U32)des.next->index + 1) : 0;
@@ -135,14 +138,13 @@ namespace rat::cc {
 		}
 		if(!initArrayInit(sink, off, arrayElem(elem), elem.array->count, row))
 			return false;
-		++cur;
 		i = j;
 		return true;
 	}
 
 	B32 Emitter::initArrayInit(InitSink& sink, U32 base, CType elem, U32 count, const Expr* init) {
 		if(init->kind != ExprKind::InitList) {
-			fail("expected a brace initializer for an array");
+			diag.fail("expected a brace initializer for an array");
 			return false;
 		}
 		U32 esz = byteSize(elem);
@@ -165,8 +167,9 @@ namespace rat::cc {
 			U32 off = base + cur * esz;
 			const Expr* el = els[i];
 			if(des.isSet && des.next && isArrayType(elem) && des.next->isIndex) {
-				if(!initArrayRow(sink, off, elem, init, des, i, cur))
+				if(!initArrayRow(sink, off, elem, init, i))
 					return false;
+				++cur;
 				continue;
 			}
 			if(des.isSet && des.next) {
@@ -178,7 +181,7 @@ namespace rat::cc {
 					if(!initStructInit(sink, off, elem.strukt, wrapNested(des.next, el)))
 						return false;
 				} else {
-					fail("designator selects a sub-object of a scalar element");
+					diag.fail("designator selects a sub-object of a scalar element");
 					return false;
 				}
 				++cur;
@@ -188,7 +191,7 @@ namespace rat::cc {
 			if((isStruct(elem) || isArrayType(elem)) && el->kind != ExprKind::InitList &&
 				 el->kind != ExprKind::CompoundLit &&
 				 !(isArrayType(elem) && elemIsChar && el->kind == ExprKind::StrLit)) {
-				if(!initFlatObject(sink, off, elem, els, i, &init->designators))
+				if(!initFlatObject(sink, off, elem, {els, i, &init->designators}))
 					return false;
 				++cur;
 				continue;
@@ -225,7 +228,7 @@ namespace rat::cc {
 			cur = (U32)fi;
 		}
 		if(cur >= fields.size()) {
-			fail("too many initializers for the union");
+			diag.fail("too many initializers for the union");
 			return false;
 		}
 		const Field& f = fields[cur];
@@ -245,7 +248,7 @@ namespace rat::cc {
 				return initArrayInit(sink, off, f.type, f.count, wrapNested(des.next, els[0]));
 			if(isStruct(f.type))
 				return initStructInit(sink, off, f.type.strukt, wrapNested(des.next, els[0]));
-			fail("designator selects a sub-object of a scalar union member");
+			diag.fail("designator selects a sub-object of a scalar union member");
 			return false;
 		}
 		if(f.isArray()) {
@@ -254,16 +257,16 @@ namespace rat::cc {
 			if(els[0]->kind == ExprKind::InitList && els.size() == 1)
 				return initArrayInit(sink, off, f.type, f.count, els[0]);
 			U32 pos = des.isSet ? 1 : 0;
-			return initFlatArray(sink, off, f.type, f.count, els, pos);
+			return initFlatArray(sink, off, f.type, f.count, {els, pos});
 		}
 		if(isStruct(f.type)) {
 			if(els[0]->kind == ExprKind::InitList && els.size() == 1)
 				return initStructInit(sink, off, f.type.strukt, els[0]);
 			U32 pos = des.isSet ? 1 : 0;
-			return initFlatStruct(sink, off, f.type.strukt, els, pos);
+			return initFlatStruct(sink, off, f.type.strukt, {els, pos});
 		}
 		if(els.size() > 1) {
-			fail("too many initializers for the union");
+			diag.fail("too many initializers for the union");
 			return false;
 		}
 		return sink.scalar(off, f.type, els[0]);
@@ -271,7 +274,7 @@ namespace rat::cc {
 
 	B32 Emitter::initStructInit(InitSink& sink, U32 base, const StructType* st, const Expr* init) {
 		if(init->kind != ExprKind::InitList) {
-			fail("expected a brace initializer for struct '" + st->tag + "'");
+			diag.fail("expected a brace initializer for struct '" + st->tag + "'");
 			return false;
 		}
 		if(st->isUnion)
@@ -291,7 +294,7 @@ namespace rat::cc {
 					++cur;
 			}
 			if(cur >= fields.size()) {
-				fail("too many initializers for the struct");
+				diag.fail("too many initializers for the struct");
 				return false;
 			}
 			const Field& f = fields[cur];
@@ -303,7 +306,7 @@ namespace rat::cc {
 					++i;
 					if(!initStructInit(sink, off, g, el))
 						return false;
-				} else if(!initFlatStruct(sink, off, g, els, i, &init->designators))
+				} else if(!initFlatStruct(sink, off, g, {els, i, &init->designators}))
 					return false;
 				for(++cur; cur < fields.size() && fields[cur].anonMember() && !fields[cur].anonFirst();
 						++cur)
@@ -312,7 +315,7 @@ namespace rat::cc {
 			}
 			U32 fcount = f.count;
 			if(f.isArray() && f.count == 0 && cur == fields.size() - 1)
-				fcount = flexCount;
+				fcount = data.flexCount;
 			if(des.isSet && des.next) {
 				if(f.isArray()) {
 					if(!initArrayInit(sink, off, f.type, fcount, wrapNested(des.next, el)))
@@ -321,7 +324,7 @@ namespace rat::cc {
 					if(!initStructInit(sink, off, f.type.strukt, wrapNested(des.next, el)))
 						return false;
 				} else {
-					fail("designator selects a sub-object of a scalar member");
+					diag.fail("designator selects a sub-object of a scalar member");
 					return false;
 				}
 				++cur;
@@ -329,14 +332,14 @@ namespace rat::cc {
 				continue;
 			}
 			if(f.isArray() && el->kind != ExprKind::InitList && el->kind != ExprKind::StrLit) {
-				if(!initFlatArray(sink, off, f.type, fcount, els, i))
+				if(!initFlatArray(sink, off, f.type, fcount, {els, i}))
 					return false;
 				++cur;
 				continue;
 			}
 			if(!f.isArray() && isStruct(f.type) && el->kind != ExprKind::InitList &&
 				 el->kind != ExprKind::CompoundLit) {
-				if(!initFlatObject(sink, off, f.type, els, i))
+				if(!initFlatObject(sink, off, f.type, {els, i}))
 					return false;
 				++cur;
 				continue;

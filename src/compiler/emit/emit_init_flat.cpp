@@ -1,84 +1,74 @@
 #include "emit/emit.h"
 
 namespace rat::cc {
-	B32 Emitter::initFlatObject(InitSink& sink,
-															U32 base,
-															CType ty,
-															const List<Expr*>& els,
-															U32& pos,
-															const List<Designator>* des) {
-		if(pos >= els.size())
+	B32 Emitter::initFlatObject(InitSink& sink, U32 base, CType ty, const FlatList& src) {
+		if(src.pos >= src.els.size())
 			return true;
-		const Expr* e = els[pos];
+		const Expr* e = src.els[src.pos];
 		if(isStruct(ty)) {
 			const Expr* peeled = peelAggregateCompound(e);
 			if(peeled != e || e->kind == ExprKind::InitList) {
-				++pos;
+				++src.pos;
 				return initStructInit(sink, base, ty.strukt, peeled);
 			}
 			CType et;
 			if(typeOf(e, et) && isStruct(et) && et.strukt == ty.strukt) {
-				++pos;
+				++src.pos;
 				return sink.structCopy(base, ty, e);
 			}
-			return initFlatStruct(sink, base, ty.strukt, els, pos, des);
+			return initFlatStruct(sink, base, ty.strukt, src);
 		}
 		if(isArrayType(ty)) {
 			CType el = arrayElem(ty);
 			U32 cnt = ty.array->count;
 			if(e->kind == ExprKind::InitList) {
-				++pos;
+				++src.pos;
 				return initArrayInit(sink, base, el, cnt, e);
 			}
 			if(isCharType(el) && e->kind == ExprKind::StrLit) {
-				++pos;
+				++src.pos;
 				return sink.charArray(base, el, cnt, e);
 			}
-			return initFlatArray(sink, base, el, cnt, els, pos, des);
+			return initFlatArray(sink, base, el, cnt, src);
 		}
-		++pos;
+		++src.pos;
 		return sink.scalar(base, ty, e);
 	}
 
-	B32 Emitter::initFlatStruct(InitSink& sink,
-															U32 base,
-															const StructType* st,
-															const List<Expr*>& els,
-															U32& pos,
-															const List<Designator>* des) {
+	B32 Emitter::initFlatStruct(InitSink& sink, U32 base, const StructType* st, const FlatList& src) {
 		B32 first = true;
-		for(U32 fi = 0; fi < st->fields.size() && pos < els.size(); ++fi) {
-			if(!first && des && (*des)[pos].isSet)
+		for(U32 fi = 0; fi < st->fields.size() && src.pos < src.els.size(); ++fi) {
+			if(!first && src.des && (*src.des)[src.pos].isSet)
 				break;
 			first = false;
 			const Field& f = st->fields[fi];
 			if(f.anonMember() && !f.anonFirst())
 				continue;
 			if(f.isArray()) {
-				const Expr* e = els[pos];
+				const Expr* e = src.els[src.pos];
 				if(e->kind == ExprKind::InitList) {
-					++pos;
+					++src.pos;
 					if(!initArrayInit(sink, base + f.offset, f.type, f.count, e))
 						return false;
 				} else if(isCharType(f.type) && e->kind == ExprKind::StrLit) {
-					++pos;
+					++src.pos;
 					if(!sink.charArray(base + f.offset, f.type, f.count, e))
 						return false;
-				} else if(!initFlatArray(sink, base + f.offset, f.type, f.count, els, pos, des))
+				} else if(!initFlatArray(sink, base + f.offset, f.type, f.count, src))
 					return false;
 				if(st->isUnion)
 					break;
 				continue;
 			}
 			if(f.isBitfield()) {
-				if(!sink.bitfield(base + f.offset, f.type, f.bitWidth, f.bitOffset, els[pos]))
+				if(!sink.bitfield(base + f.offset, f.type, f.bitWidth, f.bitOffset, src.els[src.pos]))
 					return false;
-				++pos;
+				++src.pos;
 				if(st->isUnion)
 					break;
 				continue;
 			}
-			if(!initFlatObject(sink, base + f.offset, f.type, els, pos, des))
+			if(!initFlatObject(sink, base + f.offset, f.type, src))
 				return false;
 			if(st->isUnion)
 				break;
@@ -86,52 +76,41 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::initFlatArray(InitSink& sink,
-														 U32 base,
-														 CType elem,
-														 U32 count,
-														 const List<Expr*>& els,
-														 U32& pos,
-														 const List<Designator>* des) {
+	B32 Emitter::initFlatArray(InitSink& sink, U32 base, CType elem, U32 count, const FlatList& src) {
 		U32 esz = byteSize(elem);
-		for(U32 i = 0; i < count && pos < els.size(); ++i) {
-			if(i != 0 && des && (*des)[pos].isSet)
+		for(U32 i = 0; i < count && src.pos < src.els.size(); ++i) {
+			if(i != 0 && src.des && (*src.des)[src.pos].isSet)
 				break;
-			if(!initFlatObject(sink, base + i * esz, elem, els, pos, des))
+			if(!initFlatObject(sink, base + i * esz, elem, src))
 				return false;
 		}
 		return true;
 	}
 
 	B32 Emitter::StoreSink::scalar(U32 off, CType dt, const Expr* e) {
-		B32 skip = false;
-		if(!emit.unwrapScalarInit(e, skip))
-			return false;
-		if(skip)
-			return true;
-		Value v = emit.emitExpr(fn, e);
-		if(!v.node)
-			return false;
-		Node* val = emit.convert(fn, v.node, v.type, dt);
-		fn.store(emit.offsetPtr(fn, slot, off), val);
-		return true;
+		LValue lv;
+		lv.type = dt;
+		return store(off, lv, e);
 	}
 	B32 Emitter::StoreSink::bitfield(U32 off, CType dt, U32 width, U32 bitOff, const Expr* e) {
-		B32 skip = false;
-		if(!emit.unwrapScalarInit(e, skip))
-			return false;
-		if(skip)
-			return true;
-		Value v = emit.emitExpr(fn, e);
-		if(!v.node)
-			return false;
-		Node* val = emit.convert(fn, v.node, v.type, dt);
 		LValue lv;
-		lv.addr = emit.offsetPtr(fn, slot, off);
 		lv.type = dt;
 		lv.isBitfield = true;
 		lv.bitWidth = width;
 		lv.bitOffset = bitOff;
+		return store(off, lv, e);
+	}
+	B32 Emitter::StoreSink::store(U32 off, LValue lv, const Expr* e) {
+		B32 skip = false;
+		if(!emit.unwrapScalarInit(e, skip))
+			return false;
+		if(skip)
+			return true;
+		Value v = emit.emitExpr(fn, e);
+		if(!v.node)
+			return false;
+		Node* val = emit.convert(fn, v.node, v.type, lv.type);
+		lv.addr = emit.offsetPtr(fn, slot, off);
 		emit.storeLValue(fn, lv, val);
 		return true;
 	}
@@ -183,7 +162,6 @@ namespace rat::cc {
 			return false;
 		if(skip)
 			return true;
-		U64 bits = 0;
 		if(isFloating(dt)) {
 			F80 d = 0;
 			if(!emit.evalFloatConst(e, d)) {
@@ -195,30 +173,21 @@ namespace rat::cc {
 			for(U32 b = 0; b < fb.size() && off + b < img.size(); ++b)
 				img[off + b] = fb[b];
 			return true;
-		} else {
-			I64 v = 0;
-			if(!emit.evalConst(e, v)) {
-				if(isPointer(dt)) {
-					String sym;
-					I64 add = 0;
-					if(emit.evalAddrConst(e, sym, add)) {
-						for(U32 r = 0; r < emit.relocs.size(); ++r)
-							if(emit.relocs[r].offset == off) {
-								emit.relocs[r] = Reloc{off, sym, add};
-								return true;
-							}
-						emit.relocs.push_back(Reloc{off, sym, add});
-						return true;
-					}
-				}
+		}
+		I64 v = 0;
+		if(!emit.evalConst(e, v)) {
+			String sym;
+			I64 add = 0;
+			if(!isPointer(dt) || !emit.evalAddrConst(e, sym, add)) {
 				emit.failNonConstInit();
 				return false;
 			}
-			bits = (U64)v;
+			emit.data.setReloc(off, sym, add);
+			return true;
 		}
 		U32 sz = emit.byteSize(dt);
 		for(U32 b = 0; b < sz; ++b)
-			img[off + b] = (U8)(bits >> (8 * b));
+			img[off + b] = (U8)((U64)v >> (8 * b));
 		return true;
 	}
 

@@ -17,10 +17,10 @@
 
 namespace rat {
 	struct Function;
+	struct IfNode;
 	struct Node;
 	struct PhiNode;
 	struct RegionNode;
-	struct Type;
 
 	struct SimplifyCFGPass : FunctionPass {
 		const C8* name() const override;
@@ -31,9 +31,16 @@ namespace rat {
 		static constexpr I32 kSpeculationBudget = 4;
 		static constexpr U32 kSpeculationDepth = 4;
 
+		U32 foldConstantIfs(Function& fn);
+		U32 clearUnreachable(Function& fn);
+		U32 dropDeadPreds();
+		U32 foldDegenerateIfs(Function& fn);
+		U32 collapseRegions();
+
 		void reachableControl(Function& fn);
-		void collectPhis(Node* region, List<PhiNode*>& out);
-		void detachFromRegions(Node* ctrl);
+		void collectPhis(Node* region);
+		static void removePred(RegionNode* r, U32 i);
+		static void foldIf(Function& fn, IfNode* iff, B32 thenTaken);
 
 		// if-conversion
 		static B32 freeValue(Node* v);
@@ -41,20 +48,15 @@ namespace rat {
 		B32 walkCone(Node* root);
 		B32 coneMayTrap(Node* v, Node* pred);
 		static I32 speculationCost(Node* v, Node* phi, U32 depth);
-		static B32 selectableType(Type* t);
-		U32 ifToSelect(Function& fn);
 		B32 regionToSelect(Function& fn, RegionNode* r);
 	private:
-		Set<Node*> reach;
-		List<Node*> work;
 		List<Node*> ifs;
 		List<Node*> regions;
-		List<Node*> regionUsers;
-		List<Node*> selectRegions;
+		Set<Node*> reach; // reachable control
 		List<PhiNode*> phis;
-		List<PhiNode*> detachPhis;
+		// walk scratch
+		List<Node*> stack;
 		Set<Node*> coneSeen;
-		List<Node*> coneWork;
 	};
 } // namespace rat
 

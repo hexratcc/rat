@@ -70,9 +70,7 @@ namespace rat::cc {
 			case StmtKind::Switch:
 				if(!w.nestedSwitch)
 					return true;
-				if(w.exprChildren && !walkExpr(w, s->expr))
-					return false;
-				return walkStmt(w, s->thenBody);
+				[[fallthrough]];
 			case StmtKind::While:
 			case StmtKind::DoWhile:
 			case StmtKind::Case:
@@ -159,17 +157,17 @@ namespace rat::cc {
 		};
 
 		struct LabelBlockWalk final : LabelWalkBase {
-			LabelBlockWalk(Function& func, Map<String, Function::Block*>& blocks)
+			LabelBlockWalk(Function& func, Map<String, Label>& all)
 			: fn(func),
-				labelBlocks(blocks) {}
+				labels(all) {}
 			B32 onStmt(const Stmt* s) override;
 			Function& fn;
-			Map<String, Function::Block*>& labelBlocks;
+			Map<String, Label>& labels;
 		};
 
 		B32 LabelBlockWalk::onStmt(const Stmt* s) {
-			if(s->kind == StmtKind::Label && !labelBlocks.count(*s->label))
-				labelBlocks[*s->label] = fn.createLoopHeader("label." + *s->label);
+			if(s->kind == StmtKind::Label && !labels.count(*s->label))
+				labels[*s->label].block = fn.createLoopHeader("label." + *s->label);
 			return true;
 		}
 
@@ -218,12 +216,12 @@ namespace rat::cc {
 	} // namespace detail
 
 	void Emitter::collectAddrTaken(const Stmt* s) {
-		detail::AddrTakenWalk w(memVars, lay.win64VaList);
+		detail::AddrTakenWalk w(func.addrTaken, lay.win64VaList);
 		detail::walkStmt(w, s);
 	}
 
 	void Emitter::collectLabels(Function& fn, const Stmt* s) {
-		detail::LabelBlockWalk w(fn, labelBlocks);
+		detail::LabelBlockWalk w(fn, func.labels);
 		detail::walkStmt(w, s);
 	}
 
