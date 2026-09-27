@@ -21,59 +21,56 @@ namespace rat {
 		return a < call->getArgCount() ? call->getArg(a) : nullptr;
 	}
 
-	B32 InlinePass::inlineCallSite(Function& caller,
-																 CallNode* call,
-																 Function& callee,
-																 List<CallNode*>& newCalls) {
-		cloneMap.clear();
-		auto put = [&](Node* key, Node* val) {
-			U32 id = key->getId();
-			if(id >= cloneMap.size())
-				cloneMap.resize(id + 1, nullptr);
-			cloneMap[id] = val;
-		};
-		auto mapped = [&](Node* key) -> Node* {
-			U32 id = key->getId();
-			return id < cloneMap.size() ? cloneMap[id] : nullptr;
-		};
+	B32 InlinePass::isBodyNode(const Function& callee, Node* n) {
+		return n != callee.getStart() && n != callee.getStop() && n->getOpcode() != Opcode::Return;
+	}
 
+	void InlinePass::mapNode(Node* key, Node* val) {
+		U32 id = key->getId();
+		if(id >= cloneMap.size())
+			cloneMap.resize(id + 1, nullptr);
+		cloneMap[id] = val;
+	}
+
+	Node* InlinePass::mapped(Node* key) const {
+		U32 id = key->getId();
+		return id < cloneMap.size() ? cloneMap[id] : nullptr;
+	}
+
+	Node* InlinePass::resolve(Node* n) const {
+		if(!n)
+			return n;
+		Node* m = mapped(n);
+		return m ? m : n;
+	}
+
+	B32 InlinePass::cloneBody(Function& caller, CallNode* call, Function& callee) {
+		cloneMap.clear();
 		for(ProjNode* p : usersOfType<ProjNode>(callee.getStart())) {
 			Node* incoming = incomingForStartProj(call, p->getIndex());
 			if(!incoming)
 				return false;
-			put(p, incoming);
+			mapNode(p, incoming);
 		}
 
 		// shallow-clone every body node
 		for(Node* n : callee) {
-			if(n == callee.getStart() || n == callee.getStop())
-				continue;
-			if(n->getOpcode() == Opcode::Return)
-				continue;
-			if(mapped(n))
+			if(!isBodyNode(callee, n) || mapped(n))
 				continue;
 			Node* c = cloneShell(caller, n);
 			if(!c)
 				return false;
-			put(n, c);
+			mapNode(n, c);
 			if(CallNode* cc = dyn_cast<CallNode>(c))
-				newCalls.push_back(cc);
+				worklist.push_back(cc);
 		}
+		return true;
+	}
 
-		auto resolve = [&](Node* n) -> Node* {
-			if(!n)
-				return n;
-			Node* m = mapped(n);
-			return m ? m : n;
-		};
-
-		// wire each clone's inputs through the map
+	// wire each clone's inputs through the map
+	void InlinePass::wireClones(Function& callee) {
 		for(Node* n : callee) {
-			if(n == callee.getStart() || n == callee.getStop())
-				continue;
-			if(n->getOpcode() == Opcode::Return)
-				continue;
-			if(isStartProj(callee, n))
+			if(!isBodyNode(callee, n) || isStartProj(callee, n))
 				continue; // seeded with an external value; nothing to wire
 			Node* clone = mapped(n);
 			if(!clone)
@@ -81,7 +78,10 @@ namespace rat {
 			for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
 				clone->setInput(i, resolve(n->getInput(i)));
 		}
-		// collect the callee's mapped return triples and merge them
+	}
+
+	// collect the callee's mapped return triples and merge them
+	InlinePass::Merged InlinePass::mergeReturns(Function& caller, const Function& callee) {
 		ctrls.clear();
 		mems.clear();
 		vals.clear();
@@ -96,47 +96,46 @@ namespace rat {
 				vals.push_back(resolve(r->getValue()));
 		}
 		if(ctrls.empty())
-			return false; // callee never returns
-
-		Node* mergedCtrl = nullptr;
-		Node* mergedMem = nullptr;
-		Node* mergedVal = nullptr;
-
-		if(ctrls.size() == 1) {
-			mergedCtrl = ctrls[0];
-			mergedMem = mems[0];
-			mergedVal = vals.empty() ? nullptr : vals[0];
-		} else {
-			RegionNode* reg = caller.create<RegionNode>(caller.ctrlTy(), ctrls);
-			mergedCtrl = reg;
-			List<Node*> memIns{reg};
-			for(Node* m : mems)
-				memIns.push_back(m);
-			mergedMem = caller.create<PhiNode>(caller.memTy(), memIns);
-			if(callee.returnsValue() && vals.size() == ctrls.size()) {
-				List<Node*> valIns{reg};
-				for(Node* v : vals)
-					valIns.push_back(v);
-				mergedVal = caller.create<PhiNode>(callee.getReturnType(), valIns);
-			}
+			return {nullptr, nullptr, nullptr};
+		if(ctrls.size() == 1)
+			return {ctrls[0], mems[0], vals.empty() ? nullptr : vals[0]};
+		RegionNode* reg = caller.create<RegionNode>(caller.ctrlTy(), ctrls);
+		mems.insert(mems.begin(), reg);
+		Merged m{reg, caller.create<PhiNode>(caller.memTy(), mems), nullptr};
+		if(callee.returnsValue() && vals.size() == ctrls.size()) {
+			vals.insert(vals.begin(), reg);
+			m.val = caller.create<PhiNode>(callee.getReturnType(), vals);
 		}
+		return m;
+	}
 
-		// redirect the call's projections onto the merged values, then drop the
-		// projections and the call itself
+	// redirect the call's projections onto the merged values, then drop the
+	// projections and the call itself
+	void InlinePass::replaceCall(Function& caller, CallNode* call, const Merged& m) {
 		for(ProjNode* pn : usersOfType<ProjNode>(call)) {
 			U32 idx = pn->getIndex();
 			Node* repl = nullptr;
 			if(idx == CallNode::controlProjIndex())
-				repl = mergedCtrl;
+				repl = m.ctrl;
 			else if(idx == CallNode::memoryProjIndex())
-				repl = mergedMem;
+				repl = m.mem;
 			else if(idx == CallNode::valueProjIndex())
-				repl = mergedVal;
+				repl = m.val;
 			if(repl)
 				pn->replaceAllUsesWith(repl);
 			caller.removeNode(pn);
 		}
 		caller.removeNode(call);
+	}
+
+	B32 InlinePass::inlineCallSite(Function& caller, CallNode* call, Function& callee) {
+		if(!cloneBody(caller, call, callee))
+			return false;
+		wireClones(callee);
+		Merged m = mergeReturns(caller, callee);
+		if(!m.ctrl)
+			return false; // callee never returns
+		replaceCall(caller, call, m);
 		return true;
 	}
 
@@ -299,7 +298,7 @@ namespace rat {
 					worklist[i] = nullptr;
 					continue;
 				}
-				if(inlineCallSite(caller, c, *callee, worklist)) {
+				if(inlineCallSite(caller, c, *callee)) {
 					worklist[i] = nullptr;
 					++count;
 					changed = true;

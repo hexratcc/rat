@@ -50,11 +50,24 @@ namespace rat {
 		B32 isCyclic(Function* fn);
 		U64 quietStamp(const Function& caller, const Info& info) const;
 
-		B32 isStartProj(const Function& callee, Node* n);
-		Node* incomingForStartProj(CallNode* call, U32 startProjIdx);
+		struct Merged {
+			Node* ctrl;
+			Node* mem;
+			Node* val;
+		};
+
+		static B32 isStartProj(const Function& callee, Node* n);
+		static B32 isBodyNode(const Function& callee, Node* n);
+		static Node* incomingForStartProj(CallNode* call, U32 startProjIdx);
 		B32 shouldInline(const Function& caller, CallNode* call, Function* callee);
-		B32
-		inlineCallSite(Function& caller, CallNode* call, Function& callee, List<CallNode*>& newCalls);
+		void mapNode(Node* key, Node* val);
+		Node* mapped(Node* key) const;
+		Node* resolve(Node* n) const;
+		B32 cloneBody(Function& caller, CallNode* call, Function& callee);
+		void wireClones(Function& callee);
+		Merged mergeReturns(Function& caller, const Function& callee);
+		static void replaceCall(Function& caller, CallNode* call, const Merged& m);
+		B32 inlineCallSite(Function& caller, CallNode* call, Function& callee);
 	private:
 		Module* module = nullptr;
 		Map<const Function*, Info> infos;
