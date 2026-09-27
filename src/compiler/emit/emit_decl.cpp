@@ -12,9 +12,7 @@ namespace rat::cc {
 
 	B32 Emitter::declareStatic(Function& fn, const Declarator& d) {
 		String sym = "__ratcc_static" + std::to_string(staticCounter++) + "_" + *d.name;
-		return d.isArray					? registerGlobalArray(d, sym, &fn)
-					 : isStruct(d.type) ? registerGlobalStruct(d, sym, &fn)
-															: registerGlobalScalar(d, sym, &fn);
+		return registerGlobal(d, sym, &fn);
 	}
 
 	B32 Emitter::declIsVla(const Declarator& d, I64& count) {
@@ -45,21 +43,16 @@ namespace rat::cc {
 
 	B32 Emitter::declareExtern(Function& fn, const Declarator& d) {
 		Node* addr = fn.global(*d.name);
-		CType type = d.type;
-		B32 isArray = d.isArray;
-		U32 count = 0;
+		GlobalVar gv{d.type, d.isArray, 0};
 		auto g = globalVars.find(*d.name);
-		if(g != globalVars.end()) {
-			type = g->second.type;
-			isArray = g->second.isArray;
-			count = g->second.count;
-		}
-		if(isArray)
-			declare(*d.name, Local::memArray(addr, type, count));
-		else if(isArrayType(type))
-			declare(*d.name, Local::memArray(addr, arrayElem(type)));
+		if(g != globalVars.end())
+			gv = g->second;
+		if(gv.isArray)
+			declare(*d.name, Local::memArray(addr, gv.type, gv.count));
+		else if(isArrayType(gv.type))
+			declare(*d.name, Local::memArray(addr, arrayElem(gv.type)));
 		else
-			declare(*d.name, Local::mem(addr, type));
+			declare(*d.name, Local::mem(addr, gv.type));
 		return true;
 	}
 
@@ -111,13 +104,6 @@ namespace rat::cc {
 			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
 			declare(*d.name, Local::mem(slot, d.type));
 		}
-		return true;
-	}
-
-	B32 Emitter::emitDecl(Function& fn, const Stmt* s) {
-		for(const Declarator& d : s->decls)
-			if(!emitOneDecl(fn, d))
-				return false;
 		return true;
 	}
 
@@ -186,13 +172,17 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::emitMultiDimArrayDecl(Function& fn, const Declarator& d, I64 count, B32 haveLen) {
+	B32 Emitter::emitAggArrayDecl(Function& fn, const Declarator& d, I64 count, B32 haveLen) {
 		if(!haveLen) {
 			if(!d.init || d.init->kind != ExprKind::InitList) {
 				failArrayUnknownSize(*d.name);
 				return false;
 			}
 			count = (I64)initArrayCount(d.type, d.init);
+		}
+		if(isStruct(d.type) && count <= 0) {
+			failArrayCount();
+			return false;
 		}
 		U32 elemSize = byteSize(d.type);
 		U32 total = (U32)count * elemSize;
@@ -221,36 +211,14 @@ namespace rat::cc {
 			failArrayCount();
 			return false;
 		}
-		if(isArrayType(d.type))
-			return emitMultiDimArrayDecl(fn, d, count, haveLen);
+		if(isArrayType(d.type) || isStruct(d.type))
+			return emitAggArrayDecl(fn, d, count, haveLen);
 		Type* elemTy = irType(d.type);
 		U32 elemSize = byteSize(d.type);
 
-		if(isStruct(d.type)) {
-			if(!haveLen) {
-				if(!d.init || d.init->kind != ExprKind::InitList) {
-					failArrayUnknownSize(*d.name);
-					return false;
-				}
-				count = (I64)initArrayCount(d.type, d.init);
-			}
-			if(count <= 0) {
-				failArrayCount();
-				return false;
-			}
-			U32 total = (U32)count * elemSize;
-			Node* slot = declSlot(fn, d, byteArrayType(total), total);
-			zeroSlot(fn, slot, total);
-			StoreSink sink(*this, fn, slot);
-			if(d.init && !initArrayInit(sink, 0, d.type, (U32)count, d.init))
-				return false;
-			declare(*d.name, Local::memArray(slot, d.type, (U32)count));
-			return true;
-		}
-
 		if(d.init && d.init->kind == ExprKind::StrLit) {
 			U32 cw = d.init->str.isWide ? d.init->str.charSize : 1u;
-			if(d.type.ptr != 0 || isStruct(d.type) || d.type.bits != cw * 8) {
+			if(d.type.ptr != 0 || d.type.bits != cw * 8) {
 				failStringNeedsCharArray();
 				return false;
 			}
@@ -272,20 +240,9 @@ namespace rat::cc {
 
 		if(d.init && d.init->kind == ExprKind::InitList) {
 			const List<Expr*>& els = d.init->args;
-			List<I64> idx(els.size());
-			I64 maxIdx = -1;
-			if(!resolveArrayIndices(d.init, idx, maxIdx))
+			List<I64> idx;
+			if(!resolveArrayIndices(d.init, haveLen, count, idx))
 				return false;
-			if(!haveLen)
-				count = maxIdx + 1;
-			else if(maxIdx >= count) {
-				failTooManyInits();
-				return false;
-			}
-			if(count <= 0) {
-				failArrayCount();
-				return false;
-			}
 			Node* slot = declSlot(fn, d, mod.getArray(elemTy, (U32)count), (U32)count * elemSize);
 			zeroSlot(fn, slot, (U32)count * elemSize);
 			for(U32 i = 0; i < els.size(); ++i) {

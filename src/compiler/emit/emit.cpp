@@ -20,8 +20,7 @@ namespace rat::cc {
 	U32 Emitter::alignOf(CType t) const { return typeAlign(t, lay.ptrBytes); }
 
 	CType Emitter::ctSize() const {
-		CType t;
-		t.bits = lay.ptrBytes * 8;
+		CType t = ctPtrDiff();
 		t.set(CType::Unsigned);
 		return t;
 	}
@@ -82,8 +81,6 @@ namespace rat::cc {
 				msg + " [@" + std::to_string(curOffset) + (curFunc.empty() ? "" : " in " + curFunc) + "]";
 		failed = true;
 	}
-
-	void Emitter::warn(const String& msg) { warns.push_back("warning: " + msg); }
 
 	void Emitter::pushScope() { scopeMarks.push_back((U32)scopeUndo.size()); }
 

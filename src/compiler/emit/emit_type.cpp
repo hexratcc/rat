@@ -74,11 +74,7 @@ namespace rat::cc {
 	static B32 funcTypesMatch(const FuncType* a, const FuncType* b);
 
 	static B32 genericTypesMatch(const CType& a, const CType& b) {
-		if(a.ptr != b.ptr)
-			return false;
-		if(a.quals != b.quals)
-			return false;
-		if((a.func != nullptr) != (b.func != nullptr))
+		if(a.ptr != b.ptr || a.quals != b.quals || (a.func != nullptr) != (b.func != nullptr))
 			return false;
 		if(a.func && b.func)
 			return funcTypesMatch(a.func, b.func);
@@ -86,40 +82,25 @@ namespace rat::cc {
 		B32 bArr = b.array != nullptr && b.ptr == 0;
 		if(aArr != bArr)
 			return false;
-		if(aArr && bArr) {
-			if(a.array->count != b.array->count)
-				return false;
-			return genericTypesMatch(a.array->elem, b.array->elem);
-		}
+		if(aArr && bArr)
+			return a.array->count == b.array->count && genericTypesMatch(a.array->elem, b.array->elem);
 		if((a.strukt != nullptr) != (b.strukt != nullptr))
 			return false;
 		if(a.strukt && b.strukt)
 			return a.strukt == b.strukt;
-		if(a.isVoid() != b.isVoid())
+		if(a.isVoid() != b.isVoid() || a.isFloat() != b.isFloat() || a.bits != b.bits)
 			return false;
-		if(a.isFloat() != b.isFloat())
-			return false;
-		if(a.bits != b.bits)
-			return false;
-		if(!a.isFloat() && !a.isVoid()) {
-			if(a.isUnsigned() != b.isUnsigned())
-				return false;
-			if(a.bits == 8 && a.isPlainChar() != b.isPlainChar())
-				return false;
-			if(a.bits == 32 && a.isLong() != b.isLong())
-				return false;
-			if(a.bits == 64 && a.isLongLong() != b.isLongLong())
-				return false;
-		}
-		return true;
+		if(a.isFloat() || a.isVoid())
+			return true;
+		return a.isUnsigned() == b.isUnsigned() &&
+					 !(a.bits == 8 && a.isPlainChar() != b.isPlainChar()) &&
+					 !(a.bits == 32 && a.isLong() != b.isLong()) &&
+					 !(a.bits == 64 && a.isLongLong() != b.isLongLong());
 	}
 
 	static B32 funcTypesMatch(const FuncType* a, const FuncType* b) {
-		if(a->isVarArgs != b->isVarArgs)
-			return false;
-		if(a->params.size() != b->params.size())
-			return false;
-		if(!genericTypesMatch(a->ret, b->ret))
+		if(a->isVarArgs != b->isVarArgs || a->params.size() != b->params.size() ||
+			 !genericTypesMatch(a->ret, b->ret))
 			return false;
 		for(U32 i = 0; i < a->params.size(); ++i)
 			if(!genericTypesMatch(a->params[i].type, b->params[i].type))
@@ -151,31 +132,28 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::typeOfUnary(const Expr* e, CType& out) {
-		switch(e->unary.op) {
-		case ExprOp::Not:
+		if(e->unary.op == ExprOp::Not) {
 			out = ctInt();
 			return true;
+		}
+		const Expr* operand = e->unary.operand;
+		CType t;
+		if(!typeOf(operand, t))
+			return false;
+		switch(e->unary.op) {
 		case ExprOp::PreInc:
 		case ExprOp::PreDec:
 		case ExprOp::PostInc:
 		case ExprOp::PostDec:
-			return typeOf(e->unary.operand, out);
-		case ExprOp::Addr: {
-			const Expr* operand = e->unary.operand;
-			CType t;
-			if(!typeOf(operand, t))
-				return false;
-			if(operand->kind == ExprKind::Ident && identIsArray(*operand->ident.name)) {
-				out = t;
-				return true;
-			}
-			out = pointerTo(t);
+			out = t;
 			return true;
-		}
-		case ExprOp::Deref: {
-			CType t;
-			if(!typeOf(e->unary.operand, t))
-				return false;
+		case ExprOp::Addr:
+			if(operand->kind == ExprKind::Ident && identIsArray(*operand->ident.name))
+				out = t;
+			else
+				out = pointerTo(t);
+			return true;
+		case ExprOp::Deref:
 			if(t.func && t.ptr == 1) {
 				out = t;
 				return true;
@@ -188,22 +166,13 @@ namespace rat::cc {
 			}
 			out = pointee(t);
 			return true;
-		}
 		case ExprOp::Real:
-		case ExprOp::Imag: {
-			CType t;
-			if(!typeOf(e->unary.operand, t))
-				return false;
+		case ExprOp::Imag:
 			out = isComplexType(t) ? complexElem(t) : t;
 			return true;
-		}
-		default: {
-			CType t;
-			if(!typeOf(e->unary.operand, t))
-				return false;
+		default:
 			out = isPointer(t) ? t : promote(t);
 			return true;
-		}
 		}
 	}
 

@@ -49,8 +49,7 @@ namespace rat::cc {
 				count = (I64)init->str.bytes->size() + 1;
 			else if(init->kind == ExprKind::InitList)
 				count = (I64)arrayInitOuterExtent(ty, init);
-			if(ok && count <= 0)
-				ok = false;
+			ok = ok && count > 0;
 			total = (U32)count * byteSize(ty);
 		} else if(isStruct(ty)) {
 			total = ty.strukt->size;
@@ -115,7 +114,7 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::registerGlobalArrayOfArray(const Declarator& d, const String& sym, Function* fn) {
+	B32 Emitter::registerGlobalAggArray(const Declarator& d, const String& sym, Function* fn) {
 		B32 haveLen;
 		I64 count;
 		if(!validateGlobalArrayLen(d, count, haveLen))
@@ -127,44 +126,13 @@ namespace rat::cc {
 			}
 			count = (I64)initArrayCount(d.type, d.init);
 		}
-		U32 elemSize = byteSize(d.type);
-		U32 total = (U32)count * elemSize;
+		U32 total = (U32)count * byteSize(d.type);
 		List<U8> img;
 		if(d.init) {
 			img.assign(total, 0);
 			ImageSink sink(*this, img);
-			if(!initArrayInit(sink, 0, d.type, (U32)count, d.init))
-				return false;
-		}
-		defineGlobal(d, sym, byteArrayType(total), std::move(img));
-		bindGlobal(d, sym, fn, true, (U32)count);
-		return true;
-	}
-
-	B32 Emitter::registerGlobalArrayOfStruct(const Declarator& d, const String& sym, Function* fn) {
-		U32 structSize = d.type.strukt->size;
-		B32 haveLen;
-		I64 count;
-		if(!validateGlobalArrayLen(d, count, haveLen))
-			return false;
-		B32 flat = initListIsFlat(d.init);
-		if(!haveLen) {
-			if(!d.init || d.init->kind != ExprKind::InitList) {
-				failArrayUnknownSize(*d.name);
-				return false;
-			}
-			if(flat) {
-				count = (I64)flatArrayCount(d.type, d.init->args);
-			} else
-				count = (I64)arrayInitOuterExtent(d.type, d.init);
-		}
-		U32 total = (U32)count * structSize;
-		List<U8> img;
-		if(d.init) {
-			img.assign(total, 0);
-			ImageSink sink(*this, img);
-			if(flat) {
-				U32 pos = 0;
+			U32 pos = 0;
+			if(isStruct(d.type) && initListIsFlat(d.init)) {
 				if(!initFlatArray(sink, 0, d.type, (U32)count, {d.init->args, pos}))
 					return false;
 			} else if(!initArrayInit(sink, 0, d.type, (U32)count, d.init))
@@ -200,20 +168,9 @@ namespace rat::cc {
 					init[(U32)(i * elemSize) + k] = (U8)bytes[(U32)(i * charWidth + k)];
 		} else if(d.init && d.init->kind == ExprKind::InitList) {
 			const List<Expr*>& els = d.init->args;
-			List<I64> idx(els.size());
-			I64 maxIdx = -1;
-			if(!resolveArrayIndices(d.init, idx, maxIdx))
+			List<I64> idx;
+			if(!resolveArrayIndices(d.init, haveLen, count, idx))
 				return false;
-			if(!haveLen)
-				count = maxIdx + 1;
-			else if(maxIdx >= count) {
-				failTooManyInits();
-				return false;
-			}
-			if(count <= 0) {
-				failArrayCount();
-				return false;
-			}
 			init.assign((U32)count * elemSize, 0);
 			ImageSink sink(*this, init);
 			for(U32 i = 0; i < els.size(); ++i) {
@@ -236,17 +193,18 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::registerGlobalArray(const Declarator& d, const String& sym, Function* fn) {
+	B32 Emitter::registerGlobal(const Declarator& d, const String& sym, Function* fn) {
 		relocs.clear();
-		if(isArrayType(d.type))
-			return registerGlobalArrayOfArray(d, sym, fn);
+		if(d.isArray && (isArrayType(d.type) || isStruct(d.type)))
+			return registerGlobalAggArray(d, sym, fn);
+		if(d.isArray)
+			return registerGlobalArrayOfScalar(d, sym, fn);
 		if(isStruct(d.type))
-			return registerGlobalArrayOfStruct(d, sym, fn);
-		return registerGlobalArrayOfScalar(d, sym, fn);
+			return registerGlobalStruct(d, sym, fn);
+		return registerGlobalScalar(d, sym, fn);
 	}
 
 	B32 Emitter::registerGlobalStruct(const Declarator& d, const String& sym, Function* fn) {
-		relocs.clear();
 		const StructType* st = d.type.strukt;
 		const Expr* sinit = d.init ? peelAggregateCompound(d.init) : nullptr;
 		U32 flex = flexElemCount(st, sinit);
@@ -275,7 +233,6 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::registerGlobalScalar(const Declarator& d, const String& sym, Function* fn) {
-		relocs.clear();
 		if(d.type.isVoid() && !isPointer(d.type)) {
 			fail("variable '" + *d.name + "' has incomplete type 'void'");
 			return false;
@@ -285,44 +242,34 @@ namespace rat::cc {
 			 dinit->args[0]->kind != ExprKind::InitList)
 			dinit = dinit->args[0];
 		U64 value = 0;
-		B32 floatImg = false;
-		List<U8> fbytes;
-		if(dinit) {
-			if(isFloating(d.type)) {
-				F80 dv = 0;
-				if(!evalFloatConst(dinit, dv)) {
+		List<U8> init;
+		if(dinit && isFloating(d.type)) {
+			F80 dv = 0;
+			if(!evalFloatConst(dinit, dv)) {
+				fail("initializer for '" + *d.name + "' is not a constant expression");
+				return false;
+			}
+			encodeFloatBytes(d.type, dv, init);
+		} else if(dinit) {
+			I64 iv = 0;
+			if(!evalConst(dinit, iv)) {
+				String target;
+				I64 add = 0;
+				B32 isIntScalar = !isPointer(d.type) && !isAggregate(d.type) && !isVoidType(d.type);
+				B32 fits = isPointer(d.type) || (isIntScalar && byteSize(d.type) >= 8);
+				if(!fits || !evalAddrConst(dinit, target, add)) {
 					fail("initializer for '" + *d.name + "' is not a constant expression");
 					return false;
 				}
-				encodeFloatBytes(d.type, dv, fbytes);
-				floatImg = true;
-			} else {
-				I64 iv = 0;
-				if(!evalConst(dinit, iv)) {
-					String target;
-					I64 add = 0;
-					B32 isIntScalar = !isPointer(d.type) && !isFloating(d.type) && !isAggregate(d.type) &&
-														!isVoidType(d.type);
-					B32 fits = isPointer(d.type) || (isIntScalar && byteSize(d.type) >= 8);
-					if(fits && evalAddrConst(dinit, target, add)) {
-						relocs.push_back(Reloc{0, target, add});
-					} else {
-						fail("initializer for '" + *d.name + "' is not a constant expression");
-						return false;
-					}
-				}
-				value = (U64)iv;
+				relocs.push_back(Reloc{0, target, add});
 			}
+			value = (U64)iv;
 		}
 		U32 bytes = byteSize(d.type);
-		List<U8> init;
-		if(floatImg) {
-			init = std::move(fbytes);
-			init.resize(bytes, 0);
-		} else {
+		if(init.empty())
 			for(U32 i = 0; i < bytes; ++i)
 				init.push_back((U8)(value >> (8 * i)));
-		}
+		init.resize(bytes, 0);
 		defineGlobal(d, sym, irType(d.type), std::move(init));
 		bindGlobal(d, sym, fn, false, 0);
 		return true;
@@ -387,17 +334,7 @@ namespace rat::cc {
 				globalVars[*d.name] = GlobalVar{d.type, d.isArray, (U32)count};
 				continue;
 			}
-			if(d.isArray) {
-				if(!registerGlobalArray(d, *d.name, nullptr))
-					return false;
-				continue;
-			}
-			if(isStruct(d.type)) {
-				if(!registerGlobalStruct(d, *d.name, nullptr))
-					return false;
-				continue;
-			}
-			if(!registerGlobalScalar(d, *d.name, nullptr))
+			if(!registerGlobal(d, *d.name, nullptr))
 				return false;
 		}
 		return true;

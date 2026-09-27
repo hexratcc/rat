@@ -70,9 +70,7 @@ namespace rat::cc {
 			case StmtKind::Switch:
 				if(!w.nestedSwitch)
 					return true;
-				if(w.exprChildren && !walkExpr(w, s->expr))
-					return false;
-				return walkStmt(w, s->thenBody);
+				[[fallthrough]];
 			case StmtKind::While:
 			case StmtKind::DoWhile:
 			case StmtKind::Case:

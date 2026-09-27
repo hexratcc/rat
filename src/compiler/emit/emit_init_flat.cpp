@@ -88,34 +88,29 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::StoreSink::scalar(U32 off, CType dt, const Expr* e) {
-		B32 skip = false;
-		if(!emit.unwrapScalarInit(e, skip))
-			return false;
-		if(skip)
-			return true;
-		Value v = emit.emitExpr(fn, e);
-		if(!v.node)
-			return false;
-		Node* val = emit.convert(fn, v.node, v.type, dt);
-		fn.store(emit.offsetPtr(fn, slot, off), val);
-		return true;
+		LValue lv;
+		lv.type = dt;
+		return store(off, lv, e);
 	}
 	B32 Emitter::StoreSink::bitfield(U32 off, CType dt, U32 width, U32 bitOff, const Expr* e) {
-		B32 skip = false;
-		if(!emit.unwrapScalarInit(e, skip))
-			return false;
-		if(skip)
-			return true;
-		Value v = emit.emitExpr(fn, e);
-		if(!v.node)
-			return false;
-		Node* val = emit.convert(fn, v.node, v.type, dt);
 		LValue lv;
-		lv.addr = emit.offsetPtr(fn, slot, off);
 		lv.type = dt;
 		lv.isBitfield = true;
 		lv.bitWidth = width;
 		lv.bitOffset = bitOff;
+		return store(off, lv, e);
+	}
+	B32 Emitter::StoreSink::store(U32 off, LValue lv, const Expr* e) {
+		B32 skip = false;
+		if(!emit.unwrapScalarInit(e, skip))
+			return false;
+		if(skip)
+			return true;
+		Value v = emit.emitExpr(fn, e);
+		if(!v.node)
+			return false;
+		Node* val = emit.convert(fn, v.node, v.type, lv.type);
+		lv.addr = emit.offsetPtr(fn, slot, off);
 		emit.storeLValue(fn, lv, val);
 		return true;
 	}
@@ -167,7 +162,6 @@ namespace rat::cc {
 			return false;
 		if(skip)
 			return true;
-		U64 bits = 0;
 		if(isFloating(dt)) {
 			F80 d = 0;
 			if(!emit.evalFloatConst(e, d)) {
@@ -179,30 +173,26 @@ namespace rat::cc {
 			for(U32 b = 0; b < fb.size() && off + b < img.size(); ++b)
 				img[off + b] = fb[b];
 			return true;
-		} else {
-			I64 v = 0;
-			if(!emit.evalConst(e, v)) {
-				if(isPointer(dt)) {
-					String sym;
-					I64 add = 0;
-					if(emit.evalAddrConst(e, sym, add)) {
-						for(U32 r = 0; r < emit.relocs.size(); ++r)
-							if(emit.relocs[r].offset == off) {
-								emit.relocs[r] = Reloc{off, sym, add};
-								return true;
-							}
-						emit.relocs.push_back(Reloc{off, sym, add});
-						return true;
-					}
-				}
+		}
+		I64 v = 0;
+		if(!emit.evalConst(e, v)) {
+			String sym;
+			I64 add = 0;
+			if(!isPointer(dt) || !emit.evalAddrConst(e, sym, add)) {
 				emit.failNonConstInit();
 				return false;
 			}
-			bits = (U64)v;
+			for(U32 r = 0; r < emit.relocs.size(); ++r)
+				if(emit.relocs[r].offset == off) {
+					emit.relocs[r] = Reloc{off, sym, add};
+					return true;
+				}
+			emit.relocs.push_back(Reloc{off, sym, add});
+			return true;
 		}
 		U32 sz = emit.byteSize(dt);
 		for(U32 b = 0; b < sz; ++b)
-			img[off + b] = (U8)(bits >> (8 * b));
+			img[off + b] = (U8)((U64)v >> (8 * b));
 		return true;
 	}
 

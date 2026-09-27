@@ -69,8 +69,13 @@ namespace rat::cc {
 				return {complexImag(fn, v), complexElem(v.type)};
 			return {fn.constInt(irType(v.type), 0), v.type};
 		}
-		if(isComplexType(v.type) && (e->unary.op == ExprOp::Pos || e->unary.op == ExprOp::Neg))
-			return complexUnary(fn, e->unary.op, v);
+		if(isComplexType(v.type) && e->unary.op == ExprOp::Pos)
+			return v;
+		if(isComplexType(v.type) && e->unary.op == ExprOp::Neg)
+			return makeComplex(fn,
+												 v.type,
+												 fn.unary(Opcode::FNeg, complexReal(fn, v)),
+												 fn.unary(Opcode::FNeg, complexImag(fn, v)));
 		switch(e->unary.op) {
 		case ExprOp::Pos: {
 			if(!isInteger(v.type) && !isFloating(v.type)) {
@@ -236,7 +241,6 @@ namespace rat::cc {
 			t.mods = e->intLit.mods;
 			return {fn.constInt(irType(t), e->intLit.value), t};
 		}
-
 		case ExprKind::FloatLit: {
 			CType t;
 			t.base = CType::Base::Float;
@@ -249,20 +253,16 @@ namespace rat::cc {
 			}
 			return {lit, t};
 		}
-
 		case ExprKind::StrLit: {
 			CType elemPtr;
 			elemPtr.bits = e->str.isWide ? e->str.charSize * 8 : 8;
 			elemPtr.ptr = 1;
 			return {fn.global(internString(e)), elemPtr};
 		}
-
 		case ExprKind::Ident:
 			return emitIdent(fn, e);
-
 		case ExprKind::Call:
 			return emitCall(fn, e);
-
 		case ExprKind::Cast: {
 			CType castTy = e->cast.type;
 			if(!resolveType(castTy))
@@ -285,17 +285,14 @@ namespace rat::cc {
 			}
 			return {convert(fn, v.node, v.type, castTy), castTy};
 		}
-
 		case ExprKind::Sizeof:
 			return emitSizeof(fn, e);
-
 		case ExprKind::AlignOf: {
 			U32 n;
 			if(!alignofValue(e, n))
 				return {};
 			return {fn.constInt(irType(ctSize()), n), ctSize()};
 		}
-
 		case ExprKind::VaArg: {
 			Node* ap = vaListRef(fn, e->vaArg.ap);
 			if(!ap)
@@ -304,33 +301,26 @@ namespace rat::cc {
 			Node* r = fn.call("__builtin_va_arg", fetched, {ap});
 			return {r, e->vaArg.type};
 		}
-
 		case ExprKind::StmtExpr:
 			return emitStmtExpr(fn, e);
-
 		case ExprKind::Generic: {
 			const Expr* sel = genericSelect(e);
 			if(!sel)
 				return {};
 			return emitExpr(fn, sel);
 		}
-
 		case ExprKind::Unary:
 			return emitUnary(fn, e);
-
 		case ExprKind::Binary:
 			return emitBinary(fn, e);
-
 		case ExprKind::Ternary:
 			return emitTernary(fn, e);
-
 		case ExprKind::Comma: {
 			Value lhs = emitExpr(fn, e->comma.lhs);
 			if(!lhs.node)
 				return {};
 			return emitExpr(fn, e->comma.rhs);
 		}
-
 		case ExprKind::Member: {
 			LValue lv;
 			if(!emitLValue(fn, e, lv))
@@ -343,11 +333,9 @@ namespace rat::cc {
 				return {lv.addr, lv.type};
 			return {loadLValue(fn, lv), lv.type};
 		}
-
 		case ExprKind::InitList:
 			fail("initializer list is only allowed in a declaration");
 			return {};
-
 		case ExprKind::CompoundLit:
 			return emitCompoundLit(fn, e);
 		}
@@ -452,11 +440,9 @@ namespace rat::cc {
 			} else if(init->kind == ExprKind::StrLit) {
 				count = (I64)init->str.bytes->size() + 1;
 			} else if(init->kind == ExprKind::InitList) {
-				List<I64> idx(init->args.size());
-				I64 maxIdx;
-				if(!resolveArrayIndices(init, idx, maxIdx))
+				List<I64> idx;
+				if(!resolveArrayIndices(init, false, count, idx))
 					return {};
-				count = maxIdx + 1;
 			}
 			if(count <= 0) {
 				failArrayCount();

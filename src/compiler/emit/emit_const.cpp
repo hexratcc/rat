@@ -63,11 +63,11 @@ namespace rat::cc {
 		}
 		switch(op) {
 		case ExprOp::LogAnd:
-			out = a && b;
-			ty = ctInt();
-			return true;
 		case ExprOp::LogOr:
-			out = a || b;
+			if(op == ExprOp::LogAnd)
+				out = a && b;
+			else
+				out = a || b;
 			ty = ctInt();
 			return true;
 		case ExprOp::Shl:
@@ -108,18 +108,13 @@ namespace rat::cc {
 		case ExprOp::Ne:     out = a != b;                  return true;
 		// clang-format on
 		case ExprOp::Div:
-			if(!b)
-				return false;
-			if(!u && a == INT64_MIN && b == -1)
-				return false;
-			out = u ? (I64)(ua / ub) : narrowToType(a / b, rt);
-			return true;
 		case ExprOp::Rem:
-			if(!b)
+			if(!b || (!u && a == INT64_MIN && b == -1))
 				return false;
-			if(!u && a == INT64_MIN && b == -1)
-				return false;
-			out = u ? (I64)(ua % ub) : narrowToType(a % b, rt);
+			if(op == ExprOp::Div)
+				out = u ? (I64)(ua / ub) : narrowToType(a / b, rt);
+			else
+				out = u ? (I64)(ua % ub) : narrowToType(a % b, rt);
 			return true;
 		default:
 			return false;
@@ -230,18 +225,11 @@ namespace rat::cc {
 			return evalFloatConst(e->cast.operand, out);
 		case ExprKind::Unary: {
 			F80 v;
-			if(!evalFloatConst(e->unary.operand, v))
+			ExprOp op = e->unary.op;
+			if(!evalFloatConst(e->unary.operand, v) || (op != ExprOp::Pos && op != ExprOp::Neg))
 				return false;
-			switch(e->unary.op) {
-			case ExprOp::Pos:
-				out = v;
-				return true;
-			case ExprOp::Neg:
-				out = -v;
-				return true;
-			default:
-				return false;
-			}
+			out = op == ExprOp::Neg ? -v : v;
+			return true;
 		}
 		case ExprKind::Binary: {
 			F80 a, b;
@@ -283,6 +271,7 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::addrConstOf(const Expr* lv, String& sym, I64& addend) {
+		addend = 0;
 		switch(lv->kind) {
 		case ExprKind::Ident: {
 			const String& n = *lv->ident.name;
@@ -291,12 +280,10 @@ namespace rat::cc {
 				if(!loc.staticSym)
 					return false;
 				sym = *loc.staticSym;
-				addend = 0;
 				return true;
 			}
 			if(globalVars.count(n) || funcs.count(n)) {
 				sym = globalSymbol(n);
-				addend = 0;
 				return true;
 			}
 			return false;
@@ -324,30 +311,21 @@ namespace rat::cc {
 			if(lv->unary.op == ExprOp::Deref)
 				return evalAddrConst(lv->unary.operand, sym, addend);
 			return false;
-		case ExprKind::CompoundLit: {
-			if(!internCompoundLiteral(lv, sym))
-				return false;
-			addend = 0;
-			return true;
-		}
+		case ExprKind::CompoundLit:
+			return internCompoundLiteral(lv, sym);
 		default:
 			return false;
 		}
 	}
 
 	B32 Emitter::evalAddrConst(const Expr* e, String& sym, I64& addend) {
+		addend = 0;
 		switch(e->kind) {
 		case ExprKind::StrLit:
 			sym = internString(e);
-			addend = 0;
 			return true;
 		case ExprKind::CompoundLit:
-			if(!e->compound.isArray)
-				return false;
-			if(!internCompoundLiteral(e, sym))
-				return false;
-			addend = 0;
-			return true;
+			return e->compound.isArray && internCompoundLiteral(e, sym);
 		case ExprKind::Cast:
 			return evalAddrConst(e->cast.operand, sym, addend);
 		case ExprKind::Ident: {
@@ -356,14 +334,12 @@ namespace rat::cc {
 				if(!loc.staticSym || !loc.isArray)
 					return false;
 				sym = *loc.staticSym;
-				addend = 0;
 				return true;
 			}
 			auto gv = globalVars.find(*e->ident.name);
 			B32 globalArr = gv != globalVars.end() && gv->second.isArray;
 			if(funcs.count(*e->ident.name) || globalArr) {
 				sym = *e->ident.name;
-				addend = 0;
 				return true;
 			}
 			return false;

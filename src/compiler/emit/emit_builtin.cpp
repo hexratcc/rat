@@ -107,14 +107,10 @@ namespace rat::cc {
 			return false;
 		String stem = name.substr(10);
 		out = CType{};
-		if(stem == "sqrt" || stem == "fabs" || stem == "copysign") {
+		B32 f32 = stem == "sqrtf" || stem == "fabsf" || stem == "copysignf";
+		if(f32 || stem == "sqrt" || stem == "fabs" || stem == "copysign") {
 			out.base = CType::Base::Float;
-			out.bits = 64;
-			return true;
-		}
-		if(stem == "sqrtf" || stem == "fabsf" || stem == "copysignf") {
-			out.base = CType::Base::Float;
-			out.bits = 32;
+			out.bits = f32 ? 32 : 64;
 			return true;
 		}
 		if(stem == "alloca" || stem == "calloc" || stem == "malloc" || stem == "realloc" ||
@@ -164,6 +160,13 @@ namespace rat::cc {
 		return lv.addr;
 	}
 
+	B32 Emitter::oneArg(const Expr* e) {
+		if(e->args.size() == 1)
+			return true;
+		fail("'" + *e->call.callee + "' expects one argument");
+		return false;
+	}
+
 	B32 Emitter::emitBitCountBuiltin(Function& fn, const Expr* e, Value& out) {
 		const String& b = *e->call.callee;
 		struct Probe {
@@ -184,10 +187,8 @@ namespace rat::cc {
 		}
 		if(bits == 0)
 			return false;
-		if(e->args.size() != 1) {
-			fail("'" + b + "' expects one argument");
+		if(!oneArg(e))
 			return true;
-		}
 		Value a = emitExpr(fn, e->args[0]);
 		if(!a.node)
 			return true;
@@ -245,10 +246,8 @@ namespace rat::cc {
 			bits = 64;
 		else
 			return false;
-		if(e->args.size() != 1) {
-			fail("'" + b + "' expects one argument");
+		if(!oneArg(e))
 			return true;
-		}
 		Value a = emitExpr(fn, e->args[0]);
 		if(!a.node)
 			return true;
@@ -265,10 +264,8 @@ namespace rat::cc {
 		const String& b = *e->call.callee;
 		if(b != "__builtin_classify_type")
 			return false;
-		if(e->args.size() != 1) {
-			fail("'" + b + "' expects one argument");
+		if(!oneArg(e))
 			return true;
-		}
 		CType t;
 		if(!typeOf(e->args[0], t)) {
 			fail("cannot classify the operand of '" + b + "'");
@@ -291,10 +288,8 @@ namespace rat::cc {
 			kind = IsFinite;
 		else
 			return false;
-		if(e->args.size() != 1) {
-			fail("'" + b + "' expects one argument");
+		if(!oneArg(e))
 			return true;
-		}
 		Value a = emitExpr(fn, e->args[0]);
 		if(!a.node)
 			return true;
@@ -335,10 +330,8 @@ namespace rat::cc {
 		const String& b = *e->call.callee;
 		if(b != "__builtin_frame_address" && b != "__builtin_return_address")
 			return false;
-		if(e->args.size() != 1) {
-			fail("'" + b + "' expects one argument");
+		if(!oneArg(e))
 			return true;
-		}
 		I64 level = 0;
 		if(!evalConst(e->args[0], level)) {
 			fail("'" + b + "' expects a constant level");
@@ -413,10 +406,8 @@ namespace rat::cc {
 		}
 
 		if(b == "__builtin_alloca" || b == "alloca") {
-			if(e->args.size() != 1) {
-				fail("'" + b + "' expects one argument");
+			if(!oneArg(e))
 				return true;
-			}
 			Value n = emitExpr(fn, e->args[0]);
 			if(!n.node)
 				return true;

@@ -95,11 +95,11 @@ namespace rat::cc {
 		return any ? maxIdx + 1 : 0;
 	}
 
-	B32 Emitter::resolveArrayIndices(const Expr* init, List<I64>& idx, I64& maxIdx) {
+	B32 Emitter::resolveArrayIndices(const Expr* init, B32 haveLen, I64& count, List<I64>& idx) {
 		const List<Expr*>& els = init->args;
 		const List<Designator>& des = init->designators;
-		I64 cur = 0;
-		maxIdx = -1;
+		idx.assign(els.size(), 0);
+		I64 cur = 0, maxIdx = -1;
 		for(U32 i = 0; i < els.size(); ++i) {
 			if(des[i].isSet) {
 				if(!des[i].isIndex) {
@@ -113,7 +113,16 @@ namespace rat::cc {
 				maxIdx = cur;
 			++cur;
 		}
-		return true;
+		if(!haveLen)
+			count = maxIdx + 1;
+		else if(maxIdx >= count) {
+			failTooManyInits();
+			return false;
+		}
+		if(count > 0)
+			return true;
+		failArrayCount();
+		return false;
 	}
 
 	B32 Emitter::initArrayRow(InitSink& sink, U32 off, CType elem, const Expr* init, U32& i) {

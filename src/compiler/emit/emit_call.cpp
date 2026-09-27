@@ -36,7 +36,7 @@ namespace rat::cc {
 			} else {
 				const String& callee = *e->call.callee;
 				if(callee.rfind("__builtin_", 0) != 0 && implicitFuncs.insert(callee).second)
-					warn("implicit declaration of function '" + callee + "'");
+					warns.push_back("warning: implicit declaration of function '" + callee + "'");
 				c.direct = true;
 				if(!builtinReturnType(callee, lay.longBits, c.sig.ret))
 					c.sig.ret = ctInt();

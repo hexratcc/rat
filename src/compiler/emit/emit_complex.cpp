@@ -83,19 +83,4 @@ namespace rat::cc {
 			return {};
 		}
 	}
-
-	Emitter::Value Emitter::complexUnary(Function& fn, ExprOp op, Value v) {
-		switch(op) {
-		case ExprOp::Pos:
-			return v;
-		case ExprOp::Neg:
-			return makeComplex(fn,
-												 v.type,
-												 fn.unary(Opcode::FNeg, complexReal(fn, v)),
-												 fn.unary(Opcode::FNeg, complexImag(fn, v)));
-		default:
-			fail("invalid operator on a complex operand");
-			return {};
-		}
-	}
 } // namespace rat::cc

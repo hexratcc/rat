@@ -25,12 +25,10 @@ namespace rat::cc {
 		Function::Block* thenB = fn.createBlock("if.then");
 		Function::Block* elseB = s->elseBody ? fn.createBlock("if.else") : nullptr;
 		Function::Block* endB = fn.createBlock("if.end");
-		B32 reaches = false;
+		B32 reaches = !elseB;
 
 		if(!emitCondBranch(fn, s->expr, thenB, elseB ? elseB : endB))
 			return false;
-		if(!elseB)
-			reaches = true;
 
 		fn.enterBlock(thenB);
 		if(!emitStmt(fn, s->thenBody))
@@ -106,10 +104,14 @@ namespace rat::cc {
 
 	B32 Emitter::emitFor(Function& fn, const Stmt* s) {
 		pushScope();
-		if(s->forInit && !emitStmt(fn, s->forInit)) {
-			popScope();
+		B32 ok = emitForScoped(fn, s);
+		popScope();
+		return ok;
+	}
+
+	B32 Emitter::emitForScoped(Function& fn, const Stmt* s) {
+		if(s->forInit && !emitStmt(fn, s->forInit))
 			return false;
-		}
 
 		Function::Block* header = fn.createLoopHeader("for.header");
 		Function::Block* bodyB = fn.createBlock("for.body");
@@ -120,10 +122,8 @@ namespace rat::cc {
 		fn.setInsertBlock(header);
 		B32 exitReachable = false;
 		if(s->expr) {
-			if(!emitCondBranch(fn, s->expr, bodyB, exitB)) {
-				popScope();
+			if(!emitCondBranch(fn, s->expr, bodyB, exitB))
 				return false;
-			}
 			exitReachable = true;
 		} else {
 			fn.jmp(bodyB);
@@ -134,21 +134,14 @@ namespace rat::cc {
 		B32 ok = emitStmt(fn, s->thenBody);
 		LoopFrame frame = loops.back();
 		loops.pop_back();
-		if(!ok) {
-			popScope();
+		if(!ok)
 			return false;
-		}
 		if(!fn.blockFinished())
 			fn.jmp(postB);
 
 		fn.enterBlock(postB);
-		if(s->forPost) {
-			Value post = emitExpr(fn, s->forPost);
-			if(!post.node) {
-				popScope();
-				return false;
-			}
-		}
+		if(s->forPost && !emitExpr(fn, s->forPost).node)
+			return false;
 		if(!fn.blockFinished())
 			fn.jmp(header);
 
@@ -156,7 +149,6 @@ namespace rat::cc {
 		fn.seal(exitB);
 		if(frame.exitReachable)
 			fn.setInsertBlock(exitB);
-		popScope();
 		return true;
 	}
 
@@ -209,20 +201,20 @@ namespace rat::cc {
 		}
 
 		// dispatch
-		Function::Block* missB = defaultBlock ? defaultBlock : exitB;
-		List<U32> order(caseValues.size());
-		for(U32 i = 0; i < order.size(); ++i)
-			order[i] = i;
+		CaseSet cs{val, ct, {}, {}, defaultBlock ? defaultBlock : exitB};
 		B32 uns = ct.isUnsigned();
-		std::sort(order.begin(), order.end(), [&](U32 a, U32 b) {
-			if(uns)
-				return (U64)caseValues[a] < (U64)caseValues[b];
-			return caseValues[a] < caseValues[b];
-		});
-		// dense case sets dispatch via a jump table: rebase selector to a zero-based
-		// slot, range-check, jump indirect; each slot gets a trampoline block (holes
-		// -> default) for phi edges, empty ones forwarded away by layout
-		U32 n = (U32)order.size();
+		List<Pair<U64, U32>> keyed;
+		for(U32 i = 0; i < caseValues.size(); ++i) {
+			U64 key = (U64)caseValues[i];
+			if(!uns)
+				key ^= 1ull << 63;
+			keyed.push_back({key, i});
+		}
+		std::sort(keyed.begin(), keyed.end());
+		for(const auto& [key, i] : keyed) {
+			cs.values.push_back(caseValues[i]);
+			cs.blocks.push_back(caseBlocks[i]);
+		}
 		// the table's one indirect jump mispredicts badly in hot dispatch loops  so hot
 		//  switches stay on the well-predicted compare tree, enclosing-loop is our static hotness proxy
 		// (own switch frame is not pushed yet). cold switches still take the table
@@ -232,57 +224,8 @@ namespace rat::cc {
 				inLoop = true;
 				break;
 			}
-		B32 tabled = false;
-		if(!inLoop && n >= 6) {
-			I64 minV = caseValues[order[0]];
-			I64 maxV = caseValues[order[n - 1]];
-			U64 span = (U64)maxV - (U64)minV + 1;
-			if(span <= 512 && span <= 4ull * n) {
-				Type* selTy = irType(ct);
-				Type* i64t = mod.getInt(64);
-				Node* idx = fn.binary(Opcode::Sub, val, fn.constInt(selTy, minV));
-				Node* idx64 = ct.bits < 64 ? fn.zext(idx, i64t) : idx;
-				Function::Block* tableB = fn.createBlock("switch.table");
-				fn.jumpif(fn.compare(Opcode::Ult, idx64, fn.constInt(i64t, (I64)span)), tableB);
-				fn.jmp(missB);
-				fn.enterBlock(tableB);
-
-				List<Function::Block*> slotTarget(span, missB);
-				for(U32 i = 0; i < n; ++i)
-					slotTarget[(U64)caseValues[order[i]] - (U64)minV] = caseBlocks[order[i]];
-				List<Function::Block*> edges;
-				edges.reserve(span);
-				for(U64 sl = 0; sl < span; ++sl)
-					edges.push_back(fn.createBlock("switch.slot"));
-				fn.switchJump(idx64, edges);
-				for(U64 sl = 0; sl < span; ++sl) {
-					fn.enterBlock(edges[sl]);
-					fn.jmp(slotTarget[sl]);
-				}
-				tabled = true;
-			}
-		}
-
-		constexpr U32 kLinearMax = 4;
-		auto emitRange = [&](auto&& self, U32 lo, U32 hi) -> void {
-			if(hi - lo <= kLinearMax) {
-				for(U32 i = lo; i < hi; ++i) {
-					Node* c = fn.eq(val, fn.constInt(irType(ct), caseValues[order[i]]));
-					fn.jumpif(c, caseBlocks[order[i]]);
-				}
-				fn.jmp(missB);
-				return;
-			}
-			U32 mid = lo + (hi - lo) / 2;
-			Function::Block* ltB = fn.createBlock("switch.lt");
-			Node* pivot = fn.constInt(irType(ct), caseValues[order[mid]]);
-			fn.jumpif(fn.compare(uns ? Opcode::Ult : Opcode::Slt, val, pivot), ltB);
-			self(self, mid, hi); // fallthrough side: val >= pivot
-			fn.enterBlock(ltB);
-			self(self, lo, mid);
-		};
-		if(!tabled)
-			emitRange(emitRange, 0, (U32)order.size());
+		if(inLoop || !emitCaseTable(fn, cs))
+			emitCaseTree(fn, cs, 0, (U32)cs.values.size());
 		switches.push_back(std::move(blocks));
 		loops.push_back({exitB, nullptr, false, true, curSp});
 		B32 ok = emitStmt(fn, body);
@@ -303,6 +246,58 @@ namespace rat::cc {
 		if(frame.exitReachable)
 			fn.setInsertBlock(exitB);
 		return true;
+	}
+
+	// dense case sets dispatch via a jump table: rebase selector to a zero-based
+	// slot, range-check, jump indirect; each slot gets a trampoline block (holes
+	// -> default) for phi edges, empty ones forwarded away by layout
+	B32 Emitter::emitCaseTable(Function& fn, const CaseSet& cs) {
+		U32 n = (U32)cs.values.size();
+		if(n < 6)
+			return false;
+		I64 minV = cs.values[0];
+		U64 span = (U64)cs.values[n - 1] - (U64)minV + 1;
+		if(span > 512 || span > 4ull * n)
+			return false;
+		Type* selTy = irType(cs.ct);
+		Type* i64t = mod.getInt(64);
+		Node* idx = fn.binary(Opcode::Sub, cs.val, fn.constInt(selTy, minV));
+		Node* idx64 = cs.ct.bits < 64 ? fn.zext(idx, i64t) : idx;
+		Block* tableB = fn.createBlock("switch.table");
+		fn.jumpif(fn.compare(Opcode::Ult, idx64, fn.constInt(i64t, (I64)span)), tableB);
+		fn.jmp(cs.miss);
+		fn.enterBlock(tableB);
+
+		List<Block*> slotTarget(span, cs.miss);
+		for(U32 i = 0; i < n; ++i)
+			slotTarget[(U64)cs.values[i] - (U64)minV] = cs.blocks[i];
+		List<Block*> edges;
+		edges.reserve(span);
+		for(U64 sl = 0; sl < span; ++sl)
+			edges.push_back(fn.createBlock("switch.slot"));
+		fn.switchJump(idx64, edges);
+		for(U64 sl = 0; sl < span; ++sl) {
+			fn.enterBlock(edges[sl]);
+			fn.jmp(slotTarget[sl]);
+		}
+		return true;
+	}
+
+	void Emitter::emitCaseTree(Function& fn, const CaseSet& cs, U32 lo, U32 hi) {
+		constexpr U32 kLinearMax = 4;
+		if(hi - lo <= kLinearMax) {
+			for(U32 i = lo; i < hi; ++i)
+				fn.jumpif(fn.eq(cs.val, fn.constInt(irType(cs.ct), cs.values[i])), cs.blocks[i]);
+			fn.jmp(cs.miss);
+			return;
+		}
+		U32 mid = lo + (hi - lo) / 2;
+		Block* ltB = fn.createBlock("switch.lt");
+		Node* pivot = fn.constInt(irType(cs.ct), cs.values[mid]);
+		fn.jumpif(fn.compare(cs.ct.isUnsigned() ? Opcode::Ult : Opcode::Slt, cs.val, pivot), ltB);
+		emitCaseTree(fn, cs, mid, hi); // fallthrough side: val >= pivot
+		fn.enterBlock(ltB);
+		emitCaseTree(fn, cs, lo, mid);
 	}
 
 	B32 Emitter::declMayBeVla(const Declarator& d) {
@@ -406,7 +401,10 @@ namespace rat::cc {
 		case StmtKind::Compound:
 			return emitCompound(fn, s);
 		case StmtKind::Decl:
-			return emitDecl(fn, s);
+			for(const Declarator& d : s->decls)
+				if(!emitOneDecl(fn, d))
+					return false;
+			return true;
 		case StmtKind::If:
 			return emitIf(fn, s);
 		case StmtKind::While:

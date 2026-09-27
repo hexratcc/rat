@@ -115,6 +115,13 @@ namespace rat::cc {
 			B32 isSwitch = false;
 			Node* sp = nullptr;
 		};
+		struct CaseSet {
+			Node* val;
+			CType ct;
+			List<I64> values;
+			List<Block*> blocks;
+			Block* miss;
+		};
 		struct GlobalVar {
 			CType type;
 			B32 isArray = false;
@@ -166,6 +173,7 @@ namespace rat::cc {
 			B32 bitfield(U32 off, CType dt, U32 width, U32 bitOff, const Expr* e) override;
 			B32 charArray(U32 base, CType elem, U32 count, const Expr* e) override;
 			B32 structCopy(U32 off, CType ty, const Expr* e) override;
+			B32 store(U32 off, LValue lv, const Expr* e);
 			Emitter& emit;
 			Function& fn;
 			Node* slot;
@@ -224,7 +232,6 @@ namespace rat::cc {
 		void declare(const String& name, Local local);
 		B32 lookup(const String& name, Local& out) const;
 		void fail(const String& msg);
-		void warn(const String& msg);
 		void failUndeclared(const String& name) { fail("use of undeclared identifier '" + name + "'"); }
 		void failArrayCount() { fail("array size must be a positive integer constant"); }
 		void failArrayUnknownSize(const String& name) { fail("array '" + name + "' has unknown size"); }
@@ -241,7 +248,10 @@ namespace rat::cc {
 		B32 emitWhile(Function& fn, const Stmt* stmt);
 		B32 emitDoWhile(Function& fn, const Stmt* stmt);
 		B32 emitFor(Function& fn, const Stmt* stmt);
+		B32 emitForScoped(Function& fn, const Stmt* stmt);
 		B32 emitSwitch(Function& fn, const Stmt* stmt);
+		B32 emitCaseTable(Function& fn, const CaseSet& cs);
+		void emitCaseTree(Function& fn, const CaseSet& cs, U32 lo, U32 hi);
 		B32 emitReturn(Function& fn, const Stmt* stmt);
 		B32 emitLabel(Function& fn, const Stmt* stmt);
 		B32 emitGoto(Function& fn, const Stmt* stmt);
@@ -262,13 +272,12 @@ namespace rat::cc {
 		B32 exprRefersTo(const Expr* expr, const String& name) const;
 
 		// declarations
-		B32 emitDecl(Function& fn, const Stmt* stmt);
 		B32 emitOneDecl(Function& fn, const Declarator& d);
 		B32 emitComplexDecl(Function& fn, const Declarator& d);
 		B32 emitStructDecl(Function& fn, const Declarator& d);
 		B32 emitArrayDecl(Function& fn, const Declarator& d);
 		B32 emitTypedefArrayDecl(Function& fn, const Declarator& d);
-		B32 emitMultiDimArrayDecl(Function& fn, const Declarator& d, I64 count, B32 haveLen);
+		B32 emitAggArrayDecl(Function& fn, const Declarator& d, I64 count, B32 haveLen);
 		B32 emitVlaDecl(Function& fn, const Declarator& d);
 		B32 declIsVla(const Declarator& d, I64& count);
 		B32 declareStatic(Function& fn, const Declarator& d);
@@ -305,7 +314,6 @@ namespace rat::cc {
 		Value makeComplex(Function& fn, CType type, Node* re, Node* im);
 		Value toComplex(Function& fn, const Value& v, CType type);
 		Value complexBinary(Function& fn, ExprOp op, Value lhs, Value rhs, CType ct);
-		Value complexUnary(Function& fn, ExprOp op, Value v);
 		void storeComplex(Function& fn, Node* addr, CType type, const Value& v);
 
 		// calls
@@ -325,6 +333,7 @@ namespace rat::cc {
 		B32 emitPrefetchBuiltin(Function& fn, const Expr* expr, Value& out);
 		static I64 typeClassOf(CType t);
 		Node* vaListRef(Function& fn, const Expr* ap);
+		B32 oneArg(const Expr* e);
 		Wide wideExtend(Function& fn, Node* v, CType from);
 		Wide wideAddSub(Function& fn, Wide a, Wide b, B32 sub);
 		Wide wideMul(Function& fn, Wide a, Wide b);
@@ -347,10 +356,9 @@ namespace rat::cc {
 		B32 registerGlobals(const TransUnit& unit);
 		B32 registerGlobalAlias(const Declarator& d);
 		const String& globalSymbol(const String& name) const;
-		B32 registerGlobalArray(const Declarator& d, const String& sym, Function* fn);
+		B32 registerGlobal(const Declarator& d, const String& sym, Function* fn);
 		B32 validateGlobalArrayLen(const Declarator& d, I64& count, B32& haveLen);
-		B32 registerGlobalArrayOfArray(const Declarator& d, const String& sym, Function* fn);
-		B32 registerGlobalArrayOfStruct(const Declarator& d, const String& sym, Function* fn);
+		B32 registerGlobalAggArray(const Declarator& d, const String& sym, Function* fn);
 		B32 registerGlobalArrayOfScalar(const Declarator& d, const String& sym, Function* fn);
 		B32 registerGlobalStruct(const Declarator& d, const String& sym, Function* fn);
 		B32 registerGlobalScalar(const Declarator& d, const String& sym, Function* fn);
@@ -366,7 +374,7 @@ namespace rat::cc {
 		B32 initListIsFlat(const Expr* init);
 		U32 initArrayCount(CType elem, const Expr* init);
 		U32 arrayInitOuterExtent(CType elem, const Expr* init);
-		B32 resolveArrayIndices(const Expr* init, List<I64>& idx, I64& maxIdx);
+		B32 resolveArrayIndices(const Expr* init, B32 haveLen, I64& count, List<I64>& idx);
 		B32 initStructInit(InitSink& sink, U32 base, const StructType* st, const Expr* init);
 		B32 initUnionInit(InitSink& sink, U32 base, const StructType* st, const Expr* init);
 		B32 initArrayInit(InitSink& sink, U32 base, CType elem, U32 count, const Expr* init);
