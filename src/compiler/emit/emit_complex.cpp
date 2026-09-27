@@ -4,7 +4,7 @@ namespace rat::cc {
 	CType Emitter::completeComplex(CType t) {
 		if(!isComplexType(t) || t.strukt != nullptr)
 			return t;
-		StructType*& st = complexLayouts[t.bits];
+		StructType*& st = syms.complex[t.bits];
 		if(!st)
 			st = makeComplexLayout(arena, t);
 		t.strukt = st;
@@ -79,7 +79,7 @@ namespace rat::cc {
 					fn, ct, fn.binary(Opcode::FDiv, rnum, denom), fn.binary(Opcode::FDiv, inum, denom));
 		}
 		default:
-			fail("invalid operator on a complex operand");
+			diag.fail("invalid operator on a complex operand");
 			return {};
 		}
 	}

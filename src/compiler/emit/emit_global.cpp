@@ -5,10 +5,10 @@ namespace rat::cc {
 		const String& bytes = *e->str.bytes;
 		U32 cw = e->str.charSize;
 		String key = std::to_string(cw) + ":" + bytes;
-		auto it = strPool.find(key);
-		if(it != strPool.end())
+		auto it = data.strPool.find(key);
+		if(it != data.strPool.end())
 			return it->second;
-		String name = "__ratcc_str" + std::to_string(strCounter++);
+		String name = data.nextName("__ratcc_str");
 		List<U8> init;
 		init.reserve(bytes.size() + cw);
 		for(C8 c : bytes)
@@ -17,7 +17,7 @@ namespace rat::cc {
 			init.push_back(0);
 		Global* g = mod.createGlobal(name, byteArrayType((U32)init.size()), true, std::move(init));
 		g->setLinkage(Global::Linkage::Internal);
-		strPool.emplace(std::move(key), name);
+		data.strPool.emplace(std::move(key), name);
 		return name;
 	}
 
@@ -26,7 +26,7 @@ namespace rat::cc {
 			return fn.constFloat(irType(t), (F64)v);
 		List<U8> init;
 		encodeFloatBytes(t, v, init);
-		String name = "__ratcc_ld" + std::to_string(strCounter++);
+		String name = data.nextName("__ratcc_ld");
 		Global* g = mod.createGlobal(name, irType(t), true, std::move(init));
 		g->setLinkage(Global::Linkage::Internal);
 		return fn.load(irType(t), fn.global(name));
@@ -36,9 +36,9 @@ namespace rat::cc {
 		CType ty = e->compound.type;
 		const Expr* init = e->compound.init;
 		List<Reloc> saved;
-		saved.swap(relocs);
+		saved.swap(data.relocs);
 		B32 ok = true;
-		String name = "__ratcc_cl" + std::to_string(strCounter++);
+		String name = data.nextName("__ratcc_cl");
 
 		U32 total = 0;
 		I64 count = 0;
@@ -69,18 +69,18 @@ namespace rat::cc {
 			else
 				ok = sink.scalar(0, ty, init);
 			if(ok) {
-				Global* g =
-						mod.createGlobal(name, byteArrayType(total), false, std::move(img), std::move(relocs));
+				Global* g = mod.createGlobal(
+						name, byteArrayType(total), false, std::move(img), std::move(data.relocs));
 				g->setLinkage(Global::Linkage::Internal);
 			}
 		}
 
-		relocs.swap(saved);
+		data.relocs.swap(saved);
 		if(!ok) {
-			fail("invalid file-scope compound literal initializer");
+			diag.fail("invalid file-scope compound literal initializer");
 			return false;
 		}
-		globalVars[name] = GlobalVar{ty, e->compound.isArray, 0};
+		syms.globals[name] = GlobalVar{ty, e->compound.isArray, 0};
 		outSym = name;
 		return true;
 	}
@@ -91,14 +91,14 @@ namespace rat::cc {
 			loc.isArray = arr;
 			loc.count = n;
 			loc.staticSym = arena.make<String>(sym);
-			declare(*d.name, loc);
+			func.scopes.declare(*d.name, loc);
 		} else {
-			globalVars[*d.name] = GlobalVar{d.type, arr, n};
+			syms.globals[*d.name] = GlobalVar{d.type, arr, n};
 		}
 	}
 
 	void Emitter::defineGlobal(const Declarator& d, const String& sym, Type* ty, List<U8>&& img) {
-		Global* g = mod.createGlobal(sym, ty, false, std::move(img), std::move(relocs));
+		Global* g = mod.createGlobal(sym, ty, false, std::move(img), std::move(data.relocs));
 		if(d.isStatic)
 			g->setLinkage(Global::Linkage::Internal);
 		g->setAlign(d.align);
@@ -179,7 +179,7 @@ namespace rat::cc {
 					return false;
 			}
 		} else if(d.init) {
-			fail("invalid initializer for an array");
+			diag.fail("invalid initializer for an array");
 			return false;
 		} else {
 			if(!haveLen) {
@@ -194,7 +194,7 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::registerGlobal(const Declarator& d, const String& sym, Function* fn) {
-		relocs.clear();
+		data.relocs.clear();
 		if(d.isArray && (isArrayType(d.type) || isStruct(d.type)))
 			return registerGlobalAggArray(d, sym, fn);
 		if(d.isArray)
@@ -213,17 +213,17 @@ namespace rat::cc {
 			total += flex * byteSize(st->fields.back().type);
 		List<U8> init;
 
-		flexCount = flex;
+		data.flexCount = flex;
 		B32 ok = true;
 		if(sinit && sinit->kind == ExprKind::InitList) {
 			init.assign(total, 0);
 			ImageSink sink(*this, init);
 			ok = initStructInit(sink, 0, st, sinit);
 		} else if(sinit) {
-			fail("invalid initializer for struct '" + *d.name + "'");
+			diag.fail("invalid initializer for struct '" + *d.name + "'");
 			ok = false;
 		}
-		flexCount = 0;
+		data.flexCount = 0;
 		if(!ok)
 			return false;
 
@@ -234,7 +234,7 @@ namespace rat::cc {
 
 	B32 Emitter::registerGlobalScalar(const Declarator& d, const String& sym, Function* fn) {
 		if(d.type.isVoid() && !isPointer(d.type)) {
-			fail("variable '" + *d.name + "' has incomplete type 'void'");
+			diag.fail("variable '" + *d.name + "' has incomplete type 'void'");
 			return false;
 		}
 		const Expr* dinit = d.init;
@@ -246,7 +246,7 @@ namespace rat::cc {
 		if(dinit && isFloating(d.type)) {
 			F80 dv = 0;
 			if(!evalFloatConst(dinit, dv)) {
-				fail("initializer for '" + *d.name + "' is not a constant expression");
+				diag.fail("initializer for '" + *d.name + "' is not a constant expression");
 				return false;
 			}
 			encodeFloatBytes(d.type, dv, init);
@@ -258,10 +258,10 @@ namespace rat::cc {
 				B32 isIntScalar = !isPointer(d.type) && !isAggregate(d.type) && !isVoidType(d.type);
 				B32 fits = isPointer(d.type) || (isIntScalar && byteSize(d.type) >= 8);
 				if(!fits || !evalAddrConst(dinit, target, add)) {
-					fail("initializer for '" + *d.name + "' is not a constant expression");
+					diag.fail("initializer for '" + *d.name + "' is not a constant expression");
 					return false;
 				}
-				relocs.push_back(Reloc{0, target, add});
+				data.relocs.push_back(Reloc{0, target, add});
 			}
 			value = (U64)iv;
 		}
@@ -277,7 +277,7 @@ namespace rat::cc {
 
 	B32 Emitter::registerGlobalAlias(const Declarator& d) {
 		if(d.init) {
-			fail("alias '" + *d.name + "' must not have an initializer");
+			diag.fail("alias '" + *d.name + "' must not have an initializer");
 			return false;
 		}
 		I64 count = 0;
@@ -285,14 +285,9 @@ namespace rat::cc {
 			count = 0;
 		mod.createAlias(*d.name, *d.aliasOf, irType(d.type))
 				->setLinkage(d.isStatic ? Global::Linkage::Internal : Global::Linkage::External);
-		globalVars[*d.name] = GlobalVar{d.type, d.isArray, (U32)count};
-		aliasTargets[*d.name] = *d.aliasOf;
+		syms.globals[*d.name] = GlobalVar{d.type, d.isArray, (U32)count};
+		syms.aliases[*d.name] = *d.aliasOf;
 		return true;
-	}
-
-	const String& Emitter::globalSymbol(const String& name) const {
-		auto it = aliasTargets.find(name);
-		return it == aliasTargets.end() ? name : it->second;
 	}
 
 	B32 Emitter::registerGlobals(const TransUnit& unit) {
@@ -311,7 +306,7 @@ namespace rat::cc {
 				}
 				const Declarator*& prev = order[it->second];
 				if(d.init && prev->init) {
-					fail("redefinition of '" + *d.name + "'");
+					diag.fail("redefinition of '" + *d.name + "'");
 					return false;
 				}
 				if(d.init && !prev->init)
@@ -331,7 +326,7 @@ namespace rat::cc {
 				I64 count = 0;
 				if(d.isArray && d.arrayLen)
 					evalConst(d.arrayLen, count);
-				globalVars[*d.name] = GlobalVar{d.type, d.isArray, (U32)count};
+				syms.globals[*d.name] = GlobalVar{d.type, d.isArray, (U32)count};
 				continue;
 			}
 			if(!registerGlobal(d, *d.name, nullptr))

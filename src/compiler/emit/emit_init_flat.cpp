@@ -182,12 +182,7 @@ namespace rat::cc {
 				emit.failNonConstInit();
 				return false;
 			}
-			for(U32 r = 0; r < emit.relocs.size(); ++r)
-				if(emit.relocs[r].offset == off) {
-					emit.relocs[r] = Reloc{off, sym, add};
-					return true;
-				}
-			emit.relocs.push_back(Reloc{off, sym, add});
+			emit.data.setReloc(off, sym, add);
 			return true;
 		}
 		U32 sz = emit.byteSize(dt);

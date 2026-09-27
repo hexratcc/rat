@@ -216,12 +216,12 @@ namespace rat::cc {
 	} // namespace detail
 
 	void Emitter::collectAddrTaken(const Stmt* s) {
-		detail::AddrTakenWalk w(memVars, lay.win64VaList);
+		detail::AddrTakenWalk w(func.memVars, lay.win64VaList);
 		detail::walkStmt(w, s);
 	}
 
 	void Emitter::collectLabels(Function& fn, const Stmt* s) {
-		detail::LabelBlockWalk w(fn, labelBlocks);
+		detail::LabelBlockWalk w(fn, func.labelBlocks);
 		detail::walkStmt(w, s);
 	}
 

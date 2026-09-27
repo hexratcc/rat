@@ -65,9 +65,9 @@ namespace rat::cc {
 			return false;
 
 		fn.enterBlock(bodyB);
-		loops.push_back({exitB, header, true, false, curSp});
+		func.loops.push_back({exitB, header, true, false, func.sp});
 		B32 ok = emitStmt(fn, s->thenBody);
-		loops.pop_back();
+		func.loops.pop_back();
 		if(!ok)
 			return false;
 		if(!fn.blockFinished())
@@ -85,9 +85,9 @@ namespace rat::cc {
 
 		fn.jmp(bodyB);
 		fn.setInsertBlock(bodyB);
-		loops.push_back({exitB, condB, true, false, curSp});
+		func.loops.push_back({exitB, condB, true, false, func.sp});
 		B32 ok = emitStmt(fn, s->thenBody);
-		loops.pop_back();
+		func.loops.pop_back();
 		if(!ok)
 			return false;
 		if(!fn.blockFinished())
@@ -103,9 +103,9 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitFor(Function& fn, const Stmt* s) {
-		pushScope();
+		func.scopes.push();
 		B32 ok = emitForScoped(fn, s);
-		popScope();
+		func.scopes.pop();
 		return ok;
 	}
 
@@ -130,10 +130,10 @@ namespace rat::cc {
 		}
 
 		fn.enterBlock(bodyB);
-		loops.push_back({exitB, postB, exitReachable, false, curSp});
+		func.loops.push_back({exitB, postB, exitReachable, false, func.sp});
 		B32 ok = emitStmt(fn, s->thenBody);
-		LoopFrame frame = loops.back();
-		loops.pop_back();
+		LoopFrame frame = func.loops.back();
+		func.loops.pop_back();
 		if(!ok)
 			return false;
 		if(!fn.blockFinished())
@@ -157,7 +157,7 @@ namespace rat::cc {
 		if(!ctrl.node)
 			return false;
 		if(!isInteger(ctrl.type)) {
-			fail("switch controlling expression must have integer type");
+			diag.fail("switch controlling expression must have integer type");
 			return false;
 		}
 		CType ct = promote(ctrl.type);
@@ -165,7 +165,7 @@ namespace rat::cc {
 
 		const Stmt* body = s->thenBody;
 		if(body->kind != StmtKind::Compound) {
-			fail("switch body must be a block");
+			diag.fail("switch body must be a block");
 			return false;
 		}
 
@@ -180,12 +180,12 @@ namespace rat::cc {
 		for(const Stmt* c : caseStmts) {
 			I64 v;
 			if(!evalConst(c->expr, v)) {
-				fail("case label is not an integer constant expression");
+				diag.fail("case label is not an integer constant expression");
 				return false;
 			}
 			for(I64 prev : caseValues) {
 				if(prev == v) {
-					fail("duplicate case value in switch");
+					diag.fail("duplicate case value in switch");
 					return false;
 				}
 			}
@@ -219,19 +219,19 @@ namespace rat::cc {
 		//  switches stay on the well-predicted compare tree, enclosing-loop is our static hotness proxy
 		// (own switch frame is not pushed yet). cold switches still take the table
 		B32 inLoop = false;
-		for(const LoopFrame& lf : loops)
+		for(const LoopFrame& lf : func.loops)
 			if(!lf.isSwitch) {
 				inLoop = true;
 				break;
 			}
 		if(inLoop || !emitCaseTable(fn, cs))
 			emitCaseTree(fn, cs, 0, (U32)cs.values.size());
-		switches.push_back(std::move(blocks));
-		loops.push_back({exitB, nullptr, false, true, curSp});
+		func.switches.push_back(std::move(blocks));
+		func.loops.push_back({exitB, nullptr, false, true, func.sp});
 		B32 ok = emitStmt(fn, body);
-		LoopFrame frame = loops.back();
-		loops.pop_back();
-		switches.pop_back();
+		LoopFrame frame = func.loops.back();
+		func.loops.pop_back();
+		func.switches.pop_back();
 		if(!ok)
 			return false;
 
@@ -248,9 +248,6 @@ namespace rat::cc {
 		return true;
 	}
 
-	// dense case sets dispatch via a jump table: rebase selector to a zero-based
-	// slot, range-check, jump indirect; each slot gets a trampoline block (holes
-	// -> default) for phi edges, empty ones forwarded away by layout
 	B32 Emitter::emitCaseTable(Function& fn, const CaseSet& cs) {
 		U32 n = (U32)cs.values.size();
 		if(n < 6)
@@ -305,12 +302,12 @@ namespace rat::cc {
 			return true;
 		if(!d.arrayLen)
 			return false;
-		B32 savedFailed = failed;
-		String savedMsg = errMsg;
+		B32 savedFailed = diag.failed;
+		String savedMsg = diag.msg;
 		I64 count;
 		B32 constant = evalConst(d.arrayLen, count);
-		failed = savedFailed;
-		errMsg = std::move(savedMsg);
+		diag.failed = savedFailed;
+		diag.msg = std::move(savedMsg);
 		return !constant;
 	}
 
@@ -340,25 +337,25 @@ namespace rat::cc {
 	}
 
 	void Emitter::restoreStack(Function& fn, Node* sp) {
-		if(sp && sp != curSp && !sawAlloca && !fn.blockFinished())
+		if(sp && sp != func.sp && !func.sawAlloca && !fn.blockFinished())
 			fn.stackRestore(sp);
 	}
 
 	B32 Emitter::emitCompound(Function& fn, const Stmt* s) {
-		pushScope();
+		func.scopes.push();
 		Node* mark = nullptr;
-		Node* outerSp = curSp;
+		Node* outerSp = func.sp;
 		if(blockDeclaresVla(s)) {
 			mark = fn.stackSave();
-			curSp = mark;
+			func.sp = mark;
 		}
 		for(const Stmt* child : s->body) {
 			B32 labelLike = child->kind == StmtKind::Label || child->kind == StmtKind::Case ||
 											child->kind == StmtKind::Default;
 			if(fn.blockFinished() && !labelLike && !containsLabel(child) &&
-				 !(!switches.empty() && containsSwitchCase(child))) {
+				 !(!func.switches.empty() && containsSwitchCase(child))) {
 				if(child->kind == StmtKind::Decl && !declareDead(fn, child)) {
-					popScope();
+					func.scopes.pop();
 					return false;
 				}
 				continue;
@@ -368,25 +365,25 @@ namespace rat::cc {
 				fn.enterBlock(dead);
 			}
 			if(!emitStmt(fn, child)) {
-				popScope();
+				func.scopes.pop();
 				return false;
 			}
 		}
 		restoreStack(fn, mark);
-		curSp = mark ? mark : outerSp;
-		popScope();
+		func.sp = mark ? mark : outerSp;
+		func.scopes.pop();
 		return true;
 	}
 
 	B32 Emitter::emitCaseLabel(Function& fn, const Stmt* s) {
 		Function::Block* lbl = nullptr;
-		if(!switches.empty()) {
-			auto it = switches.back().find(s);
-			if(it != switches.back().end())
+		if(!func.switches.empty()) {
+			auto it = func.switches.back().find(s);
+			if(it != func.switches.back().end())
 				lbl = it->second;
 		}
 		if(!lbl) {
-			fail("'case'/'default' label not within a switch");
+			diag.fail("'case'/'default' label not within a switch");
 			return false;
 		}
 		if(!fn.blockFinished())
@@ -396,7 +393,7 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitStmt(Function& fn, const Stmt* s) {
-		curOffset = s->offset;
+		diag.offset = s->offset;
 		switch(s->kind) {
 		case StmtKind::Compound:
 			return emitCompound(fn, s);
@@ -419,23 +416,23 @@ namespace rat::cc {
 		case StmtKind::Default:
 			return emitCaseLabel(fn, s);
 		case StmtKind::Break:
-			if(loops.empty()) {
-				fail("'break' statement not in a loop or switch");
+			if(func.loops.empty()) {
+				diag.fail("'break' statement not in a loop or switch");
 				return false;
 			}
-			loops.back().exitReachable = true;
-			restoreStack(fn, loops.back().sp);
-			fn.jmp(loops.back().brk);
+			func.loops.back().exitReachable = true;
+			restoreStack(fn, func.loops.back().sp);
+			fn.jmp(func.loops.back().brk);
 			return true;
 		case StmtKind::Continue: {
-			for(auto it = loops.rbegin(); it != loops.rend(); ++it) {
+			for(auto it = func.loops.rbegin(); it != func.loops.rend(); ++it) {
 				if(it->isSwitch)
 					continue;
 				restoreStack(fn, it->sp);
 				fn.jmp(it->cont);
 				return true;
 			}
-			fail("'continue' statement not in a loop");
+			diag.fail("'continue' statement not in a loop");
 			return false;
 		}
 		case StmtKind::Return:
@@ -451,7 +448,7 @@ namespace rat::cc {
 		case StmtKind::Asm:
 			return emitAsm(fn, s);
 		}
-		fail("unsupported statement");
+		diag.fail("unsupported statement");
 		return false;
 	}
 
@@ -462,23 +459,23 @@ namespace rat::cc {
 			if(!v.node)
 				return false;
 		}
-		if(sretSlot) {
+		if(func.sretSlot) {
 			if(v.node) {
-				if(isComplexType(curRet)) {
-					storeComplex(fn, sretSlot, completeComplex(curRet), v);
-				} else if(!isStruct(v.type) || v.type.strukt != curRet.strukt) {
-					fail("invalid return value for a struct/union function");
+				if(isComplexType(func.ret)) {
+					storeComplex(fn, func.sretSlot, completeComplex(func.ret), v);
+				} else if(!isStruct(v.type) || v.type.strukt != func.ret.strukt) {
+					diag.fail("invalid return value for a struct/union function");
 					return false;
 				} else {
-					emitMemCopy(fn, sretSlot, v.node, curRet.strukt->size);
+					emitMemCopy(fn, func.sretSlot, v.node, func.ret.strukt->size);
 				}
 			}
-			fn.ret(sretSlot);
+			fn.ret(func.sretSlot);
 			return true;
 		}
-		if(isVoidType(curRet)) {
+		if(isVoidType(func.ret)) {
 			if(v.node && !isVoidType(v.type)) {
-				fail("return with a value in a function returning void");
+				diag.fail("return with a value in a function returning void");
 				return false;
 			}
 			fn.retVoid();
@@ -486,35 +483,35 @@ namespace rat::cc {
 		}
 		Node* value;
 		if(v.node)
-			value = convert(fn, v.node, v.type, curRet);
+			value = convert(fn, v.node, v.type, func.ret);
 		else
-			value = fn.constInt(irType(curRet), 0);
+			value = fn.constInt(irType(func.ret), 0);
 		fn.ret(value);
 		return true;
 	}
 
 	B32 Emitter::emitLabel(Function& fn, const Stmt* s) {
-		auto it = labelBlocks.find(*s->label);
-		if(it == labelBlocks.end()) {
-			fail("internal: missing block for label '" + *s->label + "'");
+		auto it = func.labelBlocks.find(*s->label);
+		if(it == func.labelBlocks.end()) {
+			diag.fail("internal: missing block for label '" + *s->label + "'");
 			return false;
 		}
 		Function::Block* lbl = it->second;
 		if(!fn.blockFinished())
 			fn.jmp(lbl);
 		fn.setInsertBlock(lbl);
-		labelSp[*s->label] = curSp;
+		func.labelSp[*s->label] = func.sp;
 		return emitStmt(fn, s->thenBody);
 	}
 
 	B32 Emitter::emitGoto(Function& fn, const Stmt* s) {
-		auto it = labelBlocks.find(*s->label);
-		if(it == labelBlocks.end()) {
-			fail("use of undeclared label '" + *s->label + "'");
+		auto it = func.labelBlocks.find(*s->label);
+		if(it == func.labelBlocks.end()) {
+			diag.fail("use of undeclared label '" + *s->label + "'");
 			return false;
 		}
-		auto sp = labelSp.find(*s->label);
-		if(sp != labelSp.end())
+		auto sp = func.labelSp.find(*s->label);
+		if(sp != func.labelSp.end())
 			restoreStack(fn, sp->second);
 		fn.jmp(it->second);
 		return true;
@@ -544,11 +541,11 @@ namespace rat::cc {
 	B32 Emitter::emitAsm(Function& fn, const Stmt* s) {
 		const AsmBlock* a = s->asmBlock;
 		if(a->isGoto) {
-			fail("'asm goto' is not supported");
+			diag.fail("'asm goto' is not supported");
 			return false;
 		}
 		if(!a->text->empty()) {
-			fail("inline assembly with a non-empty template is not supported");
+			diag.fail("inline assembly with a non-empty template is not supported");
 			return false;
 		}
 
@@ -559,14 +556,14 @@ namespace rat::cc {
 			const AsmOperand& op = a->outputs[i];
 			B32 readWrite = false;
 			if(!isRegConstraint(*op.constraint, true, readWrite)) {
-				fail("unsupported asm output constraint '" + *op.constraint + "'");
+				diag.fail("unsupported asm output constraint '" + *op.constraint + "'");
 				return false;
 			}
 			LValue lv;
 			if(!emitLValue(fn, op.expr, lv))
 				return false;
 			if(!asmFitsRegister(lv.type) || lv.isBitfield) {
-				fail("asm operand type does not fit a register");
+				diag.fail("asm operand type does not fit a register");
 				return false;
 			}
 			lvs.push_back(lv);
@@ -578,7 +575,7 @@ namespace rat::cc {
 			U32 which = 0;
 			if(matchingConstraint(*op.constraint, which)) {
 				if(which >= tie.size() || readsBack[which] || tie[which]) {
-					fail("asm matching constraint '" + *op.constraint + "' names no free output");
+					diag.fail("asm matching constraint '" + *op.constraint + "' names no free output");
 					return false;
 				}
 				tie[which] = op.expr;
@@ -586,14 +583,14 @@ namespace rat::cc {
 			}
 			B32 readWrite = false;
 			if(!isRegConstraint(*op.constraint, false, readWrite)) {
-				fail("unsupported asm input constraint '" + *op.constraint + "'");
+				diag.fail("unsupported asm input constraint '" + *op.constraint + "'");
 				return false;
 			}
 			extra.push_back(op.expr);
 		}
 		for(U32 i = 0; i < tie.size(); ++i) {
 			if(!tie[i] && !readsBack[i]) {
-				fail("asm output operand is not tied to an input, so it has no defined value");
+				diag.fail("asm output operand is not tied to an input, so it has no defined value");
 				return false;
 			}
 		}
@@ -618,7 +615,7 @@ namespace rat::cc {
 			if(!v.node)
 				return false;
 			if(!asmFitsRegister(v.type)) {
-				fail("asm operand type does not fit a register");
+				diag.fail("asm operand type does not fit a register");
 				return false;
 			}
 			args.push_back(v.node);

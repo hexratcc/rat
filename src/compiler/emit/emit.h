@@ -4,6 +4,8 @@
 #include "parse/ast.h"
 #include "target_layout.h"
 
+#include "emit/emit_state.h"
+
 #include "ir/function.h"
 #include "ir/module.h"
 
@@ -43,11 +45,9 @@ namespace rat::cc {
 
 		B32 emit(const TransUnit& unit);
 
-		const String& error() const { return errMsg; }
-		const List<String>& warnings() const { return warns; }
+		const String& error() const { return diag.msg; }
+		const List<String>& warnings() const { return diag.warns; }
 	private:
-		using Block = Function::Block;
-
 		// values
 		struct Value {
 			Node* node = nullptr;
@@ -70,51 +70,6 @@ namespace rat::cc {
 
 			B32 isVar() const { return kind == Kind::Var; }
 		};
-		struct Local {
-			enum class Kind : U8 { Var, Mem };
-			Kind kind = Kind::Var;
-			Function::Var var = 0;
-			Node* addr = nullptr;
-			CType type;
-			B32 isArray = false;
-			U32 count = 0;
-			Node* lengthNode = nullptr;				 // runtime byte size for a VLA
-			const String* staticSym = nullptr; // symbol backing a function-local static
-
-			B32 inMem() const { return kind == Kind::Mem; }
-			static Local inVar(Function::Var v, CType t) {
-				Local l;
-				l.var = v;
-				l.type = t;
-				return l;
-			}
-			static Local mem(Node* addr, CType t) {
-				Local l;
-				l.kind = Kind::Mem;
-				l.addr = addr;
-				l.type = t;
-				return l;
-			}
-			static Local memArray(Node* addr, CType t, U32 count = 0) {
-				Local l = mem(addr, t);
-				l.isArray = true;
-				l.count = count;
-				return l;
-			}
-		};
-		// flat scope stack: one table + undo log rolled back on popScope
-		struct ScopeUndo {
-			const String* name; // table key, stable across rehash
-			Local prev;
-			B32 hadPrev;
-		};
-		struct LoopFrame {
-			Block* brk = nullptr;
-			Block* cont = nullptr;
-			B32 exitReachable = false;
-			B32 isSwitch = false;
-			Node* sp = nullptr;
-		};
 		struct CaseSet {
 			Node* val;
 			CType ct;
@@ -122,21 +77,8 @@ namespace rat::cc {
 			List<Block*> blocks;
 			Block* miss;
 		};
-		struct GlobalVar {
-			CType type;
-			B32 isArray = false;
-			U32 count = 0;
-		};
 
 		// call signatures
-		struct FnSig {
-			CType ret;
-			List<CType> params;
-			B32 isVarArgs = false;
-			B32 unprototyped = false;
-			B32 noInline = false;
-			U32 align = 0;
-		};
 		struct Callee {
 			Node* target = nullptr;
 			const FuncType* ft = nullptr;
@@ -226,19 +168,18 @@ namespace rat::cc {
 		Node* loadLValue(Function& fn, const LValue& lv);
 		void storeLValue(Function& fn, const LValue& lv, Node* value);
 
-		// scopes and diagnostics
-		void pushScope();
-		void popScope();
-		void declare(const String& name, Local local);
-		B32 lookup(const String& name, Local& out) const;
-		void fail(const String& msg);
-		void failUndeclared(const String& name) { fail("use of undeclared identifier '" + name + "'"); }
-		void failArrayCount() { fail("array size must be a positive integer constant"); }
-		void failArrayUnknownSize(const String& name) { fail("array '" + name + "' has unknown size"); }
-		void failFieldInArray() { fail("field designator in an array initializer"); }
-		void failTooManyInits() { fail("too many initializers for the array"); }
-		void failNonConstInit() { fail("initializer element is not a constant expression"); }
-		void failStringNeedsCharArray() { fail("string initializer requires a 'char' array"); }
+		// diagnostics
+		void failUndeclared(const String& name) {
+			diag.fail("use of undeclared identifier '" + name + "'");
+		}
+		void failArrayCount() { diag.fail("array size must be a positive integer constant"); }
+		void failArrayUnknownSize(const String& name) {
+			diag.fail("array '" + name + "' has unknown size");
+		}
+		void failFieldInArray() { diag.fail("field designator in an array initializer"); }
+		void failTooManyInits() { diag.fail("too many initializers for the array"); }
+		void failNonConstInit() { diag.fail("initializer element is not a constant expression"); }
+		void failStringNeedsCharArray() { diag.fail("string initializer requires a 'char' array"); }
 
 		// statements
 		B32 emitStmt(Function& fn, const Stmt* stmt);
@@ -355,7 +296,6 @@ namespace rat::cc {
 		B32 internCompoundLiteral(const Expr* compound, String& outSym);
 		B32 registerGlobals(const TransUnit& unit);
 		B32 registerGlobalAlias(const Declarator& d);
-		const String& globalSymbol(const String& name) const;
 		B32 registerGlobal(const Declarator& d, const String& sym, Function* fn);
 		B32 validateGlobalArrayLen(const Declarator& d, I64& count, B32& haveLen);
 		B32 registerGlobalAggArray(const Declarator& d, const String& sym, Function* fn);
@@ -386,47 +326,17 @@ namespace rat::cc {
 		void flatConsumeObject(CType ty, const List<Expr*>& els, U32& pos);
 		U32 flexElemCount(const StructType* st, const Expr* init);
 		void encodeFloatBytes(CType dt, F80 v, List<U8>& out);
-
+	private:
 		// module and target
 		Module& mod;
 		TargetLayout lay;
 		Arena arena;
 		Type* i32 = nullptr;
-
-		// diagnostics
-		B32 failed = false;
-		String errMsg;
-		List<String> warns;
-		U32 curOffset = 0;
-		String curFunc;
-
-		// current function
-		CType curRet;
-		Node* sretSlot = nullptr;
-		Node* curSp = nullptr;
-		Map<String, Node*> labelSp;
-		B32 sawAlloca = false;
-		Set<String> memVars;
-		Map<String, Block*> labelBlocks;
-		List<LoopFrame> loops;
-		List<Map<const Stmt*, Block*>> switches;
-		Map<String, Local> localTable;
-		List<ScopeUndo> scopeUndo;
-		List<U32> scopeMarks;
-
-		// symbols
-		Map<String, FnSig> funcs;
-		Set<String> implicitFuncs;
-		Map<String, GlobalVar> globalVars;
-		Map<String, String> aliasTargets;
-		Map<U32, StructType*> complexLayouts;
-
-		// global data
-		List<Reloc> relocs;
-		U32 flexCount = 0;
-		U32 strCounter = 0;
-		U32 staticCounter = 0;
-		Map<String, String> strPool; // string-literal bytes -> interned symbol
+		// state
+		Diag diag;
+		FnState func;
+		Symbols syms;
+		GlobalData data;
 	};
 } // namespace rat::cc
 

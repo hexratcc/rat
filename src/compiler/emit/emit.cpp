@@ -74,48 +74,6 @@ namespace rat::cc {
 		return fn.mul(count, constSize(fn, byteSize(elem)));
 	}
 
-	void Emitter::fail(const String& msg) {
-		if(failed)
-			return;
-		errMsg =
-				msg + " [@" + std::to_string(curOffset) + (curFunc.empty() ? "" : " in " + curFunc) + "]";
-		failed = true;
-	}
-
-	void Emitter::pushScope() { scopeMarks.push_back((U32)scopeUndo.size()); }
-
-	void Emitter::popScope() {
-		U32 mark = scopeMarks.back();
-		scopeMarks.pop_back();
-		while(scopeUndo.size() > mark) {
-			ScopeUndo& u = scopeUndo.back();
-			auto it = localTable.find(*u.name);
-			if(u.hadPrev)
-				it->second = u.prev;
-			else
-				localTable.erase(it);
-			scopeUndo.pop_back();
-		}
-	}
-
-	void Emitter::declare(const String& name, Local local) {
-		auto [it, inserted] = localTable.try_emplace(name, local);
-		if(inserted) {
-			scopeUndo.push_back({&it->first, Local{}, false});
-		} else {
-			scopeUndo.push_back({&it->first, it->second, true});
-			it->second = local;
-		}
-	}
-
-	B32 Emitter::lookup(const String& name, Local& out) const {
-		auto found = localTable.find(name);
-		if(found == localTable.end())
-			return false;
-		out = found->second;
-		return true;
-	}
-
 	Type* Emitter::irType(CType t) {
 		if(t.ptr > 0 || isArrayType(t) || isAggregate(t))
 			return mod.getPtr();
@@ -223,7 +181,7 @@ namespace rat::cc {
 			if(!p.node)
 				return false;
 			if(!isPointer(p.type) || !isStruct(pointee(p.type))) {
-				fail("'->' requires a pointer to struct or union");
+				diag.fail("'->' requires a pointer to struct or union");
 				return false;
 			}
 			structType = pointee(p.type);
@@ -233,7 +191,7 @@ namespace rat::cc {
 			if(!emitLValue(fn, e->member.base, base))
 				return false;
 			if(base.isVar() || !isStruct(base.type)) {
-				fail("'.' requires a struct or union value");
+				diag.fail("'.' requires a struct or union value");
 				return false;
 			}
 			structType = base.type;
@@ -241,7 +199,7 @@ namespace rat::cc {
 		}
 		const Field* f = structType.strukt->find(*e->member.name);
 		if(!f) {
-			fail("no member named '" + *e->member.name + "' in '" + typeName(structType) + "'");
+			diag.fail("no member named '" + *e->member.name + "' in '" + typeName(structType) + "'");
 			return false;
 		}
 		out.kind = LValue::Kind::Addr;
@@ -276,12 +234,12 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitLValue(Function& fn, const Expr* e, LValue& out) {
-		curOffset = e->offset;
+		diag.offset = e->offset;
 		if(e->kind == ExprKind::Ident) {
 			Local loc;
-			if(lookup(*e->ident.name, loc)) {
+			if(func.scopes.lookup(*e->ident.name, loc)) {
 				if(loc.isArray) {
-					fail("array '" + *e->ident.name + "' is not assignable");
+					diag.fail("array '" + *e->ident.name + "' is not assignable");
 					return false;
 				}
 				if(loc.inMem()) {
@@ -294,14 +252,14 @@ namespace rat::cc {
 				out.type = loc.type;
 				return true;
 			}
-			auto g = globalVars.find(*e->ident.name);
-			if(g != globalVars.end()) {
+			auto g = syms.globals.find(*e->ident.name);
+			if(g != syms.globals.end()) {
 				if(g->second.isArray) {
-					fail("array '" + *e->ident.name + "' is not assignable");
+					diag.fail("array '" + *e->ident.name + "' is not assignable");
 					return false;
 				}
 				out.kind = LValue::Kind::Addr;
-				out.addr = fn.global(globalSymbol(*e->ident.name));
+				out.addr = fn.global(syms.resolveAlias(*e->ident.name));
 				out.type = g->second.type;
 				return true;
 			}
@@ -313,8 +271,8 @@ namespace rat::cc {
 			if(!p.node)
 				return false;
 			if(!isPointer(p.type)) {
-				curOffset = e->offset;
-				fail("indirection requires a pointer operand");
+				diag.offset = e->offset;
+				diag.fail("indirection requires a pointer operand");
 				return false;
 			}
 			out.kind = LValue::Kind::Addr;
@@ -328,7 +286,7 @@ namespace rat::cc {
 			if(!emitLValue(fn, e->unary.operand, base))
 				return false;
 			if(!isComplexType(base.type) || base.isVar()) {
-				fail("'__real__'/'__imag__' require a complex lvalue");
+				diag.fail("'__real__'/'__imag__' require a complex lvalue");
 				return false;
 			}
 			CType re = complexElem(base.type);
@@ -353,7 +311,7 @@ namespace rat::cc {
 				return true;
 			}
 		}
-		fail("expression is not assignable");
+		diag.fail("expression is not assignable");
 		return false;
 	}
 
@@ -431,8 +389,8 @@ namespace rat::cc {
 			sig.align = def->align;
 			for(const Param& p : def->params)
 				sig.params.push_back(p.type);
-			auto prev = funcs.find(def->name);
-			if(prev != funcs.end()) {
+			auto prev = syms.funcs.find(def->name);
+			if(prev != syms.funcs.end()) {
 				sig.noInline |= prev->second.noInline;
 				if(prev->second.align > sig.align)
 					sig.align = prev->second.align; // an earlier declaration may carry it
@@ -442,7 +400,7 @@ namespace rat::cc {
 					continue;
 				}
 			}
-			funcs[def->name] = sig;
+			syms.funcs[def->name] = sig;
 		}
 
 		if(!registerGlobals(unit))
@@ -465,7 +423,7 @@ namespace rat::cc {
 		}
 		if(!checkAliases())
 			return false;
-		return !failed;
+		return !diag.failed;
 	}
 
 	B32 Emitter::checkAliases() {
@@ -476,7 +434,7 @@ namespace rat::cc {
 			const Global* t = mod.getGlobal(target);
 			if((t && !t->isAlias()) || mod.getFunction(target))
 				continue;
-			fail("alias '" + g->getName() + "' names '" + target + "', which is not defined here");
+			diag.fail("alias '" + g->getName() + "' names '" + target + "', which is not defined here");
 			return false;
 		}
 		return true;
@@ -489,19 +447,19 @@ namespace rat::cc {
 				continue;
 			Node* arg = fn.param(paramBase + i);
 			if(isAggregate(p.type)) {
-				declare(*p.name, Local::mem(arg, p.type));
-			} else if(memVars.count(*p.name)) {
+				func.scopes.declare(*p.name, Local::mem(arg, p.type));
+			} else if(func.memVars.count(*p.name)) {
 				Node* slot = fn.alloc(irType(p.type));
 				fn.store(slot, arg);
-				declare(*p.name, Local::mem(slot, p.type));
+				func.scopes.declare(*p.name, Local::mem(slot, p.type));
 			} else {
-				declare(*p.name, Local::inVar(fn.declareLocal(*p.name, arg), p.type));
+				func.scopes.declare(*p.name, Local::inVar(fn.declareLocal(*p.name, arg), p.type));
 			}
 		}
 	}
 
 	B32 Emitter::emitFunctionBody(const FuncDef* def) {
-		curFunc = def->name;
+		diag.fnName = def->name;
 		B32 sretReturn = isAggregate(def->retType);
 		List<Type*> paramTypes;
 		if(sretReturn)
@@ -514,48 +472,42 @@ namespace rat::cc {
 		Function* fn = mod.createFunction(def->name, paramTypes, retTy);
 		FunctionAttrs& attrs = fn->getAttrs();
 		attrs.variadic = def->isVarArgs;
-		attrs.noInline = def->isNoInline || funcs[def->name].noInline;
-		attrs.align = funcs[def->name].align;
+		attrs.noInline = def->isNoInline || syms.funcs[def->name].noInline;
+		attrs.align = syms.funcs[def->name].align;
 		attrs.linkage = def->isStatic ? Linkage::Internal : Linkage::External;
 
-		curRet = def->retType;
-		sretSlot = sretReturn ? fn->param(0) : nullptr;
+		func.reset();
+		func.ret = def->retType;
+		func.sretSlot = sretReturn ? fn->param(0) : nullptr;
 		U32 paramBase = sretReturn ? 1 : 0;
-		localTable.clear();
-		scopeUndo.clear();
-		scopeMarks.clear();
-		memVars.clear();
 		collectAddrTaken(def->body);
-		labelBlocks.clear();
-		labelSp.clear();
-		sawAlloca = false;
 		collectLabels(*fn, def->body);
-		pushScope();
-		curSp = stmtHasVla(def->body) ? fn->stackSave() : nullptr;
+		func.scopes.push();
+		func.sp = stmtHasVla(def->body) ? fn->stackSave() : nullptr;
 		bindFunctionParams(*fn, def, paramBase);
 		for(const Param& p : def->params) {
 			if(!p.vlaBound)
 				continue;
-			curOffset = p.offset;
+			diag.offset = p.offset;
 			if(!emitExpr(*fn, p.vlaBound).node) {
-				popScope();
+				func.scopes.pop();
 				return false;
 			}
 		}
 		if(def->body && !emitStmt(*fn, def->body)) {
-			popScope();
+			func.scopes.pop();
 			return false;
 		}
-		popScope();
-		for(auto& kv : labelBlocks)
+		func.scopes.pop();
+		for(auto& kv : func.labelBlocks)
 			fn->seal(kv.second);
 		if(!fn->blockFinished()) {
-			if(sretSlot)
-				fn->ret(sretSlot);
-			else if(isVoidType(curRet))
+			if(func.sretSlot)
+				fn->ret(func.sretSlot);
+			else if(isVoidType(func.ret))
 				fn->retVoid();
 			else
-				fn->ret(fn->constInt(irType(curRet), 0));
+				fn->ret(fn->constInt(irType(func.ret), 0));
 		}
 		// statements emitted into unreachable blocks leave anchored nodes with a
 		// null control input behind; drop them so every backend sees a graph

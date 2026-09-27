@@ -11,7 +11,7 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::declareStatic(Function& fn, const Declarator& d) {
-		String sym = "__ratcc_static" + std::to_string(staticCounter++) + "_" + *d.name;
+		String sym = "__ratcc_static" + std::to_string(data.staticCounter++) + "_" + *d.name;
 		return registerGlobal(d, sym, &fn);
 	}
 
@@ -34,25 +34,25 @@ namespace rat::cc {
 			bytes = fn.mul(len, elemBytes);
 		}
 		Node* slot = fn.stackAlloc(bytes);
-		curSp = slot; // the block's exit restore hands this storage back
+		func.sp = slot; // the block's exit restore hands this storage back
 		Local loc = Local::memArray(slot, d.type);
 		loc.lengthNode = bytes;
-		declare(*d.name, loc);
+		func.scopes.declare(*d.name, loc);
 		return true;
 	}
 
 	B32 Emitter::declareExtern(Function& fn, const Declarator& d) {
 		Node* addr = fn.global(*d.name);
 		GlobalVar gv{d.type, d.isArray, 0};
-		auto g = globalVars.find(*d.name);
-		if(g != globalVars.end())
+		auto g = syms.globals.find(*d.name);
+		if(g != syms.globals.end())
 			gv = g->second;
 		if(gv.isArray)
-			declare(*d.name, Local::memArray(addr, gv.type, gv.count));
+			func.scopes.declare(*d.name, Local::memArray(addr, gv.type, gv.count));
 		else if(isArrayType(gv.type))
-			declare(*d.name, Local::memArray(addr, arrayElem(gv.type)));
+			func.scopes.declare(*d.name, Local::memArray(addr, arrayElem(gv.type)));
 		else
-			declare(*d.name, Local::mem(addr, gv.type));
+			func.scopes.declare(*d.name, Local::mem(addr, gv.type));
 		return true;
 	}
 
@@ -88,21 +88,21 @@ namespace rat::cc {
 				}
 				U32 total = (U32)count * byteSize(d.type);
 				Node* slot = declSlot(fn, d, byteArrayType(total), total);
-				declare(*d.name, Local::memArray(slot, d.type, (U32)count));
+				func.scopes.declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 				continue;
 			}
 			if(isAggregate(d.type)) {
 				Node* slot = declSlot(fn, d, byteArrayType(d.type.strukt->size), d.type.strukt->size);
-				declare(*d.name, Local::mem(slot, d.type));
+				func.scopes.declare(*d.name, Local::mem(slot, d.type));
 				continue;
 			}
 			if(isArrayType(d.type)) {
 				Node* slot = declSlot(fn, d, byteArrayType(byteSize(d.type)), byteSize(d.type));
-				declare(*d.name, Local::memArray(slot, arrayElem(d.type)));
+				func.scopes.declare(*d.name, Local::memArray(slot, arrayElem(d.type)));
 				continue;
 			}
 			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
-			declare(*d.name, Local::mem(slot, d.type));
+			func.scopes.declare(*d.name, Local::mem(slot, d.type));
 		}
 		return true;
 	}
@@ -134,7 +134,7 @@ namespace rat::cc {
 				storeComplex(fn, slot, ct, v);
 			}
 		}
-		declare(*d.name, Local::mem(slot, ct));
+		func.scopes.declare(*d.name, Local::mem(slot, ct));
 		return true;
 	}
 
@@ -145,7 +145,7 @@ namespace rat::cc {
 			StoreSink sink(*this, fn, slot);
 			if(!initStructInit(sink, 0, d.type.strukt, d.init))
 				return false;
-			declare(*d.name, Local::mem(slot, d.type));
+			func.scopes.declare(*d.name, Local::mem(slot, d.type));
 			return true;
 		}
 		if(d.init) {
@@ -153,22 +153,22 @@ namespace rat::cc {
 			if(!v.node)
 				return false;
 			if(!isStruct(v.type) || v.type.strukt != d.type.strukt) {
-				fail("invalid initializer for struct '" + *d.name + "'");
+				diag.fail("invalid initializer for struct '" + *d.name + "'");
 				return false;
 			}
 			emitMemCopy(fn, slot, v.node, d.type.strukt->size);
 		}
-		declare(*d.name, Local::mem(slot, d.type));
+		func.scopes.declare(*d.name, Local::mem(slot, d.type));
 		return true;
 	}
 
 	B32 Emitter::emitTypedefArrayDecl(Function& fn, const Declarator& d) {
 		if(d.init) {
-			fail("invalid initializer for array variable '" + *d.name + "'");
+			diag.fail("invalid initializer for array variable '" + *d.name + "'");
 			return false;
 		}
 		Node* slot = declSlot(fn, d, byteArrayType(byteSize(d.type)), byteSize(d.type));
-		declare(*d.name, Local::memArray(slot, arrayElem(d.type)));
+		func.scopes.declare(*d.name, Local::memArray(slot, arrayElem(d.type)));
 		return true;
 	}
 
@@ -191,7 +191,7 @@ namespace rat::cc {
 		StoreSink sink(*this, fn, slot);
 		if(d.init && !initArrayInit(sink, 0, d.type, (U32)count, d.init))
 			return false;
-		declare(*d.name, Local::memArray(slot, d.type, (U32)count));
+		func.scopes.declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 		return true;
 	}
 
@@ -202,7 +202,7 @@ namespace rat::cc {
 		I64 count;
 		if(declIsVla(d, count)) {
 			if(d.init) {
-				fail("a variable-length array may not be initialized");
+				diag.fail("a variable-length array may not be initialized");
 				return false;
 			}
 			return emitVlaDecl(fn, d);
@@ -234,7 +234,7 @@ namespace rat::cc {
 						val |= (I64)(U8)bytes[(U32)(i * cw + k)] << (8 * k);
 				fn.store(offsetPtr(fn, slot, (U64)i * elemSize), fn.constInt(elemTy, val));
 			}
-			declare(*d.name, Local::memArray(slot, d.type, (U32)count));
+			func.scopes.declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 			return true;
 		}
 
@@ -252,12 +252,12 @@ namespace rat::cc {
 				Node* val = convert(fn, v.node, v.type, d.type);
 				fn.store(offsetPtr(fn, slot, (U64)idx[i] * elemSize), val);
 			}
-			declare(*d.name, Local::memArray(slot, d.type, (U32)count));
+			func.scopes.declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 			return true;
 		}
 
 		if(d.init) {
-			fail("invalid initializer for an array");
+			diag.fail("invalid initializer for an array");
 			return false;
 		}
 		if(!haveLen) {
@@ -265,7 +265,7 @@ namespace rat::cc {
 			return false;
 		}
 		Node* slot = declSlot(fn, d, mod.getArray(irType(d.type), (U32)count), (U32)count * elemSize);
-		declare(*d.name, Local::memArray(slot, d.type, (U32)count));
+		func.scopes.declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 		return true;
 	}
 
@@ -282,7 +282,7 @@ namespace rat::cc {
 			return emitArrayDecl(fn, d);
 		if(d.init && exprRefersTo(d.init, *d.name)) {
 			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
-			declare(*d.name, Local::mem(slot, d.type));
+			func.scopes.declare(*d.name, Local::mem(slot, d.type));
 			Value v = emitExpr(fn, d.init);
 			if(!v.node)
 				return false;
@@ -299,12 +299,12 @@ namespace rat::cc {
 		} else {
 			init = fn.constInt(irType(d.type), 0);
 		}
-		if(memVars.count(*d.name)) {
+		if(func.memVars.count(*d.name)) {
 			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
 			fn.store(slot, init);
-			declare(*d.name, Local::mem(slot, d.type));
+			func.scopes.declare(*d.name, Local::mem(slot, d.type));
 		} else {
-			declare(*d.name, Local::inVar(fn.declareLocal(*d.name, init), d.type));
+			func.scopes.declare(*d.name, Local::inVar(fn.declareLocal(*d.name, init), d.type));
 		}
 		return true;
 	}

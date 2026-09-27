@@ -3,8 +3,8 @@
 namespace rat::cc {
 	B32 Emitter::resolveCallee(Function& fn, const Expr* e, Callee& c) {
 		if(e->call.callee) {
-			auto found = funcs.find(*e->call.callee);
-			if(found != funcs.end()) {
+			auto found = syms.funcs.find(*e->call.callee);
+			if(found != syms.funcs.end()) {
 				c.direct = true;
 				c.sig = found->second;
 				c.prototyped = true;
@@ -14,14 +14,14 @@ namespace rat::cc {
 			CType ct;
 			B32 isObject = false;
 			Local loc;
-			if(lookup(*e->call.callee, loc) && !loc.isArray) {
+			if(func.scopes.lookup(*e->call.callee, loc) && !loc.isArray) {
 				val = loc.inMem() ? fn.load(irType(loc.type), loc.addr) : fn.get(loc.var);
 				ct = loc.type;
 				isObject = true;
 			} else {
-				auto g = globalVars.find(*e->call.callee);
-				if(g != globalVars.end() && !g->second.isArray) {
-					val = fn.load(irType(g->second.type), fn.global(globalSymbol(*e->call.callee)));
+				auto g = syms.globals.find(*e->call.callee);
+				if(g != syms.globals.end() && !g->second.isArray) {
+					val = fn.load(irType(g->second.type), fn.global(syms.resolveAlias(*e->call.callee)));
 					ct = g->second.type;
 					isObject = true;
 				}
@@ -31,12 +31,12 @@ namespace rat::cc {
 				c.ft = ct.func;
 				c.prototyped = true;
 			} else if(isObject) {
-				fail("called object is not a function or function pointer");
+				diag.fail("called object is not a function or function pointer");
 				return false;
 			} else {
 				const String& callee = *e->call.callee;
-				if(callee.rfind("__builtin_", 0) != 0 && implicitFuncs.insert(callee).second)
-					warns.push_back("warning: implicit declaration of function '" + callee + "'");
+				if(callee.rfind("__builtin_", 0) != 0 && syms.implicit.insert(callee).second)
+					diag.warns.push_back("warning: implicit declaration of function '" + callee + "'");
 				c.direct = true;
 				if(!builtinReturnType(callee, lay.longBits, c.sig.ret))
 					c.sig.ret = ctInt();
@@ -47,7 +47,7 @@ namespace rat::cc {
 		if(!fpv.node)
 			return false;
 		if(!isFuncPtr(fpv.type)) {
-			fail("called object is not a function");
+			diag.fail("called object is not a function");
 			return false;
 		}
 		c.target = fpv.node;
@@ -102,9 +102,9 @@ namespace rat::cc {
 			U32 nargs = (U32)e->args.size();
 			if(nargs < nparams || (!variadic && nargs > nparams)) {
 				if(variadic)
-					fail("too few arguments to function call");
+					diag.fail("too few arguments to function call");
 				else
-					fail("argument count does not match prototype");
+					diag.fail("argument count does not match prototype");
 				return {};
 			}
 		}

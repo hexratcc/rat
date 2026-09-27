@@ -184,7 +184,7 @@ namespace rat::cc {
 		if(!detail::parseOverflowName(b, lay.longBits, f))
 			return false;
 		if(e->args.size() != 3) {
-			fail("'" + b + "' expects three arguments");
+			diag.fail("'" + b + "' expects three arguments");
 			return true;
 		}
 		Value a0 = emitExpr(fn, e->args[0]);
@@ -193,7 +193,7 @@ namespace rat::cc {
 		if(!a0.node || !a1.node || !a2.node)
 			return true;
 		if(!f.predicate && !isPointer(a2.type)) {
-			fail("the last argument of '" + b + "' must be a pointer to an integer");
+			diag.fail("the last argument of '" + b + "' must be a pointer to an integer");
 			return true;
 		}
 
@@ -218,7 +218,7 @@ namespace rat::cc {
 				--rt.ptr;
 		}
 		if(!isInteger(at) || !isInteger(bt) || !isInteger(rt)) {
-			fail("'" + b + "' works on integer types only");
+			diag.fail("'" + b + "' works on integer types only");
 			return true;
 		}
 

@@ -276,14 +276,14 @@ namespace rat::cc {
 		case ExprKind::Ident: {
 			const String& n = *lv->ident.name;
 			Local loc;
-			if(lookup(n, loc)) {
+			if(func.scopes.lookup(n, loc)) {
 				if(!loc.staticSym)
 					return false;
 				sym = *loc.staticSym;
 				return true;
 			}
-			if(globalVars.count(n) || funcs.count(n)) {
-				sym = globalSymbol(n);
+			if(syms.globals.count(n) || syms.funcs.count(n)) {
+				sym = syms.resolveAlias(n);
 				return true;
 			}
 			return false;
@@ -330,15 +330,15 @@ namespace rat::cc {
 			return evalAddrConst(e->cast.operand, sym, addend);
 		case ExprKind::Ident: {
 			Local loc;
-			if(lookup(*e->ident.name, loc)) {
+			if(func.scopes.lookup(*e->ident.name, loc)) {
 				if(!loc.staticSym || !loc.isArray)
 					return false;
 				sym = *loc.staticSym;
 				return true;
 			}
-			auto gv = globalVars.find(*e->ident.name);
-			B32 globalArr = gv != globalVars.end() && gv->second.isArray;
-			if(funcs.count(*e->ident.name) || globalArr) {
+			auto gv = syms.globals.find(*e->ident.name);
+			B32 globalArr = gv != syms.globals.end() && gv->second.isArray;
+			if(syms.funcs.count(*e->ident.name) || globalArr) {
 				sym = *e->ident.name;
 				return true;
 			}
