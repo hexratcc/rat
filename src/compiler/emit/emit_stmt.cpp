@@ -303,11 +303,11 @@ namespace rat::cc {
 		if(!d.arrayLen)
 			return false;
 		B32 savedFailed = diag.failed;
-		String savedMsg = diag.msg;
+		String savedMsg = diag.message;
 		I64 count;
 		B32 constant = evalConst(d.arrayLen, count);
 		diag.failed = savedFailed;
-		diag.msg = std::move(savedMsg);
+		diag.message = std::move(savedMsg);
 		return !constant;
 	}
 
@@ -422,14 +422,14 @@ namespace rat::cc {
 			}
 			func.loops.back().exitReachable = true;
 			restoreStack(fn, func.loops.back().sp);
-			fn.jmp(func.loops.back().brk);
+			fn.jmp(func.loops.back().breakBlock);
 			return true;
 		case StmtKind::Continue: {
 			for(auto it = func.loops.rbegin(); it != func.loops.rend(); ++it) {
 				if(it->isSwitch)
 					continue;
 				restoreStack(fn, it->sp);
-				fn.jmp(it->cont);
+				fn.jmp(it->continueBlock);
 				return true;
 			}
 			diag.fail("'continue' statement not in a loop");
@@ -461,19 +461,19 @@ namespace rat::cc {
 		}
 		if(func.sretSlot) {
 			if(v.node) {
-				if(isComplexType(func.ret)) {
-					storeComplex(fn, func.sretSlot, completeComplex(func.ret), v);
-				} else if(!isStruct(v.type) || v.type.strukt != func.ret.strukt) {
+				if(isComplexType(func.returnType)) {
+					storeComplex(fn, func.sretSlot, completeComplex(func.returnType), v);
+				} else if(!isStruct(v.type) || v.type.strukt != func.returnType.strukt) {
 					diag.fail("invalid return value for a struct/union function");
 					return false;
 				} else {
-					emitMemCopy(fn, func.sretSlot, v.node, func.ret.strukt->size);
+					emitMemCopy(fn, func.sretSlot, v.node, func.returnType.strukt->size);
 				}
 			}
 			fn.ret(func.sretSlot);
 			return true;
 		}
-		if(isVoidType(func.ret)) {
+		if(isVoidType(func.returnType)) {
 			if(v.node && !isVoidType(v.type)) {
 				diag.fail("return with a value in a function returning void");
 				return false;
@@ -483,9 +483,9 @@ namespace rat::cc {
 		}
 		Node* value;
 		if(v.node)
-			value = convert(fn, v.node, v.type, func.ret);
+			value = convert(fn, v.node, v.type, func.returnType);
 		else
-			value = fn.constInt(irType(func.ret), 0);
+			value = fn.constInt(irType(func.returnType), 0);
 		fn.ret(value);
 		return true;
 	}

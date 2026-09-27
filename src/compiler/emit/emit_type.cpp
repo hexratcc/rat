@@ -42,7 +42,7 @@ namespace rat::cc {
 					out = gv->second.count * byteSize(gv->second.type);
 					return true;
 				}
-			} else if(!isLocal && syms.funcs.count(name)) {
+			} else if(!isLocal && syms.functions.count(name)) {
 				out = 1;
 				return true;
 			}
@@ -250,8 +250,8 @@ namespace rat::cc {
 				out = g->second.isArray ? pointerTo(g->second.type) : g->second.type;
 				return true;
 			}
-			auto f = syms.funcs.find(*e->ident.name);
-			if(f != syms.funcs.end()) {
+			auto f = syms.functions.find(*e->ident.name);
+			if(f != syms.functions.end()) {
 				out = funcPtrType(f->second);
 				return true;
 			}
@@ -269,9 +269,9 @@ namespace rat::cc {
 					out = ctInt();
 					return true;
 				}
-				auto found = syms.funcs.find(*e->call.callee);
-				if(found != syms.funcs.end()) {
-					out = found->second.ret;
+				auto found = syms.functions.find(*e->call.callee);
+				if(found != syms.functions.end()) {
+					out = found->second.returnType;
 					return true;
 				}
 				if(builtinReturnType(*e->call.callee, lay.longBits, out))

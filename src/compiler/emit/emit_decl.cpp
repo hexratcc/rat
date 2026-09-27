@@ -43,7 +43,7 @@ namespace rat::cc {
 
 	B32 Emitter::declareExtern(Function& fn, const Declarator& d) {
 		Node* addr = fn.global(*d.name);
-		GlobalVar gv{d.type, d.isArray, 0};
+		GlobalVariable gv{d.type, d.isArray, 0};
 		auto g = syms.globals.find(*d.name);
 		if(g != syms.globals.end())
 			gv = g->second;
@@ -299,7 +299,7 @@ namespace rat::cc {
 		} else {
 			init = fn.constInt(irType(d.type), 0);
 		}
-		if(func.memVars.count(*d.name)) {
+		if(func.addrTaken.count(*d.name)) {
 			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
 			fn.store(slot, init);
 			func.scopes.declare(*d.name, Local::mem(slot, d.type));

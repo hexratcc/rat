@@ -5,8 +5,8 @@ namespace rat::cc {
 		const String& bytes = *e->str.bytes;
 		U32 cw = e->str.charSize;
 		String key = std::to_string(cw) + ":" + bytes;
-		auto it = data.strPool.find(key);
-		if(it != data.strPool.end())
+		auto it = data.stringPool.find(key);
+		if(it != data.stringPool.end())
 			return it->second;
 		String name = data.nextName("__ratcc_str");
 		List<U8> init;
@@ -17,7 +17,7 @@ namespace rat::cc {
 			init.push_back(0);
 		Global* g = mod.createGlobal(name, byteArrayType((U32)init.size()), true, std::move(init));
 		g->setLinkage(Global::Linkage::Internal);
-		data.strPool.emplace(std::move(key), name);
+		data.stringPool.emplace(std::move(key), name);
 		return name;
 	}
 
@@ -80,7 +80,7 @@ namespace rat::cc {
 			diag.fail("invalid file-scope compound literal initializer");
 			return false;
 		}
-		syms.globals[name] = GlobalVar{ty, e->compound.isArray, 0};
+		syms.globals[name] = GlobalVariable{ty, e->compound.isArray, 0};
 		outSym = name;
 		return true;
 	}
@@ -90,10 +90,10 @@ namespace rat::cc {
 			Local loc = Local::mem(fn->global(sym), d.type);
 			loc.isArray = arr;
 			loc.count = n;
-			loc.staticSym = arena.make<String>(sym);
+			loc.staticSymbol = arena.make<String>(sym);
 			func.scopes.declare(*d.name, loc);
 		} else {
-			syms.globals[*d.name] = GlobalVar{d.type, arr, n};
+			syms.globals[*d.name] = GlobalVariable{d.type, arr, n};
 		}
 	}
 
@@ -285,7 +285,7 @@ namespace rat::cc {
 			count = 0;
 		mod.createAlias(*d.name, *d.aliasOf, irType(d.type))
 				->setLinkage(d.isStatic ? Global::Linkage::Internal : Global::Linkage::External);
-		syms.globals[*d.name] = GlobalVar{d.type, d.isArray, (U32)count};
+		syms.globals[*d.name] = GlobalVariable{d.type, d.isArray, (U32)count};
 		syms.aliases[*d.name] = *d.aliasOf;
 		return true;
 	}
@@ -326,7 +326,7 @@ namespace rat::cc {
 				I64 count = 0;
 				if(d.isArray && d.arrayLen)
 					evalConst(d.arrayLen, count);
-				syms.globals[*d.name] = GlobalVar{d.type, d.isArray, (U32)count};
+				syms.globals[*d.name] = GlobalVariable{d.type, d.isArray, (U32)count};
 				continue;
 			}
 			if(!registerGlobal(d, *d.name, nullptr))

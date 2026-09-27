@@ -41,23 +41,24 @@ namespace rat::cc {
 		marks.clear();
 	}
 
-	void FnState::reset() {
-		ret = {};
+	void FunctionState::reset() {
+		returnType = {};
 		sretSlot = nullptr;
 		sp = nullptr;
 		labelSp.clear();
 		sawAlloca = false;
-		memVars.clear();
+		addrTaken.clear();
 		labelBlocks.clear();
 		loops.clear();
 		switches.clear();
 		scopes.clear();
 	}
 
-	void Diag::fail(const String& m) {
+	void Diagnostics::fail(const String& m) {
 		if(failed)
 			return;
-		msg = m + " [@" + std::to_string(offset) + (fnName.empty() ? "" : " in " + fnName) + "]";
+		message =
+				m + " [@" + std::to_string(offset) + (function.empty() ? "" : " in " + function) + "]";
 		failed = true;
 	}
 
@@ -66,7 +67,7 @@ namespace rat::cc {
 		return it == aliases.end() ? name : it->second;
 	}
 
-	String GlobalData::nextName(const C8* prefix) { return prefix + std::to_string(strCounter++); }
+	String GlobalData::nextName(const C8* prefix) { return prefix + std::to_string(nameCounter++); }
 
 	void GlobalData::setReloc(U32 off, const String& sym, I64 add) {
 		for(Reloc& r : relocs)

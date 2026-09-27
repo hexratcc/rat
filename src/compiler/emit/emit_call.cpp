@@ -3,8 +3,8 @@
 namespace rat::cc {
 	B32 Emitter::resolveCallee(Function& fn, const Expr* e, Callee& c) {
 		if(e->call.callee) {
-			auto found = syms.funcs.find(*e->call.callee);
-			if(found != syms.funcs.end()) {
+			auto found = syms.functions.find(*e->call.callee);
+			if(found != syms.functions.end()) {
 				c.direct = true;
 				c.sig = found->second;
 				c.prototyped = true;
@@ -35,11 +35,11 @@ namespace rat::cc {
 				return false;
 			} else {
 				const String& callee = *e->call.callee;
-				if(callee.rfind("__builtin_", 0) != 0 && syms.implicit.insert(callee).second)
-					diag.warns.push_back("warning: implicit declaration of function '" + callee + "'");
+				if(callee.rfind("__builtin_", 0) != 0 && syms.implicitFunctions.insert(callee).second)
+					diag.warnings.push_back("warning: implicit declaration of function '" + callee + "'");
 				c.direct = true;
-				if(!builtinReturnType(callee, lay.longBits, c.sig.ret))
-					c.sig.ret = ctInt();
+				if(!builtinReturnType(callee, lay.longBits, c.sig.returnType))
+					c.sig.returnType = ctInt();
 			}
 			return true;
 		}
@@ -92,7 +92,7 @@ namespace rat::cc {
 		if(!resolveCallee(fn, e, c))
 			return {};
 
-		CType ret = c.direct ? c.sig.ret : c.ft->ret;
+		CType ret = c.direct ? c.sig.returnType : c.ft->ret;
 		U32 nparams = c.direct ? (U32)c.sig.params.size() : (U32)c.ft->params.size();
 		B32 unproto = c.direct ? c.sig.unprototyped : c.ft->unprototyped;
 		B32 variadic = c.direct ? c.sig.isVarArgs : c.ft->isVarArgs;

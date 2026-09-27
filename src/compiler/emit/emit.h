@@ -45,8 +45,8 @@ namespace rat::cc {
 
 		B32 emit(const TransUnit& unit);
 
-		const String& error() const { return diag.msg; }
-		const List<String>& warnings() const { return diag.warns; }
+		const String& error() const { return diag.message; }
+		const List<String>& warnings() const { return diag.warnings; }
 	private:
 		// values
 		struct Value {
@@ -82,7 +82,7 @@ namespace rat::cc {
 		struct Callee {
 			Node* target = nullptr;
 			const FuncType* ft = nullptr;
-			FnSig sig;
+			FunctionSignature sig;
 			B32 direct = false;
 			B32 prototyped = false;
 		};
@@ -134,7 +134,7 @@ namespace rat::cc {
 		// types and sizes
 		Type* irType(CType t);
 		Type* byteArrayType(U32 n);
-		CType funcPtrType(const FnSig& sig);
+		CType funcPtrType(const FunctionSignature& sig);
 		U64 byteSize(CType t) const;
 		U32 alignOf(CType t) const;
 		CType ctSize() const;
@@ -333,8 +333,8 @@ namespace rat::cc {
 		Arena arena;
 		Type* i32 = nullptr;
 		// state
-		Diag diag;
-		FnState func;
+		Diagnostics diag;
+		FunctionState func;
 		Symbols syms;
 		GlobalData data;
 	};

@@ -4,7 +4,7 @@ namespace rat::cc {
 	CType Emitter::completeComplex(CType t) {
 		if(!isComplexType(t) || t.strukt != nullptr)
 			return t;
-		StructType*& st = syms.complex[t.bits];
+		StructType*& st = syms.complexTypes[t.bits];
 		if(!st)
 			st = makeComplexLayout(arena, t);
 		t.strukt = st;

@@ -3,8 +3,8 @@
 namespace rat::cc {
 	Emitter::Value Emitter::emitAddrOf(Function& fn, const Expr* e) {
 		if(e->unary.operand->kind == ExprKind::Ident) {
-			auto f = syms.funcs.find(*e->unary.operand->ident.name);
-			if(f != syms.funcs.end())
+			auto f = syms.functions.find(*e->unary.operand->ident.name);
+			if(f != syms.functions.end())
 				return {fn.global(*e->unary.operand->ident.name), funcPtrType(f->second)};
 			Local loc;
 			if(func.scopes.lookup(*e->unary.operand->ident.name, loc) && loc.isArray)
@@ -142,8 +142,8 @@ namespace rat::cc {
 				return {fn.global(sym), gt};
 			return {fn.load(irType(gt), fn.global(sym)), gt};
 		}
-		auto f = syms.funcs.find(*e->ident.name);
-		if(f != syms.funcs.end())
+		auto f = syms.functions.find(*e->ident.name);
+		if(f != syms.functions.end())
 			return {fn.global(*e->ident.name), funcPtrType(f->second)};
 		failUndeclared(*e->ident.name);
 		return {};
@@ -184,8 +184,8 @@ namespace rat::cc {
 			return true;
 		}
 		if(e->sizeOf.operand->kind == ExprKind::Ident) {
-			auto fit = syms.funcs.find(*e->sizeOf.operand->ident.name);
-			if(fit != syms.funcs.end()) {
+			auto fit = syms.functions.find(*e->sizeOf.operand->ident.name);
+			if(fit != syms.functions.end()) {
 				out = fit->second.align ? fit->second.align : 1u;
 				return true;
 			}

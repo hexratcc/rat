@@ -17,8 +17,8 @@ namespace rat::cc {
 		CType type;
 		B32 isArray = false;
 		U32 count = 0;
-		Node* lengthNode = nullptr;				 // runtime byte size for a VLA
-		const String* staticSym = nullptr; // symbol backing a function-local static
+		Node* lengthNode = nullptr;						// runtime byte size for a VLA
+		const String* staticSymbol = nullptr; // symbol backing a function-local static
 
 		B32 inMem() const { return kind == Kind::Mem; }
 		static Local inVar(Function::Var v, CType t) {
@@ -61,45 +61,45 @@ namespace rat::cc {
 	};
 
 	struct LoopFrame {
-		Block* brk = nullptr;
-		Block* cont = nullptr;
+		Block* breakBlock = nullptr;
+		Block* continueBlock = nullptr;
 		B32 exitReachable = false;
 		B32 isSwitch = false;
 		Node* sp = nullptr;
 	};
 
-	struct FnState {
+	struct FunctionState {
 		void reset();
 
-		CType ret;
+		CType returnType;
 		Node* sretSlot = nullptr;
 		Node* sp = nullptr;
 		Map<String, Node*> labelSp;
 		B32 sawAlloca = false;
-		Set<String> memVars;
+		Set<String> addrTaken;
 		Map<String, Block*> labelBlocks;
 		List<LoopFrame> loops;
 		List<Map<const Stmt*, Block*>> switches;
 		Scopes scopes;
 	};
 
-	struct Diag {
+	struct Diagnostics {
 		void fail(const String& m);
 
 		B32 failed = false;
-		String msg;
-		List<String> warns;
+		String message;
+		List<String> warnings;
 		U32 offset = 0;
-		String fnName;
+		String function;
 	};
 
-	struct GlobalVar {
+	struct GlobalVariable {
 		CType type;
 		B32 isArray = false;
 		U32 count = 0;
 	};
-	struct FnSig {
-		CType ret;
+	struct FunctionSignature {
+		CType returnType;
 		List<CType> params;
 		B32 isVarArgs = false;
 		B32 unprototyped = false;
@@ -110,11 +110,11 @@ namespace rat::cc {
 	struct Symbols {
 		const String& resolveAlias(const String& name) const;
 
-		Map<String, FnSig> funcs;
-		Set<String> implicit;
-		Map<String, GlobalVar> globals;
+		Map<String, FunctionSignature> functions;
+		Set<String> implicitFunctions;
+		Map<String, GlobalVariable> globals;
 		Map<String, String> aliases;
-		Map<U32, StructType*> complex;
+		Map<U32, StructType*> complexTypes;
 	};
 
 	struct GlobalData {
@@ -123,9 +123,9 @@ namespace rat::cc {
 
 		List<Reloc> relocs;
 		U32 flexCount = 0;
-		U32 strCounter = 0;
+		U32 nameCounter = 0;
 		U32 staticCounter = 0;
-		Map<String, String> strPool; // string-literal bytes -> interned symbol
+		Map<String, String> stringPool; // string-literal bytes -> interned symbol
 	};
 } // namespace rat::cc
 

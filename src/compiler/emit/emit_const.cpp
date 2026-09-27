@@ -277,12 +277,12 @@ namespace rat::cc {
 			const String& n = *lv->ident.name;
 			Local loc;
 			if(func.scopes.lookup(n, loc)) {
-				if(!loc.staticSym)
+				if(!loc.staticSymbol)
 					return false;
-				sym = *loc.staticSym;
+				sym = *loc.staticSymbol;
 				return true;
 			}
-			if(syms.globals.count(n) || syms.funcs.count(n)) {
+			if(syms.globals.count(n) || syms.functions.count(n)) {
 				sym = syms.resolveAlias(n);
 				return true;
 			}
@@ -331,14 +331,14 @@ namespace rat::cc {
 		case ExprKind::Ident: {
 			Local loc;
 			if(func.scopes.lookup(*e->ident.name, loc)) {
-				if(!loc.staticSym || !loc.isArray)
+				if(!loc.staticSymbol || !loc.isArray)
 					return false;
-				sym = *loc.staticSym;
+				sym = *loc.staticSymbol;
 				return true;
 			}
 			auto gv = syms.globals.find(*e->ident.name);
 			B32 globalArr = gv != syms.globals.end() && gv->second.isArray;
-			if(syms.funcs.count(*e->ident.name) || globalArr) {
+			if(syms.functions.count(*e->ident.name) || globalArr) {
 				sym = *e->ident.name;
 				return true;
 			}

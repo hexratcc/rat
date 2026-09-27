@@ -82,9 +82,9 @@ namespace rat::cc {
 		return mod.getInt(t.bits == 0 ? 32 : t.bits);
 	}
 
-	CType Emitter::funcPtrType(const FnSig& sig) {
+	CType Emitter::funcPtrType(const FunctionSignature& sig) {
 		FuncType* ft = arena.make<FuncType>();
-		ft->ret = sig.ret;
+		ft->ret = sig.returnType;
 		for(CType pt : sig.params) {
 			Param p;
 			p.type = pt;
@@ -381,16 +381,16 @@ namespace rat::cc {
 		i32 = mod.getInt(32);
 
 		for(const FuncDef* def : unit.functions) {
-			FnSig sig;
-			sig.ret = def->retType;
+			FunctionSignature sig;
+			sig.returnType = def->retType;
 			sig.isVarArgs = def->isVarArgs;
 			sig.unprototyped = def->unprototyped;
 			sig.noInline = def->isNoInline;
 			sig.align = def->align;
 			for(const Param& p : def->params)
 				sig.params.push_back(p.type);
-			auto prev = syms.funcs.find(def->name);
-			if(prev != syms.funcs.end()) {
+			auto prev = syms.functions.find(def->name);
+			if(prev != syms.functions.end()) {
 				sig.noInline |= prev->second.noInline;
 				if(prev->second.align > sig.align)
 					sig.align = prev->second.align; // an earlier declaration may carry it
@@ -400,7 +400,7 @@ namespace rat::cc {
 					continue;
 				}
 			}
-			syms.funcs[def->name] = sig;
+			syms.functions[def->name] = sig;
 		}
 
 		if(!registerGlobals(unit))
@@ -448,7 +448,7 @@ namespace rat::cc {
 			Node* arg = fn.param(paramBase + i);
 			if(isAggregate(p.type)) {
 				func.scopes.declare(*p.name, Local::mem(arg, p.type));
-			} else if(func.memVars.count(*p.name)) {
+			} else if(func.addrTaken.count(*p.name)) {
 				Node* slot = fn.alloc(irType(p.type));
 				fn.store(slot, arg);
 				func.scopes.declare(*p.name, Local::mem(slot, p.type));
@@ -459,7 +459,7 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitFunctionBody(const FuncDef* def) {
-		diag.fnName = def->name;
+		diag.function = def->name;
 		B32 sretReturn = isAggregate(def->retType);
 		List<Type*> paramTypes;
 		if(sretReturn)
@@ -472,12 +472,12 @@ namespace rat::cc {
 		Function* fn = mod.createFunction(def->name, paramTypes, retTy);
 		FunctionAttrs& attrs = fn->getAttrs();
 		attrs.variadic = def->isVarArgs;
-		attrs.noInline = def->isNoInline || syms.funcs[def->name].noInline;
-		attrs.align = syms.funcs[def->name].align;
+		attrs.noInline = def->isNoInline || syms.functions[def->name].noInline;
+		attrs.align = syms.functions[def->name].align;
 		attrs.linkage = def->isStatic ? Linkage::Internal : Linkage::External;
 
 		func.reset();
-		func.ret = def->retType;
+		func.returnType = def->retType;
 		func.sretSlot = sretReturn ? fn->param(0) : nullptr;
 		U32 paramBase = sretReturn ? 1 : 0;
 		collectAddrTaken(def->body);
@@ -504,10 +504,10 @@ namespace rat::cc {
 		if(!fn->blockFinished()) {
 			if(func.sretSlot)
 				fn->ret(func.sretSlot);
-			else if(isVoidType(func.ret))
+			else if(isVoidType(func.returnType))
 				fn->retVoid();
 			else
-				fn->ret(fn->constInt(irType(func.ret), 0));
+				fn->ret(fn->constInt(irType(func.returnType), 0));
 		}
 		// statements emitted into unreachable blocks leave anchored nodes with a
 		// null control input behind; drop them so every backend sees a graph

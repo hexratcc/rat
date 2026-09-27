@@ -216,7 +216,7 @@ namespace rat::cc {
 	} // namespace detail
 
 	void Emitter::collectAddrTaken(const Stmt* s) {
-		detail::AddrTakenWalk w(func.memVars, lay.win64VaList);
+		detail::AddrTakenWalk w(func.addrTaken, lay.win64VaList);
 		detail::walkStmt(w, s);
 	}
 
