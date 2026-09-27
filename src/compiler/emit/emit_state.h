@@ -68,16 +68,20 @@ namespace rat::cc {
 		Node* sp = nullptr;
 	};
 
+	struct Label {
+		Block* block = nullptr;
+		Node* sp = nullptr;
+	};
+
 	struct FunctionState {
 		void reset();
 
 		CType returnType;
 		Node* sretSlot = nullptr;
 		Node* sp = nullptr;
-		Map<String, Node*> labelSp;
 		B32 sawAlloca = false;
 		Set<String> addrTaken;
-		Map<String, Block*> labelBlocks;
+		Map<String, Label> labels;
 		List<LoopFrame> loops;
 		List<Map<const Stmt*, Block*>> switches;
 		Scopes scopes;

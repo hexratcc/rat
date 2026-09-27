@@ -499,8 +499,8 @@ namespace rat::cc {
 			return false;
 		}
 		func.scopes.pop();
-		for(auto& kv : func.labelBlocks)
-			fn->seal(kv.second);
+		for(auto& [name, label] : func.labels)
+			fn->seal(label.block);
 		if(!fn->blockFinished()) {
 			if(func.sretSlot)
 				fn->ret(func.sretSlot);

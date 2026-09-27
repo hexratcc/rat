@@ -491,29 +491,27 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitLabel(Function& fn, const Stmt* s) {
-		auto it = func.labelBlocks.find(*s->label);
-		if(it == func.labelBlocks.end()) {
+		auto it = func.labels.find(*s->label);
+		if(it == func.labels.end()) {
 			diag.fail("internal: missing block for label '" + *s->label + "'");
 			return false;
 		}
-		Function::Block* lbl = it->second;
+		Function::Block* lbl = it->second.block;
 		if(!fn.blockFinished())
 			fn.jmp(lbl);
 		fn.setInsertBlock(lbl);
-		func.labelSp[*s->label] = func.sp;
+		it->second.sp = func.sp;
 		return emitStmt(fn, s->thenBody);
 	}
 
 	B32 Emitter::emitGoto(Function& fn, const Stmt* s) {
-		auto it = func.labelBlocks.find(*s->label);
-		if(it == func.labelBlocks.end()) {
+		auto it = func.labels.find(*s->label);
+		if(it == func.labels.end()) {
 			diag.fail("use of undeclared label '" + *s->label + "'");
 			return false;
 		}
-		auto sp = func.labelSp.find(*s->label);
-		if(sp != func.labelSp.end())
-			restoreStack(fn, sp->second);
-		fn.jmp(it->second);
+		restoreStack(fn, it->second.sp);
+		fn.jmp(it->second.block);
 		return true;
 	}
 

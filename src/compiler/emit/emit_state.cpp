@@ -45,10 +45,9 @@ namespace rat::cc {
 		returnType = {};
 		sretSlot = nullptr;
 		sp = nullptr;
-		labelSp.clear();
 		sawAlloca = false;
 		addrTaken.clear();
-		labelBlocks.clear();
+		labels.clear();
 		loops.clear();
 		switches.clear();
 		scopes.clear();
