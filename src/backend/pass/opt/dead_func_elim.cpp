@@ -7,15 +7,23 @@
 namespace rat {
 	const C8* DeadFuncElimPass::name() const { return "dfe"; }
 
-	void DeadFuncElimPass::collectReferenced(Function& fn, Set<String>& referenced) {
-		for(Node* n : fn) {
-			if(CallNode* c = dyn_cast<CallNode>(n)) {
-				if(!c->isIndirect())
-					referenced.insert(c->getCallee());
-			} else if(GlobalNode* g = dyn_cast<GlobalNode>(n)) {
-				referenced.insert(g->getSymbol());
+	const List<String>& DeadFuncElimPass::referencesOf(Function& fn, Set<String>& scratch) {
+		auto it = refCache.find(&fn);
+		if(it == refCache.end() || it->second.first != fn.getVersion()) {
+			scratch.clear();
+			for(Node* n : fn) {
+				if(CallNode* c = dyn_cast<CallNode>(n)) {
+					if(!c->isIndirect())
+						scratch.insert(c->getCallee());
+				} else if(GlobalNode* g = dyn_cast<GlobalNode>(n)) {
+					scratch.insert(g->getSymbol());
+				}
 			}
+			List<String> refs(scratch.begin(), scratch.end());
+			Pair<U64, List<String>> entry{fn.getVersion(), std::move(refs)};
+			it = refCache.insert_or_assign(&fn, std::move(entry)).first;
 		}
+		return it->second.second;
 	}
 
 	B32 DeadFuncElimPass::run(Module& module, const TargetInfo&) {
@@ -29,34 +37,19 @@ namespace rat {
 		Map<String, List<U32>> byName;
 		Set<String> scratch;
 		for(U32 i = 0; i < n; ++i) {
-			Function* fn = funcs[i];
-			auto it = refCache.find(fn);
-			if(it == refCache.end() || it->second.first != fn->getVersion()) {
-				scratch.clear();
-				collectReferenced(*fn, scratch);
-				List<String> refs(scratch.begin(), scratch.end());
-				it = refCache
-								 .insert_or_assign(fn, Pair<U64, List<String>>{fn->getVersion(), std::move(refs)})
-								 .first;
-			}
-			outgoing[i] = &it->second.second;
+			outgoing[i] = &referencesOf(*funcs[i], scratch);
 			for(const String& s : *outgoing[i])
 				++refCount[s];
-			byName[fn->getName()].push_back(i);
+			byName[funcs[i]->getName()].push_back(i);
 		}
 		for(const Global* g : module.globals())
 			for(const Reloc& r : g->getRelocs())
 				++refCount[r.symbol];
 
-		auto countOf = [&](const String& s) -> U32 {
-			auto it = refCount.find(s);
-			return it == refCount.end() ? 0 : it->second;
-		};
-
 		List<B32> removed(n, false);
 		List<U32> work;
 		for(U32 i = 0; i < n; ++i)
-			if(funcs[i]->getAttrs().isInternal() && countOf(funcs[i]->getName()) == 0)
+			if(funcs[i]->getAttrs().isInternal() && !refCount.count(funcs[i]->getName()))
 				work.push_back(i);
 
 		B32 changed = false;
