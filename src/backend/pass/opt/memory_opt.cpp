@@ -1,7 +1,7 @@
 #include "pass/opt/memory_opt.h"
 
-#include "codegen/schedule.h"
 #include "analysis/alias_analysis.h"
+#include "codegen/schedule.h"
 #include "ir/function.h"
 #include "ir/node.h"
 #include "target/target.h"
@@ -29,6 +29,19 @@ namespace rat {
 		return a->getId() < b->getId(); // same memory state, either may represent
 	}
 
+	B32 MemoryOptPass::dominates(const Schedule& sched, LoadNode* a, LoadNode* b) const {
+		I32 ba = sched.blockOf(a), bb = sched.blockOf(b);
+		if(ba < 0 || bb < 0)
+			return false;
+		if(ba == bb)
+			return precedes(a, b); // same block, no aliasing store between
+		return sched.dominates(ba, bb);
+	}
+
+	B32 MemoryOptPass::forwardable(const AliasAnalysis& aa, StoreNode* s, LoadNode* l, U32 size) {
+		return aa.getAccessSize(s) == size && s->getValue()->getType() == l->getType();
+	}
+
 	U32 MemoryOptPass::forwardStores(const AliasAnalysis& aa) {
 		U32 removed = 0;
 		for(LoadNode* l : loads) {
@@ -38,9 +51,8 @@ namespace rat {
 			StoreNode* s = dyn_cast<StoreNode>(defs[l->getId()]);
 			if(!s)
 				continue;
-			if(aa.alias(l->getPointer(), sz, s->getPointer(), aa.getAccessSize(s)) ==
-						 AliasResult::MustAlias &&
-				 aa.getAccessSize(s) == sz && s->getValue()->getType() == l->getType()) {
+			AliasResult r = aa.alias(l->getPointer(), sz, s->getPointer(), aa.getAccessSize(s));
+			if(r == AliasResult::MustAlias && forwardable(aa, s, l, sz)) {
 				l->replaceAllUsesWith(s->getValue());
 				++removed;
 			}
@@ -50,15 +62,6 @@ namespace rat {
 
 	U32 MemoryOptPass::cseLoads(Function& fn, const AliasAnalysis& aa) {
 		Schedule sched(fn, Schedule::Mode::Loads);
-
-		auto dominates = [&](LoadNode* a, LoadNode* b) -> B32 {
-			I32 ba = sched.blockOf(a), bb = sched.blockOf(b);
-			if(ba < 0 || bb < 0)
-				return false;
-			if(ba == bb)
-				return precedes(a, b); // same block, no aliasing store between
-			return sched.dominates(ba, bb);
-		};
 
 		buckets.clear();
 		for(LoadNode* l : loads) {
@@ -91,7 +94,7 @@ namespace rat {
 					LoadNode* a = group[j];
 					if(!a->hasUsers())
 						continue;
-					if(dominates(a, b)) {
+					if(dominates(sched, a, b)) {
 						b->replaceAllUsesWith(a);
 						++removed;
 						break;
@@ -122,8 +125,7 @@ namespace rat {
 			// stores older than the found one are overwritten
 			if(!scan.store) {
 				AliasResult r = aa.alias(l->getPointer(), size, s->getPointer(), aa.getAccessSize(s));
-				if(r == AliasResult::MustAlias && aa.getAccessSize(s) == size &&
-					 s->getValue()->getType() == l->getType())
+				if(r == AliasResult::MustAlias && forwardable(aa, s, l, size))
 					scan.store = s;
 				else if(r != AliasResult::NoAlias)
 					scan.clobbered = true;
