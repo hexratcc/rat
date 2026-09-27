@@ -28,14 +28,10 @@ namespace rat {
 			U32 e = n->getInputCount();
 			if(e > 2)
 				return false;
-			if(e > 0) {
-				Node* a = n->getInput(0);
-				k.in0 = a ? a->getId() : ~0u;
-			}
-			if(e > 1) {
-				Node* b = n->getInput(1);
-				k.in1 = b ? b->getId() : ~0u;
-			}
+			if(e > 0 && n->getInput(0))
+				k.in0 = n->getInput(0)->getId();
+			if(e > 1 && n->getInput(1))
+				k.in1 = n->getInput(1)->getId();
 			if(n->isCommutative() && k.in1 < k.in0)
 				std::swap(k.in0, k.in1);
 			return true;
@@ -70,7 +66,7 @@ namespace rat {
 				slots[i].val = nullptr;
 			U32 filled = 0;
 			for(Node* n : fn) {
-				if(!GVNPass::isPureValue(n) || !n->hasUsers())
+				if(!isPureValue(n) || !n->hasUsers())
 					continue;
 				detail::GVNKey key;
 				if(!detail::makeKey(n, key))

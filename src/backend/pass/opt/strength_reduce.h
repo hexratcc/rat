@@ -8,10 +8,13 @@
 #include "pass/pass.h"
 
 namespace rat {
+	struct ConstantNode;
+	struct Node;
 	struct PhiNode;
 
 	namespace detail {
 		B32 matchLinearIV(PhiNode* p, I64& step, U32& recIdx);
+		ConstantNode* affineScale(Node* u, PhiNode* p);
 	} // namespace detail
 
 	struct StrengthReducePass : FunctionPass {

@@ -28,6 +28,22 @@ namespace rat {
 			}
 			return false;
 		}
+
+		ConstantNode* affineScale(Node* u, PhiNode* p) {
+			if(u->getInputCount() != 2)
+				return nullptr;
+			Opcode op = u->getOpcode();
+			if(op != Opcode::Mul && op != Opcode::Shl)
+				return nullptr;
+			if(u->getType() != p->getType())
+				return nullptr;
+			if(op == Opcode::Shl && u->getInput(0) != p)
+				return nullptr; // k << p is not affine in p
+			if(u->getInput(0) == p && u->getInput(1) == p)
+				return nullptr; // p * p is quadratic
+			Node* other = u->getInput(0) == p ? u->getInput(1) : u->getInput(0);
+			return dyn_cast<ConstantNode>(other);
+		}
 	} // namespace detail
 
 	const C8* StrengthReducePass::name() const { return "strengthreduce"; }
@@ -52,37 +68,19 @@ namespace rat {
 
 			// collect candidate uses
 			List<Node*> muls;
-			for(Node* u : p->getUsers()) {
-				if(u->getInputCount() != 2)
-					continue;
-				Opcode op = u->getOpcode();
-				if(op != Opcode::Mul && op != Opcode::Shl)
-					continue;
-				if(u->getType() != ty)
-					continue;
-				Node* other = u->getInput(0) == p ? u->getInput(1) : u->getInput(0);
-				if(op == Opcode::Shl && u->getInput(0) != p)
-					continue; // k << p is not affine in p
-				if(u->getInput(0) == p && u->getInput(1) == p)
-					continue; // p * p is quadratic
-				if(!isa<ConstantNode>(other))
-					continue;
-				muls.push_back(u);
-			}
+			for(Node* u : p->getUsers())
+				if(detail::affineScale(u, p))
+					muls.push_back(u);
 
 			for(Node* mul : muls) {
 				Opcode op = mul->getOpcode();
-				Node* other = mul->getInput(0) == p ? mul->getInput(1) : mul->getInput(0);
-				I64 k = cast<ConstantNode>(other)->getValue();
+				I64 k = detail::affineScale(mul, p)->getValue();
 				I64 scaledStep;
 				if(!evalBinaryConst(op, w, step, k, scaledStep))
 					continue;
 
 				Node* scaledInit = fn.create<BinaryNode>(op, ty, init, constant(fn, ty, k));
-				List<Node*> inputs = {region, nullptr, nullptr};
-				inputs[1 + (1 - recIdx)] = scaledInit;
-				inputs[1 + recIdx] = scaledInit; // placeholder
-				PhiNode* q = fn.create<PhiNode>(ty, inputs);
+				PhiNode* q = fn.create<PhiNode>(ty, List<Node*>{region, scaledInit, scaledInit});
 				Node* stepNode = fn.create<BinaryNode>(Opcode::Add, ty, q, constant(fn, ty, scaledStep));
 				q->setInput(1 + recIdx, stepNode);
 

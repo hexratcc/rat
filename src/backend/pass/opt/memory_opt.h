@@ -12,8 +12,8 @@
 #ifndef RAT_PASS_OPT_MEMORYOPT_H
 #define RAT_PASS_OPT_MEMORYOPT_H
 
-#include "core.h"
 #include "analysis/alias_analysis.h"
+#include "core.h"
 #include "pass/pass.h"
 
 namespace rat {
@@ -21,6 +21,7 @@ namespace rat {
 	struct LoadNode;
 	struct Node;
 	struct PhiNode;
+	struct Schedule;
 	struct StoreNode;
 	struct Type;
 
@@ -40,6 +41,8 @@ namespace rat {
 		// skip back over stores that provably do not alias [addr, addr+size)
 		static Node* effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size, U32& hops);
 		B32 precedes(const LoadNode* a, const LoadNode* b) const;
+		B32 dominates(const Schedule& sched, LoadNode* a, LoadNode* b) const;
+		static B32 forwardable(const AliasAnalysis& aa, StoreNode* s, LoadNode* l, U32 size);
 
 		struct ChainScan {
 			StoreNode* store; // last must-alias store of matching size and type

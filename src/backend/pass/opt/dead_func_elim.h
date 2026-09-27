@@ -19,7 +19,7 @@ namespace rat {
 		const C8* name() const override;
 		B32 run(Module& module, const TargetInfo& target) override;
 	private:
-		void collectReferenced(Function& fn, Set<String>& referenced);
+		const List<String>& referencesOf(Function& fn, Set<String>& scratch);
 	private:
 		Map<const Function*, Pair<U64, List<String>>> refCache;
 	};
