@@ -8,16 +8,15 @@
 #include <sstream>
 
 namespace rat {
-	VerifyPass::FunctionVerifier::FunctionVerifier(const Function& fn, List<String>& e)
+	VerifyPass::FunctionVerifier::FunctionVerifier(const Function& fn, std::ostream& os)
 	: fn(fn),
-		errs(e),
-		startErrs((U32)e.size()) {}
+		os(os) {}
 
 	String VerifyPass::FunctionVerifier::vref(const Node* n) {
 		return n ? ("v" + std::to_string(n->getId())) : String("<null>");
 	}
 
-	B32 VerifyPass::FunctionVerifier::run() {
+	void VerifyPass::FunctionVerifier::run() {
 		for(Node* n : fn)
 			inFn.insert(n);
 
@@ -31,20 +30,35 @@ namespace rat {
 			checkNode(n);
 		}
 		checkStopReturns();
-		return errs.size() == startErrs;
 	}
 
 	void VerifyPass::FunctionVerifier::err(const Node* n, const String& msg) {
-		std::ostringstream os;
+		os << fn.getName() << ": ";
 		if(n)
 			os << vref(n) << ": ";
-		os << msg;
-		errs.push_back(os.str());
+		os << msg << "\n";
 	}
 
 	B32 VerifyPass::FunctionVerifier::isCtrl(const Node* n) { return n && n->getType()->isControl(); }
 	B32 VerifyPass::FunctionVerifier::isMem(const Node* n) { return n && n->getType()->isMemory(); }
 	B32 VerifyPass::FunctionVerifier::isData(const Node* n) { return n && n->getType()->isData(); }
+	B32 VerifyPass::FunctionVerifier::isBool(const Type* t) {
+		return t->isInt() && t->getIntWidth() == 1;
+	}
+
+	B32 VerifyPass::FunctionVerifier::listsAsUser(const Node* def, const Node* user) {
+		for(const Node* u : def->getUsers())
+			if(u == user)
+				return true;
+		return false;
+	}
+
+	B32 VerifyPass::FunctionVerifier::listsAsInput(const Node* user, const Node* def) {
+		for(U32 i = 0, e = user->getInputCount(); i < e; ++i)
+			if(user->getInput(i) == def)
+				return true;
+		return false;
+	}
 
 	B32 VerifyPass::FunctionVerifier::checkArity(const Node* n) {
 		const OpcodeInfo& info = getOpcodeInfo(n->getOpcode());
@@ -68,19 +82,6 @@ namespace rat {
 	}
 
 	void VerifyPass::FunctionVerifier::checkEdges(Node* n) {
-		auto listsAsUser = [](const Node* def, const Node* user) {
-			for(const Node* u : def->getUsers())
-				if(u == user)
-					return true;
-			return false;
-		};
-		auto listsAsInput = [](const Node* user, const Node* def) {
-			for(U32 i = 0, e = user->getInputCount(); i < e; ++i)
-				if(user->getInput(i) == def)
-					return true;
-			return false;
-		};
-
 		for(U32 i = 0, e = n->getInputCount(); i < e; ++i) {
 			Node* in = n->getInput(i);
 			if(!in) {
@@ -106,9 +107,6 @@ namespace rat {
 	}
 
 	void VerifyPass::FunctionVerifier::checkNode(Node* n) {
-		const Type* t = n->getType();
-		Opcode op = n->getOpcode();
-
 		if(!checkArity(n))
 			return;
 
@@ -116,354 +114,364 @@ namespace rat {
 			if(!n->getInput(i))
 				return;
 
-		auto ctrlMem = [&](Node* ctrl, Node* mem, const C8* what) {
-			if(!isCtrl(ctrl))
-				err(n, String(what) + " input 0 (control) is not control-typed");
-			if(!isMem(mem))
-				err(n, String(what) + " input 1 (memory) is not memory-typed");
-		};
-
-		switch(op) {
-		case Opcode::Start: {
-			if(n != fn.getStart())
-				err(n, "duplicate Start node");
-			if(!t->isTuple()) {
-				err(n, "Start type must be a tuple");
-				break;
-			}
-			U32 np = fn.getParamCount();
-			if(t->getTupleElementCount() != 2 + np) {
-				err(n, "Start tuple arity does not match (control, memory, params)");
-				break;
-			}
-			if(!t->getTupleElement(0)->isControl())
-				err(n, "Start tuple element 0 must be control");
-			if(!t->getTupleElement(1)->isMemory())
-				err(n, "Start tuple element 1 must be memory");
-			for(U32 i = 0; i < np; ++i)
-				if(t->getTupleElement(2 + i) != fn.getParamType(i))
-					err(n,
-							"Start tuple param " + std::to_string(i) + " does not match the function signature");
+		const Type* t = n->getType();
+		switch(n->getOpcode()) {
+		case Opcode::Start:
+			checkStart(n);
 			break;
-		}
 		case Opcode::Stop:
 			if(n != fn.getStop())
 				err(n, "duplicate Stop node");
 			if(!t->isControl())
 				err(n, "Stop type must be control");
 			break;
-
-		case Opcode::Return: {
-			auto* r = cast<ReturnNode>(n);
-			ctrlMem(r->getControl(), r->getMemory(), "Return");
-			if(fn.returnsValue()) {
-				if(!r->hasValue())
-					err(n, "Return in a value function carries no value");
-				else if(r->getValue()->getType() != fn.getReturnType())
-					err(n, "Return value type does not match the function return type");
-			} else if(r->hasValue()) {
-				err(n, "Return in a void function carries a value");
-			}
-			B32 toStop = false;
-			for(Node* u : n->getUsers())
-				if(u == fn.getStop())
-					toStop = true;
-			if(!toStop)
-				err(n, "Return is not connected to the Stop node");
+		case Opcode::Return:
+			checkReturn(n);
 			break;
-		}
-		case Opcode::Region: {
-			auto* r = cast<RegionNode>(n);
-			if(!t->isControl())
-				err(n, "Region type must be control");
-			for(U32 i = 0, e = r->getPredecessorCount(); i < e; ++i)
-				if(!isCtrl(r->getPredecessor(i)))
-					err(n, "Region predecessor " + std::to_string(i) + " is not control-typed");
+		case Opcode::Region:
+			checkRegion(n);
 			break;
-		}
-		case Opcode::If: {
-			auto* iff = cast<IfNode>(n);
-			if(!isCtrl(iff->getControl()))
-				err(n, "If input 0 (control) is not control-typed");
-			if(!(iff->getPredicate()->getType()->isInt() &&
-					 iff->getPredicate()->getType()->getIntWidth() == 1))
-				err(n, "If predicate must be i1");
-			if(!(t->isTuple() && t->getTupleElementCount() == 2 && t->getTupleElement(0)->isControl() &&
-					 t->getTupleElement(1)->isControl()))
-				err(n, "If type must be (ctrl, ctrl)");
-			for(Node* u : n->getUsers())
-				if(u->getOpcode() == Opcode::Proj && cast<ProjNode>(u)->getIndex() > 1)
-					err(u, "projection index out of range for an If (must be 0 or 1)");
+		case Opcode::If:
+			checkIf(n);
 			break;
-		}
-		case Opcode::Switch: {
-			auto* sw = cast<SwitchNode>(n);
-			if(!isCtrl(sw->getControl()))
-				err(n, "Switch input 0 (control) is not control-typed");
-			if(!sw->getSelector()->getType()->isInt())
-				err(n, "Switch selector must be an integer");
-			if(!t->isTuple() || t->getTupleElementCount() == 0) {
-				err(n, "Switch type must be a non-empty tuple of control");
-				break;
-			}
-			for(U32 i = 0, e = t->getTupleElementCount(); i < e; ++i)
-				if(!t->getTupleElement(i)->isControl())
-					err(n, "Switch tuple element " + std::to_string(i) + " must be control");
+		case Opcode::Switch:
+			checkSwitch(n);
 			break;
-		}
-		case Opcode::Proj: {
-			auto* p = cast<ProjNode>(n);
-			Node* prod = p->getProducer();
-			Opcode po = prod->getOpcode();
-			if(!(po == Opcode::Start || po == Opcode::If || po == Opcode::Call || po == Opcode::Switch ||
-					 po == Opcode::Asm)) {
-				err(n,
-						"Proj producer " + vref(prod) +
-								" is not a multi-output node (Start/If/Call/Switch/Asm)");
-			} else if(!prod->getType()->isTuple()) {
-				err(n, "Proj producer is not tuple-typed");
-			} else if(p->getIndex() >= prod->getType()->getTupleElementCount()) {
-				err(n,
-						"Proj index " + std::to_string(p->getIndex()) + " is out of range for " + vref(prod));
-			} else if(prod->getType()->getTupleElement(p->getIndex()) != t) {
-				err(n, "Proj type does not match the selected tuple element");
-			}
+		case Opcode::Proj:
+			checkProj(n);
 			break;
-		}
-		case Opcode::Phi: {
-			auto* phi = cast<PhiNode>(n);
-			Node* reg = phi->getInput(0);
-			if(!reg || reg->getOpcode() != Opcode::Region) {
-				err(n, "Phi input 0 must be a Region");
-				break;
-			}
-			auto* r = cast<RegionNode>(reg);
-			if(phi->getValueCount() != r->getPredecessorCount())
-				err(n,
-						"Phi has " + std::to_string(phi->getValueCount()) + " values but its region " +
-								vref(r) + " has " + std::to_string(r->getPredecessorCount()) + " predecessors");
-			if(!(t->isData() || t->isMemory()))
-				err(n, "Phi type must be a data or memory type");
-			for(U32 i = 0, e = phi->getValueCount(); i < e; ++i)
-				if(phi->getValue(i)->getType() != t)
-					err(n, "Phi value " + std::to_string(i) + " has a type different from the phi");
+		case Opcode::Phi:
+			checkPhi(n);
 			break;
-		}
 		case Opcode::Constant:
 			if(!(t->isInt() || t->isFloat()))
 				err(n, "Constant type must be an integer or a float");
 			break;
-
-		case Opcode::Global: {
-			auto* g = cast<GlobalNode>(n);
+		case Opcode::Global:
 			if(!t->isPtr())
 				err(n, "Global type must be a pointer");
-			if(!fn.getModule().getGlobal(g->getSymbol()))
-				err(n, "Global references unknown symbol '" + g->getSymbol() + "'");
+			if(!fn.getModule().getGlobal(cast<GlobalNode>(n)->getSymbol()))
+				err(n, "Global references unknown symbol '" + cast<GlobalNode>(n)->getSymbol() + "'");
 			break;
-		}
-
 		case Opcode::Alloc:
 			if(!t->isPtr())
 				err(n, "Alloc type must be a pointer");
 			if(!cast<AllocNode>(n)->getAllocType())
 				err(n, "Alloc has no allocated type");
 			break;
-
 		case Opcode::StackAlloc:
 		case Opcode::StackSave:
 			if(!t->isPtr())
 				err(n, "stack op type must be a pointer");
 			break;
-
 		case Opcode::StackRestore:
 			if(!t->isMemory())
 				err(n, "StackRestore type must be memory");
 			break;
-
-		case Opcode::Splat: {
-			auto* s = cast<SplatNode>(n);
-			if(!t->isVec())
-				err(n, "Splat type must be a vector");
-			else if(!s->getScalar() || s->getScalar()->getType() != t->getVecElement())
-				err(n, "Splat scalar type does not match the vector element");
+		case Opcode::Splat:
+		case Opcode::Extract:
+		case Opcode::Pack:
+		case Opcode::Shuffle:
+			checkLaneOp(n);
 			break;
-		}
-
-		case Opcode::Extract: {
-			auto* x = cast<ExtractNode>(n);
-			Type* vt = x->getVector() ? x->getVector()->getType() : nullptr;
-			if(!vt || !vt->isVec())
-				err(n, "Extract operand must be a vector");
-			else {
-				if(t != vt->getVecElement())
-					err(n, "Extract type does not match the vector element");
-				if(x->getLane() >= vt->getVecLanes())
-					err(n, "Extract lane is out of range");
-			}
+		case Opcode::Select:
+			checkSelect(n);
 			break;
-		}
-
-		case Opcode::Pack: {
-			auto* p = cast<PackNode>(n);
-			if(!t->isVec()) {
-				err(n, "Pack type must be a vector");
-				break;
-			}
-			if(p->getLaneCount() != t->getVecLanes())
-				err(n, "Pack operand count does not match the lane count");
-			for(U32 i = 0, e = p->getLaneCount(); i < e; ++i)
-				if(!p->getLane(i) || p->getLane(i)->getType() != t->getVecElement())
-					err(n, "Pack lane " + std::to_string(i) + " type does not match the vector element");
+		case Opcode::Load:
+		case Opcode::Store:
+			checkMemoryOp(n);
 			break;
-		}
-
-		case Opcode::Shuffle: {
-			auto* s = cast<ShuffleNode>(n);
-			if(!t->isVec())
-				err(n, "Shuffle type must be a vector");
-			else if(!s->getVector() || s->getVector()->getType() != t)
-				err(n, "Shuffle operand type does not match the result vector");
+		case Opcode::Call:
+			checkCall(n);
 			break;
-		}
-
-		case Opcode::Select: {
-			auto* s = cast<SelectNode>(n);
-			if(!t->isInt() && !t->isPtr())
-				err(n, "Select type must be an integer or pointer");
-			if(!s->getCondition() || !s->getCondition()->getType()->isInt() ||
-				 s->getCondition()->getType()->getIntWidth() != 1)
-				err(n, "Select condition must be i1");
-			if(!s->getTrue() || s->getTrue()->getType() != t)
-				err(n, "Select then-value type does not match the result");
-			if(!s->getFalse() || s->getFalse()->getType() != t)
-				err(n, "Select else-value type does not match the result");
+		case Opcode::Asm:
+			checkAsm(n);
 			break;
-		}
-
-		case Opcode::Load: {
-			auto* l = cast<LoadNode>(n);
-			ctrlMem(l->getControl(), l->getMemory(), "Load");
-			if(!l->getPointer()->getType()->isPtr())
-				err(n, "Load address is not a pointer");
-			if(!t->isData())
-				err(n, "Load result type must be a data type");
-			break;
-		}
-		case Opcode::Store: {
-			auto* s = cast<StoreNode>(n);
-			ctrlMem(s->getControl(), s->getMemory(), "Store");
-			if(!s->getPointer()->getType()->isPtr())
-				err(n, "Store address is not a pointer");
-			if(!isData(s->getValue()))
-				err(n, "Store value is not a data type");
-			if(!t->isMemory())
-				err(n, "Store result type must be memory");
-			break;
-		}
-		case Opcode::Call: {
-			auto* c = cast<CallNode>(n);
-			ctrlMem(c->getControl(), c->getMemory(), "Call");
-			if(!t->isTuple()) {
-				err(n, "Call type must be a tuple");
-				break;
-			}
-			U32 want = c->returnsValue() ? 3 : 2;
-			if(t->getTupleElementCount() != want) {
-				err(n, "Call tuple arity does not match returnsValue");
-				break;
-			}
-			if(!t->getTupleElement(0)->isControl())
-				err(n, "Call tuple element 0 must be control");
-			if(!t->getTupleElement(1)->isMemory())
-				err(n, "Call tuple element 1 must be memory");
-			if(c->returnsValue() && !t->getTupleElement(2)->isData())
-				err(n, "Call return slot must be a data type");
-			break;
-		}
-		case Opcode::Asm: {
-			auto* a = cast<AsmNode>(n);
-			ctrlMem(a->getControl(), a->getMemory(), "Asm");
-			if(!t->isTuple()) {
-				err(n, "Asm type must be a tuple");
-				break;
-			}
-			if(t->getTupleElementCount() != 2 + a->getOutputCount()) {
-				err(n, "Asm tuple arity does not match the output count");
-				break;
-			}
-			if(!t->getTupleElement(0)->isControl())
-				err(n, "Asm tuple element 0 must be control");
-			if(!t->getTupleElement(1)->isMemory())
-				err(n, "Asm tuple element 1 must be memory");
-			for(U32 i = 0; i < a->getOutputCount(); ++i)
-				if(!t->getTupleElement(2 + i)->isData())
-					err(n, "Asm output slot must be a data type");
-			break;
-		}
 		default:
-			switch(getOpClass(op)) {
-			case OpClass::Binary: {
-				auto* b = cast<BinaryNode>(n);
-				const Type* lt = b->getLHS()->getType();
-				const Type* rt = b->getRHS()->getType();
-				if(lt != t)
-					err(n, "binary result type differs from its left operand");
-				B32 shift = op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr ||
-										op == Opcode::Rotl || op == Opcode::Rotr;
-				if(lt->isPtr()) {
-					if(!(op == Opcode::Add || op == Opcode::Sub))
-						err(n, "pointer arithmetic supports only add/sub");
-					else if(!rt->isInt())
-						err(n, "pointer arithmetic offset must be an integer");
-				} else if(lt->isInt()) {
-					if(shift) {
-						if(!rt->isInt())
-							err(n, "shift amount is not an integer");
-					} else if(rt != lt) {
-						err(n, "binary operands have different types");
-					}
-				} else if(lt->isVec()) {
-					if(rt != lt)
-						err(n, "binary operands have different types");
-					// only the SSE2-lowerable subset may appear at vector types
-					const Type* et = lt->getVecElement();
-					B32 legal = et->isInt() ? (op == Opcode::Add || op == Opcode::Sub || op == Opcode::And ||
-																		 op == Opcode::Or || op == Opcode::Xor)
-																	: (op == Opcode::FAdd || op == Opcode::FSub ||
-																		 op == Opcode::FMul || op == Opcode::FDiv);
-					if(!legal)
-						err(n, "binary opcode has no vector lowering");
-				} else if(lt->isFloat()) {
-					if(rt != lt)
-						err(n, "binary operands have different types");
-				} else {
-					err(n, "binary operates on a non-data type");
-				}
-				break;
-			}
-			case OpClass::Unary:
-				checkUnary(n);
-				break;
-			case OpClass::Compare: {
-				auto* c = cast<CompareNode>(n);
-				if(!(t->isInt() && t->getIntWidth() == 1))
-					err(n, "comparison result must be i1");
-				if(c->getLHS()->getType() != c->getRHS()->getType())
-					err(n, "comparison operands have different types");
-				break;
-			}
-			case OpClass::Convert:
-				checkConvert(n);
-				break;
-			case OpClass::None:
-				break;
-			}
+			checkArithmetic(n);
 			break;
 		}
 	}
 
-	void VerifyPass::FunctionVerifier::checkUnary(Node* n) {
+	void VerifyPass::FunctionVerifier::checkCtrlMem(const Node* n, const C8* what) {
+		if(!isCtrl(n->getInput(0)))
+			err(n, String(what) + " input 0 (control) is not control-typed");
+		if(!isMem(n->getInput(1)))
+			err(n, String(what) + " input 1 (memory) is not memory-typed");
+	}
+
+	B32 VerifyPass::FunctionVerifier::checkTuple(const Node* n, const C8* op, U32 len, const C8* by) {
+		const Type* t = n->getType();
+		if(!t->isTuple()) {
+			err(n, String(op) + " type must be a tuple");
+			return false;
+		}
+		if(t->getTupleElementCount() != len) {
+			err(n, String(op) + " tuple arity does not match " + by);
+			return false;
+		}
+		if(!t->getTupleElement(0)->isControl())
+			err(n, String(op) + " tuple element 0 must be control");
+		if(!t->getTupleElement(1)->isMemory())
+			err(n, String(op) + " tuple element 1 must be memory");
+		return true;
+	}
+
+	void VerifyPass::FunctionVerifier::checkStart(const Node* n) {
+		if(n != fn.getStart())
+			err(n, "duplicate Start node");
+		U32 np = fn.getParamCount();
+		if(!checkTuple(n, "Start", 2 + np, "(control, memory, params)"))
+			return;
+		for(U32 i = 0; i < np; ++i)
+			if(n->getType()->getTupleElement(2 + i) != fn.getParamType(i))
+				err(n, "Start tuple param " + std::to_string(i) + " does not match the function signature");
+	}
+
+	void VerifyPass::FunctionVerifier::checkReturn(const Node* n) {
+		const ReturnNode* r = cast<ReturnNode>(n);
+		checkCtrlMem(n, "Return");
+		if(fn.returnsValue()) {
+			if(!r->hasValue())
+				err(n, "Return in a value function carries no value");
+			else if(r->getValue()->getType() != fn.getReturnType())
+				err(n, "Return value type does not match the function return type");
+		} else if(r->hasValue()) {
+			err(n, "Return in a void function carries a value");
+		}
+		if(!listsAsUser(n, fn.getStop()))
+			err(n, "Return is not connected to the Stop node");
+	}
+
+	void VerifyPass::FunctionVerifier::checkRegion(const Node* n) {
+		const RegionNode* r = cast<RegionNode>(n);
+		if(!n->getType()->isControl())
+			err(n, "Region type must be control");
+		for(U32 i = 0, e = r->getPredecessorCount(); i < e; ++i)
+			if(!isCtrl(r->getPredecessor(i)))
+				err(n, "Region predecessor " + std::to_string(i) + " is not control-typed");
+	}
+
+	void VerifyPass::FunctionVerifier::checkIf(const Node* n) {
+		const IfNode* iff = cast<IfNode>(n);
+		const Type* t = n->getType();
+		if(!isCtrl(iff->getControl()))
+			err(n, "If input 0 (control) is not control-typed");
+		if(!isBool(iff->getPredicate()->getType()))
+			err(n, "If predicate must be i1");
+		if(!(t->isTuple() && t->getTupleElementCount() == 2 && t->getTupleElement(0)->isControl() &&
+				 t->getTupleElement(1)->isControl()))
+			err(n, "If type must be (ctrl, ctrl)");
+		for(Node* u : n->getUsers())
+			if(u->getOpcode() == Opcode::Proj && cast<ProjNode>(u)->getIndex() > 1)
+				err(u, "projection index out of range for an If (must be 0 or 1)");
+	}
+
+	void VerifyPass::FunctionVerifier::checkSwitch(const Node* n) {
+		const SwitchNode* sw = cast<SwitchNode>(n);
+		const Type* t = n->getType();
+		if(!isCtrl(sw->getControl()))
+			err(n, "Switch input 0 (control) is not control-typed");
+		if(!sw->getSelector()->getType()->isInt())
+			err(n, "Switch selector must be an integer");
+		if(!t->isTuple() || t->getTupleElementCount() == 0) {
+			err(n, "Switch type must be a non-empty tuple of control");
+			return;
+		}
+		for(U32 i = 0, e = t->getTupleElementCount(); i < e; ++i)
+			if(!t->getTupleElement(i)->isControl())
+				err(n, "Switch tuple element " + std::to_string(i) + " must be control");
+	}
+
+	void VerifyPass::FunctionVerifier::checkProj(const Node* n) {
+		const ProjNode* p = cast<ProjNode>(n);
+		Node* prod = p->getProducer();
+		Opcode po = prod->getOpcode();
+		if(!(po == Opcode::Start || po == Opcode::If || po == Opcode::Call || po == Opcode::Switch ||
+				 po == Opcode::Asm)) {
+			err(n,
+					"Proj producer " + vref(prod) + " is not a multi-output node (Start/If/Call/Switch/Asm)");
+		} else if(!prod->getType()->isTuple()) {
+			err(n, "Proj producer is not tuple-typed");
+		} else if(p->getIndex() >= prod->getType()->getTupleElementCount()) {
+			err(n, "Proj index " + std::to_string(p->getIndex()) + " is out of range for " + vref(prod));
+		} else if(prod->getType()->getTupleElement(p->getIndex()) != n->getType()) {
+			err(n, "Proj type does not match the selected tuple element");
+		}
+	}
+
+	void VerifyPass::FunctionVerifier::checkPhi(const Node* n) {
+		const PhiNode* phi = cast<PhiNode>(n);
+		const Type* t = n->getType();
+		Node* reg = phi->getInput(0);
+		if(reg->getOpcode() != Opcode::Region) {
+			err(n, "Phi input 0 must be a Region");
+			return;
+		}
+		const RegionNode* r = cast<RegionNode>(reg);
+		if(phi->getValueCount() != r->getPredecessorCount())
+			err(n,
+					"Phi has " + std::to_string(phi->getValueCount()) + " values but its region " + vref(r) +
+							" has " + std::to_string(r->getPredecessorCount()) + " predecessors");
+		if(!(t->isData() || t->isMemory()))
+			err(n, "Phi type must be a data or memory type");
+		for(U32 i = 0, e = phi->getValueCount(); i < e; ++i)
+			if(phi->getValue(i)->getType() != t)
+				err(n, "Phi value " + std::to_string(i) + " has a type different from the phi");
+	}
+
+	void VerifyPass::FunctionVerifier::checkLaneOp(const Node* n) {
+		const Type* t = n->getType();
+		const Type* in = n->getInput(0)->getType();
+		switch(n->getOpcode()) {
+		case Opcode::Splat:
+			if(!t->isVec())
+				err(n, "Splat type must be a vector");
+			else if(in != t->getVecElement())
+				err(n, "Splat scalar type does not match the vector element");
+			break;
+		case Opcode::Extract:
+			if(!in->isVec()) {
+				err(n, "Extract operand must be a vector");
+				break;
+			}
+			if(t != in->getVecElement())
+				err(n, "Extract type does not match the vector element");
+			if(cast<ExtractNode>(n)->getLane() >= in->getVecLanes())
+				err(n, "Extract lane is out of range");
+			break;
+		case Opcode::Pack:
+			if(!t->isVec()) {
+				err(n, "Pack type must be a vector");
+				break;
+			}
+			if(n->getInputCount() != t->getVecLanes())
+				err(n, "Pack operand count does not match the lane count");
+			for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
+				if(n->getInput(i)->getType() != t->getVecElement())
+					err(n, "Pack lane " + std::to_string(i) + " type does not match the vector element");
+			break;
+		default:
+			if(!t->isVec())
+				err(n, "Shuffle type must be a vector");
+			else if(in != t)
+				err(n, "Shuffle operand type does not match the result vector");
+			break;
+		}
+	}
+
+	void VerifyPass::FunctionVerifier::checkSelect(const Node* n) {
+		const SelectNode* s = cast<SelectNode>(n);
+		const Type* t = n->getType();
+		if(!t->isInt() && !t->isPtr())
+			err(n, "Select type must be an integer or pointer");
+		if(!isBool(s->getCondition()->getType()))
+			err(n, "Select condition must be i1");
+		if(s->getTrue()->getType() != t)
+			err(n, "Select then-value type does not match the result");
+		if(s->getFalse()->getType() != t)
+			err(n, "Select else-value type does not match the result");
+	}
+
+	void VerifyPass::FunctionVerifier::checkMemoryOp(const Node* n) {
+		B32 load = n->getOpcode() == Opcode::Load;
+		const C8* what = load ? "Load" : "Store";
+		checkCtrlMem(n, what);
+		if(!n->getInput(2)->getType()->isPtr())
+			err(n, String(what) + " address is not a pointer");
+		if(load) {
+			if(!n->getType()->isData())
+				err(n, "Load result type must be a data type");
+			return;
+		}
+		if(!isData(n->getInput(3)))
+			err(n, "Store value is not a data type");
+		if(!n->getType()->isMemory())
+			err(n, "Store result type must be memory");
+	}
+
+	void VerifyPass::FunctionVerifier::checkCall(const Node* n) {
+		const CallNode* c = cast<CallNode>(n);
+		checkCtrlMem(n, "Call");
+		U32 want = c->returnsValue() ? 3 : 2;
+		if(!checkTuple(n, "Call", want, "returnsValue"))
+			return;
+		if(c->returnsValue() && !n->getType()->getTupleElement(2)->isData())
+			err(n, "Call return slot must be a data type");
+	}
+
+	void VerifyPass::FunctionVerifier::checkAsm(const Node* n) {
+		const AsmNode* a = cast<AsmNode>(n);
+		checkCtrlMem(n, "Asm");
+		if(!checkTuple(n, "Asm", 2 + a->getOutputCount(), "the output count"))
+			return;
+		for(U32 i = 0; i < a->getOutputCount(); ++i)
+			if(!n->getType()->getTupleElement(2 + i)->isData())
+				err(n, "Asm output slot must be a data type");
+	}
+
+	void VerifyPass::FunctionVerifier::checkArithmetic(const Node* n) {
+		switch(getOpClass(n->getOpcode())) {
+		case OpClass::Binary:
+			checkBinary(n);
+			break;
+		case OpClass::Unary:
+			checkUnary(n);
+			break;
+		case OpClass::Compare:
+			if(!isBool(n->getType()))
+				err(n, "comparison result must be i1");
+			if(n->getInput(0)->getType() != n->getInput(1)->getType())
+				err(n, "comparison operands have different types");
+			break;
+		case OpClass::Convert:
+			checkConvert(n);
+			break;
+		case OpClass::None:
+			break;
+		}
+	}
+
+	void VerifyPass::FunctionVerifier::checkBinary(const Node* n) {
+		Opcode op = n->getOpcode();
+		const Type* lt = n->getInput(0)->getType();
+		const Type* rt = n->getInput(1)->getType();
+		if(lt != n->getType())
+			err(n, "binary result type differs from its left operand");
+		B32 shift = op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr ||
+								op == Opcode::Rotl || op == Opcode::Rotr;
+		if(lt->isPtr()) {
+			if(!(op == Opcode::Add || op == Opcode::Sub))
+				err(n, "pointer arithmetic supports only add/sub");
+			else if(!rt->isInt())
+				err(n, "pointer arithmetic offset must be an integer");
+		} else if(lt->isInt()) {
+			if(shift) {
+				if(!rt->isInt())
+					err(n, "shift amount is not an integer");
+			} else if(rt != lt) {
+				err(n, "binary operands have different types");
+			}
+		} else if(lt->isVec()) {
+			if(rt != lt)
+				err(n, "binary operands have different types");
+			// only the SSE2-lowerable subset may appear at vector types
+			const Type* et = lt->getVecElement();
+			B32 legal = et->isInt() ? (op == Opcode::Add || op == Opcode::Sub || op == Opcode::And ||
+																 op == Opcode::Or || op == Opcode::Xor)
+															: (op == Opcode::FAdd || op == Opcode::FSub || op == Opcode::FMul ||
+																 op == Opcode::FDiv);
+			if(!legal)
+				err(n, "binary opcode has no vector lowering");
+		} else if(lt->isFloat()) {
+			if(rt != lt)
+				err(n, "binary operands have different types");
+		} else {
+			err(n, "binary operates on a non-data type");
+		}
+	}
+
+	void VerifyPass::FunctionVerifier::checkUnary(const Node* n) {
 		auto* u = cast<UnaryNode>(n);
 		const Type* t = n->getType();
 		if(n->getOpcode() == Opcode::FNeg) {
@@ -476,7 +484,7 @@ namespace rat {
 			err(n, "unary result type differs from its operand");
 	}
 
-	void VerifyPass::FunctionVerifier::checkConvert(Node* n) {
+	void VerifyPass::FunctionVerifier::checkConvert(const Node* n) {
 		auto* c = cast<ConvertNode>(n);
 		Opcode op = n->getOpcode();
 		const Type* t = n->getType();
@@ -537,38 +545,14 @@ namespace rat {
 			err(stop, "function never returns (Stop has no Return inputs)");
 	}
 
-	B32 verify(const Function& fn, List<String>& errors) {
-		return VerifyPass::FunctionVerifier(fn, errors).run();
-	}
-
-	B32 verify(const Module& module, List<String>& errors) {
-		B32 ok = true;
-		for(const Function* fn : module) {
-			List<String> local;
-			if(!verify(*fn, local)) {
-				ok = false;
-				for(String& s : local)
-					errors.push_back(fn->getName() + ": " + s);
-			}
-		}
-		return ok;
-	}
-
-	B32 verify(const Module& module, std::ostream& os) {
-		List<String> errors;
-		B32 ok = verify(module, errors);
-		for(const String& s : errors)
-			os << s << "\n";
-		return ok;
-	}
-
 	VerifyPass::VerifyPass(std::ostream& os)
 	: os(&os) {}
 
 	const C8* VerifyPass::name() const { return "verify"; }
 
 	B32 VerifyPass::run(Module& module, const TargetInfo&) {
-		verify(module, *os);
+		for(const Function* fn : module)
+			FunctionVerifier(*fn, *os).run();
 		return false;
 	}
 } // namespace rat
