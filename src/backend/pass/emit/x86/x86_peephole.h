@@ -9,7 +9,7 @@
 // A second phase runs a backward demanded-bits dataflow over the physical
 // registers and deletes the width normalizations (SignExtBits/MaskBits) whose
 // high bits no reader observes. A third phase runs a backward liveness
-// dataflow over the spill slots and deletes the stores no reload, call 
+// dataflow over the spill slots and deletes the stores no reload, call
 // argument, or overwrite ever observes.
 
 #ifndef RAT_PASS_EMIT_X86PEEPHOLE_H
@@ -52,32 +52,40 @@ namespace rat {
 		static B32 isSlotLoad(const MachineInstr& in);
 		static MachineInstr makeCopy(PhysReg dst, PhysReg src, U32 cls, U32 width);
 		static B32 writesUntrackedSlot(const MachineInstr& in);
+		U32 foldRegCopy(MachineInstr& in, List<MachineInstr>& out);
+		U32 foldSlotStore(MachineInstr& in, List<MachineInstr>& out);
+		U32 foldSlotLoad(MachineInstr& in, List<MachineInstr>& out);
+		void stepOther(MachineInstr& in, List<MachineInstr>& out);
 		U32 runOnBlock(MachineBlock& b);
 
 		// demanded-bits phase
+		static B32 tracked(const MachineOperand& o) { return o.isPhys() && o.phys < kMaxPhys; }
 		static U64 lowMask(U32 n);
 		static U64 carryMask(U64 out);
 		static B32 isNormalize(X86Op op);
-		static void
-		demandUses(const MachineInstr& in, U64 mask, U64* dem, U32 from = 0, U32 to = ~(U32)0);
+		static void demandUses(const MachineInstr& in, U64 mask, U64* dem, U32 from = 0, U32 to = ~0u);
 		static B32 immCount(const MachineInstr& in, U32& out);
 		static B32 readsFlags(X86Op op);
 		static B32 writesFlags(X86Op op);
 		static B32 flagSafeToDrop(const MachineBlock& b, U32 at);
 		static void transfer(const MachineInstr& in, U64* dem);
 		static void eraseMarked(MachineBlock& b, const List<B32>& drop);
+		static B32 orInto(List<U64>& into, const List<U64>& from);
 		U32 elimRedundantExt(MachineFunc& mf);
 
 		// dead-slot-store phase
+		struct TrackedSlots {
+			Map<I32, U32> index;
+			Map<I32, U32> readWidth;
+		};
+
 		static B32 isAnySlotStore(const MachineInstr& in);
 		static B32 isAnySlotLoad(const MachineInstr& in);
 		static void slotBlockOut(const MachineBlock& b, const List<List<U64>>& liveIn, List<U64>& cur);
-		static void slotStep(const MachineInstr& in,
-												 const Map<I32, U32>& slotIdx,
-												 const Map<I32, U32>& readWidth,
-												 List<U64>& cur);
+		static void slotStep(const MachineInstr& in, const TrackedSlots& slots, List<U64>& cur);
+		static TrackedSlots trackedSlots(const MachineFunc& mf);
 		U32 elimDeadSlotStores(MachineFunc& mf);
-	private:
+
 		ValueState st;
 	};
 } // namespace rat
