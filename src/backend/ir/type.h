@@ -72,6 +72,7 @@ namespace rat {
 		Arena arena;
 	private:
 		Type* make(Type::Kind kind, U32 bits, List<Type*> elements);
+		Type* internElem(List<Type*>& pool, Type::Kind kind, Type* element, U32 count);
 
 		U32 nextUid = 0;
 		Type* control = nullptr;

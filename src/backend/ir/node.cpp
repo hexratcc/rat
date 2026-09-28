@@ -36,9 +36,7 @@ namespace rat {
 	void Node::growInputs(U32 needed) {
 		if(needed <= inputCap)
 			return;
-		U32 cap = inputCap ? inputCap * 2 : 4;
-		if(cap < needed)
-			cap = needed;
+		U32 cap = std::max(inputCap ? inputCap * 2 : 4, needed);
 		Node** grown = fn->allocEdges(cap);
 		if(inputCount)
 			std::memcpy(grown, inputs, sizeof(Node*) * inputCount);
@@ -332,7 +330,6 @@ namespace rat {
 	Node* SelectNode::getCondition() const { return getInput(0); }
 	Node* SelectNode::getTrue() const { return getInput(1); }
 	Node* SelectNode::getFalse() const { return getInput(2); }
-
 
 	ShuffleNode::ShuffleNode(Function& fn, Type* vecType, Node* vector, U8 sel)
 	: Node(fn, Opcode::Shuffle, vecType, {vector}),

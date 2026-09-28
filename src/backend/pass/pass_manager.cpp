@@ -7,10 +7,21 @@
 #include <ostream>
 
 namespace rat {
+	namespace detail {
+		U64 nowNanos() {
+			auto since = std::chrono::steady_clock::now().time_since_epoch();
+			return std::chrono::duration_cast<std::chrono::nanoseconds>(since).count();
+		}
+
+		B32 slowerPass(const PassTiming& a, const PassTiming& b) { return a.nanos > b.nanos; }
+	} // namespace detail
+
 	Pass* PassManager::add(UniquePtr<Pass> pass) {
-		Pass* raw = pass.get();
-		passes.push_back(std::move(pass));
-		return raw;
+		return passes.emplace_back(std::move(pass)).get();
+	}
+
+	MachinePass* PassManager::add(UniquePtr<MachinePass> p) {
+		return machinePasses.emplace_back(std::move(p)).get();
 	}
 
 	void PassManager::gateLastOnChangesSinceSelf() {
@@ -29,41 +40,41 @@ namespace rat {
 		timing.push_back({name, nanos, 1});
 	}
 
-	void PassManager::run(Module& module, std::ostream* log) {
-		using Clock = std::chrono::steady_clock;
-		List<B32> changedAt(passes.size(), false);
-		auto runOne = [&](const C8* name, auto&& fn) -> B32 {
-			auto start = Clock::now();
-			B32 c = fn();
-			U64 nanos =
-					std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count();
-			record(name, nanos);
-			if(log)
-				*log << "; " << name << (c ? " : changed\n" : " : unchanged\n");
-			return c;
-		};
-		auto runAt = [&](U32 i) {
-			Pass* pass = passes[i].get();
-			if(i < gated.size() && gated[i]) {
-				I32 prev = -1;
-				for(I32 j = (I32)i - 1; j >= 0; --j)
-					if(std::strcmp(passes[(U32)j]->name(), pass->name()) == 0) {
-						prev = j;
-						break;
-					}
-				B32 due = prev < 0;
-				for(I32 j = prev + 1; !due && j < (I32)i; ++j)
-					due = changedAt[(U32)j];
-				if(!due) {
-					if(log)
-						*log << "; " << pass->name() << " : skipped (no changes since last run)\n";
-					changedAt[i] = false;
-					return;
-				}
-			}
-			changedAt[i] = runOne(pass->name(), [&] { return pass->run(module, *target); });
-		};
+	B32 PassManager::finish(const C8* name, U64 start, B32 changed, std::ostream* log) {
+		record(name, detail::nowNanos() - start);
+		if(log)
+			*log << "; " << name << (changed ? " : changed\n" : " : unchanged\n");
+		return changed;
+	}
 
+	B32 PassManager::isDue(U32 i, const List<B32>& changedAt) const {
+		if(i >= gated.size() || !gated[i])
+			return true;
+		for(U32 j = i; j-- > 0;) {
+			if(std::strcmp(passes[j]->name(), passes[i]->name()) == 0)
+				return false;
+			if(changedAt[j])
+				return true;
+		}
+		return true;
+	}
+
+	void PassManager::runAt(U32 i, Module& module, List<B32>& changedAt, std::ostream* log) {
+		Pass* pass = passes[i].get();
+		const C8* name = pass->name();
+		if(!isDue(i, changedAt)) {
+			if(log)
+				*log << "; " << name << " : skipped (no changes since last run)\n";
+			changedAt[i] = false;
+			return;
+		}
+		U64 start = detail::nowNanos();
+		B32 changed = pass->run(module, *target);
+		changedAt[i] = finish(name, start, changed, log);
+	}
+
+	void PassManager::run(Module& module, std::ostream* log) {
+		List<B32> changedAt(passes.size(), false);
 		U32 n = (U32)passes.size();
 		U32 loopEnd = fixpointEnd; // fixpoint covers [0, loopEnd); rest runs once
 		if(fixpointEnd) {
@@ -71,18 +82,20 @@ namespace rat {
 			B32 sweepChanged = true;
 			for(U32 s = 0; s < kMaxSweeps && sweepChanged; ++s) {
 				sweepChanged = false;
-				for(B32& v : changedAt)
-					v = false;
+				changedAt.assign(n, false);
 				for(U32 i = 0; i < loopEnd; ++i) {
-					runAt(i);
+					runAt(i, module, changedAt, log);
 					sweepChanged = sweepChanged || changedAt[i];
 				}
 			}
 		}
 		for(U32 i = loopEnd; i < n; ++i)
-			runAt(i);
-		for(auto& pass : machinePasses)
-			runOne(pass->name(), [&] { return pass->run(module, mm, *target); });
+			runAt(i, module, changedAt, log);
+		for(auto& pass : machinePasses) {
+			U64 start = detail::nowNanos();
+			B32 changed = pass->run(module, mm, *target);
+			finish(pass->name(), start, changed, log);
+		}
 	}
 
 	void PassManager::printTimingReport(std::ostream& os) const {
@@ -93,9 +106,7 @@ namespace rat {
 			total = 1;
 
 		List<PassTiming> sorted = timing;
-		std::sort(sorted.begin(), sorted.end(), [](const PassTiming& a, const PassTiming& b) {
-			return a.nanos > b.nanos;
-		});
+		std::sort(sorted.begin(), sorted.end(), detail::slowerPass);
 
 		B32 first = true;
 		for(auto& t : sorted) {

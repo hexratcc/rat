@@ -35,7 +35,6 @@ namespace rat {
 
 	struct Node {
 		Node(Function& fn, Opcode op, Type* type, const List<Node*>& inputs);
-		~Node() = default;
 
 		Node(const Node&) = delete;
 		Node& operator=(const Node&) = delete;
