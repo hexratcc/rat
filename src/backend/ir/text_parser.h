@@ -17,7 +17,10 @@ namespace rat {
 		List<U32> parseVRefs(const String& s);
 		void splitTypeToken(const String& after, String& typeStr, String& remainder);
 		B32 takeQuoted(const String& s, String& name, String& rest);
+		B32 hexDigit(C8 c, U8& v);
+		B32 decodeBytes(const String& s, List<U8>& out);
 		B32 unquoteBytes(const String& s, List<U8>& out);
+		B32 parseIndex(const String& digits, U32& out);
 		Opcode opcodeForMnemonic(const String& m, B32& ok);
 
 		struct ParsedNode {
@@ -43,18 +46,27 @@ namespace rat {
 			Parser(Module& mod, std::ostream& err);
 
 			B32 fail(const String& msg);
+			std::nullptr_t failNull(const String& msg);
 			B32 skip(const String& t);
 			B32 parse(std::istream& in);
 			Type* parseType(const String& s);
+			Type* parseCounted(const String& t, const C8* kind, const C8* countName, U32& count);
 			B32 parseTypeList(const String& s, List<Type*>& out);
+			B32 flushType(String& cur, List<Type*>& out);
 			B32 parseGlobal(const String& line);
 			B32 parseFunction(const String& header, std::istream& in);
 			B32 parseNodeLine(const String& line, ParsedNode& pn);
+			B32 parsePayload(const String& remainder, const String& line, ParsedNode& pn);
+			B32 parseProj(const String& remainder, const String& line, ParsedNode& pn);
+			B32 parseLaneOp(const String& remainder, const String& line, ParsedNode& pn);
+			B32 singleRef(const String& remainder, const String& error, ParsedNode& pn);
 
 			B32 build(Function* fn, const List<ParsedNode>& nodes);
 			void seedStartStop(Function* fn, const List<ParsedNode>& nodes);
+			B32 ready(const ParsedNode& pn) const;
 			B32 materialize(Function* fn, const List<ParsedNode>& nodes);
 			Node* makeNode(Function* fn, const ParsedNode& pn);
+			Node* makeWithInputs(Function* fn, const ParsedNode& pn, const List<Node*>& in);
 			B32 wireDeferredInputs(const List<ParsedNode>& nodes);
 
 			Node* operand(const ParsedNode& pn, U32 index);
