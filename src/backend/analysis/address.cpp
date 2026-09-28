@@ -6,7 +6,7 @@
 #include "ir/type.h"
 
 namespace rat {
-	namespace {
+	namespace detail {
 		// extract a compile-time constant value; false if n is not a constant
 		B32 constValue(const Node* n, I64& v) {
 			const ConstantNode* c = dyn_cast<ConstantNode>(n);
@@ -102,7 +102,7 @@ namespace rat {
 			}
 			out.terms.push_back({n, scale});
 		}
-	} // namespace
+	} // namespace detail
 
 	B32 RefinedAddr::valid() const { return base != nullptr && size != 0; }
 
@@ -112,7 +112,7 @@ namespace rat {
 
 	// merge equal vars, drop zero scales, sort by node id
 	void canonicalizeTerms(List<Pair<const Node*, I64>>& terms) {
-		std::sort(terms.begin(), terms.end(), termLess);
+		std::sort(terms.begin(), terms.end(), detail::termLess);
 		List<Pair<const Node*, I64>> merged;
 		for(const auto& t : terms) {
 			if(!merged.empty() && merged.back().first == t.first)
@@ -140,7 +140,7 @@ namespace rat {
 			I64 sign = 1;
 			if(op == Opcode::Sub)
 				sign = -1;
-			refineTerm(b->getRHS(), sign, out, 0);
+			detail::refineTerm(b->getRHS(), sign, out, 0);
 			base = b->getLHS();
 		}
 		out.base = base;

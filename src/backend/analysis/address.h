@@ -21,6 +21,14 @@ namespace rat {
 		B32 sameGroup(const RefinedAddr& o) const;
 	};
 
+	namespace detail {
+		B32 constValue(const Node* n, I64& v);
+		B32 isI64(const Node* n);
+		B32 termLess(const Pair<const Node*, I64>& a, const Pair<const Node*, I64>& b);
+		void refineTerm32(const Node* n, I64 scale, RefinedAddr& out, U32 depth);
+		void refineTerm(const Node* n, I64 scale, RefinedAddr& out, U32 depth);
+	} // namespace detail
+
 	RefinedAddr refineAddr(Node* addr, U32 accessBytes);
 	void canonicalizeTerms(List<Pair<const Node*, I64>>& terms);
 

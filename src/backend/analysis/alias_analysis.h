@@ -15,6 +15,10 @@
 namespace rat {
 	struct Node;
 
+	namespace detail {
+		B32 idLess(const Node* a, const Node* b);
+	} // namespace detail
+
 	enum class AliasResult { NoAlias, MayAlias, MustAlias };
 
 	struct AliasAnalysis {

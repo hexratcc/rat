@@ -5,32 +5,15 @@
 #include "ir/node.h"
 
 namespace rat {
-	namespace detail {
-		I32 idGet(const List<I32>& v, U32 id) { return id < v.size() ? v[id] : -1; }
-
-		void idSet(List<I32>& v, U32 id, I32 val) {
-			if(id >= v.size())
-				v.resize(id + 1, -1);
-			v[id] = val;
-		}
-
-		Node* nodeGet(const List<Node*>& v, U32 id) { return id < v.size() ? v[id] : nullptr; }
-
-		void nodeSet(List<Node*>& v, U32 id, Node* val) {
-			if(id >= v.size())
-				v.resize(id + 1, nullptr);
-			v[id] = val;
-		}
-	} // namespace detail
-
 	Schedule::Schedule(const Function& fn, Mode mode)
 	: fn(fn) {
-		U32 count = fn.size();
+		U32 count = fn.idBound();
 		headIndex.assign(count, -1);
 		nodeBlock.assign(count, -1);
 		headMemo.assign(count, nullptr);
 		collectHeads();
 		buildCFG();
+		computeRpo();
 		computeDominators();
 		computeLoops();
 		computeHoistBounds();
@@ -76,7 +59,7 @@ namespace rat {
 		for(Node* n : fn) {
 			if(isHeadNode(n)) {
 				I32 b = (I32)blocks.size();
-				detail::idSet(headIndex, n->getId(), b);
+				headIndex[n->getId()] = b;
 				blocks.emplace_back();
 				blocks.back().head = n;
 				if(ProjNode* p = dyn_cast<ProjNode>(n))
@@ -87,9 +70,7 @@ namespace rat {
 		assert(entryBlock >= 0 && "no entry block found");
 	}
 
-	I32 Schedule::blockOfHead(const Node* head) const {
-		return head ? detail::idGet(headIndex, head->getId()) : -1;
-	}
+	I32 Schedule::blockOfHead(const Node* head) const { return head ? headIndex[head->getId()] : -1; }
 
 	I32 Schedule::headBlock(const Node* head) const {
 		I32 b = blockOfHead(head);
@@ -101,7 +82,7 @@ namespace rat {
 		List<Node*> path;
 		Node* c = ctrl;
 		while(true) {
-			if(Node* memo = detail::nodeGet(headMemo, c->getId())) {
+			if(Node* memo = headMemo[c->getId()]) {
 				c = memo;
 				break;
 			}
@@ -112,93 +93,85 @@ namespace rat {
 			c = p->getProducer()->getControlInput();
 		}
 		for(Node* n : path)
-			detail::nodeSet(headMemo, n->getId(), c);
+			headMemo[n->getId()] = c;
 		return c;
 	}
 
 	void Schedule::buildCFG() {
 		for(I32 b = 0; b < (I32)blocks.size(); ++b) {
-			Node* cur = blocks[b].head;
-			while(true) {
-				Node* nextCall = nullptr;
-				Node* ifTerm = nullptr;
-				Node* retTerm = nullptr;
-				Node* gotoRegion = nullptr;
-				I32 gotoIdx = -1;
+			setTerminator(b, walkBlock(b));
+			for(U32 i = 0, e = succCount(b); i < e; ++i)
+				blocks[succAt(b, i)].preds.push_back(b);
+		}
+	}
 
-				for(Node* u : cur->getUsers()) {
-					switch(u->getOpcode()) {
-					case Opcode::Store:
-					case Opcode::StackAlloc:
-					case Opcode::StackSave:
-					case Opcode::StackRestore:
-						if(u->getControlInput() == cur)
-							detail::idSet(nodeBlock, u->getId(), b);
-						break;
-					case Opcode::Call:
-					case Opcode::Asm:
-						if(u->getControlInput() == cur) {
-							detail::idSet(nodeBlock, u->getId(), b);
-							nextCall = u;
+	Schedule::BlockEnd Schedule::walkBlock(I32 b) {
+		Node* cur = blocks[b].head;
+		while(true) {
+			BlockEnd end;
+			Node* nextCall = nullptr;
+			for(Node* u : cur->getUsers()) {
+				switch(u->getOpcode()) {
+				case Opcode::Store:
+				case Opcode::StackAlloc:
+				case Opcode::StackSave:
+				case Opcode::StackRestore:
+					if(u->getControlInput() == cur)
+						nodeBlock[u->getId()] = b;
+					break;
+				case Opcode::Call:
+				case Opcode::Asm:
+					if(u->getControlInput() == cur) {
+						nodeBlock[u->getId()] = b;
+						nextCall = u;
+					}
+					break;
+				case Opcode::If:
+				case Opcode::Switch:
+					if(u->getControlInput() == cur)
+						end.ifTerm = u;
+					break;
+				case Opcode::Return:
+					if(u->getControlInput() == cur)
+						end.retTerm = u;
+					break;
+				case Opcode::Region:
+					for(U32 k = 0, e = u->getInputCount(); k < e; ++k)
+						if(u->getInput(k) == cur) {
+							end.gotoRegion = u;
+							end.gotoIdx = (I32)k;
 						}
-						break;
-					case Opcode::If:
-					case Opcode::Switch:
-						if(u->getControlInput() == cur)
-							ifTerm = u;
-						break;
-					case Opcode::Return:
-						if(u->getControlInput() == cur)
-							retTerm = u;
-						break;
-					case Opcode::Region:
-						for(U32 k = 0, e = u->getInputCount(); k < e; ++k)
-							if(u->getInput(k) == cur) {
-								gotoRegion = u;
-								gotoIdx = (I32)k;
-							}
-						break;
-					default:
-						break;
-					}
+					break;
+				default:
+					break;
 				}
-
-				if(nextCall) {
-					cur = requireProj(nextCall, CallNode::controlProjIndex());
-					continue;
-				}
-
-				Block& t = blocks[b];
-				if(ifTerm && ifTerm->getOpcode() == Opcode::Switch) {
-					t.term = TermKind::Switch;
-					t.termNode = ifTerm;
-					SwitchNode* sw = cast<SwitchNode>(ifTerm);
-					for(U32 k = 0, e = sw->getSlotCount(); k < e; ++k) {
-						I32 tb = headBlock(requireProj(ifTerm, k));
-						t.caseB.push_back(tb);
-						blocks[tb].preds.push_back(b);
-					}
-				} else if(ifTerm) {
-					t.term = TermKind::Branch;
-					t.termNode = ifTerm;
-					Node* thenP = requireProj(ifTerm, IfNode::thenProjIndex());
-					Node* elseP = requireProj(ifTerm, IfNode::elseProjIndex());
-					t.thenB = headBlock(thenP);
-					t.elseB = headBlock(elseP);
-					blocks[t.thenB].preds.push_back(b);
-					blocks[t.elseB].preds.push_back(b);
-				} else if(retTerm) {
-					t.term = TermKind::Return;
-					t.termNode = retTerm;
-				} else {
-					assert(gotoRegion && "block has no terminator");
-					t.term = TermKind::Goto;
-					t.gotoB = headBlock(gotoRegion);
-					t.gotoPredIdx = gotoIdx;
-					blocks[t.gotoB].preds.push_back(b);
-				}
-				break;
 			}
+			if(!nextCall)
+				return end;
+			cur = requireProj(nextCall, CallNode::controlProjIndex());
+		}
+	}
+
+	void Schedule::setTerminator(I32 b, const BlockEnd& end) {
+		Block& t = blocks[b];
+		if(SwitchNode* sw = dyn_cast<SwitchNode>(end.ifTerm)) {
+			t.term = TermKind::Switch;
+			t.termNode = sw;
+			for(U32 k = 0, e = sw->getSlotCount(); k < e; ++k)
+				t.caseB.push_back(headBlock(requireProj(sw, k)));
+		} else if(end.ifTerm) {
+			t.term = TermKind::Branch;
+			t.termNode = end.ifTerm;
+			t.thenB = headBlock(requireProj(end.ifTerm, IfNode::thenProjIndex()));
+			t.elseB = headBlock(requireProj(end.ifTerm, IfNode::elseProjIndex()));
+		} else if(end.retTerm) {
+			t.term = TermKind::Return;
+			t.termNode = end.retTerm;
+		} else {
+			assert(end.gotoRegion && "block has no terminator");
+			t.term = TermKind::Goto;
+			t.gotoB = headBlock(end.gotoRegion);
+			t.gotoPredIdx = end.gotoIdx;
 		}
 	}
 
@@ -239,7 +212,7 @@ namespace rat {
 		return out;
 	}
 
-	void Schedule::computeDominators() {
+	void Schedule::computeRpo() {
 		I32 count = (I32)blocks.size();
 		post.assign(count, -1);
 		List<I32> order;
@@ -269,9 +242,10 @@ namespace rat {
 			}
 		}
 		rpoOrder.assign(order.rbegin(), order.rend());
+	}
 
-		List<I32> idom(count, -1);
-		idom[entryBlock] = entryBlock;
+	void Schedule::computeDominators() {
+		blocks[entryBlock].idom = entryBlock;
 		B32 changed = true;
 		while(changed) {
 			changed = false;
@@ -280,29 +254,26 @@ namespace rat {
 					continue;
 				I32 newIdom = -1;
 				for(I32 p : blocks[b].preds) {
-					if(idom[p] == -1)
+					if(blocks[p].idom == -1)
 						continue;
-					newIdom = (newIdom == -1) ? p : intersectWith(idom, p, newIdom);
+					newIdom = (newIdom == -1) ? p : intersect(p, newIdom);
 				}
-				if(newIdom != -1 && idom[b] != newIdom) {
-					idom[b] = newIdom;
+				if(newIdom != -1 && blocks[b].idom != newIdom) {
+					blocks[b].idom = newIdom;
 					changed = true;
 				}
 			}
 		}
-		for(I32 b = 0; b < count; ++b)
-			blocks[b].idom = idom[b];
-
 		for(I32 b : rpoOrder)
 			blocks[b].domDepth = (b == entryBlock) ? 0 : blocks[blocks[b].idom].domDepth + 1;
 	}
 
-	I32 Schedule::intersectWith(const List<I32>& idom, I32 a, I32 b) const {
+	I32 Schedule::intersect(I32 a, I32 b) const {
 		while(a != b) {
 			while(post[a] < post[b])
-				a = idom[a];
+				a = blocks[a].idom;
 			while(post[b] < post[a])
-				b = idom[b];
+				b = blocks[b].idom;
 		}
 		return a;
 	}
@@ -457,7 +428,7 @@ namespace rat {
 
 	I32 Schedule::fixedDataBlock(Node* n, const List<I32>& early) const {
 		if(isFloating(n))
-			return detail::idGet(early, n->getId());
+			return early[n->getId()];
 		switch(n->getOpcode()) {
 		case Opcode::Phi:
 			return blockOfHead(cast<PhiNode>(n)->getRegion());
@@ -481,33 +452,37 @@ namespace rat {
 
 	void Schedule::scheduleEarly(const List<Node*>& work, List<I32>& early) {
 		for(Node* n : work)
-			detail::idSet(early, n->getId(), entryBlock);
+			early[n->getId()] = entryBlock;
 
 		// deepest input block, to fixpoint (a floating input may not be settled)
 		B32 changed = true;
 		while(changed) {
 			changed = false;
 			for(Node* n : work) {
-				I32 e = entryBlock;
-				U32 first = isa<LoadNode>(n) ? 1 : 0;
-				for(U32 i = first, ie = n->getInputCount(); i < ie; ++i) {
-					Node* in = n->getInput(i);
-					if(!in)
-						continue;
-					I32 b = fixedDataBlock(in, early);
-					if(b >= 0 && blocks[b].domDepth > blocks[e].domDepth)
-						e = b;
-				}
+				I32 e = deepestInput(n, early);
 				// a load's placement follows from its home block alone
 				if(isa<LoadNode>(n))
 					e = hoistTarget(n, homeBlock(n), e);
-				U32 id = n->getId();
-				if(detail::idGet(early, id) != e) {
-					detail::idSet(early, id, e);
+				if(early[n->getId()] != e) {
+					early[n->getId()] = e;
 					changed = true;
 				}
 			}
 		}
+	}
+
+	I32 Schedule::deepestInput(const Node* n, const List<I32>& early) const {
+		I32 e = entryBlock;
+		U32 first = isa<LoadNode>(n) ? 1 : 0;
+		for(U32 i = first, ie = n->getInputCount(); i < ie; ++i) {
+			Node* in = n->getInput(i);
+			if(!in)
+				continue;
+			I32 b = fixedDataBlock(in, early);
+			if(b >= 0 && blocks[b].domDepth > blocks[e].domDepth)
+				e = b;
+		}
+		return e;
 	}
 
 	I32 Schedule::useBlock(Node* u, Node* n) const {
@@ -519,29 +494,24 @@ namespace rat {
 					acc = lca(acc, predBlockForRegionInput(rb, i));
 			return acc < 0 ? rb : acc;
 		}
-		I32 b = detail::idGet(nodeBlock, u->getId());
+		I32 b = nodeBlock[u->getId()];
 		if(b >= 0)
 			return b;
 		if(isa<ReturnNode>(u) || isa<IfNode>(u))
-			return headBlock(headOf(u->getControlInput()));
+			return homeBlock(u);
 		return -1;
 	}
 
 	I32 Schedule::predBlockForRegionInput(I32 rb, U32 i) const {
-		Node* region = blocks[rb].head;
-		Node* predCtrl = region->getInput(i);
-		return headBlock(headOf(predCtrl));
+		return headBlock(headOf(blocks[rb].head->getInput(i)));
 	}
 
 	B32 Schedule::place(Node* n, I32 late, const List<I32>& early) {
 		U32 id = n->getId();
-		I32 e = detail::idGet(early, id);
-		if(e < 0)
-			e = entryBlock;
-		I32 pick = hoistTarget(n, late, e);
-		if(detail::idGet(nodeBlock, id) == pick)
+		I32 pick = hoistTarget(n, late, early[id]);
+		if(nodeBlock[id] == pick)
 			return false;
-		detail::idSet(nodeBlock, id, pick);
+		nodeBlock[id] = pick;
 		return true;
 	}
 
@@ -553,22 +523,22 @@ namespace rat {
 			changed = false;
 			for(U32 wi = (U32)work.size(); wi > 0; --wi) {
 				Node* n = work[wi - 1];
-				I32 late;
-				if(isa<LoadNode>(n)) {
-					// floating loads move up from where they were built but never
-					// below it: the home block is a sound late bound
-					late = homeBlock(n);
-				} else {
-					late = -1;
-					for(Node* u : n->getUsers())
-						late = lca(late, useBlock(u, n));
-					if(late < 0)
-						continue; // no placed use yet
-				}
-				if(place(n, late, early))
+				I32 late = lateBlock(n);
+				if(late >= 0 && place(n, late, early))
 					changed = true;
 			}
 		}
+	}
+
+	I32 Schedule::lateBlock(Node* n) const {
+		// floating loads move up from where they were built but never
+		// below it, so the home block is a sound late bound
+		if(isa<LoadNode>(n))
+			return homeBlock(n);
+		I32 late = -1;
+		for(Node* u : n->getUsers())
+			late = lca(late, useBlock(u, n));
+		return late; // -1: no placed use yet
 	}
 
 	// a load's placement reads only early and its home block, never another
@@ -579,9 +549,7 @@ namespace rat {
 				place(n, homeBlock(n), early);
 	}
 
-	I32 Schedule::blockOf(const Node* n) const {
-		return n ? detail::idGet(nodeBlock, n->getId()) : -1;
-	}
+	I32 Schedule::blockOf(const Node* n) const { return n ? nodeBlock[n->getId()] : -1; }
 
 	void Schedule::buildBlockLists() {
 		for(Node* n : fn)
@@ -608,7 +576,8 @@ namespace rat {
 		}
 
 		TopoScratch scratch;
-		scratch.localOf.assign(fn.size(), -1);
+		scratch.localOf.assign(fn.idBound(), -1);
+		scratch.stHead.assign(fn.idBound(), -1);
 		AliasAnalysis aa(8);
 		List<Node*> raw;
 		for(U32 b = 0; b < nb; ++b) {
@@ -623,7 +592,7 @@ namespace rat {
 				isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n) || isStackOpcode(n->getOpcode());
 		if(!pinned && !isFloating(n))
 			return -1; // none
-		return detail::idGet(nodeBlock, n->getId());
+		return nodeBlock[n->getId()];
 	}
 
 	Node* Schedule::memoryInputOf(const Node* n) {
@@ -640,13 +609,46 @@ namespace rat {
 		return nullptr;
 	}
 
+	B32 Schedule::isMemWriter(const Node* n) {
+		return isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n) || isa<StackRestoreNode>(n);
+	}
+
 	namespace detail {
 		B32 storeMayAliasLoad(const AliasAnalysis& aa, const StoreNode* st, const LoadNode* ld) {
 			return aa.alias(
 								 st->getPointer(), aa.getAccessSize(st), ld->getPointer(), aa.getAccessSize(ld)) !=
 						 AliasResult::NoAlias;
 		}
+
+		B32 laterId(const Node* a, const Node* b) { return a->getId() > b->getId(); }
 	} // namespace detail
+
+	I32 Schedule::TopoScratch::local(const Node* n) const { return n ? localOf[n->getId()] : -1; }
+
+	// extra ordering edges
+	void Schedule::TopoScratch::addEdge(Node* before, Node* after) {
+		if(before == after)
+			return;
+		I32 bi = local(before), ai = local(after);
+		if(bi < 0 || ai < 0)
+			return;
+		succTo.push_back(ai);
+		succNext.push_back(succHead[bi]);
+		succHead[bi] = (I32)succTo.size() - 1;
+		++inDeg[ai];
+	}
+
+	void Schedule::TopoScratch::push(Node* n) {
+		ready.push_back(n);
+		std::push_heap(ready.begin(), ready.end(), detail::laterId);
+	}
+
+	Node* Schedule::TopoScratch::pop() {
+		Node* n = ready.front();
+		std::pop_heap(ready.begin(), ready.end(), detail::laterId);
+		ready.pop_back();
+		return n;
+	}
 
 	List<Node*>
 	Schedule::topoOrder(List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& s) const {
@@ -657,126 +659,29 @@ namespace rat {
 			return out;
 
 		for(U32 i = 0; i < k; ++i)
-			detail::idSet(s.localOf, nodes[i]->getId(), (I32)i);
-
-		auto local = [&](const Node* n) -> I32 {
-			return n ? detail::idGet(s.localOf, n->getId()) : -1;
-		};
-
+			s.localOf[nodes[i]->getId()] = (I32)i;
 		s.inDeg.assign(k, 0);
 		s.succHead.assign(k, -1);
 		s.succNext.clear();
 		s.succTo.clear();
+		addAntiDeps(nodes, aa, s);
+		addOrderEdges(nodes, s);
 
-		// extra ordering edges
-		auto addEdge = [&](Node* before, Node* after) {
-			if(before == after)
-				return;
-			I32 bi = local(before), ai = local(after);
-			if(bi < 0 || ai < 0)
-				return;
-			s.succTo.push_back(ai);
-			s.succNext.push_back(s.succHead[bi]);
-			s.succHead[bi] = (I32)s.succTo.size() - 1;
-			++s.inDeg[ai];
-		};
-
-		// WAR anti-deps. a store/call/asm/stackrestore totally orders the block's memory
-		for(U32 i = 0; i < k; ++i) {
-			Node* n = nodes[i];
-			if(!isa<StoreNode>(n) && !isa<CallNode>(n) && !isa<AsmNode>(n) && !isa<StackRestoreNode>(n))
-				continue;
-			Node* m = memoryInputOf(n);
-			if(!m)
-				continue;
-			if(detail::idGet(s.stHead, m->getId()) < 0)
-				s.touchedSt.push_back((I32)m->getId());
-			detail::idSet(s.stHead, m->getId(), (I32)i);
-		}
-		for(U32 i = 0; i < k; ++i) {
-			LoadNode* ld = dyn_cast<LoadNode>(nodes[i]);
-			if(!ld)
-				continue;
-			Node* state = ld->getMemory();
-			U32 guard = 0; // chain length bound; conservatively pin if exceeded
-			for(I32 wi = state ? detail::idGet(s.stHead, state->getId()) : -1; wi >= 0; ++guard) {
-				Node* w = nodes[wi];
-				StoreNode* st = dyn_cast<StoreNode>(w);
-				if(!st || detail::storeMayAliasLoad(aa, st, ld) || guard >= k) {
-					addEdge(ld, w); // call, aliasing store, or bound hit -> pin here
-					break;
-				}
-				wi = detail::idGet(s.stHead, w->getId()); // skip disjoint store, walk to next writer
-			}
-		}
-
-		auto producerOfMem = [&](Node* m) -> Node* {
-			if(!m)
-				return nullptr;
-			if(ProjNode* p = dyn_cast<ProjNode>(m))
-				return p->getProducer();
-			return m; // a store produces memory directly
-		};
-		for(Node* n : nodes) {
-			if(!isa<StoreNode>(n) && !isa<CallNode>(n) && !isa<LoadNode>(n) && !isa<AsmNode>(n) &&
-				 !isStackOpcode(n->getOpcode()))
-				continue;
-			Node* prod = producerOfMem(memoryInputOf(n));
-			if(prod && (isa<StoreNode>(prod) || isa<CallNode>(prod) || isa<AsmNode>(prod) ||
-									isa<StackRestoreNode>(prod)))
-				addEdge(prod, n);
-		}
-
-		// every stack op moves rsp, so they run in the order they were built
-		Node* prevStack = nullptr;
-		for(Node* n : nodes) {
-			if(!isStackOpcode(n->getOpcode()))
-				continue;
-			if(prevStack)
-				addEdge(prevStack, n);
-			prevStack = n;
-		}
-
-		// restore edge
-		for(Node* n : nodes)
-			for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
-				if(ProjNode* p = dyn_cast<ProjNode>(n->getInput(i)))
-					addEdge(p->getProducer(), n);
-
-		for(U32 i = 0; i < k; ++i) {
-			Node* n = nodes[i];
-			I32 d = 0;
-			for(U32 j = 0, e = n->getInputCount(); j < e; ++j)
-				if(local(n->getInput(j)) >= 0)
-					++d;
-			s.inDeg[i] += d;
-		}
-
-		auto laterId = [](const Node* a, const Node* b) { return a->getId() > b->getId(); };
-		List<Node*>& ready = s.ready;
-		ready.clear();
-		auto push = [&](Node* n) {
-			ready.push_back(n);
-			std::push_heap(ready.begin(), ready.end(), laterId);
-		};
-
+		s.ready.clear();
 		for(U32 i = 0; i < k; ++i)
 			if(s.inDeg[i] == 0)
-				push(nodes[i]);
-
-		while(!ready.empty()) {
-			Node* n = ready.front();
-			std::pop_heap(ready.begin(), ready.end(), laterId);
-			ready.pop_back();
+				s.push(nodes[i]);
+		while(!s.ready.empty()) {
+			Node* n = s.pop();
 			out.push_back(n);
 			for(Node* u : n->getUsers()) {
-				I32 ui = local(u);
+				I32 ui = s.local(u);
 				if(ui >= 0 && --s.inDeg[ui] == 0)
-					push(u);
+					s.push(u);
 			}
-			for(I32 e = s.succHead[local(n)]; e >= 0; e = s.succNext[e])
+			for(I32 e = s.succHead[s.local(n)]; e >= 0; e = s.succNext[e])
 				if(--s.inDeg[s.succTo[e]] == 0)
-					push(nodes[s.succTo[e]]);
+					s.push(nodes[s.succTo[e]]);
 		}
 
 		for(U32 i = 0; i < k; ++i)
@@ -787,5 +692,64 @@ namespace rat {
 
 		assert(out.size() == nodes.size() && "cycle in intra-block schedule");
 		return out;
+	}
+
+	// WAR anti-deps. a store/call/asm/stackrestore totally orders the block's memory
+	void Schedule::addAntiDeps(const List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& s) {
+		U32 k = (U32)nodes.size();
+		for(U32 i = 0; i < k; ++i) {
+			Node* m = isMemWriter(nodes[i]) ? memoryInputOf(nodes[i]) : nullptr;
+			if(!m)
+				continue;
+			if(s.stHead[m->getId()] < 0)
+				s.touchedSt.push_back((I32)m->getId());
+			s.stHead[m->getId()] = (I32)i;
+		}
+		for(U32 i = 0; i < k; ++i) {
+			LoadNode* ld = dyn_cast<LoadNode>(nodes[i]);
+			if(!ld)
+				continue;
+			Node* state = ld->getMemory();
+			U32 guard = 0; // chain length bound; conservatively pin if exceeded
+			for(I32 wi = state ? s.stHead[state->getId()] : -1; wi >= 0; ++guard) {
+				Node* w = nodes[wi];
+				StoreNode* st = dyn_cast<StoreNode>(w);
+				if(!st || detail::storeMayAliasLoad(aa, st, ld) || guard >= k) {
+					s.addEdge(ld, w); // call, aliasing store, or bound hit -> pin here
+					break;
+				}
+				wi = s.stHead[w->getId()]; // skip disjoint store, walk to next writer
+			}
+		}
+	}
+
+	void Schedule::addOrderEdges(const List<Node*>& nodes, TopoScratch& s) {
+		for(Node* n : nodes) {
+			Node* prod = memoryInputOf(n);
+			if(ProjNode* p = dyn_cast<ProjNode>(prod))
+				prod = p->getProducer();
+			if(prod && isMemWriter(prod))
+				s.addEdge(prod, n);
+		}
+
+		// every stack op moves rsp, so they run in the order they were built
+		Node* prevStack = nullptr;
+		for(Node* n : nodes) {
+			if(!isStackOpcode(n->getOpcode()))
+				continue;
+			if(prevStack)
+				s.addEdge(prevStack, n);
+			prevStack = n;
+		}
+
+		// restore edge
+		for(U32 i = 0; i < nodes.size(); ++i)
+			for(U32 j = 0, e = nodes[i]->getInputCount(); j < e; ++j) {
+				Node* in = nodes[i]->getInput(j);
+				if(s.local(in) >= 0)
+					++s.inDeg[i];
+				if(ProjNode* p = dyn_cast<ProjNode>(in))
+					s.addEdge(p->getProducer(), nodes[i]);
+			}
 	}
 } // namespace rat

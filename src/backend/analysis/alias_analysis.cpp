@@ -4,6 +4,10 @@
 #include "ir/type.h"
 
 namespace rat {
+	namespace detail {
+		B32 idLess(const Node* a, const Node* b) { return a->getId() < b->getId(); }
+	} // namespace detail
+
 	AliasAnalysis::AliasAnalysis(U32 pointerBytes)
 	: ptrBytes(pointerBytes) {}
 
@@ -29,24 +33,17 @@ namespace rat {
 			}
 			info.base = b->getLHS();
 		}
-		std::sort(info.symbolic.begin(), info.symbolic.end(), [](const Node* a, const Node* b) {
-			return a->getId() < b->getId();
-		});
+		std::sort(info.symbolic.begin(), info.symbolic.end(), detail::idLess);
 		return decomposeCache.emplace(addr, std::move(info)).first->second;
 	}
 
-	U32 AliasAnalysis::getAccessSize(
-			const Node* access) const { // byte size of a load/store (0 otherwise)
-		Node* n = const_cast<Node*>(access);
-		Type* t = nullptr;
-		if(n->getOpcode() == Opcode::Load)
-			t = n->getType();
-		else if(n->getOpcode() == Opcode::Store)
-			t = cast<StoreNode>(n)->getValue()->getType();
-		else
-			return 0;
-
-		return t->byteSize(ptrBytes);
+	// byte size of a load/store (0 otherwise)
+	U32 AliasAnalysis::getAccessSize(const Node* access) const {
+		if(access->getOpcode() == Opcode::Load)
+			return access->getType()->byteSize(ptrBytes);
+		if(access->getOpcode() == Opcode::Store)
+			return cast<StoreNode>(access)->getValue()->getType()->byteSize(ptrBytes);
+		return 0;
 	}
 
 	Node* AliasAnalysis::accessAddress(Node* n) {
@@ -93,11 +90,8 @@ namespace rat {
 			return distinctObjects(a.base, b.base) ? AliasResult::NoAlias : AliasResult::MayAlias;
 
 		// same base, but the symbolic parts must match to compare offsets
-		if(a.symbolic.size() != b.symbolic.size())
+		if(a.symbolic != b.symbolic)
 			return AliasResult::MayAlias;
-		for(U32 i = 0, e = (U32)a.symbolic.size(); i < e; ++i)
-			if(a.symbolic[i] != b.symbolic[i])
-				return AliasResult::MayAlias;
 
 		// the two addresses differ only by a constant byte offset
 		I64 delta = (I64)((U64)a.constant - (U64)b.constant); // a = b + delta (wraps)
