@@ -17,13 +17,6 @@ namespace detail {
 		String expect;
 	};
 
-	template <class AddPasses>
-	void runPasses(Module& mod, const TargetInfo& target, AddPasses&& add) {
-		PassManager pm(target);
-		add(pm);
-		pm.run(mod);
-	}
-
 	List<String> normalizeLines(const String& text) {
 		List<String> out;
 		std::istringstream ss(stripAnsi(text));
@@ -39,7 +32,9 @@ namespace detail {
 	String emitToString(Module& m) {
 		std::ostringstream os;
 		Generic64 target;
-		runPasses(m, target, [&](PassManager& pm) { pm.add<TextEmitterPass>(os); });
+		PassManager pm(target);
+		pm.add<TextEmitterPass>(os);
+		pm.run(m);
 		return os.str();
 	}
 
@@ -103,61 +98,52 @@ namespace detail {
 		return s;
 	}
 
-	B32 runRatCase(const String& path, String& err) {
+	B32 readFile(const String& path, String& text, String& err) {
 		std::ifstream f(path);
 		if(!f) {
 			err = "cannot read file";
 			return false;
 		}
-		String text;
 		if(!readAll(f, text)) {
 			err = "failed to read file";
 			return false;
 		}
+		return true;
+	}
 
-		RatTestFile tf;
-		if(!parseRatTestFile(text, tf, err))
-			return false;
-
+	B32 runRatPasses(Module& mod, const List<String>& passes, String& err) {
 		Generic64 target;
-		Module mod;
-		std::ostringstream perr;
-		if(!parseText(tf.input, mod, perr)) {
-			err = "input parse error\n    " + trim(perr.str());
-			return false;
-		}
-
+		PassManager pm(target);
 		std::ostringstream sink;
-		B32 ok = true;
-		runPasses(mod, target, [&](PassManager& pm) {
-			for(const String& p : tf.passes) {
-				UniquePtr<Pass> pass = createPass(p, sink);
-				if(!pass) {
-					err = "unknown pass: " + p;
-					ok = false;
-					return;
-				}
-				pm.add(std::move(pass));
+		for(const String& p : passes) {
+			UniquePtr<Pass> pass = createPass(p, sink);
+			if(!pass) {
+				err = "unknown pass: " + p;
+				return false;
 			}
-		});
-		if(!ok)
-			return false;
+			pm.add(std::move(pass));
+		}
+		pm.run(mod);
 		String diags = trim(sink.str());
 		if(!diags.empty()) {
 			err = "pass diagnostics\n    " + diags;
 			return false;
 		}
+		return true;
+	}
 
-		String actualCanon, expectCanon, cerr;
+	B32 matchesExpect(Module& mod, const String& expect, String& err) {
+		String actualCanon;
+		String expectCanon;
+		String cerr;
 		if(!canonicalIR(emitToString(mod), actualCanon, cerr)) {
 			err = "cannot re-parse actual output\n    " + trim(cerr);
 			return false;
 		}
-		if(!canonicalIR(tf.expect, expectCanon, cerr)) {
+		if(!canonicalIR(expect, expectCanon, cerr)) {
 			err = "@expect parse error\n    " + trim(cerr);
 			return false;
 		}
-
 		List<String> a = normalizeLines(actualCanon);
 		List<String> e = normalizeLines(expectCanon);
 		if(a != e) {
@@ -167,6 +153,20 @@ namespace detail {
 		return true;
 	}
 
+	B32 runRatCase(const String& path, String& err) {
+		String text;
+		RatTestFile tf;
+		if(!readFile(path, text, err) || !parseRatTestFile(text, tf, err))
+			return false;
+
+		Module mod;
+		std::ostringstream perr;
+		if(!parseText(tf.input, mod, perr)) {
+			err = "input parse error\n    " + trim(perr.str());
+			return false;
+		}
+		return runRatPasses(mod, tf.passes, err) && matchesExpect(mod, tf.expect, err);
+	}
 } // namespace detail
 
 I32 main(I32 argc, char** argv) {
@@ -174,6 +174,6 @@ I32 main(I32 argc, char** argv) {
 	spec.tool = "rat-test";
 	spec.extension = ".rat";
 	spec.dirCandidates = {"src/backend/test", "test"};
-	spec.run = [](const String& path, String& err) { return ::detail::runRatCase(path, err); };
+	spec.run = ::detail::runRatCase;
 	return runTestSuite(argc, argv, spec);
 }
