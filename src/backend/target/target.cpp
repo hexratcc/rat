@@ -4,45 +4,50 @@
 
 namespace rat {
 	namespace detail {
-		RegisterInfo buildX86Registers(const X86CallConv& conv) {
-			auto gp = [](Reg reg) -> PhysReg { return X86Target::kGpBase + (PhysReg)reg; };
-			auto xmm = [](U32 n) -> PhysReg { return X86Target::kXmmBase + n; };
-			auto st = [](U32 n) -> PhysReg { return X86Target::kStBase + n; };
-			auto calleeSaved = [&](Reg r) -> B32 {
-				for(U32 i = 0; i < conv.gpCalleeSavedCount; ++i)
-					if(conv.gpCalleeSaved[i] == r)
-						return true;
-				return false;
-			};
+		B32 isCalleeSaved(const X86CallConv& conv, Reg r) {
+			const Reg* end = conv.gpCalleeSaved + conv.gpCalleeSavedCount;
+			return std::find(conv.gpCalleeSaved, end, r) != end;
+		}
 
+		RegClass gpRegClass(const X86CallConv& conv) {
 			constexpr Reg kCandidates[] = {RAX, RCX, RDX, RBX, RSI, RDI, R8, R9, R12, R13, R14, R15};
-
-			RegClass gpc;
-			gpc.id = X86Target::kGpClass;
+			PhysReg gp = X86Target::kGpBase;
+			RegClass c;
+			c.id = X86Target::kGpClass;
 			for(U32 pass = 0; pass < 2; ++pass)
 				for(Reg r : kCandidates)
-					if(calleeSaved(r) == (pass == 1))
-						gpc.allocatable.push_back(gp(r));
+					if(isCalleeSaved(conv, r) == (pass == 1))
+						c.allocatable.push_back(gp + r);
 			for(U32 i = 0; i < conv.gpCalleeSavedCount; ++i)
-				gpc.calleeSaved.push_back(gp(conv.gpCalleeSaved[i]));
-			gpc.scratch = {gp(R10), gp(R11)};
+				c.calleeSaved.push_back(gp + conv.gpCalleeSaved[i]);
+			c.scratch = {gp + R10, gp + R11};
+			return c;
+		}
 
-			RegClass fpc;
-			fpc.id = X86Target::kFpClass;
+		RegClass fpRegClass(const X86CallConv& conv) {
+			PhysReg xmm = X86Target::kXmmBase;
+			RegClass c;
+			c.id = X86Target::kFpClass;
 			for(U32 i = 0; i + 2 < conv.sseVolatileCount; ++i)
-				fpc.allocatable.push_back(xmm(i));
-			fpc.scratch = {xmm(conv.sseVolatileCount - 2), xmm(conv.sseVolatileCount - 1)};
-			fpc.spillBytes = 16; // an xmm vreg may hold a full 128-bit vector
+				c.allocatable.push_back(xmm + i);
+			c.scratch = {xmm + conv.sseVolatileCount - 2, xmm + conv.sseVolatileCount - 1};
+			c.spillBytes = 16; // an xmm vreg may hold a full 128-bit vector
+			return c;
+		}
 
-			RegClass x87c;
-			x87c.id = X86Target::kX87Class;
+		RegClass x87RegClass() {
+			RegClass c;
+			c.id = X86Target::kX87Class;
 			for(U32 i = 0; i < 8; ++i) {
-				x87c.allocatable.push_back(st(i));
-				x87c.calleeSaved.push_back(st(i));
+				c.allocatable.push_back(X86Target::kStBase + i);
+				c.calleeSaved.push_back(X86Target::kStBase + i);
 			}
+			return c;
+		}
 
+		RegisterInfo buildX86Registers(const X86CallConv& conv) {
 			RegisterInfo info;
-			info.classes = {gpc, fpc, x87c};
+			info.classes = {gpRegClass(conv), fpRegClass(conv), x87RegClass()};
 			info.spillSlotBytes = 8;
 			return info;
 		}

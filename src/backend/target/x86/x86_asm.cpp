@@ -36,6 +36,11 @@ namespace rat {
 	void Asm::b(U8 v) { code.push_back(v); }
 	void Asm::d32(U32 v) { le::put32(code, v); }
 	void Asm::d64(U64 v) { le::put64(code, v); }
+	U32 Asm::reserve32() {
+		U32 at = here();
+		d32(0);
+		return at;
+	}
 
 	U8 Asm::rexByte(B32 w, U32 r, U32 x, U32 rm) {
 		return (U8)(0x40 | (w ? 8 : 0) | ((r >> 3) << 2) | ((x >> 3) << 1) | (rm >> 3));
@@ -108,6 +113,8 @@ namespace rat {
 			d32((U32)(I32)imm);
 	}
 
+	U8 Asm::opSizePrefix(U32 width) { return width == 2 ? 0x66 : 0; }
+
 	U8 Asm::memStoreFlags(U32 width, Reg src) {
 		U8 f = width == 8 ? (U8)kMemW : (U8)0;
 		if(width == 1 && src >= RSP && src <= RDI)
@@ -136,44 +143,27 @@ namespace rat {
 	}
 
 	void Asm::storeMem(Reg base, I32 disp, Reg src, U32 width) {
-		memOp(width == 2 ? 0x66 : 0,
-					memStoreFlags(width, src),
-					width == 1 ? 0x88 : 0x89,
-					src,
-					base,
-					disp);
+		U8 opc = width == 1 ? 0x88 : 0x89;
+		memOp(opSizePrefix(width), memStoreFlags(width, src), opc, src, base, disp);
 	}
 
 	void Asm::storeMemSib(Reg base, Reg index, U32 scaleLog2, I32 disp, Reg src, U32 width) {
-		memOp(width == 2 ? 0x66 : 0,
-					(U8)(memStoreFlags(width, src) | kMemSib),
-					width == 1 ? 0x88 : 0x89,
-					src,
-					base,
-					disp,
-					index,
-					scaleLog2);
+		U8 flags = (U8)(memStoreFlags(width, src) | kMemSib);
+		U8 opc = width == 1 ? 0x88 : 0x89;
+		memOp(opSizePrefix(width), flags, opc, src, base, disp, index, scaleLog2);
 	}
 
 	void Asm::storeMemImmSib(Reg base, Reg index, U32 scaleLog2, I32 disp, I64 imm, U32 width) {
-		memOp(width == 2 ? 0x66 : 0,
-					(U8)((width == 8 ? kMemW : 0) | kMemSib),
-					width == 1 ? 0xc6 : 0xc7,
-					0,
-					base,
-					disp,
-					index,
-					scaleLog2);
+		U8 flags = (U8)((width == 8 ? kMemW : 0) | kMemSib);
+		U8 opc = width == 1 ? 0xc6 : 0xc7;
+		memOp(opSizePrefix(width), flags, opc, 0, base, disp, index, scaleLog2);
 		memImmTail(imm, width);
 	}
 
 	void Asm::storeMemImm(Reg base, I32 disp, I64 imm, U32 width) {
-		memOp(width == 2 ? 0x66 : 0,
-					(U8)(width == 8 ? kMemW : 0),
-					width == 1 ? 0xc6 : 0xc7,
-					0,
-					base,
-					disp);
+		U8 flags = (U8)(width == 8 ? kMemW : 0);
+		U8 opc = width == 1 ? 0xc6 : 0xc7;
+		memOp(opSizePrefix(width), flags, opc, 0, base, disp);
 		memImmTail(imm, width);
 	}
 
@@ -212,7 +202,6 @@ namespace rat {
 	void Asm::subRR(Reg d, Reg s) { aluRR(0x29, d, s); }
 	void Asm::andRR(Reg d, Reg s) { aluRR(0x21, d, s); }
 	void Asm::orRR(Reg d, Reg s) { aluRR(0x09, d, s); }
-	void Asm::xorRR(Reg d, Reg s) { aluRR(0x31, d, s); }
 	void Asm::cmpRR(Reg d, Reg s) { aluRR(0x39, d, s); }
 	void Asm::testRR(Reg d, Reg s) { aluRR(0x85, d, s); }
 
@@ -223,17 +212,19 @@ namespace rat {
 		modrmReg(d, s);
 	}
 
+	void Asm::opImm(U8 op8, U8 op32, U32 reg, U32 rm, I32 imm) {
+		B32 short8 = imm >= -128 && imm <= 127;
+		b(short8 ? op8 : op32);
+		modrmReg(reg, rm);
+		if(short8)
+			b((U8)imm);
+		else
+			d32((U32)imm);
+	}
+
 	void Asm::aluImm(U8 ext, Reg r, I32 imm) {
 		rex(true, 0, 0, r);
-		if(imm >= -128 && imm <= 127) { // short imm8 form
-			b(0x83);
-			modrmReg(ext, r);
-			b((U8)imm);
-		} else {
-			b(0x81);
-			modrmReg(ext, r);
-			d32((U32)imm);
-		}
+		opImm(0x83, 0x81, ext, r, imm);
 	}
 	void Asm::addRegImm32(Reg r, I32 imm) { aluImm(0, r, imm); }
 	void Asm::subRegImm32(Reg r, I32 imm) { aluImm(5, r, imm); }
@@ -241,15 +232,7 @@ namespace rat {
 
 	void Asm::imulRRI(Reg dst, Reg src, I32 imm) {
 		rex(true, dst, 0, src);
-		if(imm >= -128 && imm <= 127) {
-			b(0x6b);
-			modrmReg(dst, src);
-			b((U8)imm);
-		} else {
-			b(0x69);
-			modrmReg(dst, src);
-			d32((U32)imm);
-		}
+		opImm(0x6b, 0x69, dst, src, imm);
 	}
 
 	void Asm::movRegImm32(Reg r, U32 imm) {
@@ -272,9 +255,8 @@ namespace rat {
 		b(0xf7);
 		modrmReg(ext, r);
 	}
-	void Asm::unaryF7(U8 ext, Reg r) { unaryF7W(ext, r, true); }
-	void Asm::negReg(Reg r) { unaryF7(3, r); }
-	void Asm::notReg(Reg r) { unaryF7(2, r); }
+	void Asm::negReg(Reg r) { unaryF7W(3, r, true); }
+	void Asm::notReg(Reg r) { unaryF7W(2, r, true); }
 	void Asm::idivRegW(Reg r, B32 wide) { unaryF7W(7, r, wide); }
 	void Asm::divRegW(Reg r, B32 wide) { unaryF7W(6, r, wide); }
 	void Asm::cqoW(B32 wide) {
@@ -282,7 +264,7 @@ namespace rat {
 			rex(true, 0, 0, 0);
 		b(0x99);
 	}
-	void Asm::xorSelf(Reg r) { xorRR(r, r); }
+	void Asm::xorSelf(Reg r) { aluRR(0x31, r, r); }
 
 	void Asm::shiftCL(U8 ext, Reg r) {
 		rex(true, 0, 0, r);
@@ -365,17 +347,13 @@ namespace rat {
 
 	U32 Asm::jmpRel32() {
 		b(0xe9);
-		U32 at = here();
-		d32(0);
-		return at;
+		return reserve32();
 	}
 
 	U32 Asm::jccRel32(U8 cc) {
 		b(0x0f);
 		b((U8)(0x80 + cc));
-		U32 at = here();
-		d32(0);
-		return at;
+		return reserve32();
 	}
 
 	void Asm::patchRel32(U32 dispAt, U32 target) {
@@ -385,18 +363,14 @@ namespace rat {
 
 	void Asm::callSym(const String& sym) {
 		b(0xe8);
-		U32 at = here();
-		relocs.push_back({at, sym, RelocKind::Plt32, -4});
-		d32(0);
+		relocs.push_back({reserve32(), sym, RelocKind::Plt32, -4});
 	}
 
 	U32 Asm::leaRipDisp(Reg dst) {
 		rex(true, dst, 0, 0);
 		b(0x8d);
 		b((U8)(0x05 | ((dst & 7) << 3)));
-		U32 at = here();
-		d32(0);
-		return at;
+		return reserve32();
 	}
 
 	void Asm::movsxdSib4(Reg dst, Reg base, Reg index) {
@@ -421,10 +395,6 @@ namespace rat {
 	}
 
 	U8 Asm::ssePrefixByte(U32 width) { return width == 16 ? 0 : width == 4 ? 0xf3 : 0xf2; }
-	void Asm::ssePrefix(U32 width) {
-		if(U8 p = ssePrefixByte(width))
-			b(p);
-	}
 	void Asm::movXmm(U8 op, U32 xmm, Reg base, I32 disp, U32 width) {
 		memOp(ssePrefixByte(width), kMemEsc, op, xmm, base, disp);
 	}
@@ -444,14 +414,13 @@ namespace rat {
 		movXmmSib(0x10, xmm, base, index, scaleLog2, disp, width);
 	}
 	void Asm::loadXmmRipSym(U32 xmm, const String& sym, U32 width) {
-		ssePrefix(width);
+		if(U8 p = ssePrefixByte(width))
+			b(p);
 		rex(false, xmm, 0, 0);
 		b(0x0f);
 		b(0x10);
 		b((U8)(0x05 | ((xmm & 7) << 3))); // rip-relative
-		U32 at = here();
-		relocs.push_back({at, sym, RelocKind::Pc32, -4});
-		d32(0);
+		relocs.push_back({reserve32(), sym, RelocKind::Pc32, -4});
 	}
 	void Asm::ssePacked(U8 pfx, U8 op, U32 dst, U32 src, B32 esc38) {
 		if(pfx)

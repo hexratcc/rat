@@ -171,6 +171,7 @@ namespace rat {
 		void b(U8 v);
 		void d32(U32 v);
 		void d64(U64 v);
+		U32 reserve32();
 
 		// prefixes and modrm
 		static U8 rexByte(B32 w, U32 r, U32 x, U32 rm);
@@ -201,6 +202,7 @@ namespace rat {
 							 Reg index = (Reg)0,
 							 U32 scaleLog2 = 0);
 		void memImmTail(I64 imm, U32 width);
+		static U8 opSizePrefix(U32 width);
 		static U8 memStoreFlags(U32 width, Reg src);
 
 		void movRegImm64(Reg r, U64 imm);
@@ -224,11 +226,11 @@ namespace rat {
 		void subRR(Reg d, Reg s);
 		void andRR(Reg d, Reg s);
 		void orRR(Reg d, Reg s);
-		void xorRR(Reg d, Reg s);
 		void cmpRR(Reg d, Reg s);
 		void testRR(Reg d, Reg s);
 		void imulRR(Reg d, Reg s);
 
+		void opImm(U8 op8, U8 op32, U32 reg, U32 rm, I32 imm);
 		// group-1 ALU op with an immediate, picking the short imm8 form when it fits
 		void aluImm(U8 ext, Reg r, I32 imm);
 		void addRegImm32(Reg r, I32 imm);
@@ -245,7 +247,6 @@ namespace rat {
 		void addRegMem(Reg dst, Reg base, I32 disp);
 
 		void unaryF7W(U8 ext, Reg r, B32 wide);
-		void unaryF7(U8 ext, Reg r);
 		void negReg(Reg r);
 		void notReg(Reg r);
 		void idivRegW(Reg r, B32 wide);
@@ -295,7 +296,6 @@ namespace rat {
 		void probeRsp();
 
 		static U8 ssePrefixByte(U32 width);
-		void ssePrefix(U32 width);
 		void movXmm(U8 op, U32 xmm, Reg base, I32 disp, U32 width);
 		// movss/movsd, op 0x10 = load, 0x11 = store
 		void movXmmSib(U8 op, U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width);
