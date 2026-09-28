@@ -14,16 +14,14 @@ namespace rat {
 			if((X86Op)last.op != X86Op::Br)
 				return false;
 			for(U32 i = 0; i + 1 < (U32)b.insts.size(); ++i) {
-				const MachineInstr& in = b.insts[(U32)i];
-				if((X86Op)in.op != X86Op::Cmp)
-					return false;
-				if(!in.defs.empty() || in.isCall)
+				const MachineInstr& in = b.insts[i];
+				if((X86Op)in.op != X86Op::Cmp || !in.defs.empty() || in.isCall)
 					return false;
 			}
 			return true;
 		}
 
-		U32 runOnFunction(MachineFunc& mf) {
+		U32 duplicateTestBlocks(MachineFunc& mf) {
 			U32 changed = 0;
 			for(MachineBlock& p : mf.blocks) {
 				if(p.id < 0 || p.insts.empty())
@@ -56,34 +54,35 @@ namespace rat {
 
 		B32 isBlockRef(const MachineOperand& o) { return o.kind == MachineOperand::Kind::Block; }
 
+		I32 resolveJump(const MachineFunc& mf, I32 id) {
+			U32 hops = 0;
+			while(hops++ < 16) {
+				if(id < 0 || id >= (I32)mf.blocks.size())
+					break;
+				const MachineBlock& b = mf.blocks[(U32)id];
+				if(b.id < 0 || b.insts.size() != 1)
+					break;
+				const MachineInstr& only = b.insts[0];
+				if((X86Op)only.op != X86Op::Jmp)
+					break;
+				I32 next = only.uses[0].block;
+				if(next == id)
+					break; // self-loop
+				id = next;
+			}
+			return id;
+		}
+
 		// retarget branches at blocks that only jump, straight to the final target
 		U32 forwardJumpChains(MachineFunc& mf) {
 			U32 changed = 0;
-			auto resolve = [&](I32 id) {
-				U32 hops = 0;
-				while(hops++ < 16) {
-					if(id < 0 || id >= (I32)mf.blocks.size())
-						break;
-					const MachineBlock& b = mf.blocks[(U32)id];
-					if(b.id < 0 || b.insts.size() != 1)
-						break;
-					const MachineInstr& only = b.insts[0];
-					if((X86Op)only.op != X86Op::Jmp)
-						break;
-					I32 next = only.uses[0].block;
-					if(next == id)
-						break; // self-loop
-					id = next;
-				}
-				return id;
-			};
 			for(MachineBlock& b : mf.blocks) {
 				if(b.id < 0)
 					continue;
 				for(MachineInstr& in : b.insts)
 					for(MachineOperand& u : in.uses)
 						if(isBlockRef(u)) {
-							I32 r = resolve(u.block);
+							I32 r = resolveJump(mf, u.block);
 							if(r != u.block) {
 								u.block = r;
 								++changed;
@@ -91,6 +90,24 @@ namespace rat {
 						}
 			}
 			return changed;
+		}
+
+		// reachable from entry
+		List<B32> reachableFrom(const List<List<I32>>& succ, I32 entry) {
+			U32 n = (U32)succ.size();
+			List<B32> reach(n, false);
+			List<I32> work{entry};
+			reach[(U32)entry] = true;
+			while(!work.empty()) {
+				I32 id = work.back();
+				work.pop_back();
+				for(I32 t : succ[(U32)id])
+					if(t >= 0 && t < (I32)n && !reach[(U32)t]) {
+						reach[(U32)t] = true;
+						work.push_back(t);
+					}
+			}
+			return reach;
 		}
 
 		// order blocks into fallthrough chains: each block followed by a successor
@@ -119,19 +136,7 @@ namespace rat {
 			if(entry < 0)
 				return;
 
-			// reachable from entry
-			List<B32> reach(n, false);
-			List<I32> work{entry};
-			reach[(U32)entry] = true;
-			while(!work.empty()) {
-				I32 id = work.back();
-				work.pop_back();
-				for(I32 t : succ[(U32)id])
-					if(t >= 0 && t < (I32)n && !reach[(U32)t]) {
-						reach[(U32)t] = true;
-						work.push_back(t);
-					}
-			}
+			List<B32> reach = reachableFrom(succ, entry);
 
 			// greedy: prefer the last block operand (else/jump target), the edge
 			// the encoder can elide when adjacent
@@ -178,7 +183,7 @@ namespace rat {
 		U32 changed = 0;
 		for(const Function* fn : module) {
 			MachineFunc& mf = mm.get(fn);
-			changed += detail::runOnFunction(mf);
+			changed += detail::duplicateTestBlocks(mf);
 			changed += detail::forwardJumpChains(mf);
 			detail::chainLayout(mf);
 		}
