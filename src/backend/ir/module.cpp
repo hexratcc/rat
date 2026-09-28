@@ -57,14 +57,12 @@ namespace rat {
 	}
 
 	B32 Module::removeFunction(Function* fn) {
-		for(auto it = funcs.begin(); it != funcs.end(); ++it) {
-			if(*it == fn) {
-				funcs.erase(it);
-				funcIndexValid = false;
-				return true;
-			}
-		}
-		return false;
+		auto it = std::find(funcs.begin(), funcs.end(), fn);
+		if(it == funcs.end())
+			return false;
+		funcs.erase(it);
+		funcIndexValid = false;
+		return true;
 	}
 
 	Global* Module::createGlobal(
@@ -82,11 +80,8 @@ namespace rat {
 	}
 
 	Global* Module::createAlias(const String& name, const String& target, Type* type) {
-		Global* g = arena.make<Global>(name, type, false, List<U8>(), List<Reloc>());
+		Global* g = createGlobal(name, type, false, {});
 		g->setAliasTarget(target);
-		globs.push_back(g);
-		if(globIndexValid)
-			globIndex.emplace(name, g);
 		return g;
 	}
 
@@ -94,9 +89,7 @@ namespace rat {
 		if(!globIndexValid)
 			rebuildGlobIndex();
 		auto it = globIndex.find(name);
-		if(it == globIndex.end())
-			return nullptr;
-		return it->second;
+		return it == globIndex.end() ? nullptr : it->second;
 	}
 
 	const List<Global*>& Module::globals() const { return globs; }

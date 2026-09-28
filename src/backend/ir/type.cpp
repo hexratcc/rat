@@ -76,14 +76,10 @@ namespace rat {
 			os << ')';
 			return;
 		case Array:
-			os << '[' << bits << " x ";
-			elements[0]->print(os);
-			os << ']';
-			return;
 		case Vec:
-			os << '<' << bits << " x ";
+			os << (kind == Array ? '[' : '<') << bits << " x ";
 			elements[0]->print(os);
-			os << '>';
+			os << (kind == Array ? ']' : '>');
 			return;
 		}
 	}
@@ -112,6 +108,15 @@ namespace rat {
 
 	Type* TypeContext::getBool() { return getInt(1); }
 
+	Type* TypeContext::internElem(List<Type*>& pool, Type::Kind kind, Type* element, U32 count) {
+		for(Type* existing : pool)
+			if(existing->elements[0] == element && existing->bits == count)
+				return existing;
+		Type* t = make(kind, count, {element});
+		pool.push_back(t);
+		return t;
+	}
+
 	Type* TypeContext::getInt(U32 bits) {
 		auto it = ints.find(bits);
 		if(it != ints.end())
@@ -131,35 +136,19 @@ namespace rat {
 	}
 
 	Type* TypeContext::getTuple(const List<Type*>& elements) {
-		for(Type* existing : tuples) {
+		for(Type* existing : tuples)
 			if(existing->getTupleElements() == elements)
 				return existing;
-		}
-
 		Type* t = make(Type::Tuple, 0, elements);
 		tuples.push_back(t);
 		return t;
 	}
 
 	Type* TypeContext::getArray(Type* element, U32 count) {
-		for(Type* existing : arrays) {
-			if(existing->getArrayElement() == element && existing->getArrayCount() == count)
-				return existing;
-		}
-
-		Type* t = make(Type::Array, count, {element});
-		arrays.push_back(t);
-		return t;
+		return internElem(arrays, Type::Array, element, count);
 	}
 
 	Type* TypeContext::getVec(Type* element, U32 lanes) {
-		for(Type* existing : vecs) {
-			if(existing->getVecElement() == element && existing->getVecLanes() == lanes)
-				return existing;
-		}
-
-		Type* t = make(Type::Vec, lanes, {element});
-		vecs.push_back(t);
-		return t;
+		return internElem(vecs, Type::Vec, element, lanes);
 	}
 } // namespace rat
