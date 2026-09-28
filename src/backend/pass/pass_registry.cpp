@@ -35,17 +35,25 @@ namespace rat {
 				return std::make_unique<P>();
 		}
 
-		struct Entry {
+		template <typename B> struct Entry {
 			const C8 *name, *description;
-			UniquePtr<Pass> (*make)(std::ostream&);
+			UniquePtr<B> (*make)(std::ostream&);
 		};
 
-		struct MachineEntry {
-			const C8 *name, *description;
-			UniquePtr<MachinePass> (*make)(std::ostream&);
-		};
+		template <typename B, U64 N>
+		UniquePtr<B> findPass(const Entry<B> (&table)[N], const String& name, std::ostream& out) {
+			for(const Entry<B>& e : table)
+				if(name == e.name)
+					return e.make(out);
+			return nullptr;
+		}
 
-		constexpr Entry kPasses[] = {
+		template <typename B, U64 N> void listTable(std::ostream& os, const Entry<B> (&table)[N]) {
+			for(const Entry<B>& e : table)
+				os << "  " << std::left << std::setw(16) << e.name << e.description << "\n";
+		}
+
+		constexpr Entry<Pass> kPasses[] = {
 				{"fold", "constant folding and algebraic simplification", &mk<Pass, FoldPass>},
 				{"gvn", "global value numbering", &mk<Pass, GVNPass>},
 				{"sccp", "sparse conditional constant propagation", &mk<Pass, SCCPPass>},
@@ -61,7 +69,7 @@ namespace rat {
 		};
 
 		// the default x86 machine pipeline, in order
-		constexpr MachineEntry kMachinePasses[] = {
+		constexpr Entry<MachinePass> kMachinePasses[] = {
 				{"x86-lower", "lower IR to x86 machine instructions", &mk<MachinePass, X86LowerPass>},
 				{"regalloc", "priority bin-packing register allocation", &mk<MachinePass, RegAllocPass>},
 				{"x86-peephole", "post-RA copy and spill-slot cleanup", &mk<MachinePass, X86PeepholePass>},
@@ -75,17 +83,11 @@ namespace rat {
 	} // namespace detail
 
 	UniquePtr<Pass> createPass(const String& name, std::ostream& out) {
-		for(const detail::Entry& e : detail::kPasses)
-			if(name == e.name)
-				return e.make(out);
-		return nullptr;
+		return detail::findPass(detail::kPasses, name, out);
 	}
 
 	UniquePtr<MachinePass> createMachinePass(const String& name, std::ostream& out) {
-		for(const detail::MachineEntry& e : detail::kMachinePasses)
-			if(name == e.name)
-				return e.make(out);
-		return nullptr;
+		return detail::findPass(detail::kMachinePasses, name, out);
 	}
 
 	List<String> defaultOptPipeline() { return splitTokens(detail::kDefaultOpt); }
@@ -102,12 +104,10 @@ namespace rat {
 
 	void listPasses(std::ostream& os, B32 withMachine) {
 		os << "passes:\n";
-		for(const detail::Entry& e : detail::kPasses)
-			os << "  " << std::left << std::setw(16) << e.name << e.description << "\n";
+		detail::listTable(os, detail::kPasses);
 		if(!withMachine)
 			return;
 		os << "machine passes (default x86 pipeline order):\n";
-		for(const detail::MachineEntry& e : detail::kMachinePasses)
-			os << "  " << std::left << std::setw(16) << e.name << e.description << "\n";
+		detail::listTable(os, detail::kMachinePasses);
 	}
 } // namespace rat
