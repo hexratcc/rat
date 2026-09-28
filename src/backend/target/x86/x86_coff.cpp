@@ -28,22 +28,71 @@ namespace rat {
 		constexpr U32 kFileHeaderSize = 20;
 		constexpr U32 kSectionHeaderSize = 40;
 		constexpr U32 kRelocEntSize = 10;
+		constexpr U32 kSymEntSize = 18;
+
+		constexpr const C8* kCoffSecNames[] = {".text", ".rdata", ".data", ".bss"};
+		constexpr U32 kCoffSecFlags[] = {
+				IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_16BYTES,
+				IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_16BYTES,
+				IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE |
+						IMAGE_SCN_ALIGN_16BYTES,
+				IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE |
+						IMAGE_SCN_ALIGN_8BYTES,
+		};
+
+		void coffName(List<U8>& out, List<U8>& strtab, const String& n) {
+			if(n.size() <= 8) {
+				for(U32 i = 0; i < 8; ++i)
+					le::put8(out, i < n.size() ? (U8)n[i] : 0);
+				return;
+			}
+			U32 off = (U32)strtab.size();
+			strtab.insert(strtab.end(), n.begin(), n.end());
+			strtab.push_back(0);
+			le::put32(out, 0);
+			le::put32(out, off);
+		}
 	} // namespace detail
+
+	List<U8> ObjectFile::coffSymtab(const RelBuckets rels, List<U8>& strtab, List<U32>& index) const {
+		List<U8> symtab;
+		for(U32 s = 0; s < kSections; ++s) {
+			detail::coffName(symtab, strtab, detail::kCoffSecNames[s]);
+			le::put32(symtab, 0);						 // value
+			le::put16(symtab, (U16)(s + 1)); // section number (1-based)
+			le::put16(symtab, 0);						 // type
+			le::put8(symtab, detail::IMAGE_SYM_CLASS_STATIC);
+			le::put8(symtab, 1); // one aux record
+			// aux: section definition
+			le::put32(symtab, sectionSize((Section)s)); // length
+			le::put16(symtab, (U16)rels[s].size());			// number of relocations
+			le::put16(symtab, 0);												// number of line numbers
+			le::put32(symtab, 0);												// checksum
+			le::put16(symtab, 0);												// associated section
+			le::put8(symtab, 0);												// selection
+			le::put8(symtab, 0);												// padding to 18 bytes
+			le::put16(symtab, 0);
+		}
+
+		index.assign(syms.size(), 0);
+		for(U32 i = 1; i < syms.size(); ++i) {
+			const Sym& s = syms[i];
+			index[i] = (U32)(symtab.size() / detail::kSymEntSize);
+			detail::coffName(symtab, strtab, s.name);
+			le::put32(symtab, s.defined ? s.offset : 0);							// value
+			le::put16(symtab, s.defined ? (U16)((U32)s.sec + 1) : 0); // section (0 = undefined)
+			le::put16(symtab, s.defined && s.isFunc ? detail::kSymTypeFunc : 0); // type
+			// undefined symbols must be EXTERNAL for linker to res
+			le::put8(symtab,
+							 !s.defined || s.global ? detail::IMAGE_SYM_CLASS_EXTERNAL
+																			: detail::IMAGE_SYM_CLASS_STATIC);
+			le::put8(symtab, 0); // no aux records
+		}
+		return symtab;
+	}
 
 	void ObjectFile::writeCoff(std::ostream& os) {
 		constexpr U32 kNumSections = kSections;
-		const C8* secNames[kNumSections] = {".text", ".rdata", ".data", ".bss"};
-		const U32 secFlags[kNumSections] = {
-				detail::IMAGE_SCN_CNT_CODE | detail::IMAGE_SCN_MEM_EXECUTE | detail::IMAGE_SCN_MEM_READ |
-						detail::IMAGE_SCN_ALIGN_16BYTES,
-				detail::IMAGE_SCN_CNT_INITIALIZED_DATA | detail::IMAGE_SCN_MEM_READ |
-						detail::IMAGE_SCN_ALIGN_16BYTES,
-				detail::IMAGE_SCN_CNT_INITIALIZED_DATA | detail::IMAGE_SCN_MEM_READ |
-						detail::IMAGE_SCN_MEM_WRITE | detail::IMAGE_SCN_ALIGN_16BYTES,
-				detail::IMAGE_SCN_CNT_UNINITIALIZED_DATA | detail::IMAGE_SCN_MEM_READ |
-						detail::IMAGE_SCN_MEM_WRITE | detail::IMAGE_SCN_ALIGN_8BYTES,
-		};
-
 		List<const Rel*> relBySec[kNumSections];
 		partitionRelocs(relBySec);
 
@@ -59,55 +108,9 @@ namespace rat {
 		// symbol table
 		List<U8> strtab;
 		le::put32(strtab, 0); // patched to the final size below
-		auto nameField = [&](List<U8>& out, const String& n) {
-			if(n.size() <= 8) {
-				for(U32 i = 0; i < 8; ++i)
-					le::put8(out, i < n.size() ? (U8)n[i] : 0);
-				return;
-			}
-			U32 off = (U32)strtab.size();
-			strtab.insert(strtab.end(), n.begin(), n.end());
-			strtab.push_back(0);
-			le::put32(out, 0);
-			le::put32(out, off);
-		};
-
-		List<U8> symtab;
-		U32 symEntries = 0;
-		for(U32 s = 0; s < kNumSections; ++s) {
-			nameField(symtab, secNames[s]);
-			le::put32(symtab, 0);						 // value
-			le::put16(symtab, (U16)(s + 1)); // section number (1-based)
-			le::put16(symtab, 0);						 // type
-			le::put8(symtab, detail::IMAGE_SYM_CLASS_STATIC);
-			le::put8(symtab, 1); // one aux record
-			// aux: section definition
-			le::put32(symtab, sectionSize((Section)s)); // length
-			le::put16(symtab, (U16)relBySec[s].size()); // number of relocations
-			le::put16(symtab, 0);												// number of line numbers
-			le::put32(symtab, 0);												// checksum
-			le::put16(symtab, 0);												// associated section
-			le::put8(symtab, 0);												// selection
-			le::put8(symtab, 0);												// padding to 18 bytes
-			le::put16(symtab, 0);
-			symEntries += 2;
-		}
-
-		List<U32> symCoffIndex(syms.size(), 0);
-		for(U32 i = 1; i < syms.size(); ++i) {
-			const Sym& s = syms[i];
-			symCoffIndex[i] = symEntries;
-			nameField(symtab, s.name);
-			le::put32(symtab, s.defined ? s.offset : 0);							// value
-			le::put16(symtab, s.defined ? (U16)((U32)s.sec + 1) : 0); // section (0 = undefined)
-			le::put16(symtab, s.defined && s.isFunc ? detail::kSymTypeFunc : 0); // type
-			// undefined symbols must be EXTERNAL for linker to res
-			le::put8(symtab,
-							 !s.defined || s.global ? detail::IMAGE_SYM_CLASS_EXTERNAL
-																			: detail::IMAGE_SYM_CLASS_STATIC);
-			le::put8(symtab, 0); // no aux records
-			symEntries += 1;
-		}
+		List<U32> symCoffIndex;
+		List<U8> symtab = coffSymtab(relBySec, strtab, symCoffIndex);
+		U32 symEntries = (U32)(symtab.size() / detail::kSymEntSize);
 
 		// patch the string table size prefix
 		le::wr(strtab.data(), (U32)strtab.size(), 4);
@@ -137,7 +140,7 @@ namespace rat {
 		le::put16(out, 0); // characteristics
 
 		for(U32 s = 0; s < kNumSections; ++s) {
-			nameField(out, secNames[s]);
+			detail::coffName(out, strtab, detail::kCoffSecNames[s]);
 			le::put32(out, 0); // virtual size
 			le::put32(out, 0); // virtual address
 			le::put32(out, sectionSize((Section)s));
@@ -146,7 +149,7 @@ namespace rat {
 			le::put32(out, 0); // line numbers
 			le::put16(out, (U16)relBySec[s].size());
 			le::put16(out, 0); // line number count
-			le::put32(out, secFlags[s]);
+			le::put32(out, detail::kCoffSecFlags[s]);
 		}
 
 		for(U32 s = 0; s + 1 < kNumSections; ++s) {

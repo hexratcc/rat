@@ -56,14 +56,16 @@ namespace rat {
 		U32 symbolIndex(const String& name);
 		U32 sectionSize(Section sec) const;
 		List<U8>& bytesOf(Section sec);
-		const List<U8>& bytesOf(Section sec) const;
 
 		static constexpr U32 kSections = 4;
 		static constexpr U32 kByteSections = 3;
 
 		using RelBuckets = List<const Rel*>[kSections];
 		void partitionRelocs(RelBuckets buckets) const;
-	private:
+		U32 elfSymtab(List<U8>& symtab, List<U8>& strtab, List<U32>& remap) const;
+		static List<U8> elfRela(const List<const Rel*>& bucket, const List<U32>& remap);
+		List<U8> coffSymtab(const RelBuckets rels, List<U8>& strtab, List<U32>& index) const;
+
 		ObjectFormat format;
 		List<U8> raw[kByteSections];
 		U32 bssSize = 0;
@@ -75,6 +77,14 @@ namespace rat {
 	};
 
 	UniquePtr<ObjectFile> createObjectFile(OS os);
+
+	namespace detail {
+		U32 appendName(List<U8>& tab, const C8* n);
+		U64 place(U64& off, U64 size, U64 a);
+		void emitAt(List<U8>& out, U64 target, const List<U8>& blob);
+		void writeElfHeader(List<U8>& out, U64 offSh);
+		void coffName(List<U8>& out, List<U8>& strtab, const String& n);
+	} // namespace detail
 } // namespace rat
 
 #endif

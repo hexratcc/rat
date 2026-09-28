@@ -11,11 +11,6 @@ namespace rat {
 		return raw[(U32)sec];
 	}
 
-	const List<U8>& ObjectFile::bytesOf(Section sec) const {
-		assert(sec != Bss && "bss carries no bytes");
-		return raw[(U32)sec];
-	}
-
 	U32 ObjectFile::sectionSize(Section sec) const {
 		return sec == Bss ? bssSize : (U32)raw[(U32)sec].size();
 	}
@@ -61,19 +56,7 @@ namespace rat {
 
 	void
 	ObjectFile::defineSymbol(const String& name, Section sec, U32 offset, B32 global, B32 isFunc) {
-		auto it = symByName.find(name);
-		if(it != symByName.end()) {
-			Sym& s = syms[it->second];
-			s.sec = sec;
-			s.offset = offset;
-			s.defined = true;
-			s.global = global;
-			s.isFunc = isFunc;
-			return;
-		}
-		U32 idx = (U32)syms.size();
-		syms.push_back({name, sec, offset, true, global, isFunc});
-		symByName[name] = idx;
+		syms[symbolIndex(name)] = {name, sec, offset, true, global, isFunc};
 	}
 
 	B32 ObjectFile::defineAlias(const String& name, const String& target, B32 global) {

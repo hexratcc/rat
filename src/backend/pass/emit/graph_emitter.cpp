@@ -4,6 +4,7 @@
 #include "ir/module.h"
 #include "ir/node.h"
 
+#include <numeric>
 #include <ostream>
 
 namespace rat {
@@ -31,16 +32,6 @@ namespace rat {
 			}
 		}
 
-		U32 lcm(U32 a, U32 b) {
-			U32 x = a, y = b;
-			while(y) {
-				U32 t = x % y;
-				x = y;
-				y = t;
-			}
-			return a / x * b;
-		}
-
 		String portName(const Node* n, U32 i) {
 			switch(n->getOpcode()) {
 			case Opcode::If:
@@ -52,6 +43,7 @@ namespace rat {
 			case Opcode::Store:
 				return i == 0 ? "ctrl" : i == 1 ? "mem" : i == 2 ? "addr" : "val";
 			case Opcode::Return:
+			case Opcode::Asm:
 				return i == 0 ? "ctrl" : i == 1 ? "mem" : std::to_string(i - 2);
 			case Opcode::Call: {
 				if(i == 0)
@@ -63,8 +55,6 @@ namespace rat {
 					return i == 2 ? "tgt" : std::to_string(i - 3);
 				return std::to_string(i - 2);
 			}
-			case Opcode::Asm:
-				return i == 0 ? "ctrl" : i == 1 ? "mem" : std::to_string(i - 2);
 			case Opcode::Phi:
 				return i == 0 ? "region" : std::to_string(i - 1);
 			case Opcode::Proj:
@@ -151,7 +141,7 @@ namespace rat {
 			U32 total = 0;
 			for(U32 e = 0; e < out; ++e)
 				total += std::max(useCount[e], 1u);
-			U32 cols = lcm(in ? in : 1, total);
+			U32 cols = std::lcm(in ? in : 1, total);
 
 			os << "    ";
 			writeId(os, fnIndex, n);

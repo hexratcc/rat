@@ -7,7 +7,7 @@
 #include <ostream>
 
 namespace rat {
-	void TextEmitterPass::comment(std::ostream& os, const C8* text) { os << Green << text << Reset; }
+	void TextEmitterPass::comment(const C8* text) { *os << Green << text << Reset; }
 
 	String TextEmitterPass::quoteBytes(const List<U8>& bytes) {
 		// raw bytes as a quoted string: printable ASCII verbatim, everything
@@ -27,25 +27,25 @@ namespace rat {
 		return out;
 	}
 
-	void TextEmitterPass::ref(std::ostream& os, const Node* node) {
+	void TextEmitterPass::ref(const Node* node) {
 		if(!node) {
-			os << "<null>";
+			*os << "<null>";
 			return;
 		}
 		U32 id = node->getId();
-		os << TempColors[id % TempColorCount] << 'v' << id << Reset;
+		*os << TempColors[id % TempColorCount] << 'v' << id << Reset;
 	}
 
 	void TextEmitterPass::emitOperands(const Node* node) {
 		for(U32 i = 0; i < node->getInputCount(); ++i) {
 			*os << (i ? ", " : " ");
-			ref(*os, node->getInput(i));
+			ref(node->getInput(i));
 		}
 	}
 
 	void TextEmitterPass::emitNode(const Node* node) {
 		*os << "  ";
-		ref(*os, node);
+		ref(node);
 		*os << " = " << node->getMnemonic() << " : ";
 		node->getType()->print(*os);
 
@@ -58,8 +58,8 @@ namespace rat {
 			*os << Green << "  #" << proj->getIndex() << Reset;
 			if(*proj->getLabel())
 				*os << Green << " \"" << proj->getLabel() << "\"" << Reset;
-			comment(*os, " of ");
-			ref(*os, proj->getProducer());
+			comment(" of ");
+			ref(proj->getProducer());
 			return;
 		}
 		case Opcode::Call:
@@ -81,7 +81,7 @@ namespace rat {
 			break;
 		case Opcode::Region:
 			if(cast<RegionNode>(node)->isLoopHeader())
-				comment(*os, "  loop");
+				comment("  loop");
 			break;
 		case Opcode::Extract:
 			*os << Green << "  #" << cast<ExtractNode>(node)->getLane() << Reset;
@@ -129,11 +129,10 @@ namespace rat {
 			any = true;
 		}
 
-		B32 first = true;
 		for(const Function* fn : module) {
-			if(!first || any)
+			if(any)
 				*os << "\n";
-			first = false;
+			any = true;
 			emitFunction(*fn);
 		}
 	}

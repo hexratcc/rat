@@ -7,6 +7,7 @@ namespace rat {
 	struct MachineInstr;
 	struct MachineFunc;
 	struct X86CallConv;
+	enum Reg : U8;
 
 	using PhysReg = U32;
 	constexpr PhysReg kNoReg = 0;
@@ -44,6 +45,10 @@ namespace rat {
 	};
 
 	namespace detail {
+		B32 isCalleeSaved(const X86CallConv& conv, Reg r);
+		RegClass gpRegClass(const X86CallConv& conv);
+		RegClass fpRegClass(const X86CallConv& conv);
+		RegClass x87RegClass();
 		RegisterInfo buildX86Registers(const X86CallConv& conv);
 	} // namespace detail
 

@@ -12,9 +12,58 @@ namespace rat {
 		constexpr U64 kShEntSize = 64;	 // Elf64_Shdr
 		constexpr U64 kSymEntSize = 24;	 // Elf64_Sym
 		constexpr U64 kRelaEntSize = 24; // Elf64_Rela
+
+		constexpr U32 shText = 1, shRodata = 3, shData = 5, shBss = 7, shSymtab = 8, shStrtab = 9,
+									shShstrtab = 10;
+		constexpr U32 kSecShIndex[] = {shText, shRodata, shData, shBss};
+		constexpr U32 shCount = 12;
+
+		U32 appendName(List<U8>& tab, const C8* n) {
+			U32 off = (U32)tab.size();
+			for(const C8* p = n; *p; ++p)
+				tab.push_back((U8)*p);
+			tab.push_back(0);
+			return off;
+		}
+
+		U64 place(U64& off, U64 size, U64 a) {
+			off = (off + (a - 1)) & ~(a - 1);
+			U64 here = off;
+			off += size;
+			return here;
+		}
+
+		void emitAt(List<U8>& out, U64 target, const List<U8>& blob) {
+			le::padTo(out, target);
+			out.insert(out.end(), blob.begin(), blob.end());
+		}
+
+		void writeElfHeader(List<U8>& out, U64 offSh) {
+			for(U8 c : kElfMag)
+				le::put8(out, c);
+			le::put8(out, elf::ELFCLASS64);
+			le::put8(out, elf::ELFDATA2LSB);
+			le::put8(out, elf::EV_CURRENT);
+			le::put8(out, 0); // System V
+			for(U32 i = 0; i < 8; ++i)
+				le::put8(out, 0); // ABIVERSION + padding
+			le::put16(out, elf::ET_REL);
+			le::put16(out, elf::EM_X86_64);
+			le::put32(out, elf::EV_CURRENT);
+			le::put64(out, 0);							 // e_entry
+			le::put64(out, 0);							 // e_phoff
+			le::put64(out, offSh);					 // e_shoff
+			le::put32(out, 0);							 // e_flags
+			le::put16(out, (U16)kEhSize);		 // e_ehsize
+			le::put16(out, 0);							 // e_phentsize
+			le::put16(out, 0);							 // e_phnum
+			le::put16(out, (U16)kShEntSize); // e_shentsize
+			le::put16(out, (U16)shCount);		 // e_shnum
+			le::put16(out, (U16)shShstrtab); // e_shstrndx
+		}
 	} // namespace detail
 
-	void ObjectFile::writeElf(std::ostream& os) {
+	U32 ObjectFile::elfSymtab(List<U8>& symtab, List<U8>& strtab, List<U32>& remap) const {
 		List<U32> order;
 		order.push_back(0);
 		for(U32 i = 1; i < syms.size(); ++i)
@@ -25,11 +74,10 @@ namespace rat {
 			if(syms[i].global)
 				order.push_back(i);
 
-		List<U32> remap(syms.size(), 0);
+		remap.assign(syms.size(), 0);
 		for(U32 i = 0; i < order.size(); ++i)
 			remap[order[i]] = i;
 
-		List<U8> strtab;
 		strtab.push_back(0);
 		List<U32> nameOff(syms.size(), 0);
 		for(U32 i = 1; i < syms.size(); ++i) {
@@ -39,18 +87,13 @@ namespace rat {
 			strtab.push_back(0);
 		}
 
-		constexpr U32 shText = 1, shRodata = 3, shData = 5, shBss = 7, shSymtab = 8, shStrtab = 9,
-									shShstrtab = 10;
-		static constexpr U32 kSecShIndex[] = {shText, shRodata, shData, shBss};
-
-		List<U8> symtab;
 		for(U32 i = 0; i < order.size(); ++i) {
 			U32 oi = order[i];
 			const Sym& s = syms[oi];
 			B32 placed = i != 0 && s.defined;
 			U8 bind = (i != 0 && s.global) ? elf::STB_GLOBAL : elf::STB_LOCAL;
 			U8 type = !placed ? elf::STT_NOTYPE : (s.isFunc ? elf::STT_FUNC : elf::STT_OBJECT);
-			U16 shndx = !placed ? elf::SHN_UNDEF : (U16)kSecShIndex[(U32)s.sec];
+			U16 shndx = !placed ? elf::SHN_UNDEF : (U16)detail::kSecShIndex[(U32)s.sec];
 
 			le::put32(symtab, i == 0 ? 0u : nameOff[oi]);				// st_name
 			le::put8(symtab, (U8)((bind << 4) | (type & 0xf))); // st_info
@@ -59,102 +102,71 @@ namespace rat {
 			le::put64(symtab, placed ? s.offset : 0u);					// st_value
 			le::put64(symtab, 0);																// st_size
 		}
+		return firstGlobal;
+	}
+
+	List<U8> ObjectFile::elfRela(const List<const Rel*>& bucket, const List<U32>& remap) {
+		List<U8> out;
+		out.reserve(bucket.size() * detail::kRelaEntSize);
+		for(const Rel* r : bucket) {
+			U64 info = ((U64)remap[r->symIndex] << 32) | (U64)(U32)r->kind;
+			le::put64(out, r->offset);			// r_offset
+			le::put64(out, info);						// r_info
+			le::put64(out, (U64)r->addend); // r_addend
+		}
+		return out;
+	}
+
+	void ObjectFile::writeElf(std::ostream& os) {
+		List<U8> symtab, strtab;
+		List<U32> remap;
+		U32 firstGlobal = elfSymtab(symtab, strtab, remap);
 
 		List<const Rel*> relBySec[kSections];
 		partitionRelocs(relBySec);
-		auto buildRela = [&](Section target) {
-			const List<const Rel*>& bucket = relBySec[(U32)target];
-			List<U8> out;
-			out.reserve(bucket.size() * detail::kRelaEntSize);
-			for(const Rel* r : bucket) {
-				U64 info = ((U64)remap[r->symIndex] << 32) | (U64)(U32)r->kind;
-				le::put64(out, r->offset);			// r_offset
-				le::put64(out, info);						// r_info
-				le::put64(out, (U64)r->addend); // r_addend
-			}
-			return out;
-		};
-		List<U8> relaText = buildRela(Text);
-		List<U8> relaRodata = buildRela(Rodata);
-		List<U8> relaData = buildRela(Data);
+		List<U8> relaText = elfRela(relBySec[Text], remap);
+		List<U8> relaRodata = elfRela(relBySec[Rodata], remap);
+		List<U8> relaData = elfRela(relBySec[Data], remap);
 
 		List<U8> shstr;
 		shstr.push_back(0);
-		auto addShName = [&](const C8* n) {
-			U32 off = (U32)shstr.size();
-			for(const C8* p = n; *p; ++p)
-				shstr.push_back((U8)*p);
-			shstr.push_back(0);
-			return off;
-		};
-		U32 nText = addShName(".text");
-		U32 nRelaText = addShName(".rela.text");
-		U32 nRodata = addShName(".rodata");
-		U32 nRelaRodata = addShName(".rela.rodata");
-		U32 nData = addShName(".data");
-		U32 nRelaData = addShName(".rela.data");
-		U32 nBss = addShName(".bss");
-		U32 nSymtab = addShName(".symtab");
-		U32 nStrtab = addShName(".strtab");
-		U32 nShstrtab = addShName(".shstrtab");
-		U32 nNoteStack = addShName(".note.GNU-stack");
+		U32 nText = detail::appendName(shstr, ".text");
+		U32 nRelaText = detail::appendName(shstr, ".rela.text");
+		U32 nRodata = detail::appendName(shstr, ".rodata");
+		U32 nRelaRodata = detail::appendName(shstr, ".rela.rodata");
+		U32 nData = detail::appendName(shstr, ".data");
+		U32 nRelaData = detail::appendName(shstr, ".rela.data");
+		U32 nBss = detail::appendName(shstr, ".bss");
+		U32 nSymtab = detail::appendName(shstr, ".symtab");
+		U32 nStrtab = detail::appendName(shstr, ".strtab");
+		U32 nShstrtab = detail::appendName(shstr, ".shstrtab");
+		U32 nNoteStack = detail::appendName(shstr, ".note.GNU-stack");
 
-		const U32 shCount = 12;
 		U64 off = detail::kEhSize;
-		auto place = [&](U64 size, U64 a) {
-			off = (off + (a - 1)) & ~(a - 1);
-			U64 here = off;
-			off += size;
-			return here;
-		};
-		U64 offText = place(bytesOf(Text).size(), 16);
-		U64 offRodata = place(bytesOf(Rodata).size(), 16);
-		U64 offData = place(bytesOf(Data).size(), 16);
-		U64 offSymtab = place(symtab.size(), 8);
-		U64 offStrtab = place(strtab.size(), 1);
-		U64 offRelaText = place(relaText.size(), 8);
-		U64 offRelaRodata = place(relaRodata.size(), 8);
-		U64 offRelaData = place(relaData.size(), 8);
-		U64 offShstr = place(shstr.size(), 1);
+		U64 offText = detail::place(off, bytesOf(Text).size(), 16);
+		U64 offRodata = detail::place(off, bytesOf(Rodata).size(), 16);
+		U64 offData = detail::place(off, bytesOf(Data).size(), 16);
+		U64 offSymtab = detail::place(off, symtab.size(), 8);
+		U64 offStrtab = detail::place(off, strtab.size(), 1);
+		U64 offRelaText = detail::place(off, relaText.size(), 8);
+		U64 offRelaRodata = detail::place(off, relaRodata.size(), 8);
+		U64 offRelaData = detail::place(off, relaData.size(), 8);
+		U64 offShstr = detail::place(off, shstr.size(), 1);
 		U64 offSh = (off + 7) & ~7ull; // section header table
 
 		List<U8> out;
-		out.reserve(offSh + shCount * detail::kShEntSize);
-		for(U8 c : detail::kElfMag)
-			le::put8(out, c);
-		le::put8(out, elf::ELFCLASS64);
-		le::put8(out, elf::ELFDATA2LSB);
-		le::put8(out, elf::EV_CURRENT);
-		le::put8(out, 0); // System V
-		for(U32 i = 0; i < 8; ++i)
-			le::put8(out, 0); // ABIVERSION + padding
-		le::put16(out, elf::ET_REL);
-		le::put16(out, elf::EM_X86_64);
-		le::put32(out, elf::EV_CURRENT);
-		le::put64(out, 0);											 // e_entry
-		le::put64(out, 0);											 // e_phoff
-		le::put64(out, offSh);									 // e_shoff
-		le::put32(out, 0);											 // e_flags
-		le::put16(out, (U16)detail::kEhSize);		 // e_ehsize
-		le::put16(out, 0);											 // e_phentsize
-		le::put16(out, 0);											 // e_phnum
-		le::put16(out, (U16)detail::kShEntSize); // e_shentsize
-		le::put16(out, (U16)shCount);						 // e_shnum
-		le::put16(out, (U16)shShstrtab);				 // e_shstrndx
+		out.reserve(offSh + detail::shCount * detail::kShEntSize);
+		detail::writeElfHeader(out, offSh);
 
-		auto emitAt = [&](U64 target, const List<U8>& blob) {
-			le::padTo(out, target);
-			out.insert(out.end(), blob.begin(), blob.end());
-		};
-		emitAt(offText, bytesOf(Text));
-		emitAt(offRodata, bytesOf(Rodata));
-		emitAt(offData, bytesOf(Data));
-		emitAt(offSymtab, symtab);
-		emitAt(offStrtab, strtab);
-		emitAt(offRelaText, relaText);
-		emitAt(offRelaRodata, relaRodata);
-		emitAt(offRelaData, relaData);
-		emitAt(offShstr, shstr);
+		detail::emitAt(out, offText, bytesOf(Text));
+		detail::emitAt(out, offRodata, bytesOf(Rodata));
+		detail::emitAt(out, offData, bytesOf(Data));
+		detail::emitAt(out, offSymtab, symtab);
+		detail::emitAt(out, offStrtab, strtab);
+		detail::emitAt(out, offRelaText, relaText);
+		detail::emitAt(out, offRelaRodata, relaRodata);
+		detail::emitAt(out, offRelaData, relaData);
+		detail::emitAt(out, offShstr, shstr);
 		le::padTo(out, offSh);
 
 		struct ShDesc {
@@ -172,22 +184,23 @@ namespace rat {
 		const U64 rela = elf::SHF_INFO_LINK;
 		const ShDesc headers[] = {
 				// clang-format off
-				// name        type               flags                       offset         size                    link      info         align             entsize
-				{0,           elf::SHT_NULL,     0,                          0,             0,                      0,        0,           0,                0},                    // 0 null
-				{nText,       elf::SHT_PROGBITS, alloc | elf::SHF_EXECINSTR, offText,       bytesOf(Text).size(),   0,        0,           secAlign[Text],   0},                    // 1 .text
-				{nRelaText,   elf::SHT_RELA,     rela,                       offRelaText,   relaText.size(),        shSymtab, shText,      8,                detail::kRelaEntSize}, // 2 .rela.text
-				{nRodata,     elf::SHT_PROGBITS, alloc,                      offRodata,     bytesOf(Rodata).size(), 0,        0,           secAlign[Rodata], 0},                    // 3 .rodata
-				{nRelaRodata, elf::SHT_RELA,     rela,                       offRelaRodata, relaRodata.size(),      shSymtab, shRodata,    8,                detail::kRelaEntSize}, // 4 .rela.rodata
-				{nData,       elf::SHT_PROGBITS, alloc | elf::SHF_WRITE,     offData,       bytesOf(Data).size(),   0,        0,           secAlign[Data],   0},                    // 5 .data
-				{nRelaData,   elf::SHT_RELA,     rela,                       offRelaData,   relaData.size(),        shSymtab, shData,      8,                detail::kRelaEntSize}, // 6 .rela.data
-				{nBss,        elf::SHT_NOBITS,   alloc | elf::SHF_WRITE,     0,             bssSize,                0,        0,           secAlign[Bss],    0},                    // 7 .bss
-				{nSymtab,     elf::SHT_SYMTAB,   0,                          offSymtab,     symtab.size(),          shStrtab, firstGlobal, 8,                detail::kSymEntSize},  // 8 .symtab
-				{nStrtab,     elf::SHT_STRTAB,   0,                          offStrtab,     strtab.size(),          0,        0,           1,                0},                    // 9 .strtab
-				{nShstrtab,   elf::SHT_STRTAB,   0,                          offShstr,      shstr.size(),           0,        0,           1,                0},                    // 10 .shstrtab
-				{nNoteStack,  elf::SHT_PROGBITS, 0,                          0,             0,                      0,        0,           1,                0},                    // 11 .note.GNU-stack
+				// name        type               flags                       offset         size                    link              info              align             entsize
+				{0,           elf::SHT_NULL,     0,                          0,             0,                      0,                0,                0,                0},                    // 0 null
+				{nText,       elf::SHT_PROGBITS, alloc | elf::SHF_EXECINSTR, offText,       bytesOf(Text).size(),   0,                0,                secAlign[Text],   0},                    // 1 .text
+				{nRelaText,   elf::SHT_RELA,     rela,                       offRelaText,   relaText.size(),        detail::shSymtab, detail::shText,   8,                detail::kRelaEntSize}, // 2 .rela.text
+				{nRodata,     elf::SHT_PROGBITS, alloc,                      offRodata,     bytesOf(Rodata).size(), 0,                0,                secAlign[Rodata], 0},                    // 3 .rodata
+				{nRelaRodata, elf::SHT_RELA,     rela,                       offRelaRodata, relaRodata.size(),      detail::shSymtab, detail::shRodata, 8,                detail::kRelaEntSize}, // 4 .rela.rodata
+				{nData,       elf::SHT_PROGBITS, alloc | elf::SHF_WRITE,     offData,       bytesOf(Data).size(),   0,                0,                secAlign[Data],   0},                    // 5 .data
+				{nRelaData,   elf::SHT_RELA,     rela,                       offRelaData,   relaData.size(),        detail::shSymtab, detail::shData,   8,                detail::kRelaEntSize}, // 6 .rela.data
+				{nBss,        elf::SHT_NOBITS,   alloc | elf::SHF_WRITE,     0,             bssSize,                0,                0,                secAlign[Bss],    0},                    // 7 .bss
+				{nSymtab,     elf::SHT_SYMTAB,   0,                          offSymtab,     symtab.size(),          detail::shStrtab, firstGlobal,      8,                detail::kSymEntSize},  // 8 .symtab
+				{nStrtab,     elf::SHT_STRTAB,   0,                          offStrtab,     strtab.size(),          0,                0,                1,                0},                    // 9 .strtab
+				{nShstrtab,   elf::SHT_STRTAB,   0,                          offShstr,      shstr.size(),           0,                0,                1,                0},                    // 10 .shstrtab
+				{nNoteStack,  elf::SHT_PROGBITS, 0,                          0,             0,                      0,                0,                1,                0},                    // 11 .note.GNU-stack
 				// clang-format on
 		};
-		static_assert(sizeof(headers) / sizeof(headers[0]) == shCount, "headers must match shCount");
+		static_assert(sizeof(headers) / sizeof(headers[0]) == detail::shCount,
+									"headers must match shCount");
 		for(const ShDesc& h : headers) {
 			le::put32(out, h.name);
 			le::put32(out, h.type);

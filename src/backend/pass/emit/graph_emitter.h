@@ -14,7 +14,6 @@ namespace rat {
 	namespace detail {
 		void writeId(std::ostream& os, U32 fnIndex, const Node* n);
 		void writeHtml(std::ostream& os, const String& s);
-		U32 lcm(U32 a, U32 b);
 		String portName(const Node* n, U32 i);
 		void writeTitle(std::ostream& os, const Node* n);
 		U32 outCount(const Node* n);
