@@ -15,7 +15,6 @@ namespace rat::cc {
 	struct CompileOptions {
 		List<UniquePtr<Pass>> optPasses;
 		List<UniquePtr<MachinePass>> machinePasses; // empty = default x86 pipeline
-		String renameMain;
 	};
 
 	void composePipeline(PassManager& pm, CompileOptions& opt, std::ostream& out);

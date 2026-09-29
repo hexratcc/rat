@@ -5,20 +5,22 @@
 
 namespace rat::cc {
 	namespace detail {
-		TargetTriple& hostTripleStorage() {
-			static TargetTriple triple = [] {
-				TargetTriple t;
+		TargetTriple defaultTriple() {
+			TargetTriple t;
 #if defined(_WIN32)
-				t.os = OS::Windows; // native builds default to the host platform
+			t.os = OS::Windows; // native builds default to the host platform
 #endif
-				const char* env = std::getenv("RATCC_TARGET");
-				if(env && *env) {
-					String err;
-					if(!TargetTriple::parse(env, t, err))
-						std::fprintf(stderr, "ratcc: ignoring RATCC_TARGET: %s\n", err.c_str());
-				}
-				return t;
-			}();
+			const C8* env = std::getenv("RATCC_TARGET");
+			if(env && *env) {
+				String err;
+				if(!TargetTriple::parse(env, t, err))
+					std::fprintf(stderr, "ratcc: ignoring RATCC_TARGET: %s\n", err.c_str());
+			}
+			return t;
+		}
+
+		TargetTriple& hostTripleStorage() {
+			static TargetTriple triple = defaultTriple();
 			return triple;
 		}
 	} // namespace detail

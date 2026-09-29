@@ -4,9 +4,6 @@
 
 namespace rat::cc {
 	void composePipeline(PassManager& pm, CompileOptions& opt, std::ostream& out) {
-		if(!opt.renameMain.empty())
-			pm.add<RenameSymbolPass>("main", opt.renameMain);
-
 		Set<String> seen;
 		for(UniquePtr<Pass>& p : opt.optPasses) {
 			String name = p->name();

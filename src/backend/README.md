@@ -94,7 +94,6 @@ Passes come in three kinds: module `Pass`, `FunctionPass` (run per function), an
 
 ## utility
 - [**verify:**](./pass/verify.h) Edge consistency + per-opcode structural invariants (see [ir](#ir)).
-- [**rename-symbol:**](./pass/opt/rename_symbol.h) Rename a function or global and every reference to it.
 
 Visualization passes (`text-emitter`, `graph-emitter`) are covered in [x86-64 backend](#x86-64-backend).
 
