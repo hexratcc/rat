@@ -32,6 +32,13 @@ namespace rat::cc {
 		void reset() { pos = 0; }
 	};
 
+	namespace detail {
+		struct PpToken;
+
+		void pushToken(TokenStream& ts, TokKind kind, const String* text, U32 line);
+		TokKind tokKindOf(const PpToken& t, const Map<const String*, TokKind>& kw, TokenStream& ts);
+	} // namespace detail
+
 	// preprocess source and convert straight to parser tokens
 	B32 preprocessToTokens(const String& path,
 												 const String& source,

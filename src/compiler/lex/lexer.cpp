@@ -27,7 +27,8 @@ namespace rat::cc {
 									"kTokNames must cover every TokKind");
 
 		B32 validIntSuffix(const C8* s, U32 n) {
-			B32 haveU = false, haveL = false;
+			B32 haveU = false;
+			B32 haveL = false;
 			U32 i = 0;
 			while(i < n) {
 				C8 c = s[i];
@@ -49,7 +50,8 @@ namespace rat::cc {
 		}
 
 		B32 validFloatSuffix(const C8* s, U32 n) {
-			B32 haveSize = false, imag = false;
+			B32 haveSize = false;
+			B32 imag = false;
 			for(U32 i = 0; i < n; ++i) {
 				C8 c = s[i];
 				if(c == 'f' || c == 'F' || c == 'l' || c == 'L') {
@@ -89,6 +91,19 @@ namespace rat::cc {
 			return true;
 		}
 
+		B32 scanExponent(const C8* s, U32 n, U32& i, const C8* missing, String& err) {
+			++i;
+			if(charAt(s, n, i) == '+' || charAt(s, n, i) == '-')
+				++i;
+			if(!isDigit(charAt(s, n, i))) {
+				err = missing;
+				return false;
+			}
+			while(isDigit(charAt(s, n, i)))
+				++i;
+			return true;
+		}
+
 		B32 scanHexNumber(const C8* s, U32 n, U32& i, B32& isFloat, String& err) {
 			i += 2; // "0x"
 			B32 anyDigits = false;
@@ -116,16 +131,7 @@ namespace rat::cc {
 				return false;
 			}
 			isFloat = true;
-			++i;
-			if(charAt(s, n, i) == '+' || charAt(s, n, i) == '-')
-				++i;
-			if(!isDigit(charAt(s, n, i))) {
-				err = "expected digits in binary exponent";
-				return false;
-			}
-			while(isDigit(charAt(s, n, i)))
-				++i;
-			return true;
+			return scanExponent(s, n, i, "expected digits in binary exponent", err);
 		}
 
 		B32 scanDecNumber(const C8* s, U32 n, U32& i, B32& isFloat, String& err) {
@@ -141,16 +147,7 @@ namespace rat::cc {
 			if(c != 'e' && c != 'E')
 				return true;
 			isFloat = true;
-			++i;
-			if(charAt(s, n, i) == '+' || charAt(s, n, i) == '-')
-				++i;
-			if(!isDigit(charAt(s, n, i))) {
-				err = "expected digits in exponent";
-				return false;
-			}
-			while(isDigit(charAt(s, n, i)))
-				++i;
-			return true;
+			return scanExponent(s, n, i, "expected digits in exponent", err);
 		}
 
 		B32 scanNumber(const C8* s, U32 n, U32& i, TokKind& kind, String& err) {

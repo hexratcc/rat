@@ -126,6 +126,7 @@ namespace rat::cc {
 
 		// scanners over one token spelling; advance i, false on error with err set
 		B32 scanSuffix(const C8* s, U32 n, U32& i, B32 isFloat, TokKind& kind, String& err);
+		B32 scanExponent(const C8* s, U32 n, U32& i, const C8* missing, String& err);
 		B32 scanHexNumber(const C8* s, U32 n, U32& i, B32& isFloat, String& err);
 		B32 scanDecNumber(const C8* s, U32 n, U32& i, B32& isFloat, String& err);
 		U32 encodingPrefix(const C8* s, U32 n);

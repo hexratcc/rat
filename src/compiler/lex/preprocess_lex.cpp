@@ -2,7 +2,7 @@
 
 #include "lex/char_class.h"
 
-#include <cctype>
+#include <cstring>
 
 namespace rat::cc {
 	namespace detail {
@@ -51,70 +51,34 @@ namespace rat::cc {
 			return Pk::Punct;
 		}
 
+		U64 decodeTrigraph(const String& src, U64 p, C8& c) {
+			static const C8 kFrom[] = "=(/)'<!>-";
+			static const C8 kTo[] = "#[\\]^{|}~";
+			c = src[p];
+			if(c != '?' || p + 2 >= src.size() || src[p + 1] != '?')
+				return 1;
+			const C8* hit = (const C8*)std::memchr(kFrom, src[p + 2], sizeof kFrom - 1);
+			if(!hit)
+				return 1;
+			c = kTo[hit - kFrom];
+			return 3;
+		}
+
+		U64 newlineLen(const String& s, U64 i) {
+			if(i < s.size() && s[i] == '\n')
+				return 1;
+			return i + 1 < s.size() && s[i] == '\r' && s[i + 1] == '\n' ? 2 : 0;
+		}
+
 		// trigraph + splice + newline norm in one pass
 		void splice(const String& src, String& out, List<LineMark>& marks) {
 			U32 line = 1;
-			B32 pendingMark = false;
 			U64 i = 0, n = src.size();
 			out.reserve(n + 1);
-
-			// decode one logical char at p (trigraph-aware); returns length
-			auto decode = [&](U64 p, C8& c) -> U64 {
-				c = src[p];
-				if(c == '?' && p + 2 < n && src[p + 1] == '?') {
-					C8 r = 0;
-					switch(src[p + 2]) {
-					case '=':
-						r = '#';
-						break;
-					case '(':
-						r = '[';
-						break;
-					case '/':
-						r = '\\';
-						break;
-					case ')':
-						r = ']';
-						break;
-					case '\'':
-						r = '^';
-						break;
-					case '<':
-						r = '{';
-						break;
-					case '!':
-						r = '|';
-						break;
-					case '>':
-						r = '}';
-						break;
-					case '-':
-						r = '~';
-						break;
-					default:
-						break;
-					}
-					if(r) {
-						c = r;
-						return 3;
-					}
-				}
-				return 1;
-			};
-
-			auto emit = [&](C8 c) {
-				if(pendingMark) {
-					marks.push_back({(U32)out.size(), line});
-					pendingMark = false;
-				}
-				out.push_back(c);
-			};
-
 			const C8* data = src.data();
 			while(i < n) {
 				// fast path: bulk-copy a run with no splice/trigraph/CR triggers
 				U64 start = i;
-				U32 startLine = line; // line of first C8 in run
 				while(i < n) {
 					C8 c = data[i];
 					if(c == '\\' || c == '\r' || c == '?')
@@ -123,54 +87,34 @@ namespace rat::cc {
 						++line;
 					++i;
 				}
-				if(i > start) {
-					if(pendingMark) {
-						marks.push_back({(U32)out.size(), startLine});
-						pendingMark = false;
-					}
+				if(i > start)
 					out.append(data + start, i - start);
-				}
 				if(i >= n)
 					break;
 
 				C8 c;
-				U64 len = decode(i, c);
-				if(c == '\\') {
-					// backslash-newline splice (backslash may be a trigraph)
-					U64 j = i + len;
-					if(j < n) {
-						if(src[j] == '\n') {
-							i = j + 1;
-							++line;
-							pendingMark = true;
-							continue;
-						}
-						if(src[j] == '\r' && j + 1 < n && src[j + 1] == '\n') {
-							i = j + 2;
-							++line;
-							pendingMark = true;
-							continue;
-						}
-					}
-					emit(c);
-					i += len;
+				U64 len = decodeTrigraph(src, i, c);
+				// backslash-newline splice (backslash may be a trigraph)
+				U64 nl = c == '\\' ? newlineLen(src, i + len) : 0;
+				if(nl) {
+					i += len + nl;
+					++line;
+					marks.push_back({(U32)out.size(), line});
 					continue;
 				}
 				if(c == '\r') {
 					if(i + 1 < n && src[i + 1] == '\n')
 						++i;
-					emit('\n');
+					out.push_back('\n');
 					++line;
 					++i;
 					continue;
 				}
-				emit(c);
-				if(c == '\n')
-					++line;
+				out.push_back(c);
 				i += len;
 			}
 			if(out.empty() || out.back() != '\n')
-				emit('\n');
+				out.push_back('\n');
 		}
 
 		// longest-match punctuator length at s[i]; assumes s[i] starts one
@@ -216,53 +160,152 @@ namespace rat::cc {
 			}
 		}
 
-		LexResult
-		lexAll(const String& s, const List<LineMark>& marks, const String* file, Interner& in) {
-			LexResult r;
+		// apply splice line-corrections at offsets <= p
+		inline void PpLexer::advanceTo(U64 p) {
+			while(mi < marks.size() && marks[mi].off <= p) {
+				line = marks[mi].line;
+				++mi;
+			}
+		}
+
+		inline void PpLexer::push(Pk kind, U64 start, U64 end) {
+			std::string_view sv(s.data() + start, end - start);
+			if(kind == Pk::Punct) {
+				// digraph canonicalization
+				if(sv == "<:")
+					sv = "[";
+				else if(sv == ":>")
+					sv = "]";
+				else if(sv == "<%")
+					sv = "{";
+				else if(sv == "%>")
+					sv = "}";
+				else if(sv == "%:")
+					sv = "#";
+				else if(sv == "%:%:")
+					sv = "##";
+			}
+			PpToken t;
+			t.kind = kind;
+			t.text = in.intern(sv);
+			t.spaceBefore = spacePending;
+			t.bol = bolPending;
+			t.line = line;
+			t.file = file;
+			r.toks.push_back(t);
+			bolPending = false;
+			spacePending = false;
+		}
+
+		U64 PpLexer::skipComment(U64 i) {
+			U64 n = s.size();
+			if(s[i + 1] == '/') {
+				while(i < n && s[i] != '\n')
+					++i;
+				return i;
+			}
+			i += 2;
+			while(i + 1 < n && !(s[i] == '*' && s[i + 1] == '/')) {
+				if(s[i] == '\n') {
+					bolPending = true;
+					advanceTo(i);
+					++line;
+				}
+				++i;
+			}
+			if(i + 1 >= n) {
+				r.ok = false;
+				r.err = "unterminated comment";
+				return n;
+			}
+			return i + 2;
+		}
+
+		U64 PpLexer::wordEnd(U64 j) const {
+			for(;;) {
+				if(U64 u = ucnLen(s, j))
+					j += u;
+				else if(j < s.size() && isIdentCont(s[j]))
+					++j;
+				else
+					return j;
+			}
+		}
+
+		U64 PpLexer::quotedEnd(U64 i) const {
+			C8 quote = s[i];
+			U64 j = i + 1, n = s.size();
+			while(j < n && s[j] != quote) {
+				if(s[j] == '\\' && j + 1 < n)
+					j += 2;
+				else if(s[j] == '\n')
+					break;
+				else
+					++j;
+			}
+			return j < n && s[j] == quote ? j + 1 : 0;
+		}
+
+		U64 PpLexer::numberEnd(U64 j) const {
+			U64 n = s.size();
+			for(++j; j < n;) {
+				C8 d = s[j];
+				if((d == 'e' || d == 'E' || d == 'p' || d == 'P') && j + 1 < n &&
+					 (s[j + 1] == '+' || s[j + 1] == '-'))
+					j += 2;
+				else if(isIdentCont(d) || d == '.')
+					++j;
+				else
+					break;
+			}
+			return j;
+		}
+
+		U64 PpLexer::lexToken(U64 i) {
+			U64 n = s.size();
+			C8 c = s[i];
+			// string / char literal, with optional prefix
+			U64 pfx = i;
+			if(isIdentStart(c) || ucnLen(s, i)) {
+				U64 j = wordEnd(i);
+				std::string_view word(s.data() + i, j - i);
+				B32 isPrefix = (word == "L" || word == "u" || word == "U" || word == "u8");
+				if(!isPrefix || j >= n || (s[j] != '"' && s[j] != '\'')) {
+					push(Pk::Id, pfx, j);
+					return j;
+				}
+				// fall through into literal lexing starting at the quote
+				i = j;
+				c = s[i];
+			}
+
+			if(c == '"' || c == '\'') {
+				U64 j = quotedEnd(i);
+				if(!j) {
+					r.ok = false;
+					r.err = "unterminated literal";
+					return n;
+				}
+				push(c == '"' ? Pk::Str : Pk::Char, pfx, j);
+				return j;
+			}
+
+			// pp-number
+			if(isDigit(c) || (c == '.' && i + 1 < n && isDigit(s[i + 1]))) {
+				U64 j = numberEnd(i);
+				push(Pk::Num, i, j);
+				return j;
+			}
+
+			// punctuator
+			U64 plen = punctLen(s, i, n);
+			push(Pk::Punct, i, i + plen);
+			return i + plen;
+		}
+
+		LexResult PpLexer::run() {
 			U64 i = 0, n = s.size();
 			r.toks.reserve(n / 3 + 8);
-			B32 bolPending = true;
-			B32 spacePending = false;
-			U32 line = 1;
-			U64 mi = 0, mn = marks.size();
-
-			// apply splice line-corrections at offsets <= p
-			auto advanceTo = [&](U64 p) {
-				while(mi < mn && marks[mi].off <= p) {
-					line = marks[mi].line;
-					++mi;
-				}
-			};
-
-			auto pushTok = [&](Pk kind, U64 start, U64 end) {
-				PpToken t;
-				t.kind = kind;
-				std::string_view sv(s.data() + start, end - start);
-				if(kind == Pk::Punct) {
-					// digraph canonicalization
-					if(sv == "<:")
-						sv = "[";
-					else if(sv == ":>")
-						sv = "]";
-					else if(sv == "<%")
-						sv = "{";
-					else if(sv == "%>")
-						sv = "}";
-					else if(sv == "%:")
-						sv = "#";
-					else if(sv == "%:%:")
-						sv = "##";
-				}
-				t.text = in.intern(sv);
-				t.spaceBefore = spacePending;
-				t.bol = bolPending;
-				t.line = line;
-				t.file = file;
-				r.toks.push_back(t);
-				bolPending = false;
-				spacePending = false;
-			};
-
 			while(i < n) {
 				advanceTo(i);
 				C8 c = s[i];
@@ -278,105 +321,14 @@ namespace rat::cc {
 					++i;
 					continue;
 				}
-				if(c == '/' && i + 1 < n && s[i + 1] == '/') {
-					i += 2;
-					while(i < n && s[i] != '\n')
-						++i;
+				if(c == '/' && i + 1 < n && (s[i + 1] == '/' || s[i + 1] == '*')) {
+					i = skipComment(i);
 					spacePending = true;
-					continue;
+				} else {
+					i = lexToken(i);
 				}
-				if(c == '/' && i + 1 < n && s[i + 1] == '*') {
-					i += 2;
-					while(i + 1 < n && !(s[i] == '*' && s[i + 1] == '/')) {
-						if(s[i] == '\n') {
-							bolPending = true;
-							advanceTo(i);
-							++line;
-						}
-						++i;
-					}
-					if(i + 1 >= n) {
-						r.ok = false;
-						r.err = "unterminated comment";
-						return r;
-					}
-					i += 2;
-					spacePending = true;
-					continue;
-				}
-
-				// string / char literal, with optional prefix
-				U64 pfx = i;
-				if(isIdentStart(c) || ucnLen(s, i)) {
-					U64 j = i;
-					for(;;) {
-						if(U64 u = ucnLen(s, j))
-							j += u;
-						else if(j < n && isIdentCont(s[j]))
-							++j;
-						else
-							break;
-					}
-					std::string_view word(s.data() + i, j - i);
-					B32 isPrefix = (word == "L" || word == "u" || word == "U" || word == "u8");
-					if(isPrefix && j < n && (s[j] == '"' || s[j] == '\'')) {
-						// fall through into literal lexing starting at the quote
-						i = j;
-						c = s[i];
-					} else {
-						pushTok(Pk::Id, pfx, j);
-						i = j;
-						continue;
-					}
-				}
-
-				if(c == '"' || c == '\'') {
-					C8 quote = c;
-					U64 j = i + 1;
-					while(j < n && s[j] != quote) {
-						if(s[j] == '\\' && j + 1 < n)
-							j += 2;
-						else if(s[j] == '\n')
-							break;
-						else
-							++j;
-					}
-					if(j >= n || s[j] != quote) {
-						r.ok = false;
-						r.err = "unterminated literal";
-						return r;
-					}
-					++j; // include closing quote
-					pushTok(quote == '"' ? Pk::Str : Pk::Char, pfx, j);
-					i = j;
-					continue;
-				}
-
-				// pp-number
-				if(isDigit(c) || (c == '.' && i + 1 < n && isDigit(s[i + 1]))) {
-					U64 j = i + 1;
-					while(j < n) {
-						C8 d = s[j];
-						if((d == 'e' || d == 'E' || d == 'p' || d == 'P') && j + 1 < n &&
-							 (s[j + 1] == '+' || s[j + 1] == '-')) {
-							j += 2;
-							continue;
-						}
-						if(isIdentCont(d) || d == '.') {
-							++j;
-							continue;
-						}
-						break;
-					}
-					pushTok(Pk::Num, i, j);
-					i = j;
-					continue;
-				}
-
-				// punctuator
-				U64 plen = punctLen(s, i, n);
-				pushTok(Pk::Punct, i, i + plen);
-				i += plen;
+				if(!r.ok)
+					return std::move(r);
 			}
 
 			PpToken eof;
@@ -385,7 +337,13 @@ namespace rat::cc {
 			eof.bol = true;
 			eof.file = file;
 			r.toks.push_back(eof);
-			return r;
+			return std::move(r);
+		}
+
+		LexResult
+		lexAll(const String& s, const List<LineMark>& marks, const String* file, Interner& in) {
+			PpLexer lx{s, marks, file, in, {}};
+			return lx.run();
 		}
 
 		I64 parseCharConst(const String& txt) {
@@ -438,11 +396,9 @@ namespace rat::cc {
 					break;
 				acc = acc * (U64)base + (U64)d;
 			}
-			for(; p < txt.size(); ++p) {
-				C8 c = (C8)std::tolower(txt[p]);
-				if(c == 'u')
+			for(; p < txt.size(); ++p)
+				if(txt[p] == 'u' || txt[p] == 'U')
 					v.isU = true;
-			}
 			v.u = acc;
 			return v;
 		}

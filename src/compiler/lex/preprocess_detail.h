@@ -72,6 +72,9 @@ namespace rat::cc {
 			U32 line;
 		};
 
+		U64 decodeTrigraph(const String& src, U64 p, C8& c);
+		U64 newlineLen(const String& s, U64 i);
+
 		// trigraph + splice + newline norm in one copy; sparse LineMarks
 		void splice(const String& src, String& out, List<LineMark>& marks);
 
@@ -90,14 +93,41 @@ namespace rat::cc {
 			const PpToken& operator[](U64 i) const { return b[i]; }
 		};
 
+		String withSlash(String dir);
+		String joinSpelling(PpSpan toks);
+		List<String> stampDefs();
+
 		struct LexResult {
 			List<PpToken> toks;
 			B32 ok = true;
 			String err;
 		};
 
+		struct PpLexer {
+			const String& s;
+			const List<LineMark>& marks;
+			const String* file;
+			Interner& in;
+			LexResult r;
+			U64 mi = 0;
+			U32 line = 1;
+			B32 bolPending = true;
+			B32 spacePending = false;
+
+			void advanceTo(U64 p);
+			void push(Pk kind, U64 start, U64 end);
+			U64 skipComment(U64 i);
+			U64 wordEnd(U64 j) const;
+			U64 quotedEnd(U64 i) const;
+			U64 numberEnd(U64 j) const;
+			U64 lexToken(U64 i);
+			LexResult run();
+		};
+
 		LexResult
 		lexAll(const String& s, const List<LineMark>& marks, const String* file, Interner& in);
+
+		using ArgLists = List<List<PpToken>>;
 
 		// macros
 		struct Macro {
@@ -109,6 +139,8 @@ namespace rat::cc {
 			List<PpToken> body;
 		};
 
+		I32 formalIndex(const Macro& m, const String* s);
+
 		// constexpr evaluator
 		struct Val {
 			U64 u = 0;
@@ -116,6 +148,7 @@ namespace rat::cc {
 			B32 truth() const { return u != 0; }
 		};
 
+		Val truthVal(B32 r);
 		I64 parseCharConst(const String& txt);
 		Val parseNumLit(const String& txt);
 
@@ -161,21 +194,21 @@ namespace rat::cc {
 			std::deque<HideSet> hideStore;
 			Map<U64, List<const HideSet*>> hidePool; // keyed by pointer-FNV, chained
 			// pre-interned, compared by pointer on hot paths
-			const String* idLine;					// "__LINE__"
-			const String* idFile;					// "__FILE__"
-			const String* idDefined;			// "defined"
-			const String* idVaArgs;				// "__VA_ARGS__"
-			const String* idAttr;					// "__attribute__"
-			const String* idAttr2;				// "__attribute"
-			const String* idNoinline;			// "noinline"
-			const String* idNoinline2;		// "__noinline__"
-			const String* idNoinlineMark; // "__rat_noinline__"
-			const String* idAligned;			// "aligned"
-			const String* idAligned2;			// "__aligned__"
-			const String* idAlignas;			// "_Alignas"
-			const String* idAlias;				// "alias"
-			const String* idAlias2;				// "__alias__"
-			const String* idAliasMark;		// "__rat_alias__"
+			const String* idLine = interner.intern("__LINE__");
+			const String* idFile = interner.intern("__FILE__");
+			const String* idDefined = interner.intern("defined");
+			const String* idVaArgs = interner.intern("__VA_ARGS__");
+			const String* idAttr = interner.intern("__attribute__");
+			const String* idAttr2 = interner.intern("__attribute");
+			const String* idNoinline = interner.intern("noinline");
+			const String* idNoinline2 = interner.intern("__noinline__");
+			const String* idNoinlineMark = interner.intern("__rat_noinline__");
+			const String* idAligned = interner.intern("aligned");
+			const String* idAligned2 = interner.intern("__aligned__");
+			const String* idAlignas = interner.intern("_Alignas");
+			const String* idAlias = interner.intern("alias");
+			const String* idAlias2 = interner.intern("__alias__");
+			const String* idAliasMark = interner.intern("__rat_alias__");
 			String err;
 			B32 ok = true;
 			I64 lineDelta = 0;
@@ -189,23 +222,7 @@ namespace rat::cc {
 			};
 
 			explicit Preprocessor(const PpOptions& o)
-			: opts(o) {
-				idLine = interner.intern("__LINE__");
-				idFile = interner.intern("__FILE__");
-				idDefined = interner.intern("defined");
-				idVaArgs = interner.intern("__VA_ARGS__");
-				idAttr = interner.intern("__attribute__");
-				idAttr2 = interner.intern("__attribute");
-				idNoinline = interner.intern("noinline");
-				idNoinline2 = interner.intern("__noinline__");
-				idNoinlineMark = interner.intern("__rat_noinline__");
-				idAligned = interner.intern("aligned");
-				idAligned2 = interner.intern("__aligned__");
-				idAlignas = interner.intern("_Alignas");
-				idAlias = interner.intern("alias");
-				idAlias2 = interner.intern("__alias__");
-				idAliasMark = interner.intern("__rat_alias__");
-			}
+			: opts(o) {}
 
 			B32 isDefined(const String* name) {
 				return macros.count(name) || name == idLine || name == idFile;
@@ -227,12 +244,16 @@ namespace rat::cc {
 			void pasteInto(PpToken& dst, const PpToken& r);
 			PpToken stringize(const List<PpToken>& a, B32 spaceBefore);
 			void appendList(List<PpToken>& os, List<PpToken> src, B32 firstSpace);
-			List<PpToken> substitute(const Macro& m, const List<List<PpToken>>& args, const HideSet* hs);
+			void pasteArg(const List<PpToken>& a, B32 commaVa, List<PpToken>& os);
+			List<PpToken> substitute(const Macro& m, const ArgLists& args, const HideSet* hs);
+			List<PpToken> applyHideSet(List<PpToken>& os, const HideSet* hs);
 			static U32 matchParen(const List<PpToken>& arg, U32 open);
 			// stack: next token is work.back()
-			B32 gatherArgs(List<PpToken>& work, List<List<PpToken>>& raw, PpToken& rparen);
-			B32 mapArgs(const Macro& m, const List<List<PpToken>>& raw, List<List<PpToken>>& actuals);
-			void emitAttrMarkers(const PpToken& at, const List<List<PpToken>>& raw, List<PpToken>& os);
+			B32 gatherArgs(List<PpToken>& work, ArgLists& raw, PpToken& rparen);
+			B32 mapArgs(const Macro& m, const ArgLists& raw, ArgLists& actuals);
+			void emitAttrMarkers(const PpToken& at, const ArgLists& raw, List<PpToken>& os);
+			B32 expandBuiltinName(const PpToken& t, List<PpToken>& os);
+			void requeueAlignas(const PpToken& at, const ArgLists& raw, List<PpToken>& work);
 			void requeueExpansion(List<PpToken>& r, const PpToken& invoker, List<PpToken>& work);
 			List<PpToken> expand(PpSpan in);
 
@@ -241,20 +262,30 @@ namespace rat::cc {
 			B32 evalExpr(PpSpan toks);
 
 			// directives
+			B32 parseMacroParams(PpSpan toks, U64& i, Macro& m);
+			B32 checkMacroBody(const Macro& m);
 			void doDefine(PpSpan toks);
-			void defineSimple(const String& name, const String& value);
+			void doUndef(PpSpan rest);
+			void defineFragment(const String& text, const C8* file);
 			static String dirOf(const String& path);
 			B32 readFile(const String& path, String& content);
-			void doInclude(PpSpan restIn, const String& curDir, B32 next = false);
+			B32 includeName(PpSpan toks, String& fname, B32& angled);
+			U64 nextIncludeDir(const String& curDir);
+			void enterInclude(const List<String>& tries, const String& fname);
+			void doInclude(PpSpan rest, const String& path, B32 next);
 			void doLine(PpSpan restIn, U32 physicalNextLine);
+			void pushPopMacro(PpSpan rest, B32 push);
 			void doPragma(PpSpan rest, const String& path);
 			String destringize(const String& lit);
 			List<PpToken> applyPragmaOperators(List<PpToken>& toks, const String& path);
 			void flush(List<PpToken>& textBuf);
 			static B32 condActive(const List<Cond>& stack);
+			void pushCond(const String& name, PpSpan rest, List<Cond>& stack);
 			B32 handleConditional(const String& name, PpSpan rest, List<Cond>& stack);
+			void doDirective(PpSpan line, U32 phys, const String& path, List<Cond>& stack);
 
 			// driver
+			B32 run(const String& path, const String& source, String& errOut);
 			void runFile(const String& path, const String& source);
 			void installBuiltins();
 			void applyCommandLine();

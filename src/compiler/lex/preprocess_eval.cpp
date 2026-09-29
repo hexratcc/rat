@@ -51,7 +51,7 @@ namespace rat::cc {
 			if(isOp("!")) {
 				++i;
 				Val v = parseUnary();
-				return Val{v.u ? 0u : 1u, false};
+				return truthVal(!v.truth());
 			}
 			if(isOp("~")) {
 				++i;
@@ -63,32 +63,27 @@ namespace rat::cc {
 		}
 
 		I32 Eval::prec(const String& op) {
-			if(op == "*" || op == "/" || op == "%")
-				return 10;
-			if(op == "+" || op == "-")
-				return 9;
-			if(op == "<<" || op == ">>")
-				return 8;
-			if(op == "<" || op == "<=" || op == ">" || op == ">=")
-				return 7;
-			if(op == "==" || op == "!=")
-				return 6;
-			if(op == "&")
-				return 5;
-			if(op == "^")
-				return 4;
-			if(op == "|")
-				return 3;
-			if(op == "&&")
-				return 2;
-			if(op == "||")
-				return 1;
+			struct OpPrec {
+				const C8* op;
+				I32 prec;
+			};
+			// clang-format off
+			static const OpPrec kPrec[] = {
+					{"*", 10}, {"/", 10}, {"%", 10}, {"+", 9}, {"-", 9}, {"<<", 8}, {">>", 8},
+					{"<", 7}, {"<=", 7}, {">", 7}, {">=", 7}, {"==", 6}, {"!=", 6}, {"&", 5},
+					{"^", 4}, {"|", 3}, {"&&", 2}, {"||", 1},
+			};
+			// clang-format on
+			for(const auto& [spelling, p] : kPrec)
+				if(op == spelling)
+					return p;
 			return -1;
 		}
 
+		Val truthVal(B32 r) { return Val{r ? 1u : 0u, false}; }
+
 		Val Eval::apply(const String& op, Val a, Val b) {
 			B32 u = a.isU || b.isU;
-			auto cmp = [](B32 r) { return Val{r ? 1u : 0u, false}; };
 			if(op == "*")
 				return Val{a.u * b.u, u};
 			if(op == "+")
@@ -117,17 +112,17 @@ namespace rat::cc {
 				return a.isU ? Val{a.u >> (b.u & kShiftMask), true}
 										 : Val{(U64)((I64)a.u >> (b.u & kShiftMask)), false};
 			if(op == "<")
-				return cmp(u ? a.u < b.u : (I64)a.u < (I64)b.u);
+				return truthVal(u ? a.u < b.u : (I64)a.u < (I64)b.u);
 			if(op == "<=")
-				return cmp(u ? a.u <= b.u : (I64)a.u <= (I64)b.u);
+				return truthVal(u ? a.u <= b.u : (I64)a.u <= (I64)b.u);
 			if(op == ">")
-				return cmp(u ? a.u > b.u : (I64)a.u > (I64)b.u);
+				return truthVal(u ? a.u > b.u : (I64)a.u > (I64)b.u);
 			if(op == ">=")
-				return cmp(u ? a.u >= b.u : (I64)a.u >= (I64)b.u);
+				return truthVal(u ? a.u >= b.u : (I64)a.u >= (I64)b.u);
 			if(op == "==")
-				return cmp(a.u == b.u);
+				return truthVal(a.u == b.u);
 			if(op == "!=")
-				return cmp(a.u != b.u);
+				return truthVal(a.u != b.u);
 			if(op == "&")
 				return Val{a.u & b.u, u};
 			if(op == "^")
@@ -135,9 +130,9 @@ namespace rat::cc {
 			if(op == "|")
 				return Val{a.u | b.u, u};
 			if(op == "&&")
-				return cmp(a.truth() && b.truth());
+				return truthVal(a.truth() && b.truth());
 			if(op == "||")
-				return cmp(a.truth() || b.truth());
+				return truthVal(a.truth() || b.truth());
 			return {};
 		}
 
