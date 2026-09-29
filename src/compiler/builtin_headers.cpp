@@ -37,14 +37,15 @@ namespace rat::cc {
 			return ec ? fs::path() : p;
 #endif
 		}
+
+		String includeDirOf(const fs::path& exe) {
+			fs::path h = exe.parent_path() / ".." / "src" / "compiler" / "headers";
+			return h.lexically_normal().generic_string();
+		}
 	} // namespace detail
 
 	const String& builtinIncludeDir() {
-		static const String dir = [] {
-			detail::fs::path exe = detail::selfExePath();
-			detail::fs::path h = exe.parent_path() / ".." / "src" / "compiler" / "headers";
-			return h.lexically_normal().generic_string();
-		}();
+		static const String dir = detail::includeDirOf(detail::selfExePath());
 		return dir;
 	}
 } // namespace rat::cc

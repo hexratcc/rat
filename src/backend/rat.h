@@ -16,6 +16,4 @@
 #include "pass/emit/x86/x86_lower.h"
 #include "pass/emit/x86/x86_peephole.h"
 
-#include "pass/opt/rename_symbol.h"
-
 #endif

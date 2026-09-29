@@ -23,43 +23,15 @@ namespace rat::cc {
 		return -1;
 	}
 	inline B32 simpleEscape(C8 e, U8& out) {
-		switch(e) {
-		case 'n':
-			out = '\n';
-			return true;
-		case 't':
-			out = '\t';
-			return true;
-		case 'r':
-			out = '\r';
-			return true;
-		case '\\':
-			out = '\\';
-			return true;
-		case '\'':
-			out = '\'';
-			return true;
-		case '"':
-			out = '"';
-			return true;
-		case 'a':
-			out = '\a';
-			return true;
-		case 'b':
-			out = '\b';
-			return true;
-		case 'f':
-			out = '\f';
-			return true;
-		case 'v':
-			out = '\v';
-			return true;
-		case 'e':
-			out = 27;
-			return true;
-		default:
-			return false;
+		constexpr C8 kFrom[] = {'n', 't', 'r', '\\', '\'', '"', 'a', 'b', 'f', 'v', 'e'};
+		constexpr U8 kTo[] = {'\n', '\t', '\r', '\\', '\'', '"', '\a', '\b', '\f', '\v', 27};
+		for(U32 i = 0; i < sizeof kTo; ++i) {
+			if(kFrom[i] == e) {
+				out = kTo[i];
+				return true;
+			}
 		}
+		return false;
 	}
 } // namespace rat::cc
 

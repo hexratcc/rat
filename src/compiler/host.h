@@ -7,6 +7,7 @@
 
 namespace rat::cc {
 	namespace detail {
+		TargetTriple defaultTriple();
 		TargetTriple& hostTripleStorage();
 	} // namespace detail
 

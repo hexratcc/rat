@@ -34,8 +34,10 @@ namespace detail {
 		String passSpec;					// -fpasses=: exact opt pipeline
 		String machineSpec;				// -fmachine-passes=: exact x86 machine pipeline
 		List<String> extraPasses; // individual -f<pass> requests (in order)
-		B32 timePasses = false, preprocessOnly = false;
-		B32 noStdInc = false, noPredefs = false; // -nostdinc / -undef: skip builtin headers / predefs
+		B32 timePasses = false;
+		B32 preprocessOnly = false;
+		B32 noStdInc = false;	 // -nostdinc: skip builtin headers
+		B32 noPredefs = false; // -undef: skip predefs
 		String targetSpec;
 		PpOptions pp;
 	};
@@ -106,45 +108,47 @@ namespace detail {
 					"  -list-passes          list available passes and exit\n";
 	}
 
+	// -X<v> and -X <v>
+	String joinedValue(I32 argc, C8** argv, I32& i, U32 prefix) {
+		String arg = argv[i];
+		if(arg.size() > prefix)
+			return arg.substr(prefix);
+		if(++i >= argc)
+			cli::die(kTool, arg + " expects an argument");
+		return argv[i];
+	}
+
+	B32 setFlag(const String& arg, const C8* name, B32& out) { return arg == name && (out = true); }
+
 	Options parseArgs(I32 argc, C8** argv) {
 		Options opt;
 		for(I32 i = 1; i < argc; ++i) {
 			String arg = argv[i];
-			// -X<v> and -X <v>
-			auto rest = [&](U32 prefix) -> String {
-				if(arg.size() > prefix)
-					return arg.substr(prefix);
-				if(++i >= argc)
-					cli::die(kTool, arg + " expects an argument");
-				return argv[i];
-			};
-			auto value = [&](const C8* name, String& out) -> B32 {
-				return cli::value(kTool, argc, argv, i, name, out);
-			};
-			auto flag = [&](const C8* name, B32& out) -> B32 { return arg == name && (out = true); };
 			cli::stdFlags(kTool, arg, usage);
 			if(arg == "-list-passes")
 				listPasses(std::cout, true), std::exit(0);
 			else if(arg == "-O0" || arg == "-O1" || arg == "-O")
 				opt.optLevel = arg != "-O0";
-			else if(flag("-E", opt.preprocessOnly) || flag("-nostdinc", opt.noStdInc) ||
-							flag("-undef", opt.noPredefs) || flag("-ftime-passes", opt.timePasses))
+			else if(setFlag(arg, "-E", opt.preprocessOnly) || setFlag(arg, "-nostdinc", opt.noStdInc) ||
+							setFlag(arg, "-undef", opt.noPredefs) ||
+							setFlag(arg, "-ftime-passes", opt.timePasses))
 				;
-			else if(String spec; value("-emit", spec))
+			else if(String spec; cli::value(kTool, argc, argv, i, "-emit", spec))
 				parseEmit(spec, opt.emits);
-			else if(value("-target", opt.targetSpec) || value("-fpasses", opt.passSpec) ||
-							value("-fmachine-passes", opt.machineSpec))
+			else if(cli::value(kTool, argc, argv, i, "-target", opt.targetSpec) ||
+							cli::value(kTool, argc, argv, i, "-fpasses", opt.passSpec) ||
+							cli::value(kTool, argc, argv, i, "-fmachine-passes", opt.machineSpec))
 				;
 			else if(arg.rfind("-f", 0) == 0 && createPass(arg.substr(2), std::cerr))
 				opt.extraPasses.push_back(arg.substr(2));
 			else if(arg.rfind("-o", 0) == 0)
-				opt.output = rest(2);
+				opt.output = joinedValue(argc, argv, i, 2);
 			else if(arg.rfind("-I", 0) == 0)
-				opt.pp.includeDirs.push_back(rest(2));
+				opt.pp.includeDirs.push_back(joinedValue(argc, argv, i, 2));
 			else if(arg.rfind("-D", 0) == 0)
-				opt.pp.defines.push_back(rest(2));
+				opt.pp.defines.push_back(joinedValue(argc, argv, i, 2));
 			else if(arg.rfind("-U", 0) == 0)
-				opt.pp.undefs.push_back(rest(2));
+				opt.pp.undefs.push_back(joinedValue(argc, argv, i, 2));
 			else if(arg.size() > 1 && arg[0] == '-')
 				cli::die(kTool, "unknown option '" + arg + "'");
 			else if(opt.input.empty())
@@ -266,7 +270,8 @@ static I32 run(I32 argc, C8** argv) {
 	// only -E needs serialized text; every -emit kind runs off the pp token stream
 	B32 needText = opt.preprocessOnly, needToks = !opt.emits.empty();
 
-	String pped, ppErr;
+	String pped;
+	String ppErr;
 	TokenStream ts;
 	::detail::PhaseClock::time_point tPp = ::detail::PhaseClock::now();
 	B32 ppOk = (!needText || preprocess(path, source, opt.pp, pped, ppErr)) &&

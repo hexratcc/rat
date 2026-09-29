@@ -179,13 +179,8 @@ namespace rat::cc {
 		return true;
 	}
 
-	// [ qualifier | storage | alignas ]... spec-body [ noinline | alignas ]...
-	// spec-body: typeof-spec | enum-spec | struct-spec | typedef-name
-	//          | type-keyword [ type-keyword | qualifier | storage | alignas ]...
-	B32 Parser::parseTypeSpec(CType& out) {
-		DeclSpecs seen;
-		specs = DeclSpecs{};
-		specAlign = 0;
+	// [ qualifier | storage | alignas ]...
+	B32 Parser::parseQualStorage(DeclSpecs& seen) {
 		for(;;) {
 			if(check(TokKind::KwAlignas)) {
 				if(!parseAlignasSpec(specAlign))
@@ -193,9 +188,78 @@ namespace rat::cc {
 				continue;
 			}
 			if(!detail::isQualOrStorage(peek().kind))
-				break;
+				return true;
 			applyQualStorage(seen, advance().kind);
 		}
+	}
+
+	// type-keyword [ type-keyword | qualifier | storage | alignas ]...
+	B32 Parser::parseTypeKeywords(DeclSpecs& seen, TypeWords& w) {
+		// clang-format off
+		static const TokKind kWords[] = {
+				TokKind::KwVoid, TokKind::KwBool, TokKind::KwChar, TokKind::KwShort, TokKind::KwInt,
+				TokKind::KwLong, TokKind::KwFloat, TokKind::KwDouble, TokKind::KwSigned,
+				TokKind::KwUnsigned, TokKind::KwComplex, TokKind::KwImaginary,
+		};
+		// clang-format on
+		for(;;) {
+			if(!parseQualStorage(seen))
+				return false;
+			TokKind k = peek().kind;
+			if(std::find(std::begin(kWords), std::end(kWords), k) == std::end(kWords))
+				return true;
+			advance();
+			++w.count[(U32)k];
+			++w.total;
+		}
+	}
+
+	CType Parser::basicType(const TypeWords& w) {
+		B32 isFloat = w.of(TokKind::KwFloat) != 0;
+		B32 isComplex = w.of(TokKind::KwComplex) || w.of(TokKind::KwImaginary);
+		B32 isUnsigned = w.of(TokKind::KwUnsigned) != 0;
+		U32 longCount = w.of(TokKind::KwLong);
+		CType t;
+		if(w.of(TokKind::KwVoid)) {
+			t.base = CType::Base::Void;
+		} else if(isFloat || w.of(TokKind::KwDouble) || isComplex) {
+			t.base = CType::Base::Float;
+			t.bits = isFloat ? 32 : (w.of(TokKind::KwDouble) && longCount >= 1 ? 128 : 64);
+			t.set(CType::Complex, isComplex);
+			if(isComplex)
+				t.strukt = complexStruct(t);
+		} else if(w.of(TokKind::KwBool)) {
+			t.bits = 1;
+			t.set(CType::Unsigned);
+		} else {
+			t.set(CType::Unsigned, isUnsigned);
+			if(w.of(TokKind::KwChar)) {
+				t.bits = 8;
+				t.set(CType::PlainChar, !isUnsigned && !w.of(TokKind::KwSigned));
+			} else if(w.of(TokKind::KwShort))
+				t.bits = 16;
+			else if(longCount >= 2) {
+				t.bits = 64;
+				t.set(CType::Long);
+				t.set(CType::LongLong);
+			} else if(longCount == 1) {
+				t.bits = lay.longBits; // 64 on LP64 linux, 32 on LLP64 windows
+				t.set(CType::Long);
+			} else
+				t.bits = 32;
+		}
+		return t;
+	}
+
+	// [ qualifier | storage | alignas ]... spec-body [ noinline | alignas ]...
+	// spec-body: typeof-spec | enum-spec | struct-spec | typedef-name
+	//          | type-keyword [ type-keyword | qualifier | storage | alignas ]...
+	B32 Parser::parseTypeSpec(CType& out) {
+		DeclSpecs seen;
+		specs = DeclSpecs{};
+		specAlign = 0;
+		if(!parseQualStorage(seen))
+			return false;
 		if(seen.storageCount > 1) {
 			fail(peek(), "more than one storage-class specifier");
 			return false;
@@ -213,85 +277,14 @@ namespace rat::cc {
 				return finishTypeSpec(seen, out);
 			}
 		}
-
-		B32 isVoid = false, isBool = false, isChar = false, isShort = false;
-		B32 isUnsigned = false, isSigned = false;
-		B32 isFloat = false, isDouble = false;
-		B32 isComplex = false;
-		I32 longCount = 0;
-		I32 count = 0;
-		for(;;) {
-			TokKind k = peek().kind;
-			if(k == TokKind::KwVoid)
-				isVoid = true;
-			else if(k == TokKind::KwBool)
-				isBool = true;
-			else if(k == TokKind::KwChar)
-				isChar = true;
-			else if(k == TokKind::KwShort)
-				isShort = true;
-			else if(k == TokKind::KwFloat)
-				isFloat = true;
-			else if(k == TokKind::KwDouble)
-				isDouble = true;
-			else if(k == TokKind::KwComplex || k == TokKind::KwImaginary)
-				isComplex = true;
-			else if(k == TokKind::KwLong)
-				++longCount;
-			else if(k == TokKind::KwUnsigned)
-				isUnsigned = true;
-			else if(k == TokKind::KwSigned)
-				isSigned = true;
-			else if(k == TokKind::KwInt)
-				; // base int
-			else if(k == TokKind::KwAlignas) {
-				if(!parseAlignasSpec(specAlign))
-					return false;
-				continue;
-			} else if(detail::isQualOrStorage(k)) {
-				applyQualStorage(seen, advance().kind);
-				continue;
-			} else
-				break;
-			advance();
-			++count;
-		}
-		if(count == 0)
+		TypeWords w;
+		if(!parseTypeKeywords(seen, w) || w.total == 0)
 			return false;
 		if(seen.storageCount > 1) {
 			fail(peek(), "more than one storage-class specifier");
 			return false;
 		}
-		CType t;
-		if(isVoid) {
-			t.base = CType::Base::Void;
-		} else if(isFloat || isDouble || isComplex) {
-			t.base = CType::Base::Float;
-			t.bits = isFloat ? 32 : (isDouble && longCount >= 1 ? 128 : 64);
-			t.set(CType::Complex, isComplex);
-			if(isComplex)
-				t.strukt = complexStruct(t);
-		} else if(isBool) {
-			t.bits = 1;
-			t.set(CType::Unsigned);
-		} else {
-			t.set(CType::Unsigned, isUnsigned);
-			if(isChar) {
-				t.bits = 8;
-				t.set(CType::PlainChar, !isUnsigned && !isSigned);
-			} else if(isShort)
-				t.bits = 16;
-			else if(longCount >= 2) {
-				t.bits = 64;
-				t.set(CType::Long);
-				t.set(CType::LongLong);
-			} else if(longCount == 1) {
-				t.bits = lay.longBits; // 64 on LP64 linux, 32 on LLP64 windows
-				t.set(CType::Long);
-			} else
-				t.bits = 32;
-		}
-		out = t;
+		out = basicType(w);
 		return finishTypeSpec(seen, out);
 	}
 } // namespace rat::cc

@@ -88,13 +88,22 @@ namespace rat::cc {
 			U32 storageCount = 0;
 		};
 		B32 startsType(const Token& tok);
+		struct TypeWords {
+			U8 count[(U32)TokKind::KwAlignas + 1] = {};
+			U32 total = 0;
+			U32 of(TokKind k) const { return count[(U32)k]; }
+		};
 		B32 parseTypeSpec(CType& out);
+		B32 parseQualStorage(DeclSpecs& seen);
+		B32 parseTypeKeywords(DeclSpecs& seen, TypeWords& w);
+		CType basicType(const TypeWords& w);
 		void applyQualStorage(DeclSpecs& seen, TokKind kind);
 		B32 finishTypeSpec(DeclSpecs seen, CType& out);
 		B32 parseAlignasSpec(U32& align);
 		B32 acceptTrailingAlignas(U32& align);
 		B32 parseTypeofSpec(CType& out);
 		B32 parseEnumSpec(CType& out);
+		B32 parseEnumerators(B32& anyNegative);
 		B32 parseStructSpec(CType& out);
 		struct StructLayout {
 			U64 offset = 0; // bytes used so far; the union's widest member
@@ -106,7 +115,7 @@ namespace rat::cc {
 		B32 parseStructMember(StructType* st, CType base, U32 baseAlign, B32 isUnion, StructLayout& l);
 		B32 arrayMemberCount(CType t, U64& count);
 		B32 parseBitfield(StructType* st, Field f, U32 memberAlign, B32 isUnion, StructLayout& l);
-		void placeField(StructType* st, Field f, U64 size, U32 align, B32 isUnion, StructLayout& l);
+		U64 placeMember(U64 size, U32 align, B32 isUnion, StructLayout& l);
 		StructType* complexStruct(CType realType);
 		B32 parseTypedef();
 		B32 parseTypeName(CType& out);
@@ -135,7 +144,6 @@ namespace rat::cc {
 		B32 parseDirectDeclarator(List<DeclOp>& ops, DeclResult& out);
 		B32 parseDeclaratorSuffixes(List<DeclOp>& ops, U32& align);
 		B32 parseArrayBound(DeclOp& op);
-		void skipArrayQualifiers();
 		B32 parseParamTypeList(FuncType* ft);
 		B32 parseParamNames(FuncType* ft);
 		B32 looksLikeGroupingParen();
@@ -171,8 +179,16 @@ namespace rat::cc {
 		Stmt* parseAsmStatement();
 		B32 parseAsmOperands(List<AsmOperand>& out);
 		B32 parseAsmStrings(List<const String*>& out);
+		B32 parseAsmLabels(List<const String*>& out);
+		B32 parseStrings(String& out, const C8* where);
 		B32 parseAsmTemplate(const String*& out);
 		Stmt* parseLabeledSub();
+		Stmt* parseLabel();
+		Stmt* parseGoto();
+		Stmt* parseCaseLabel();
+		Stmt* parseBreak();
+		Stmt* parseReturn();
+		Stmt* parseExprStatement();
 		Expr* parseParenCond();
 		Stmt* parseIf();
 		Stmt* parseWhile();
@@ -183,14 +199,24 @@ namespace rat::cc {
 		// expressions
 		Expr* parseExpression();
 		Expr* parseInitializer();
+		B32 parseInitElement(Expr* list);
+		B32 parseDesignation(Designator& des, I64& rangeEnd);
+		B32 parseDesignator(Designator& cur, B32 first, I64& rangeEnd);
 		Expr* parseAssignment();
 		Expr* parseConditional();
 		Expr* parseBinary(I32 minPrec);
 		Expr* parseUnary();
+		Expr* parseSizeOp();
 		Expr* parseCastOrCompound();
 		Expr* parsePostfix();
 		Expr* parsePostfixTail(Expr* e);
 		Expr* parsePrimary();
+		Expr* parsePrimaryString();
+		Expr* parsePrimaryFloat();
+		Expr* parsePrimaryName();
+		Expr* parsePrimaryParen();
+		Expr* parseVaArg();
+		Expr* parseCall(Expr* e);
 		Expr* parseGeneric();
 		Expr* parseBuiltinOffsetof(const Token& kw);
 
@@ -213,14 +239,19 @@ namespace rat::cc {
 
 		// literals
 		B32 parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods);
+		U8 intLiteralMods(U64 v, B32 dec, B32 isUnsigned, U32 lCount, U32& bits) const;
 		B32 parseCharLiteral(const Token& tok, I64& value);
 		B32 parseStringLiteral(const Token& tok, String& out);
 		B32 parseWideStringLiteral(const Token& tok, U32 unitBytes, String& out);
 		B32 decodeEscape(const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out);
 		B32 decodeUcn(const String& s, U32& i, U32 end, const Token& tok, U32& cp);
+		B32 decodeBackslash(const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out);
 
 		// constant folding
 		B32 evalIntConst(const Expr* e, I64& out);
+		B32 evalUnaryConst(const Expr* e, I64& out);
+		B32 evalBinaryConst(const Expr* e, I64& out);
+		B32 evalSizeofConst(const Expr* e, I64& out);
 		B32 tryEvalIntConst(const Expr* e, I64& out);
 		I64 castConstValue(I64 v, CType ty) const;
 		U64 typeSizeBytes(CType t) const { return typeSize(t, lay.ptrBytes); }

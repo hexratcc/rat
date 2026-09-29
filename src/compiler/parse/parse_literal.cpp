@@ -25,7 +25,8 @@ namespace rat::cc {
 
 		U32 utf8Decode(const String& bytes, U32& i, U32 n) {
 			U8 b0 = (U8)bytes[i++];
-			U32 cp = b0, extra = 0;
+			U32 cp = b0;
+			U32 extra = 0;
 			if((b0 & 0xE0) == 0xC0) {
 				cp = b0 & 0x1F;
 				extra = 1;
@@ -54,6 +55,18 @@ namespace rat::cc {
 			}
 		}
 
+		B32 ucnAt(const String& s, U32 i, U32 end) { return i < end && (s[i] == 'u' || s[i] == 'U'); }
+
+		void quotedRange(const String& s, C8 quote, U32& begin, U32& end) {
+			begin = 0; // skip any encoding prefix
+			while(begin < s.size() && s[begin] != quote)
+				++begin;
+			++begin;
+			end = (U32)s.size();
+			if(end > 0 && s[end - 1] == quote)
+				--end;
+		}
+
 		void appendCodeUnits(String& out, U32 cp, U32 unitBytes) {
 			if(unitBytes == 2 && cp >= 0x10000) { // UTF-16 surrogate pair
 				U32 v = cp - 0x10000;
@@ -67,9 +80,8 @@ namespace rat::cc {
 	} // namespace detail
 
 	// [ 0x | 0X | 0 ] digits [ u | U | l | L ]...
-	// the type follows C11 6.4.4.1
 	B32 Parser::parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods) {
-		String s = lex.text(tok);
+		const String& s = lex.text(tok);
 		B32 isUnsigned = false;
 		U32 lCount = 0;
 
@@ -106,7 +118,13 @@ namespace rat::cc {
 			v = v * (U64)base + (U64)d;
 		}
 
-		B32 dec = (base == 10);
+		value = (I64)v;
+		mods = intLiteralMods(v, base == 10, isUnsigned, lCount, bits);
+		return true;
+	}
+
+	// the type follows C11 6.4.4.1
+	U8 Parser::intLiteralMods(U64 v, B32 dec, B32 isUnsigned, U32 lCount, U32& bits) const {
 		B32 fitsI32 = v <= 0x7fffffffULL;
 		B32 fitsU32 = v <= 0xffffffffULL;
 		B32 fitsI64 = v <= 0x7fffffffffffffffULL;
@@ -156,10 +174,8 @@ namespace rat::cc {
 		}
 
 		bits = (isLongLong || (isLong && lay.longBits >= 64)) ? 64 : (isLong ? lay.longBits : 32);
-		value = (I64)v;
-		mods = (U8)((isUnsigned ? CType::Unsigned : 0) | (isLong ? CType::Long : 0) |
+		return (U8)((isUnsigned ? CType::Unsigned : 0) | (isLong ? CType::Long : 0) |
 								(isLongLong ? CType::LongLong : 0));
-		return true;
 	}
 
 	// after \ : simple-escape | ? | x hex-digit... | octal-digit [octal-digit [octal-digit]]
@@ -241,16 +257,12 @@ namespace rat::cc {
 	// [ L | u | U ] ' c-char... '
 	// several chars pack big-endian into one int
 	B32 Parser::parseCharLiteral(const Token& tok, I64& value) {
-		String s = lex.text(tok);
+		const String& s = lex.text(tok);
 		U32 maxVal = detail::escapeMaxVal(s.size() ? s[0] : '\'');
 		B32 prefixed = s.size() != 0 && s[0] != '\'';
-		U32 i = 0; // skip any encoding prefix
-		while(i < s.size() && s[i] != '\'')
-			++i;
-		++i;
-		U32 end = (U32)s.size();
-		if(end > 0 && s[end - 1] == '\'')
-			--end;
+		U32 i = 0;
+		U32 end = 0;
+		detail::quotedRange(s, '\'', i, end);
 
 		if(i >= end) {
 			fail(tok, "empty character constant");
@@ -263,17 +275,11 @@ namespace rat::cc {
 			I64 c;
 			if(s[i] == '\\') {
 				++i;
-				if(i < end && (s[i] == 'u' || s[i] == 'U')) {
-					U32 cp;
-					if(!decodeUcn(s, i, end, tok, cp))
-						return false;
-					c = (I64)cp;
-				} else {
-					U32 val;
-					if(!decodeEscape(s, i, end, tok, maxVal, val))
-						return false;
-					c = maxVal <= 0xFFu ? (I64)(I8)(U8)val : (I64)(I32)val;
-				}
+				B32 wide = detail::ucnAt(s, i, end) || maxVal > 0xFFu;
+				U32 val;
+				if(!decodeBackslash(s, i, end, tok, maxVal, val))
+					return false;
+				c = wide ? (I64)(I32)val : (I64)(I8)(U8)val;
 			} else if(prefixed) {
 				c = (I64)detail::utf8Decode(s, i, end); // L/u/U hold one code point
 			} else {
@@ -289,37 +295,35 @@ namespace rat::cc {
 		return true;
 	}
 
+	// after \ : ucn | escape
+	B32 Parser::decodeBackslash(
+			const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out) {
+		if(detail::ucnAt(s, i, end))
+			return decodeUcn(s, i, end, tok, out);
+		return decodeEscape(s, i, end, tok, maxVal, out);
+	}
+
 	// [ L | u | u8 | U ] " s-char... "
 	// appended to out as utf-8 bytes
 	B32 Parser::parseStringLiteral(const Token& tok, String& out) {
-		String s = lex.text(tok);
+		const String& s = lex.text(tok);
 		U32 maxVal = (s.size() && s[0] == 'u' && s.size() > 1 && s[1] == '8')
 										 ? 0xFFu
 										 : detail::escapeMaxVal(s.size() ? s[0] : '"');
 		U32 i = 0;
-		while(i < s.size() && s[i] != '"')
-			++i;
-		++i;
-		U32 end = (U32)s.size();
-		if(end > 0 && s[end - 1] == '"')
-			--end;
+		U32 end = 0;
+		detail::quotedRange(s, '"', i, end);
 		while(i < end) {
 			C8 c = s[i++];
 			if(c != '\\') {
 				out.push_back(c);
 				continue;
 			}
-			if(i < end && (s[i] == 'u' || s[i] == 'U')) {
-				U32 cp;
-				if(!decodeUcn(s, i, end, tok, cp))
-					return false;
-				detail::utf8Encode(out, cp);
-				continue;
-			}
+			B32 wide = detail::ucnAt(s, i, end) || maxVal > 0xFFu;
 			U32 val;
-			if(!decodeEscape(s, i, end, tok, maxVal, val))
+			if(!decodeBackslash(s, i, end, tok, maxVal, val))
 				return false;
-			if(maxVal > 0xFFu)
+			if(wide)
 				detail::utf8Encode(out, val);
 			else
 				out.push_back((C8)(U8)val);
@@ -330,29 +334,18 @@ namespace rat::cc {
 	// [ L | u | U ] " s-char... "
 	// appended to out as unitBytes-wide code units
 	B32 Parser::parseWideStringLiteral(const Token& tok, U32 unitBytes, String& out) {
-		String s = lex.text(tok);
+		const String& s = lex.text(tok);
 		U32 maxVal = detail::escapeMaxVal(s.size() ? s[0] : '"');
 		U32 i = 0;
-		while(i < s.size() && s[i] != '"')
-			++i;
-		++i;
-		U32 end = (U32)s.size();
-		if(end > 0 && s[end - 1] == '"')
-			--end;
+		U32 end = 0;
+		detail::quotedRange(s, '"', i, end);
 		while(i < end) {
 			U32 cp;
 			if(s[i] == '\\') {
 				++i;
-				if(i < end && (s[i] == 'u' || s[i] == 'U')) {
-					if(!decodeUcn(s, i, end, tok, cp))
-						return false;
-				} else {
-					// a wide escape carries its full value, it is not cut to a byte
-					U32 value;
-					if(!decodeEscape(s, i, end, tok, maxVal, value))
-						return false;
-					cp = value;
-				}
+				// a wide escape carries its full value, it is not cut to a byte
+				if(!decodeBackslash(s, i, end, tok, maxVal, cp))
+					return false;
 			} else {
 				cp = detail::utf8Decode(s, i, end);
 			}
@@ -360,5 +353,4 @@ namespace rat::cc {
 		}
 		return true;
 	}
-
 } // namespace rat::cc

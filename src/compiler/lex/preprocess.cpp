@@ -8,6 +8,52 @@
 
 namespace rat::cc {
 	namespace detail {
+		String withSlash(String dir) {
+			if(!dir.empty() && dir.back() != '/')
+				dir += '/';
+			return dir;
+		}
+
+		String joinSpelling(PpSpan toks) {
+			String s;
+			for(U64 k = 0; k < toks.size(); ++k) {
+				if(k && toks[k].spaceBefore)
+					s += ' ';
+				s += *toks[k].text;
+			}
+			return s;
+		}
+
+		List<String> stampDefs() {
+			String date = "\"??? ?? ????\"";
+			String time = "\"??:??:??\"";
+			time_t now = ::time(nullptr);
+			if(struct tm* lt = std::localtime(&now)) {
+				C8 buf[64];
+				std::strftime(buf, sizeof buf, "%b %e %Y", lt);
+				date = String("\"") + buf + "\"";
+				std::strftime(buf, sizeof buf, "%H:%M:%S", lt);
+				time = String("\"") + buf + "\"";
+			}
+			return {"__DATE__ " + date, "__TIME__ " + time};
+		}
+
+		// clang-format off
+		const C8* const kBuiltinDefs[] = {
+				"__STDC__ 1", "__STDC_HOSTED__ 1", "__STDC_VERSION__ 199901L",
+				// GNU C extensions
+				"__attribute__(x)", "__attribute(x)", "__asm__ asm", "__asm asm", "__restrict",
+				"__restrict__ restrict", "__inline inline", "__inline__ inline", "__volatile__ volatile",
+				"__volatile volatile", "__extension__", "__alignof__ _Alignof", "__alignof _Alignof",
+				"__signed__ signed", "__signed signed", "__const const", "__thread",
+				// GCC extended floating types
+				"_Float32 float", "_Float32x double", "_Float64 double", "_Float64x double",
+				"_Float128 double", "_Float128x double",
+				// GCC 128-bit integers
+				"__int128 long long",
+		};
+		// clang-format on
+
 		void Preprocessor::fail(const String& m) {
 			if(ok) {
 				ok = false;
@@ -30,71 +76,42 @@ namespace rat::cc {
 			return true;
 		}
 
-		void Preprocessor::doInclude(PpSpan restIn, const String& curDir, B32 next) {
-			B32 angled = false;
-			String fname;
-
-			auto reconstruct = [&](PpSpan toks) -> B32 {
-				if(toks.empty())
-					return false;
-				if(toks[0].kind == Pk::Str) {
-					fname = unquote(*toks[0].text);
-					angled = false;
+		B32 Preprocessor::includeName(PpSpan toks, String& fname, B32& angled) {
+			if(toks.empty())
+				return false;
+			if(toks[0].kind == Pk::Str) {
+				fname = unquote(*toks[0].text);
+				angled = false;
+				return true;
+			}
+			if(!isPunct(toks[0], "<"))
+				return false;
+			for(U64 k = 1; k < toks.size(); ++k) {
+				if(isPunct(toks[k], ">")) {
+					fname = joinSpelling(PpSpan(toks.b + 1, toks.b + k));
+					angled = true;
 					return true;
 				}
-				if(isPunct(toks[0], "<")) {
-					angled = true;
-					fname.clear();
-					for(U64 k = 1; k < toks.size(); ++k) {
-						if(isPunct(toks[k], ">"))
-							return true;
-						if(k > 1 && toks[k].spaceBefore)
-							fname += ' ';
-						fname += *toks[k].text;
-					}
-					return false; // missing >
-				}
-				return false;
-			};
+			}
+			return false; // missing >
+		}
 
-			List<PpToken> expanded;
-			if(!reconstruct(restIn)) {
-				// try macro expansion of the operand
-				expanded = expand(restIn);
-				if(!reconstruct(PpSpan(expanded))) {
-					fail("#include expects \"file\" or <file>");
-					return;
+		U64 Preprocessor::nextIncludeDir(const String& curDir) {
+			U64 startDir = 0;
+			U64 best = 0;
+			for(U64 k = 0; k < opts.includeDirs.size(); ++k) {
+				String d = withSlash(opts.includeDirs[k]);
+				if(d.size() > best && d.size() <= curDir.size() && curDir.compare(0, d.size(), d) == 0) {
+					best = d.size();
+					startDir = k + 1;
 				}
 			}
+			return startDir;
+		}
 
-			List<String> tries;
-			if(isAbsPath(fname)) {
-				tries.push_back(fname);
-			} else {
-				U64 startDir = 0, best = 0;
-				if(next) {
-					for(U64 k = 0; k < opts.includeDirs.size(); ++k) {
-						String d = opts.includeDirs[k];
-						if(!d.empty() && d.back() != '/')
-							d += '/';
-						if(d.size() > best && d.size() <= curDir.size() &&
-							 curDir.compare(0, d.size(), d) == 0) {
-							best = d.size();
-							startDir = k + 1;
-						}
-					}
-				} else if(!angled) {
-					tries.push_back(curDir.empty() ? fname : curDir + fname);
-				}
-				for(U64 k = startDir; k < opts.includeDirs.size(); ++k) {
-					String base = opts.includeDirs[k];
-					if(!base.empty() && base.back() != '/')
-						base += '/';
-					tries.push_back(base + fname);
-				}
-			}
-
-			String found, content;
+		void Preprocessor::enterInclude(const List<String>& tries, const String& fname) {
+			String found;
+			String content;
 			for(const String& p : tries) {
 				if(readFile(p, content)) {
 					found = p;
@@ -116,6 +133,29 @@ namespace rat::cc {
 			--includeDepth;
 		}
 
+		void Preprocessor::doInclude(PpSpan rest, const String& path, B32 next) {
+			B32 angled = false;
+			String fname;
+			B32 named = includeName(rest, fname, angled);
+			if(!named) // try macro expansion of the operand
+				named = includeName(expand(rest), fname, angled);
+			if(!named) {
+				fail("#include expects \"file\" or <file>");
+				return;
+			}
+			String curDir = dirOf(path);
+			List<String> tries;
+			if(isAbsPath(fname)) {
+				tries.push_back(fname);
+			} else {
+				if(!next && !angled)
+					tries.push_back(curDir + fname);
+				for(U64 k = next ? nextIncludeDir(curDir) : 0; k < opts.includeDirs.size(); ++k)
+					tries.push_back(withSlash(opts.includeDirs[k]) + fname);
+			}
+			enterInclude(tries, fname);
+		}
+
 		void Preprocessor::doLine(PpSpan restIn, U32 physicalNextLine) {
 			List<PpToken> rest = expand(restIn);
 			if(rest.empty() || rest[0].kind != Pk::Num) {
@@ -128,40 +168,45 @@ namespace rat::cc {
 				fileName = unquote(*rest[1].text);
 		}
 
-		void Preprocessor::doPragma(PpSpan rest, const String& path) {
-			if(rest.size() == 1 && rest[0].kind == Pk::Id && *rest[0].text == "once") {
-				pragmaOnce.insert(path);
-			} else if(rest.size() >= 1 && rest[0].kind == Pk::Id &&
-								(*rest[0].text == "push_macro" || *rest[0].text == "pop_macro")) {
-				String mname;
-				for(U64 k = 1; k < rest.size(); ++k) {
-					if(rest[k].kind == Pk::Str) {
-						mname = unquote(*rest[k].text);
-						break;
-					}
-				}
-				if(!mname.empty()) {
-					const String* key = intern(mname);
-					if(*rest[0].text == "push_macro") {
-						auto it = macros.find(key);
-						SavedMacro sv;
-						sv.defined = it != macros.end();
-						if(sv.defined)
-							sv.macro = it->second;
-						macroStack[key].push_back(std::move(sv));
-					} else {
-						auto it = macroStack.find(key);
-						if(it != macroStack.end() && !it->second.empty()) {
-							SavedMacro sv = std::move(it->second.back());
-							it->second.pop_back();
-							if(sv.defined)
-								macros[key] = std::move(sv.macro);
-							else
-								macros.erase(key);
-						}
-					}
+		void Preprocessor::pushPopMacro(PpSpan rest, B32 push) {
+			String mname;
+			for(U64 k = 1; k < rest.size(); ++k) {
+				if(rest[k].kind == Pk::Str) {
+					mname = unquote(*rest[k].text);
+					break;
 				}
 			}
+			if(mname.empty())
+				return;
+			const String* key = intern(mname);
+			if(push) {
+				auto it = macros.find(key);
+				SavedMacro sv;
+				sv.defined = it != macros.end();
+				if(sv.defined)
+					sv.macro = it->second;
+				macroStack[key].push_back(std::move(sv));
+				return;
+			}
+			auto it = macroStack.find(key);
+			if(it == macroStack.end() || it->second.empty())
+				return;
+			SavedMacro sv = std::move(it->second.back());
+			it->second.pop_back();
+			if(sv.defined)
+				macros[key] = std::move(sv.macro);
+			else
+				macros.erase(key);
+		}
+
+		void Preprocessor::doPragma(PpSpan rest, const String& path) {
+			if(rest.empty() || rest[0].kind != Pk::Id)
+				return;
+			const String& what = *rest[0].text;
+			if(what == "once" && rest.size() == 1)
+				pragmaOnce.insert(path);
+			else if(what == "push_macro" || what == "pop_macro")
+				pushPopMacro(rest, what == "push_macro");
 		}
 
 		String Preprocessor::destringize(const String& lit) {
@@ -223,70 +268,85 @@ namespace rat::cc {
 			return stack.empty() ? true : stack.back().active;
 		}
 
+		void Preprocessor::pushCond(const String& name, PpSpan rest, List<Cond>& stack) {
+			B32 parent = condActive(stack);
+			B32 cond = false;
+			if(parent && name == "if")
+				cond = evalExpr(rest);
+			else if(parent && (rest.empty() || rest[0].kind != Pk::Id))
+				fail("#" + name + " expects an identifier");
+			else if(parent)
+				cond = isDefined(rest[0].text) == (name == "ifdef");
+			B32 active = parent && cond;
+			stack.push_back({parent, active, active});
+		}
+
 		B32 Preprocessor::handleConditional(const String& name, PpSpan rest, List<Cond>& stack) {
 			if(name == "if" || name == "ifdef" || name == "ifndef") {
-				B32 parent = condActive(stack);
-				B32 cond = false;
-				if(parent) {
-					if(name == "if") {
-						cond = evalExpr(rest);
-					} else {
-						if(rest.empty() || rest[0].kind != Pk::Id) {
-							fail("#" + name + " expects an identifier");
-						} else {
-							B32 def = isDefined(rest[0].text);
-							cond = (name == "ifdef") ? def : !def;
-						}
-					}
-				}
-				B32 active = parent && cond;
-				stack.push_back({parent, active, active});
+				pushCond(name, rest, stack);
 				return true;
 			}
-			if(name == "elif") {
-				if(stack.empty()) {
-					fail("#elif without #if");
-					return true;
-				}
-				Cond& c = stack.back();
-				if(c.sawElse) {
-					fail("#elif after #else");
-					return true;
-				}
-				if(c.parentActive && !c.taken) {
-					B32 cond = evalExpr(rest);
-					c.active = cond;
-					if(cond)
-						c.taken = true;
-				} else {
-					c.active = false;
-				}
+			if(name != "elif" && name != "else" && name != "endif")
+				return false;
+			if(stack.empty()) {
+				fail("#" + name + " without #if");
 				return true;
 			}
-			if(name == "else") {
-				if(stack.empty()) {
-					fail("#else without #if");
-					return true;
-				}
-				Cond& c = stack.back();
-				if(c.sawElse) {
-					fail("#else after #else");
-					return true;
-				}
+			Cond& c = stack.back();
+			if(name == "endif") {
+				stack.pop_back();
+			} else if(c.sawElse) {
+				fail("#" + name + " after #else");
+			} else if(name == "elif") {
+				c.active = c.parentActive && !c.taken && evalExpr(rest);
+				c.taken |= c.active;
+			} else {
 				c.sawElse = true;
 				c.active = c.parentActive && !c.taken;
 				c.taken = true;
-				return true;
 			}
-			if(name == "endif") {
-				if(stack.empty()) {
-					fail("#endif without #if");
-					return true;
-				}
-				stack.pop_back();
-				return true;
+			return true;
+		}
+
+		void Preprocessor::doDirective(PpSpan line, U32 phys, const String& path, List<Cond>& stack) {
+			const PpToken& dir = line[0];
+			if(dir.kind == Pk::Num) {
+				if(condActive(stack))
+					doLine(line, phys);
+				return;
 			}
-			return false;
+			if(dir.kind != Pk::Id) {
+				if(condActive(stack))
+					fail("invalid preprocessing directive");
+				return;
+			}
+			const String& name = *dir.text;
+			PpSpan rest(line.b + 1, line.e);
+			if(handleConditional(name, rest, stack) || !condActive(stack))
+				return;
+			if(name == "define")
+				doDefine(rest);
+			else if(name == "undef")
+				doUndef(rest);
+			else if(name == "include" || name == "include_next")
+				doInclude(rest, path, name == "include_next");
+			else if(name == "error")
+				fail(path + ": #error " + joinSpelling(rest));
+			else if(name == "pragma")
+				doPragma(rest, path);
+			else if(name == "line")
+				doLine(rest, phys);
+			else
+				fail("invalid preprocessing directive #" + name);
+		}
+
+		void Preprocessor::doUndef(PpSpan rest) {
+			if(rest.empty() || rest[0].kind != Pk::Id)
+				fail("#undef expects an identifier");
+			else if(rest[0].text == idDefined)
+				fail("'defined' cannot be used as a macro name");
+			else
+				macros.erase(rest[0].text);
 		}
 
 		void Preprocessor::runFile(const String& path, const String& source) {
@@ -301,7 +361,6 @@ namespace rat::cc {
 			String savedFile = fileName;
 			lineDelta = 0;
 			fileName = path;
-			String curDir = dirOf(path);
 
 			List<Cond> stack;
 			List<PpToken> textBuf;
@@ -315,73 +374,17 @@ namespace rat::cc {
 				i = j;
 
 				const PpToken& first = toks[start];
-				B32 isDirective = isPunct(first, "#") && first.bol;
-
-				if(!isDirective) {
+				if(!isPunct(first, "#") || !first.bol) {
 					if(condActive(stack))
 						textBuf.insert(textBuf.end(), toks.begin() + start, toks.begin() + j);
 					continue;
 				}
 
 				flush(textBuf);
-
-				U64 d = start + 1;
-				if(d >= j) // null directive
+				if(start + 1 == j) // null directive
 					continue;
-
-				const PpToken& dir = toks[d];
-				// physical line after the directive, for #line
-				U32 phys = j < n ? toks[j].line : dir.line + 1;
-
-				if(dir.kind == Pk::Num) {
-					if(condActive(stack))
-						doLine(PpSpan(toks.data() + d, toks.data() + j), phys);
-					continue;
-				}
-
-				if(dir.kind != Pk::Id) {
-					if(condActive(stack))
-						fail("invalid preprocessing directive");
-					continue;
-				}
-
-				const String& name = *dir.text;
-				PpSpan rest(toks.data() + d + 1, toks.data() + j);
-
-				if(handleConditional(name, rest, stack))
-					continue;
-
-				if(!condActive(stack))
-					continue;
-
-				if(name == "define") {
-					doDefine(rest);
-				} else if(name == "undef") {
-					if(rest.empty() || rest[0].kind != Pk::Id)
-						fail("#undef expects an identifier");
-					else if(rest[0].text == idDefined)
-						fail("'defined' cannot be used as a macro name");
-					else
-						macros.erase(rest[0].text);
-				} else if(name == "include") {
-					doInclude(rest, curDir);
-				} else if(name == "include_next") {
-					doInclude(rest, curDir, true);
-				} else if(name == "error") {
-					String msg;
-					for(U64 k = 0; k < rest.size(); ++k) {
-						if(k && rest[k].spaceBefore)
-							msg += ' ';
-						msg += *rest[k].text;
-					}
-					fail(path + ": #error " + msg);
-				} else if(name == "pragma") {
-					doPragma(rest, path);
-				} else if(name == "line") {
-					doLine(rest, phys);
-				} else {
-					fail("invalid preprocessing directive #" + name);
-				}
+				U32 phys = j < n ? toks[j].line : toks[start + 1].line + 1;
+				doDirective(PpSpan(toks.data() + start + 1, toks.data() + j), phys, path, stack);
 			}
 
 			if(ok && !stack.empty())
@@ -393,58 +396,16 @@ namespace rat::cc {
 			fileName = savedFile;
 		}
 
-		void Preprocessor::installBuiltins() {
-			struct Stamp {
-				String date = "\"??? ?? ????\"";
-				String time = "\"??:??:??\"";
-			};
-			static const Stamp stamp = [] {
-				Stamp s;
-				time_t now = ::time(nullptr);
-				struct tm* lt = std::localtime(&now);
-				if(lt) {
-					C8 buf[64];
-					std::strftime(buf, sizeof buf, "%b %e %Y", lt);
-					s.date = String("\"") + buf + "\"";
-					std::strftime(buf, sizeof buf, "%H:%M:%S", lt);
-					s.time = String("\"") + buf + "\"";
-				}
-				return s;
-			}();
-			defineSimple("__DATE__", stamp.date);
-			defineSimple("__TIME__", stamp.time);
-			defineSimple("__STDC__", "1");
-			defineSimple("__STDC_HOSTED__", "1");
-			defineSimple("__STDC_VERSION__", "199901L");
+		void Preprocessor::defineFragment(const String& text, const C8* file) {
+			doDefine(lexFragment(text, intern(file)));
+		}
 
-			// GNU C extensions
-			auto defineFrag = [&](const C8* text) { doDefine(lexFragment(text, intern("<builtin>"))); };
-			defineFrag("__attribute__(x)");
-			defineFrag("__attribute(x)");
-			defineFrag("__asm__ asm");
-			defineFrag("__asm asm");
-			defineFrag("__restrict");
-			defineFrag("__restrict__ restrict");
-			defineFrag("__inline inline");
-			defineFrag("__inline__ inline");
-			defineFrag("__volatile__ volatile");
-			defineFrag("__volatile volatile");
-			defineFrag("__extension__");
-			defineFrag("__alignof__ _Alignof");
-			defineFrag("__alignof _Alignof");
-			defineFrag("__signed__ signed");
-			defineFrag("__signed signed");
-			defineFrag("__const const");
-			defineFrag("__thread");
-			// GCC extended floating types
-			defineFrag("_Float32 float");
-			defineFrag("_Float32x double");
-			defineFrag("_Float64 double");
-			defineFrag("_Float64x double");
-			defineFrag("_Float128 double");
-			defineFrag("_Float128x double");
-			// GCC 128-bit integers
-			defineFrag("__int128 long long");
+		void Preprocessor::installBuiltins() {
+			static const List<String> stamps = stampDefs();
+			for(const String& d : stamps)
+				defineFragment(d, "<builtin>");
+			for(const C8* d : kBuiltinDefs)
+				defineFragment(d, "<builtin>");
 		}
 
 		void Preprocessor::applyCommandLine() {
@@ -461,6 +422,16 @@ namespace rat::cc {
 				macros.erase(intern(u));
 		}
 
+		B32 Preprocessor::run(const String& path, const String& source, String& errOut) {
+			installBuiltins();
+			applyCommandLine();
+			if(ok)
+				runFile(path, source);
+			if(!ok)
+				errOut = err;
+			return ok;
+		}
+
 		String Preprocessor::serialize() {
 			String s;
 			U64 total = 0;
@@ -468,18 +439,12 @@ namespace rat::cc {
 				if(t.kind != Pk::Placemarker && t.kind != Pk::Eof)
 					total += t.text->size() + 1;
 			s.reserve(total + 2);
-			B32 first = true;
 			for(const PpToken& t : out) {
 				if(t.kind == Pk::Placemarker || t.kind == Pk::Eof)
 					continue;
-				if(!first) {
-					if(t.bol)
-						s += '\n';
-					else
-						s += ' ';
-				}
+				if(!s.empty())
+					s += t.bol ? '\n' : ' ';
 				s += *t.text;
-				first = false;
 			}
 			s += '\n';
 			return s;
@@ -489,14 +454,8 @@ namespace rat::cc {
 	B32 preprocess(
 			const String& path, const String& source, const PpOptions& opts, String& out, String& err) {
 		detail::Preprocessor pp(opts);
-		pp.installBuiltins();
-		pp.applyCommandLine();
-		if(pp.ok)
-			pp.runFile(path, source);
-		if(!pp.ok) {
-			err = pp.err;
+		if(!pp.run(path, source, err))
 			return false;
-		}
 		out = pp.serialize();
 		return true;
 	}

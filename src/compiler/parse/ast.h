@@ -477,6 +477,10 @@ namespace rat::cc {
 	}
 
 	namespace detail {
+		U32 intPrec(CType t);
+		const C8* floatName(U32 bits);
+		const C8* intName(U32 bits);
+		String funcTypeName(CType t);
 		void pad(std::ostream& os, U32 depth);
 		void dumpStmt(const Stmt* s, U32 depth, std::ostream& os);
 		void dumpExpr(const Expr* e, U32 depth, std::ostream& os);
