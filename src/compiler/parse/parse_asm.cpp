@@ -3,17 +3,22 @@
 namespace rat::cc {
 	// string-literal...
 	// adjacent literals concatenate
-	B32 Parser::parseAsmTemplate(const String*& out) {
+	B32 Parser::parseStrings(String& out, const C8* where) {
 		if(!check(TokKind::StringLiteral)) {
-			fail(peek(), "expected a string literal in 'asm'");
+			fail(peek(), String("expected a string literal in ") + where);
 			return false;
 		}
-		String bytes;
-		if(!parseStringLiteral(advance(), bytes))
-			return false;
 		while(check(TokKind::StringLiteral))
-			if(!parseStringLiteral(advance(), bytes))
+			if(!parseStringLiteral(advance(), out))
 				return false;
+		return true;
+	}
+
+	// string-literal...
+	B32 Parser::parseAsmTemplate(const String*& out) {
+		String bytes;
+		if(!parseStrings(bytes, "'asm'"))
+			return false;
 		out = arena.make<String>(std::move(bytes));
 		return true;
 	}
@@ -65,8 +70,21 @@ namespace rat::cc {
 		return true;
 	}
 
+	// [ name [, name]... ]
+	B32 Parser::parseAsmLabels(List<const String*>& out) {
+		while(!check(TokKind::RParen)) {
+			if(!check(TokKind::Identifier)) {
+				fail(peek(), "expected a label name in 'asm goto'");
+				return false;
+			}
+			out.push_back(arena.make<String>(lex.text(advance())));
+			if(!accept(TokKind::Comma))
+				break;
+		}
+		return true;
+	}
+
 	// asm [ volatile | inline | goto ]... ( template [: out [: in [: clobbers [: labels]]]] ) ;
-	// labels: [ name [, name]... ]
 	// no colon at all means basic asm, which is always volatile
 	Stmt* Parser::parseAsmStatement() {
 		Token kw = advance(); // asm
@@ -104,17 +122,8 @@ namespace rat::cc {
 					return nullptr;
 				break;
 			case 3:
-				for(;;) {
-					if(check(TokKind::RParen))
-						break;
-					if(!check(TokKind::Identifier)) {
-						fail(peek(), "expected a label name in 'asm goto'");
-						return nullptr;
-					}
-					blk->labels.push_back(arena.make<String>(lex.text(advance())));
-					if(!accept(TokKind::Comma))
-						break;
-				}
+				if(!parseAsmLabels(blk->labels))
+					return nullptr;
 				break;
 			default:
 				fail(peek(), "too many ':' sections in 'asm'");

@@ -108,51 +108,125 @@ namespace rat::cc {
 		return e;
 	}
 
-	// generic | string-literal... | char-const | int-const | float-const | name
-	// | ( expr ) | ( compound )
-	// __func__, __builtin_offsetof and enum constants fold here
-	Expr* Parser::parsePrimary() {
-		const Token& tok = peek();
-		if(tok.kind == TokKind::KwGeneric)
-			return parseGeneric();
-		if(tok.kind == TokKind::StringLiteral) {
-			List<Token> parts;
+	// string-literal...
+	Expr* Parser::parsePrimaryString() {
+		List<Token> parts;
+		while(check(TokKind::StringLiteral))
 			parts.push_back(advance());
-			while(check(TokKind::StringLiteral))
-				parts.push_back(advance());
-			U32 unitBytes = 1;
-			for(const Token& t : parts) {
-				String h = lex.text(t);
-				if(h.empty())
-					continue;
-				if(h[0] == 'L')
-					unitBytes = lay.wcharBytes;
-				else if(h[0] == 'U')
-					unitBytes = 4;
-				else if(h[0] == 'u' && !(h.size() > 1 && h[1] == '8'))
-					unitBytes = 2;
-			}
-			String bytes;
-			for(const Token& t : parts) {
-				B32 read = unitBytes == 1 ? parseStringLiteral(t, bytes)
-																	: parseWideStringLiteral(t, unitBytes, bytes);
-				if(!read)
-					return nullptr;
-			}
-			Expr* e = makeExpr(ExprKind::StrLit, parts[0].offset);
-			e->str.bytes = arena.make<String>(std::move(bytes));
-			e->str.isWide = unitBytes != 1;
-			e->str.charSize = unitBytes;
+		U32 unitBytes = 1;
+		for(const Token& t : parts) {
+			const String& h = lex.text(t);
+			if(h.empty())
+				continue;
+			if(h[0] == 'L')
+				unitBytes = lay.wcharBytes;
+			else if(h[0] == 'U')
+				unitBytes = 4;
+			else if(h[0] == 'u' && !(h.size() > 1 && h[1] == '8'))
+				unitBytes = 2;
+		}
+		String bytes;
+		for(const Token& t : parts) {
+			B32 read = unitBytes == 1 ? parseStringLiteral(t, bytes)
+																: parseWideStringLiteral(t, unitBytes, bytes);
+			if(!read)
+				return nullptr;
+		}
+		Expr* e = makeExpr(ExprKind::StrLit, parts[0].offset);
+		e->str.bytes = arena.make<String>(std::move(bytes));
+		e->str.isWide = unitBytes != 1;
+		e->str.charSize = unitBytes;
+		return e;
+	}
+
+	// float-const
+	Expr* Parser::parsePrimaryFloat() {
+		Token lit = advance();
+		String text = lex.text(lit);
+		B32 isFloat = false;
+		B32 isLongDouble = false;
+		B32 isImaginary = false;
+		while(!text.empty()) {
+			C8 c = text.back();
+			if(c == 'f' || c == 'F')
+				isFloat = true;
+			else if(c == 'l' || c == 'L')
+				isLongDouble = true;
+			else if(c == 'i' || c == 'I' || c == 'j' || c == 'J')
+				isImaginary = true;
+			else
+				break;
+			text.pop_back();
+		}
+		errno = 0;
+		C8* end = nullptr;
+		F80 value = std::strtold(text.c_str(), &end);
+		if(end == text.c_str() || *end != '\0') {
+			fail(lit, "invalid floating constant '" + text + "'");
+			return nullptr;
+		}
+		Expr* e = makeExpr(ExprKind::FloatLit, lit.offset);
+		e->floatLit = {value, isFloat ? 32u : (isLongDouble ? 128u : 64u), isImaginary};
+		return e;
+	}
+
+	// name
+	// __func__, __builtin_offsetof and enum constants fold here
+	Expr* Parser::parsePrimaryName() {
+		Token id = advance();
+		const String& name = lex.text(id);
+		if(name == "__func__") {
+			Expr* e = makeExpr(ExprKind::StrLit, id.offset);
+			e->str.bytes = arena.make<String>(curFuncName);
+			e->str.isWide = false;
+			e->str.charSize = 1;
 			return e;
 		}
-		if(tok.kind == TokKind::CharConstant) {
+		if(name == "__builtin_offsetof")
+			return parseBuiltinOffsetof(id);
+		if(const I64* ec = enumConstants.get(name))
+			return makeInt(id, *ec, 32);
+		return makeIdent(id);
+	}
+
+	// ( expr ) | ( compound )
+	Expr* Parser::parsePrimaryParen() {
+		Token open = advance();			 // (
+		if(check(TokKind::LBrace)) { // GNU statement expression
+			Stmt* body = parseCompound();
+			if(!body)
+				return nullptr;
+			if(!expect(TokKind::RParen, "')'"))
+				return nullptr;
+			Expr* e = makeExpr(ExprKind::StmtExpr, open.offset);
+			e->stmtExpr.body = body;
+			return e;
+		}
+		Expr* inner = parseExpression();
+		if(!inner)
+			return nullptr;
+		if(!expect(TokKind::RParen, "')'"))
+			return nullptr;
+		return inner;
+	}
+
+	// generic | string-literal... | char-const | int-const | float-const | name
+	// | ( expr ) | ( compound )
+	Expr* Parser::parsePrimary() {
+		const Token& tok = peek();
+		switch(tok.kind) {
+		case TokKind::KwGeneric:
+			return parseGeneric();
+		case TokKind::StringLiteral:
+			return parsePrimaryString();
+		case TokKind::CharConstant: {
 			Token lit = advance();
 			I64 value;
 			if(!parseCharLiteral(lit, value))
 				return nullptr;
 			return makeInt(lit, value, 32);
 		}
-		if(tok.kind == TokKind::IntConstant) {
+		case TokKind::IntConstant: {
 			Token lit = advance();
 			I64 value;
 			U32 bits;
@@ -161,68 +235,16 @@ namespace rat::cc {
 				return nullptr;
 			return makeInt(lit, value, bits, mods);
 		}
-		if(tok.kind == TokKind::FloatConstant) {
-			Token lit = advance();
-			String text = lex.text(lit);
-			B32 isFloat = false, isLongDouble = false, isImaginary = false;
-			while(!text.empty()) {
-				C8 c = text.back();
-				if(c == 'f' || c == 'F')
-					isFloat = true;
-				else if(c == 'l' || c == 'L')
-					isLongDouble = true;
-				else if(c == 'i' || c == 'I' || c == 'j' || c == 'J')
-					isImaginary = true;
-				else
-					break;
-				text.pop_back();
-			}
-			errno = 0;
-			C8* end = nullptr;
-			F80 value = std::strtold(text.c_str(), &end);
-			if(end == text.c_str() || *end != '\0') {
-				fail(lit, "invalid floating constant '" + text + "'");
-				return nullptr;
-			}
-			Expr* e = makeExpr(ExprKind::FloatLit, lit.offset);
-			e->floatLit = {value, isFloat ? 32u : (isLongDouble ? 128u : 64u), isImaginary};
-			return e;
+		case TokKind::FloatConstant:
+			return parsePrimaryFloat();
+		case TokKind::Identifier:
+			return parsePrimaryName();
+		case TokKind::LParen:
+			return parsePrimaryParen();
+		default:
+			fail(tok, String("expected expression, found '") + tokKindName(tok.kind) + "'");
+			return nullptr;
 		}
-		if(tok.kind == TokKind::Identifier) {
-			Token id = advance();
-			if(lex.text(id) == "__func__") {
-				Expr* e = makeExpr(ExprKind::StrLit, id.offset);
-				e->str.bytes = arena.make<String>(curFuncName);
-				e->str.isWide = false;
-				e->str.charSize = 1;
-				return e;
-			}
-			if(lex.text(id) == "__builtin_offsetof")
-				return parseBuiltinOffsetof(id);
-			if(const I64* ec = enumConstants.get(lex.text(id)))
-				return makeInt(id, *ec, 32);
-			return makeIdent(id);
-		}
-		if(accept(TokKind::LParen)) {
-			if(check(TokKind::LBrace)) { // GNU statement expression
-				Stmt* body = parseCompound();
-				if(!body)
-					return nullptr;
-				if(!expect(TokKind::RParen, "')'"))
-					return nullptr;
-				Expr* e = makeExpr(ExprKind::StmtExpr, tok.offset);
-				e->stmtExpr.body = body;
-				return e;
-			}
-			Expr* inner = parseExpression();
-			if(!inner)
-				return nullptr;
-			if(!expect(TokKind::RParen, "')'"))
-				return nullptr;
-			return inner;
-		}
-		fail(tok, String("expected expression, found '") + tokKindName(tok.kind) + "'");
-		return nullptr;
 	}
 
 	// primary postfix-tail
@@ -233,54 +255,63 @@ namespace rat::cc {
 		return parsePostfixTail(e);
 	}
 
-	// [ ( [ assignment [, assignment]... ] ) | '[' expr ']' | . name | -> name | ++ | -- ]...
+	// __builtin_va_arg ( assignment , type-name )
+	Expr* Parser::parseVaArg() {
+		Token lp = advance(); // (
+		Expr* ap = parseAssignment();
+		if(!ap)
+			return nullptr;
+		if(!expect(TokKind::Comma, "','"))
+			return nullptr;
+		CType ty;
+		if(!parseTypeName(ty)) {
+			fail(peek(), "expected a type in __builtin_va_arg");
+			return nullptr;
+		}
+		if(!expect(TokKind::RParen, "')'"))
+			return nullptr;
+		Expr* va = makeExpr(ExprKind::VaArg, lp.offset);
+		va->vaArg.ap = ap;
+		va->vaArg.type = ty;
+		return va;
+	}
+
+	// ( [ assignment [, assignment]... ] )
+	Expr* Parser::parseCall(Expr* e) {
+		Token lp = advance(); // (
+		Expr* callE = makeExpr(ExprKind::Call, lp.offset);
+		if(e->kind == ExprKind::Ident) { // by-name call
+			callE->call.callee = e->ident.name;
+			callE->call.target = nullptr;
+		} else { // indirect call
+			callE->call.callee = nullptr;
+			callE->call.target = e;
+		}
+		if(!check(TokKind::RParen)) {
+			for(;;) {
+				Expr* arg = parseAssignment();
+				if(!arg)
+					return nullptr;
+				callE->args.push_back(arg);
+				if(!accept(TokKind::Comma))
+					break;
+			}
+		}
+		if(!expect(TokKind::RParen, "')'"))
+			return nullptr;
+		return callE;
+	}
+
+	// [ call | '[' expr ']' | . name | -> name | ++ | -- ]...
 	// __builtin_va_arg ( assignment , type-name ) is a call in form only
 	Expr* Parser::parsePostfixTail(Expr* e) {
 		for(;;) {
 			TokKind k = peek().kind;
 			if(k == TokKind::LParen) {
-				if(e->kind == ExprKind::Ident && *e->ident.name == "__builtin_va_arg") {
-					Token lp = advance(); // (
-					Expr* ap = parseAssignment();
-					if(!ap)
-						return nullptr;
-					if(!expect(TokKind::Comma, "','"))
-						return nullptr;
-					CType ty;
-					if(!parseTypeName(ty)) {
-						fail(peek(), "expected a type in __builtin_va_arg");
-						return nullptr;
-					}
-					if(!expect(TokKind::RParen, "')'"))
-						return nullptr;
-					Expr* va = makeExpr(ExprKind::VaArg, lp.offset);
-					va->vaArg.ap = ap;
-					va->vaArg.type = ty;
-					e = va;
-					continue;
-				}
-				Token lp = advance(); // (
-				Expr* callE = makeExpr(ExprKind::Call, lp.offset);
-				if(e->kind == ExprKind::Ident) { // by-name call
-					callE->call.callee = e->ident.name;
-					callE->call.target = nullptr;
-				} else { // indirect call
-					callE->call.callee = nullptr;
-					callE->call.target = e;
-				}
-				if(!check(TokKind::RParen)) {
-					for(;;) {
-						Expr* arg = parseAssignment();
-						if(!arg)
-							return nullptr;
-						callE->args.push_back(arg);
-						if(!accept(TokKind::Comma))
-							break;
-					}
-				}
-				if(!expect(TokKind::RParen, "')'"))
+				B32 isVaArg = e->kind == ExprKind::Ident && *e->ident.name == "__builtin_va_arg";
+				e = isVaArg ? parseVaArg() : parseCall(e);
+				if(!e)
 					return nullptr;
-				e = callE;
 			} else if(k == TokKind::LBracket) {
 				Token lb = advance();
 				Expr* idx = parseExpression();

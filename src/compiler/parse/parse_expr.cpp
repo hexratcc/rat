@@ -69,6 +69,8 @@ namespace rat::cc {
 					{TokKind::Star, ExprOp::Deref},
 					{TokKind::KwReal, ExprOp::Real},
 					{TokKind::KwImag, ExprOp::Imag},
+					{TokKind::PlusPlus, ExprOp::PreInc},
+					{TokKind::MinusMinus, ExprOp::PreDec},
 			};
 			for(const Entry& e : kUnary)
 				if(e.kind == kind) {
@@ -117,38 +119,37 @@ namespace rat::cc {
 		return e;
 	}
 
-	// size-op ( type-name ) | size-op unary | cast-or-compound
-	// | unary-op unary | ++ unary | -- unary | postfix
+	// size-op ( type-name ) | size-op unary
 	// size-op: sizeof | _Alignof
+	Expr* Parser::parseSizeOp() {
+		Token kw = advance(); // sizeof / _Alignof
+		ExprKind kind = kw.kind == TokKind::KwSizeof ? ExprKind::Sizeof : ExprKind::AlignOf;
+		Expr* e = makeExpr(kind, kw.offset);
+		if(check(TokKind::LParen) && startsType(peek2())) {
+			advance(); // (
+			CType ty;
+			if(!parseTypeName(ty)) // sizeof(typename)
+				return nullptr;
+			if(!expect(TokKind::RParen, "')'"))
+				return nullptr;
+			e->sizeOf.type = ty;
+			e->sizeOf.operand = nullptr;
+		} else {
+			Expr* operand = parseUnary();
+			if(!operand)
+				return nullptr;
+			e->sizeOf.operand = operand;
+		}
+		return e;
+	}
+
+	// size-op-expr | cast-or-compound | unary-op unary | ++ unary | -- unary | postfix
 	Expr* Parser::parseUnary() {
 		DepthScope scope(*this);
 		if(!enterDepth())
 			return nullptr;
-		if(check(TokKind::KwSizeof) || check(TokKind::KwAlignof)) {
-			Token kw = advance(); // sizeof / _Alignof
-			ExprKind kind;
-			if(kw.kind == TokKind::KwSizeof)
-				kind = ExprKind::Sizeof;
-			else
-				kind = ExprKind::AlignOf;
-			Expr* e = makeExpr(kind, kw.offset);
-			if(check(TokKind::LParen) && startsType(peek2())) {
-				advance(); // (
-				CType ty;
-				if(!parseTypeName(ty)) // sizeof(typename)
-					return nullptr;
-				if(!expect(TokKind::RParen, "')'"))
-					return nullptr;
-				e->sizeOf.type = ty;
-				e->sizeOf.operand = nullptr;
-			} else {
-				Expr* operand = parseUnary();
-				if(!operand)
-					return nullptr;
-				e->sizeOf.operand = operand;
-			}
-			return e;
-		}
+		if(check(TokKind::KwSizeof) || check(TokKind::KwAlignof))
+			return parseSizeOp();
 		if(check(TokKind::LParen) && startsType(peek2()))
 			return parseCastOrCompound();
 		ExprOp op;
@@ -158,15 +159,6 @@ namespace rat::cc {
 			if(!operand)
 				return nullptr;
 			return makeUnary(t.offset, op, operand);
-		}
-		TokKind k = peek().kind;
-		if(k == TokKind::PlusPlus || k == TokKind::MinusMinus) {
-			Token t = advance();
-			Expr* operand = parseUnary();
-			if(!operand)
-				return nullptr;
-			ExprOp pre = k == TokKind::PlusPlus ? ExprOp::PreInc : ExprOp::PreDec;
-			return makeUnary(t.offset, pre, operand);
 		}
 		return parsePostfix();
 	}

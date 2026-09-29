@@ -12,18 +12,8 @@ namespace rat::cc {
 		if(!expect(TokKind::Comma, "','"))
 			return false;
 		String msg;
-		if(!check(TokKind::StringLiteral)) {
-			fail(peek(), "expected a string literal in _Static_assert");
+		if(!parseStrings(msg, "_Static_assert"))
 			return false;
-		}
-		if(!parseStringLiteral(advance(), msg))
-			return false;
-		while(check(TokKind::StringLiteral)) {
-			String more;
-			if(!parseStringLiteral(advance(), more))
-				return false;
-			msg += more;
-		}
 		if(!expect(TokKind::RParen, "')'"))
 			return false;
 		if(!expect(TokKind::Semicolon, "';'"))
@@ -206,6 +196,90 @@ namespace rat::cc {
 		return parseStatement();
 	}
 
+	// name : stmt
+	Stmt* Parser::parseLabel() {
+		Token nameTok = advance();
+		advance(); // ':'
+		Stmt* sub = parseStatement();
+		if(!sub)
+			return nullptr;
+		Stmt* s = makeStmt(StmtKind::Label, nameTok.offset);
+		s->label = arena.make<String>(lex.text(nameTok));
+		s->thenBody = sub;
+		return s;
+	}
+
+	// goto name ;
+	Stmt* Parser::parseGoto() {
+		Token kw = advance();
+		if(!check(TokKind::Identifier)) {
+			fail(peek(), "expected a label name after 'goto'");
+			return nullptr;
+		}
+		Token nameTok = advance();
+		Stmt* s = makeStmt(StmtKind::Goto, kw.offset);
+		s->label = arena.make<String>(lex.text(nameTok));
+		if(!expect(TokKind::Semicolon, "';'"))
+			return nullptr;
+		return s;
+	}
+
+	// case const-expr : [stmt] | default : [stmt]
+	Stmt* Parser::parseCaseLabel() {
+		Token kw = advance();
+		B32 isCase = kw.kind == TokKind::KwCase;
+		Expr* value = nullptr;
+		if(isCase) {
+			value = parseConditional();
+			if(!value)
+				return nullptr;
+		}
+		if(!expect(TokKind::Colon, "':'"))
+			return nullptr;
+		Stmt* sub = parseLabeledSub();
+		if(!sub)
+			return nullptr;
+		Stmt* s = makeStmt(isCase ? StmtKind::Case : StmtKind::Default, kw.offset);
+		s->expr = value;
+		s->thenBody = sub;
+		return s;
+	}
+
+	// break ; | continue ;
+	Stmt* Parser::parseBreak() {
+		Token kw = advance();
+		Stmt* s =
+				makeStmt(kw.kind == TokKind::KwBreak ? StmtKind::Break : StmtKind::Continue, kw.offset);
+		if(!expect(TokKind::Semicolon, "';'"))
+			return nullptr;
+		return s;
+	}
+
+	// return [expr] ;
+	Stmt* Parser::parseReturn() {
+		Token kw = advance();
+		Stmt* s = makeStmt(StmtKind::Return, kw.offset);
+		if(!check(TokKind::Semicolon)) {
+			s->expr = parseExpression();
+			if(!s->expr)
+				return nullptr;
+		}
+		if(!expect(TokKind::Semicolon, "';'"))
+			return nullptr;
+		return s;
+	}
+
+	// expr ;
+	Stmt* Parser::parseExprStatement() {
+		Stmt* s = makeStmt(StmtKind::Expr, peek().offset);
+		s->expr = parseExpression();
+		if(!s->expr)
+			return nullptr;
+		if(!expect(TokKind::Semicolon, "';'"))
+			return nullptr;
+		return s;
+	}
+
 	// compound | asm | name : stmt | goto name ; | declaration
 	// | if | while | do | for | switch | case const-expr : [stmt] | default : [stmt]
 	// | break ; | continue ; | return [expr] ; | ; | expr ;
@@ -214,114 +288,40 @@ namespace rat::cc {
 		if(!enterDepth())
 			return nullptr;
 		const Token& tok = peek();
-		if(tok.kind == TokKind::LBrace)
-			return parseCompound();
-
-		if(tok.kind == TokKind::KwAsm)
-			return parseAsmStatement();
-
-		if(tok.kind == TokKind::Identifier && peek2().kind == TokKind::Colon) {
-			Token nameTok = advance();
-			advance(); // ':'
-			Stmt* sub = parseStatement();
-			if(!sub)
-				return nullptr;
-			Stmt* s = makeStmt(StmtKind::Label, nameTok.offset);
-			s->label = arena.make<String>(lex.text(nameTok));
-			s->thenBody = sub;
-			return s;
-		}
-
-		if(tok.kind == TokKind::KwGoto) {
-			Token kw = advance();
-			if(!check(TokKind::Identifier)) {
-				fail(peek(), "expected a label name after 'goto'");
-				return nullptr;
-			}
-			Token nameTok = advance();
-			Stmt* s = makeStmt(StmtKind::Goto, kw.offset);
-			s->label = arena.make<String>(lex.text(nameTok));
-			if(!expect(TokKind::Semicolon, "';'"))
-				return nullptr;
-			return s;
-		}
-
+		if(tok.kind == TokKind::Identifier && peek2().kind == TokKind::Colon)
+			return parseLabel();
 		if(startsType(tok) || tok.kind == TokKind::KwTypedef || tok.kind == TokKind::KwStaticAssert)
 			return parseDeclaration(nullptr);
-
-		if(tok.kind == TokKind::KwIf)
+		switch(tok.kind) {
+		case TokKind::LBrace:
+			return parseCompound();
+		case TokKind::KwAsm:
+			return parseAsmStatement();
+		case TokKind::KwGoto:
+			return parseGoto();
+		case TokKind::KwIf:
 			return parseIf();
-		if(tok.kind == TokKind::KwWhile)
+		case TokKind::KwWhile:
 			return parseWhile();
-		if(tok.kind == TokKind::KwDo)
+		case TokKind::KwDo:
 			return parseDoWhile();
-		if(tok.kind == TokKind::KwFor)
+		case TokKind::KwFor:
 			return parseFor();
-		if(tok.kind == TokKind::KwSwitch)
+		case TokKind::KwSwitch:
 			return parseSwitch();
-
-		if(tok.kind == TokKind::KwCase) {
-			Token kw = advance();
-			Expr* value = parseConditional();
-			if(!value)
-				return nullptr;
-			if(!expect(TokKind::Colon, "':'"))
-				return nullptr;
-			Stmt* sub = parseLabeledSub();
-			if(!sub)
-				return nullptr;
-			Stmt* s = makeStmt(StmtKind::Case, kw.offset);
-			s->expr = value;
-			s->thenBody = sub;
-			return s;
+		case TokKind::KwCase:
+		case TokKind::KwDefault:
+			return parseCaseLabel();
+		case TokKind::KwBreak:
+		case TokKind::KwContinue:
+			return parseBreak();
+		case TokKind::KwReturn:
+			return parseReturn();
+		case TokKind::Semicolon:
+			return makeStmt(StmtKind::Empty, advance().offset);
+		default:
+			return parseExprStatement();
 		}
-
-		if(tok.kind == TokKind::KwDefault) {
-			Token kw = advance();
-			if(!expect(TokKind::Colon, "':'"))
-				return nullptr;
-			Stmt* sub = parseLabeledSub();
-			if(!sub)
-				return nullptr;
-			Stmt* s = makeStmt(StmtKind::Default, kw.offset);
-			s->thenBody = sub;
-			return s;
-		}
-
-		if(tok.kind == TokKind::KwBreak || tok.kind == TokKind::KwContinue) {
-			Token kw = advance();
-			Stmt* s =
-					makeStmt(kw.kind == TokKind::KwBreak ? StmtKind::Break : StmtKind::Continue, kw.offset);
-			if(!expect(TokKind::Semicolon, "';'"))
-				return nullptr;
-			return s;
-		}
-
-		if(tok.kind == TokKind::KwReturn) {
-			Token kw = advance();
-			Stmt* s = makeStmt(StmtKind::Return, kw.offset);
-			if(!check(TokKind::Semicolon)) {
-				s->expr = parseExpression();
-				if(!s->expr)
-					return nullptr;
-			}
-			if(!expect(TokKind::Semicolon, "';'"))
-				return nullptr;
-			return s;
-		}
-
-		if(tok.kind == TokKind::Semicolon) {
-			Token semi = advance();
-			return makeStmt(StmtKind::Empty, semi.offset);
-		}
-
-		Stmt* s = makeStmt(StmtKind::Expr, tok.offset);
-		s->expr = parseExpression();
-		if(!s->expr)
-			return nullptr;
-		if(!expect(TokKind::Semicolon, "';'"))
-			return nullptr;
-		return s;
 	}
 
 	// { [stmt]... }

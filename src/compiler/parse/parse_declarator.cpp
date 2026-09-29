@@ -21,12 +21,6 @@ namespace rat::cc {
 		}
 	}
 
-	// [ static | qualifier ]... inside an array bound
-	void Parser::skipArrayQualifiers() {
-		while(check(TokKind::KwStatic) || detail::isTypeQualifier(peek().kind))
-			advance();
-	}
-
 	// [cond-expr] ']'
 	// a bound that is not a positive constant is kept as a VLA expr
 	B32 Parser::parseArrayBound(DeclOp& op) {
@@ -175,7 +169,8 @@ namespace rat::cc {
 		List<DeclOp> sfx;
 		for(;;) {
 			if(accept(TokKind::LBracket)) {
-				skipArrayQualifiers();
+				while(check(TokKind::KwStatic) || detail::isTypeQualifier(peek().kind))
+					advance();
 				DeclOp op;
 				op.kind = DeclOp::Kind::Array;
 				if(check(TokKind::Star) && peek2().kind == TokKind::RBracket)

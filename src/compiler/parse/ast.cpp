@@ -41,7 +41,9 @@ namespace rat::cc {
 		return t;
 	}
 
-	static U32 intPrec(CType t) { return t.bitPrec ? t.bitPrec : t.bits; }
+	namespace detail {
+		U32 intPrec(CType t) { return t.bitPrec ? t.bitPrec : t.bits; }
+	} // namespace detail
 
 	CType defaultArgPromote(CType t) {
 		if(t.isFloat() && t.ptr == 0 && t.bits < 64) {
@@ -76,7 +78,7 @@ namespace rat::cc {
 		}
 		a = promote(a);
 		b = promote(b);
-		U32 pa = intPrec(a), pb = intPrec(b);
+		U32 pa = detail::intPrec(a), pb = detail::intPrec(b);
 		if(pa == pb && a.isUnsigned() == b.isUnsigned()) {
 			// keep the higher integer rank (long long > long > int)
 			U32 ra = a.isLongLong() ? 2u : (a.isLong() ? 1u : 0u);
@@ -92,15 +94,29 @@ namespace rat::cc {
 		return s;
 	}
 
-	static void appendStars(String& s, U32 ptr) {
-		for(U32 i = 0; i < ptr; ++i)
-			s += "*";
-	}
+	namespace detail {
+		const C8* floatName(U32 bits) {
+			if(bits == 32)
+				return "float";
+			return bits == 128 ? "long double" : "double";
+		}
 
-	String typeName(CType t) {
-		if(t.func) {
+		const C8* intName(U32 bits) {
+			switch(bits) {
+			case 8:
+				return "char";
+			case 16:
+				return "short";
+			case 32:
+				return "int";
+			default:
+				return "long";
+			}
+		}
+
+		String funcTypeName(CType t) {
 			String s = typeName(t.func->ret) + " (";
-			appendStars(s, t.ptr);
+			s.append(t.ptr, '*');
 			s += ")(";
 			for(U32 i = 0; i < t.func->params.size(); ++i) {
 				if(i)
@@ -114,51 +130,27 @@ namespace rat::cc {
 			s += ")";
 			return s;
 		}
-		if(t.array) {
-			String s = typeName(t.array->elem) + "[" + std::to_string(t.array->count) + "]";
-			appendStars(s, t.ptr);
-			return s;
-		}
-		if(t.isComplex()) {
-			String s = (t.bits == 32 ? "float" : t.bits == 128 ? "long double" : "double");
-			s += " _Complex";
-			appendStars(s, t.ptr);
-			return s;
-		}
-		if(t.strukt) {
-			String s = (t.strukt->isUnion ? "union " : "struct ") + t.strukt->tag;
-			appendStars(s, t.ptr);
-			return s;
-		}
-		if(t.isVoid()) {
-			String s = "void";
-			appendStars(s, t.ptr);
-			return s;
-		}
-		if(t.isFloat()) {
-			String s = t.bits == 32 ? "float" : t.bits == 128 ? "long double" : "double";
-			appendStars(s, t.ptr);
-			return s;
-		}
-		String base;
-		switch(t.bits) {
-		case 1:
+	} // namespace detail
+
+	String typeName(CType t) {
+		if(t.func)
+			return detail::funcTypeName(t);
+		String s;
+		if(t.array)
+			s = typeName(t.array->elem) + "[" + std::to_string(t.array->count) + "]";
+		else if(t.isComplex())
+			s = String(detail::floatName(t.bits)) + " _Complex";
+		else if(t.strukt)
+			s = (t.strukt->isUnion ? "union " : "struct ") + t.strukt->tag;
+		else if(t.isVoid())
+			s = "void";
+		else if(t.isFloat())
+			s = detail::floatName(t.bits);
+		else if(t.bits == 1)
 			return "_Bool";
-		case 8:
-			base = "char";
-			break;
-		case 16:
-			base = "short";
-			break;
-		case 32:
-			base = "int";
-			break;
-		default:
-			base = "long";
-			break;
-		}
-		String s = t.isUnsigned() ? "unsigned " + base : base;
-		appendStars(s, t.ptr);
+		else
+			s = String(t.isUnsigned() ? "unsigned " : "") + detail::intName(t.bits);
+		s.append(t.ptr, '*');
 		return s;
 	}
 
@@ -278,92 +270,44 @@ namespace rat::cc {
 		}
 
 		void dumpStmt(const Stmt* s, U32 depth, std::ostream& os) {
+			// clang-format off
+			static const C8* const kNames[] = {
+					"block", "decl", "if", "while", "do-while", "for", "switch", "case", "default", "break",
+					"continue", "return", "expr", "empty", "label", "goto", "asm",
+			};
+			// clang-format on
+			static_assert(sizeof(kNames) / sizeof(kNames[0]) == (U32)StmtKind::Asm + 1,
+										"kNames must cover every StmtKind");
 			pad(os, depth);
-			switch(s->kind) {
-			case StmtKind::Compound:
-				os << "block\n";
-				for(const Stmt* child : s->body)
-					dumpStmt(child, depth + 1, os);
-				return;
-			case StmtKind::Decl:
-				os << "decl\n";
-				for(const Declarator& d : s->decls) {
-					pad(os, depth + 1);
-					os << "var " << typeName(d.type) << " " << *d.name << "\n";
-					if(d.init)
-						dumpExpr(d.init, depth + 2, os);
-				}
-				return;
-			case StmtKind::If:
-				os << "if\n";
-				dumpExpr(s->expr, depth + 1, os);
-				dumpStmt(s->thenBody, depth + 1, os);
-				if(s->elseBody)
-					dumpStmt(s->elseBody, depth + 1, os);
-				return;
-			case StmtKind::While:
-				os << "while\n";
-				dumpExpr(s->expr, depth + 1, os);
-				dumpStmt(s->thenBody, depth + 1, os);
-				return;
-			case StmtKind::DoWhile:
-				os << "do-while\n";
+			os << kNames[(U32)s->kind];
+			if(s->kind == StmtKind::Label || s->kind == StmtKind::Goto)
+				os << " " << *s->label;
+			if(s->kind == StmtKind::Asm)
+				os << " \"" << *s->asmBlock->text << "\"";
+			os << "\n";
+			for(const Stmt* child : s->body)
+				dumpStmt(child, depth + 1, os);
+			for(const Declarator& d : s->decls) {
+				pad(os, depth + 1);
+				os << "var " << typeName(d.type) << " " << *d.name << "\n";
+				if(d.init)
+					dumpExpr(d.init, depth + 2, os);
+			}
+			if(s->kind == StmtKind::DoWhile) {
 				dumpStmt(s->thenBody, depth + 1, os);
 				dumpExpr(s->expr, depth + 1, os);
-				return;
-			case StmtKind::For:
-				os << "for\n";
-				if(s->forInit)
-					dumpStmt(s->forInit, depth + 1, os);
-				if(s->expr)
-					dumpExpr(s->expr, depth + 1, os);
-				if(s->forPost)
-					dumpExpr(s->forPost, depth + 1, os);
-				dumpStmt(s->thenBody, depth + 1, os);
-				return;
-			case StmtKind::Switch:
-				os << "switch\n";
-				dumpExpr(s->expr, depth + 1, os);
-				dumpStmt(s->thenBody, depth + 1, os);
-				return;
-			case StmtKind::Case:
-				os << "case\n";
-				dumpExpr(s->expr, depth + 1, os);
-				dumpStmt(s->thenBody, depth + 1, os);
-				return;
-			case StmtKind::Default:
-				os << "default\n";
-				dumpStmt(s->thenBody, depth + 1, os);
-				return;
-			case StmtKind::Break:
-				os << "break\n";
-				return;
-			case StmtKind::Continue:
-				os << "continue\n";
-				return;
-			case StmtKind::Return:
-				os << "return\n";
-				if(s->expr)
-					dumpExpr(s->expr, depth + 1, os);
-				return;
-			case StmtKind::Expr:
-				os << "expr\n";
-				dumpExpr(s->expr, depth + 1, os);
-				return;
-			case StmtKind::Empty:
-				os << "empty\n";
-				return;
-			case StmtKind::Label:
-				os << "label " << *s->label << "\n";
-				dumpStmt(s->thenBody, depth + 1, os);
-				return;
-			case StmtKind::Goto:
-				os << "goto " << *s->label << "\n";
-				return;
-			case StmtKind::Asm:
-				os << "asm \"" << *s->asmBlock->text << "\"\n";
 				return;
 			}
+			if(s->forInit)
+				dumpStmt(s->forInit, depth + 1, os);
+			if(s->expr)
+				dumpExpr(s->expr, depth + 1, os);
+			if(s->forPost)
+				dumpExpr(s->forPost, depth + 1, os);
+			if(s->thenBody)
+				dumpStmt(s->thenBody, depth + 1, os);
+			if(s->elseBody)
+				dumpStmt(s->elseBody, depth + 1, os);
 		}
 	} // namespace detail
 

@@ -11,26 +11,25 @@ namespace rat::cc {
 		return st;
 	}
 
-	// appends f at the next slot that fits align; a union starts every member at 0
-	void
-	Parser::placeField(StructType* st, Field f, U64 size, U32 align, B32 isUnion, StructLayout& l) {
-		f.offset = isUnion ? 0 : detail::alignUp(l.offset, align);
-		st->fields.push_back(f);
+	// the next slot that fits align; a union starts every member at 0
+	U64 Parser::placeMember(U64 size, U32 align, B32 isUnion, StructLayout& l) {
+		U64 at = isUnion ? 0 : detail::alignUp(l.offset, align);
 		if(isUnion) {
 			if(size > l.offset)
 				l.offset = size;
 		} else {
-			l.offset = f.offset + size;
+			l.offset = at + size;
 		}
 		l.bitPos = l.offset * 8;
 		if(align > l.align)
 			l.align = align;
+		return at;
 	}
 
 	// the members of an unnamed struct or union member become members of st
 	void
 	Parser::spliceAnonMember(StructType* st, const StructType* inner, B32 isUnion, StructLayout& l) {
-		U64 mbase = isUnion ? 0 : detail::alignUp(l.offset, inner->align);
+		U64 mbase = placeMember(inner->size, inner->align, isUnion, l);
 		B32 first = true;
 		for(const Field& sub : inner->fields) {
 			Field f = sub;
@@ -41,15 +40,6 @@ namespace rat::cc {
 			first = false;
 			st->fields.push_back(f);
 		}
-		if(isUnion) {
-			if(inner->size > l.offset)
-				l.offset = inner->size;
-		} else {
-			l.offset = mbase + inner->size;
-		}
-		if(inner->align > l.align)
-			l.align = inner->align;
-		l.bitPos = l.offset * 8;
 	}
 
 	// array members need a constant, non-negative bound on every level
@@ -170,7 +160,8 @@ namespace rat::cc {
 		U32 falign = typeAlignBytes(ft);
 		if(r.align > falign)
 			falign = r.align;
-		placeField(st, f, size, falign, isUnion, l);
+		f.offset = placeMember(size, falign, isUnion, l);
+		st->fields.push_back(f);
 		return true;
 	}
 
@@ -277,8 +268,39 @@ namespace rat::cc {
 		return expect(TokKind::RParen, "')'");
 	}
 
-	// enum [alignas]... [tag] [ { [ enumerator [, enumerator]... [,] ] } ]
+	// [ enumerator [, enumerator]... [,] ] }
 	// enumerator: name [= const-expr]
+	B32 Parser::parseEnumerators(B32& anyNegative) {
+		I64 next = 0;
+		while(!check(TokKind::RBrace) && !check(TokKind::Eof)) {
+			if(!check(TokKind::Identifier)) {
+				fail(peek(), "expected enumerator name");
+				return false;
+			}
+			Token name = advance();
+			I64 value = next;
+			if(accept(TokKind::Assign)) {
+				Expr* init = parseConditional();
+				if(!init)
+					return false;
+				if(!evalIntConst(init, value))
+					return false;
+			}
+			if(value < detail::kIntMin || value > detail::kIntMax) {
+				fail(name, "enumerator value is not representable as int");
+				return false;
+			}
+			if(value < 0)
+				anyNegative = true;
+			enumConstants.set(lex.text(name), value);
+			next = value + 1;
+			if(!accept(TokKind::Comma))
+				break;
+		}
+		return expect(TokKind::RBrace, "'}'");
+	}
+
+	// enum [alignas]... [tag] [ { enumerators ]
 	B32 Parser::parseEnumSpec(CType& out) {
 		advance(); // enum
 		String tag;
@@ -290,36 +312,8 @@ namespace rat::cc {
 
 		B32 anyNegative = false;
 		B32 haveList = accept(TokKind::LBrace);
-		if(haveList) {
-			I64 next = 0;
-			while(!check(TokKind::RBrace) && !check(TokKind::Eof)) {
-				if(!check(TokKind::Identifier)) {
-					fail(peek(), "expected enumerator name");
-					return false;
-				}
-				Token name = advance();
-				I64 value = next;
-				if(accept(TokKind::Assign)) {
-					Expr* init = parseConditional();
-					if(!init)
-						return false;
-					if(!evalIntConst(init, value))
-						return false;
-				}
-				if(value < detail::kIntMin || value > detail::kIntMax) {
-					fail(name, "enumerator value is not representable as int");
-					return false;
-				}
-				if(value < 0)
-					anyNegative = true;
-				enumConstants.set(lex.text(name), value);
-				next = value + 1;
-				if(!accept(TokKind::Comma))
-					break;
-			}
-			if(!expect(TokKind::RBrace, "'}'"))
-				return false;
-		}
+		if(haveList && !parseEnumerators(anyNegative))
+			return false;
 		if(!tag.empty()) {
 			if(haveList)
 				enumSignedTags.set(tag, anyNegative);
