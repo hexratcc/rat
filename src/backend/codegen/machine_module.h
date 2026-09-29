@@ -9,12 +9,7 @@ namespace rat {
 	struct MachineModule {
 		Map<const Function*, MachineFunc> funcs;
 
-		MachineFunc& get(const Function* f) {
-			auto it = funcs.find(f);
-			if(it != funcs.end())
-				return it->second;
-			return funcs[f];
-		}
+		MachineFunc& get(const Function* f) { return funcs[f]; }
 	};
 } // namespace rat
 

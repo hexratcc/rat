@@ -467,11 +467,8 @@ namespace rat {
 			for(PhysReg p : rc.calleeSaved)
 				calleeMask |= (U64)1 << p;
 		}
-		B32 changed = false;
-		for(const Function* f : module) {
+		for(const Function* f : module)
 			allocate(mm.get(f));
-			changed = true;
-		}
-		return changed;
+		return module.begin() != module.end();
 	}
 } // namespace rat
