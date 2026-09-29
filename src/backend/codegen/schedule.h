@@ -20,11 +20,8 @@ namespace rat {
 	struct StoreNode;
 
 	namespace detail {
-		I32 idGet(const List<I32>& v, U32 id);
-		void idSet(List<I32>& v, U32 id, I32 val);
-		Node* nodeGet(const List<Node*>& v, U32 id);
-		void nodeSet(List<Node*>& v, U32 id, Node* val);
 		B32 storeMayAliasLoad(const AliasAnalysis& aa, const StoreNode* st, const LoadNode* ld);
+		B32 laterId(const Node* a, const Node* b);
 	} // namespace detail
 
 	struct Schedule {
@@ -73,6 +70,13 @@ namespace rat {
 		static B32 isFloating(const Node* n);
 		static B32 mayTrap(const Node* n);
 	private:
+		struct BlockEnd {
+			Node* ifTerm = nullptr;
+			Node* retTerm = nullptr;
+			Node* gotoRegion = nullptr;
+			I32 gotoIdx = -1;
+		};
+
 		I32 blockOfHead(const Node* head) const;
 		I32 headBlock(const Node* head) const;
 		U32 succCount(I32 b) const;
@@ -80,11 +84,16 @@ namespace rat {
 
 		void collectHeads();
 		void buildCFG();
+		BlockEnd walkBlock(I32 b);
+		void setTerminator(I32 b, const BlockEnd& end);
+		void computeRpo();
 		void computeDominators();
 		void computeLoops();
 		void computeHoistBounds();
 		void scheduleEarly(const List<Node*>& work, List<I32>& early);
+		I32 deepestInput(const Node* n, const List<I32>& early) const;
 		void scheduleLate(const List<Node*>& work, const List<I32>& early);
+		I32 lateBlock(Node* n) const;
 		void placeLoads(const List<Node*>& work, const List<I32>& early);
 		B32 place(Node* n, I32 late, const List<I32>& early);
 		I32 listedBlock(const Node* n) const;
@@ -93,7 +102,7 @@ namespace rat {
 		static B32 isHeadNode(const Node* n);
 		Node* headOf(Node* ctrl) const;
 
-		I32 intersectWith(const List<I32>& idom, I32 a, I32 b) const;
+		I32 intersect(I32 a, I32 b) const;
 		I32 lca(I32 a, I32 b) const;
 
 		I32 useBlock(Node* u, Node* n) const;
@@ -111,12 +120,20 @@ namespace rat {
 			List<I32> succNext;	 // edge -> next edge in the chain
 			List<I32> succTo;		 // edge -> target local index
 			List<Node*> ready;	 // binary heap of ready nodes
+
+			I32 local(const Node* n) const;
+			void addEdge(Node* before, Node* after);
+			void push(Node* n);
+			Node* pop();
 		};
 		List<Node*> topoOrder(List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& scratch) const;
+		static void addAntiDeps(const List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& s);
+		static void addOrderEdges(const List<Node*>& nodes, TopoScratch& s);
 
 		I32 fixedDataBlock(Node* n, const List<I32>& early) const;
 		static Node* requireProj(Node* n, U32 index);
 		static Node* memoryInputOf(const Node* n);
+		static B32 isMemWriter(const Node* n);
 	private:
 		const Function& fn;
 		List<Block> blocks;
