@@ -4,7 +4,7 @@
 
 **warning: wip**
 
-rat is a simple [Sea of Nodes](https://en.wikipedia.org/wiki/Sea_of_nodes) compiler backend, which aims to be reasonably fast, while not being large (the core is currently about 15k LoC). The suite also contains a basic C99 frontend, along with a basic linker. You can find the documentation [here](./src/backend/README.md).
+rat is a simple [Sea of Nodes](https://en.wikipedia.org/wiki/Sea_of_nodes) compiler backend, which aims to be reasonably fast, while being relatively simple (the core is currently about 15k LoC). As a proof of concept of the backend, I'm working on a C99 frontend for it which can be found [here](./src/compiler/). The frontend is about 1.3x slower than gcc in terms of runtime, but has about 10x faster compile times.
 
 ## running
 ```shell
