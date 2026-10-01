@@ -9,6 +9,7 @@
 namespace rat {
 	namespace detail {
 		PhysReg firstFree(const List<PhysReg>& regs, U64 blocked);
+		void groupByVReg(const List<Pair<VReg, U32>>& in, U32 nv, List<U32>& first, List<U32>& out);
 	} // namespace detail
 
 	struct RegAllocPass : MachinePass {
@@ -29,11 +30,11 @@ namespace rat {
 		void allocate(MachineFunc& f);
 		// intervals
 		void number();
-		void pinFixed(U32 b);
+		void pinFixed(const MachineInstr& in, U64 u, B32 copy, U64& live);
 		void liveness();
 		void buildIntervals();
 		void addSeg(VReg v, I32 start, I32 end);
-		void noteCopy(const MachineInstr& in, U32 weight);
+		void noteCopy(const MachineInstr& in, U32 level);
 		// assignment
 		void coalesce();
 		VReg find(VReg v);
@@ -68,7 +69,7 @@ namespace rat {
 		// liveness and bundles
 		List<List<VReg>> liveOut; // block -> live-out vregs
 		List<Interval> iv;
-		List<Pair<U32, Pair<VReg, VReg>>> copies; // (~weight, (def, source))
+		List<U64> copies; // (kMaxLevel - level, def, source)
 		// rewrite of the current instruction
 		List<Pair<VReg, PhysReg>> temps; // spilled bundle -> its temp
 		U64 taken = 0;									 // temps
