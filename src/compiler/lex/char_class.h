@@ -4,10 +4,18 @@
 #include "core.h"
 
 namespace rat::cc {
-	inline B32 isIdentStart(C8 c) {
+	constexpr B32 isIdentStart(C8 c) {
 		return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 	}
-	inline B32 isIdentCont(C8 c) { return isIdentStart(c) || (c >= '0' && c <= '9'); }
+	struct IdentContTable {
+		U8 v[256] = {};
+		constexpr IdentContTable() {
+			for(U32 c = 0; c < 256; ++c)
+				v[c] = isIdentStart((C8)c) || (c >= '0' && c <= '9');
+		}
+	};
+	inline constexpr IdentContTable kIdentCont;
+	inline B32 isIdentCont(C8 c) { return kIdentCont.v[(U8)c]; }
 	inline B32 isDigit(C8 c) { return c >= '0' && c <= '9'; }
 	inline B32 isOctalDigit(C8 c) { return c >= '0' && c <= '7'; }
 	inline B32 isHexDigit(C8 c) {

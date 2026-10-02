@@ -425,6 +425,7 @@ namespace rat::cc {
 			for(U64 k = in.size(); k > 0; --k)
 				work.push_back(in[k - 1]);
 			List<PpToken> os;
+			os.reserve(in.size());
 			while(!work.empty()) {
 				PpToken t = work.back();
 				work.pop_back();
