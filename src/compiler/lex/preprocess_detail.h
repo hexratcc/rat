@@ -20,18 +20,16 @@ namespace rat::cc {
 
 		// string pool: equal spellings share one const String*, compare by pointer
 		struct Interner {
+			struct Slot {
+				U64 hash = 0;
+				const String* str = nullptr;
+			};
 			std::deque<String> store;
-			Map<std::string_view, const String*> pool;
+			List<Slot> slots = List<Slot>(4096);
+			U64 count = 0;
 
-			const String* intern(std::string_view s) {
-				auto it = pool.find(s);
-				if(it != pool.end())
-					return it->second;
-				store.emplace_back(s);
-				const String* p = &store.back();
-				pool.emplace(std::string_view(*p), p);
-				return p;
-			}
+			const String* intern(std::string_view s);
+			void grow();
 		};
 
 		struct HideSet {
@@ -39,13 +37,13 @@ namespace rat::cc {
 		};
 
 		struct PpToken {
-			Pk kind = Pk::Eof;
-			const String* text = nullptr; // interned spelling
-			B32 spaceBefore = false;			// had white space before it
-			B32 bol = false;							// first token on its logical line
-			U32 line = 0;
+			const String* text = nullptr;	 // interned spelling
 			const String* file = nullptr;	 // interned file name
 			const HideSet* hide = nullptr; // interned hide set
+			U32 line = 0;
+			Pk kind = Pk::Eof;
+			U8 spaceBefore = false; // had white space before it
+			U8 bol = false;					// first token on its logical line
 		};
 
 		constexpr U32 kMaxIncludeDepth = 200;
@@ -74,6 +72,10 @@ namespace rat::cc {
 
 		U64 decodeTrigraph(const String& src, U64 p, C8& c);
 		U64 newlineLen(const String& s, U64 i);
+
+		// 0x80 in each byte of w equal to b, 0 elsewhere
+		constexpr U64 kBytes1 = 0x0101010101010101ull;
+		U64 bytesEq(U64 w, C8 b);
 
 		// trigraph + splice + newline norm in one copy; sparse LineMarks
 		void splice(const String& src, String& out, List<LineMark>& marks);
@@ -183,6 +185,7 @@ namespace rat::cc {
 			Map<const String*, Macro> macros;
 			List<PpToken> out;
 			Set<String> pragmaOnce;
+			Map<String, List<PpToken>> fileToks;
 			struct SavedMacro {
 				B32 defined;
 				Macro macro;
@@ -209,6 +212,7 @@ namespace rat::cc {
 			const String* idAlias = interner.intern("alias");
 			const String* idAlias2 = interner.intern("__alias__");
 			const String* idAliasMark = interner.intern("__rat_alias__");
+			const String* idPragma = interner.intern("_Pragma");
 			String err;
 			B32 ok = true;
 			I64 lineDelta = 0;
@@ -278,7 +282,7 @@ namespace rat::cc {
 			void doPragma(PpSpan rest, const String& path);
 			String destringize(const String& lit);
 			List<PpToken> applyPragmaOperators(List<PpToken>& toks, const String& path);
-			void flush(List<PpToken>& textBuf);
+			void flush(PpSpan text);
 			static B32 condActive(const List<Cond>& stack);
 			void pushCond(const String& name, PpSpan rest, List<Cond>& stack);
 			B32 handleConditional(const String& name, PpSpan rest, List<Cond>& stack);
@@ -287,6 +291,7 @@ namespace rat::cc {
 			// driver
 			B32 run(const String& path, const String& source, String& errOut);
 			void runFile(const String& path, const String& source);
+			void runTokens(const String& path, const List<PpToken>& toks);
 			void installBuiltins();
 			void applyCommandLine();
 			String serialize();

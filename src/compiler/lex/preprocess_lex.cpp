@@ -4,8 +4,45 @@
 
 #include <cstring>
 
+#include "hash.h"
+
 namespace rat::cc {
 	namespace detail {
+		const String* Interner::intern(std::string_view s) {
+			U64 h = kFnvBasis;
+			for(C8 c : s)
+				hashMix(h, (U8)c);
+			U64 mask = slots.size() - 1;
+			for(U64 i = h & mask;; i = (i + 1) & mask) {
+				Slot& sl = slots[i];
+				if(!sl.str) {
+					store.emplace_back(s);
+					sl.hash = h;
+					sl.str = &store.back();
+					const String* p = sl.str;
+					if(++count * 2 > slots.size())
+						grow();
+					return p;
+				}
+				if(sl.hash == h && std::string_view(*sl.str) == s)
+					return sl.str;
+			}
+		}
+
+		void Interner::grow() {
+			List<Slot> old = std::move(slots);
+			slots = List<Slot>(old.size() * 2);
+			U64 mask = slots.size() - 1;
+			for(const Slot& sl : old) {
+				if(!sl.str)
+					continue;
+				U64 i = sl.hash & mask;
+				while(slots[i].str)
+					i = (i + 1) & mask;
+				slots[i] = sl;
+			}
+		}
+
 		String unquote(const String& s) { return s.size() >= 2 ? s.substr(1, s.size() - 2) : s; }
 
 		B32 isAbsPath(const String& s) {
@@ -70,6 +107,12 @@ namespace rat::cc {
 			return i + 1 < s.size() && s[i] == '\r' && s[i + 1] == '\n' ? 2 : 0;
 		}
 
+		U64 bytesEq(U64 w, C8 b) {
+			constexpr U64 lo = 0x7F7F7F7F7F7F7F7Full;
+			U64 x = w ^ ((U64)(U8)b * kBytes1);
+			return ~(((x & lo) + lo) | x | lo);
+		}
+
 		// trigraph + splice + newline norm in one pass
 		void splice(const String& src, String& out, List<LineMark>& marks) {
 			U32 line = 1;
@@ -79,6 +122,14 @@ namespace rat::cc {
 			while(i < n) {
 				// fast path: bulk-copy a run with no splice/trigraph/CR triggers
 				U64 start = i;
+				while(i + 8 <= n) {
+					U64 w;
+					std::memcpy(&w, data + i, 8);
+					if(bytesEq(w, '\\') | bytesEq(w, '\r') | bytesEq(w, '?'))
+						break;
+					line += (U32)(((bytesEq(w, '\n') >> 7) * kBytes1) >> 56);
+					i += 8;
+				}
 				while(i < n) {
 					C8 c = data[i];
 					if(c == '\\' || c == '\r' || c == '?')
@@ -223,10 +274,10 @@ namespace rat::cc {
 
 		U64 PpLexer::wordEnd(U64 j) const {
 			for(;;) {
-				if(U64 u = ucnLen(s, j))
-					j += u;
-				else if(j < s.size() && isIdentCont(s[j]))
+				if(j < s.size() && isIdentCont(s[j]))
 					++j;
+				else if(U64 u = ucnLen(s, j))
+					j += u;
 				else
 					return j;
 			}

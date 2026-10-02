@@ -113,7 +113,7 @@ namespace rat::cc {
 			String found;
 			String content;
 			for(const String& p : tries) {
-				if(readFile(p, content)) {
+				if(fileToks.count(p) || readFile(p, content)) {
 					found = p;
 					break;
 				}
@@ -128,8 +128,11 @@ namespace rat::cc {
 				fail("#include nesting too deep");
 				return;
 			}
+			auto it = fileToks.find(found);
+			if(it == fileToks.end())
+				it = fileToks.emplace(found, lexFragment(content, intern(found))).first;
 			++includeDepth;
-			runFile(found, content);
+			runTokens(found, it->second);
 			--includeDepth;
 		}
 
@@ -229,7 +232,7 @@ namespace rat::cc {
 		List<PpToken> Preprocessor::applyPragmaOperators(List<PpToken>& toks, const String& path) {
 			B32 any = false;
 			for(const PpToken& t : toks)
-				if(t.kind == Pk::Id && *t.text == "_Pragma") {
+				if(t.kind == Pk::Id && t.text == idPragma) {
 					any = true;
 					break;
 				}
@@ -237,7 +240,7 @@ namespace rat::cc {
 				return std::move(toks);
 			List<PpToken> out;
 			for(U64 i = 0; i < toks.size();) {
-				if(toks[i].kind == Pk::Id && *toks[i].text == "_Pragma" && i + 3 < toks.size() &&
+				if(toks[i].kind == Pk::Id && toks[i].text == idPragma && i + 3 < toks.size() &&
 					 isPunct(toks[i + 1], "(") && toks[i + 2].kind == Pk::Str && isPunct(toks[i + 3], ")")) {
 					List<PpToken> body = lexFragment(destringize(*toks[i + 2].text), intern(path));
 					doPragma(PpSpan(body), path);
@@ -250,10 +253,10 @@ namespace rat::cc {
 			return out;
 		}
 
-		void Preprocessor::flush(List<PpToken>& textBuf) {
-			if(textBuf.empty())
+		void Preprocessor::flush(PpSpan text) {
+			if(text.empty())
 				return;
-			List<PpToken> e = expand(PpSpan(textBuf));
+			List<PpToken> e = expand(text);
 			e = applyPragmaOperators(e, fileName);
 			for(PpToken& t : e) {
 				// report lines through any #line adjustment
@@ -261,7 +264,6 @@ namespace rat::cc {
 				t.line = adj >= 1 ? (U32)adj : 1;
 				out.push_back(std::move(t));
 			}
-			textBuf.clear();
 		}
 
 		B32 Preprocessor::condActive(const List<Cond>& stack) {
@@ -354,6 +356,10 @@ namespace rat::cc {
 				return;
 
 			List<PpToken> toks = lexFragment(source, intern(path));
+			runTokens(path, toks);
+		}
+
+		void Preprocessor::runTokens(const String& path, const List<PpToken>& toks) {
 			if(!ok)
 				return;
 
@@ -363,7 +369,7 @@ namespace rat::cc {
 			fileName = path;
 
 			List<Cond> stack;
-			List<PpToken> textBuf;
+			U64 textStart = 0;
 
 			U64 i = 0, n = toks.size();
 			while(i < n && ok) {
@@ -374,13 +380,12 @@ namespace rat::cc {
 				i = j;
 
 				const PpToken& first = toks[start];
-				if(!isPunct(first, "#") || !first.bol) {
-					if(condActive(stack))
-						textBuf.insert(textBuf.end(), toks.begin() + start, toks.begin() + j);
+				if(!isPunct(first, "#") || !first.bol)
 					continue;
-				}
 
-				flush(textBuf);
+				if(condActive(stack))
+					flush(PpSpan(toks.data() + textStart, toks.data() + start));
+				textStart = j;
 				if(start + 1 == j) // null directive
 					continue;
 				U32 phys = j < n ? toks[j].line : toks[start + 1].line + 1;
@@ -390,7 +395,8 @@ namespace rat::cc {
 			if(ok && !stack.empty())
 				fail(path + ": unterminated #if");
 
-			flush(textBuf);
+			if(condActive(stack))
+				flush(PpSpan(toks.data() + textStart, toks.data() + n));
 
 			lineDelta = savedDelta;
 			fileName = savedFile;
