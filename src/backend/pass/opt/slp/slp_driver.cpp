@@ -161,6 +161,9 @@ namespace rat {
 			LoadNode* l = dyn_cast<LoadNode>(n);
 			if(!l)
 				continue;
+			StoreNode* above = dyn_cast<StoreNode>(l->getMemory());
+			if(!above || above->getControl() != l->getControl())
+				continue;
 			U32 lsz = aa.getAccessSize(l);
 			if(!lsz)
 				continue;
@@ -324,6 +327,8 @@ namespace rat {
 	List<Segment> slp::Slp::buildSegments(const Map<Node*, StoreInfo>& cand) {
 		List<Segment> segments;
 		for(Node* n : fn) {
+			if(!isa<StoreNode>(n))
+				continue; // candidates are stores
 			auto headIt = cand.find(n);
 			if(headIt == cand.end())
 				continue;

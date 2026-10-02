@@ -53,12 +53,14 @@ namespace rat {
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
 		static B32 isPureValue(Node* n);
+		B32 hasKeyedUser(Node* n) const;
 	private:
 		struct Slot {
 			detail::GVNKey key;
 			Node* val = nullptr;
 		};
 		List<Slot> slots;
+		List<U8> keyed; // id -> hashed in the current sweep
 	};
 } // namespace rat
 

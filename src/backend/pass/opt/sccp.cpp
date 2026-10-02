@@ -58,8 +58,9 @@ namespace rat {
 	}
 
 	void SCCPPass::pushPhis(RegionNode* r) {
-		for(PhiNode* phi : usersOfType<PhiNode>(r))
-			ssaWork.push_back(phi);
+		for(Node* u : r->getUsers())
+			if(isa<PhiNode>(u))
+				ssaWork.push_back(u);
 	}
 
 	void SCCPPass::evalIf(IfNode* iff) {

@@ -40,10 +40,16 @@ namespace rat {
 
 	B32 GVNPass::isPureValue(Node* n) {
 		Opcode op = n->getOpcode();
-		if(Schedule::mayTrap(n))
-			return false;
-		return op == Opcode::Constant || op == Opcode::Global || isArithmeticOpcode(op) ||
-					 isVectorUtilOpcode(op);
+		B32 value = op == Opcode::Constant || op == Opcode::Global || isArithmeticOpcode(op) ||
+								isVectorUtilOpcode(op);
+		return value && !Schedule::mayTrap(n);
+	}
+
+	B32 GVNPass::hasKeyedUser(Node* n) const {
+		for(Node* u : n->getUsers())
+			if(keyed[u->getId()])
+				return true;
+		return false;
 	}
 
 	const C8* GVNPass::name() const { return "gvn"; }
@@ -61,9 +67,11 @@ namespace rat {
 
 		B32 changed = true;
 		while(changed) {
+			U32 before = removed;
 			changed = false;
 			for(U32 i = 0; i < cap; ++i)
 				slots[i].val = nullptr;
+			keyed.assign(fn.idBound(), 0);
 			U32 filled = 0;
 			for(Node* n : fn) {
 				if(!isPureValue(n) || !n->hasUsers())
@@ -71,6 +79,7 @@ namespace rat {
 				detail::GVNKey key;
 				if(!detail::makeKey(n, key))
 					continue;
+				keyed[n->getId()] = 1;
 				U32 i = (U32)hasher(key) & mask;
 				while(slots[i].val && !(slots[i].key == key))
 					i = (i + 1) & mask;
@@ -78,13 +87,15 @@ namespace rat {
 					slots[i].key = key;
 					slots[i].val = n;
 					++filled;
-					if(filled * 2 >= cap)
+					if(filled * 2 >= cap) {
+						changed = removed != before;
 						break;
+					}
 				} else {
 					// n is a duplicate of the earlier representative; redirect its uses
+					changed = changed || hasKeyedUser(n);
 					n->replaceAllUsesWith(slots[i].val);
 					++removed;
-					changed = true;
 				}
 			}
 		}

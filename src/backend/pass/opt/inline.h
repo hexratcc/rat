@@ -37,7 +37,8 @@ namespace rat {
 			U64 quietAt = 0;			// stamp of the last run that inlined nothing, 0 = none
 			U32 firstSize = 0;		// caller size when first seen, bounds growth per module run
 			U32 visit = 0;				// dfs stamp
-			I8 cyclic = -1;				// cached isCyclic, -1 = unknown
+			B32 cyclic = false;		// cached isCyclic
+			U32 cyclicAt = 0;
 		};
 		static constexpr U64 kNoRow = ~(U64)0;
 
@@ -73,6 +74,7 @@ namespace rat {
 		Map<const Function*, Info> infos;
 		Map<String, Function*> byName;
 		U32 visitCur = 0;
+		U32 cycleGen = 1; // bumped when a call edge changes
 
 		// scratch reused across call sites
 		List<Node*> cloneMap; // callee node id -> caller node

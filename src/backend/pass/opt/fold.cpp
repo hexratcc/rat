@@ -704,7 +704,7 @@ namespace rat {
 		fresh = 0;
 		work.clear();
 		work.reserve(fn.size());
-		queued.assign(fn.size(), 0);
+		queued.assign(fn.idBound(), 0);
 		for(Node* n : fn) {
 			if(n->getId() >= fresh)
 				fresh = n->getId() + 1;

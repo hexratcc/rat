@@ -38,6 +38,7 @@ namespace rat {
 		U32 collapseRegions();
 
 		void reachableControl(Function& fn);
+		B32 reached(Node* n) const;
 		void collectPhis(Node* region);
 		static void removePred(RegionNode* r, U32 i);
 		static void foldIf(Function& fn, IfNode* iff, B32 thenTaken);
@@ -52,7 +53,7 @@ namespace rat {
 	private:
 		List<Node*> ifs;
 		List<Node*> regions;
-		Set<Node*> reach; // reachable control
+		List<U8> reach; // id -> reachable control
 		List<PhiNode*> phis;
 		// walk scratch
 		List<Node*> stack;
