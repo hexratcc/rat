@@ -61,8 +61,6 @@ namespace rat {
 	}
 
 	U32 MemoryOptPass::cseLoads(Function& fn, const AliasAnalysis& aa) {
-		Schedule sched(fn, Schedule::Mode::Loads);
-
 		buckets.clear();
 		for(LoadNode* l : loads) {
 			if(!l->hasUsers())
@@ -72,7 +70,14 @@ namespace rat {
 				continue; // opaque address / unknown size: not provably CSE
 			buckets[BucketKey{defs[l->getId()], l->getType(), key}].push_back(l);
 		}
+		paired.clear();
+		for(auto& kv : buckets)
+			if(kv.second.size() >= 2)
+				paired.insert(paired.end(), kv.second.begin(), kv.second.end());
+		if(paired.empty())
+			return 0; // nothing to CSE, skip the schedule
 
+		Schedule sched(fn, paired);
 		U32 removed = 0;
 		for(auto& kv : buckets) {
 			List<LoadNode*>& group = kv.second;

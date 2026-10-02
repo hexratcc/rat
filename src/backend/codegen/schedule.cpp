@@ -5,8 +5,30 @@
 #include "ir/node.h"
 
 namespace rat {
-	Schedule::Schedule(const Function& fn, Mode mode)
+	Schedule::Schedule(const Function& fn)
 	: fn(fn) {
+		buildBlocks();
+		List<Node*> work;
+		for(Node* n : fn)
+			if(isFloating(n))
+				work.push_back(n);
+		List<I32> early(fn.idBound(), -1);
+		scheduleEarly(work, early);
+		markGuarded(work);
+		scheduleLate(work, early);
+		buildBlockLists();
+	}
+
+	Schedule::Schedule(const Function& fn, const List<LoadNode*>& loads)
+	: fn(fn) {
+		buildBlocks();
+		List<Node*> work = floatingCone(loads);
+		List<I32> early(fn.idBound(), -1);
+		scheduleEarly(work, early);
+		placeLoads(work, early);
+	}
+
+	void Schedule::buildBlocks() {
 		U32 count = fn.idBound();
 		headIndex.assign(count, -1);
 		nodeBlock.assign(count, -1);
@@ -17,19 +39,25 @@ namespace rat {
 		computeDominators();
 		computeLoops();
 		computeHoistBounds();
+	}
+
+	List<Node*> Schedule::floatingCone(const List<LoadNode*>& loads) const {
+		List<U8> seen(fn.idBound(), 0);
 		List<Node*> work;
-		for(Node* n : fn)
-			if(isFloating(n))
-				work.push_back(n);
-		List<I32> early(count, -1);
-		scheduleEarly(work, early);
-		if(mode == Mode::Loads) {
-			placeLoads(work, early);
-			return;
+		for(LoadNode* l : loads) {
+			seen[l->getId()] = 1;
+			work.push_back(l);
 		}
-		markGuarded(work);
-		scheduleLate(work, early);
-		buildBlockLists();
+		for(U32 i = 0; i < work.size(); ++i)
+			for(U32 k = 0, e = work[i]->getInputCount(); k < e; ++k) {
+				Node* in = work[i]->getInput(k);
+				if(in && isFloating(in) && !seen[in->getId()]) {
+					seen[in->getId()] = 1;
+					work.push_back(in);
+				}
+			}
+		std::reverse(work.begin(), work.end()); // inputs first, the early fixpoint settles sooner
+		return work;
 	}
 
 	I32 Schedule::numBlocks() const { return (I32)blocks.size(); }
