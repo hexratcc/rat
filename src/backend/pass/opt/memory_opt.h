@@ -70,6 +70,7 @@ namespace rat {
 		};
 	private:
 		List<LoadNode*> loads;
+		List<LoadNode*> paired;
 		List<Node*> defs;
 		List<U32> chainHops;
 		std::unordered_map<BucketKey, List<LoadNode*>, BucketKeyHash> buckets;

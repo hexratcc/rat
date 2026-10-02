@@ -10,12 +10,12 @@ namespace rat {
 		U32 changed = 0;
 		for(Function* fn : module) {
 			B32 skippable = onlyReadsFunction();
-			if(skippable && fn->isCleanFor(this))
+			if(skippable && fn->isCleanFor(name()))
 				continue;
 			if(runOnFunction(*fn, target))
 				++changed;
 			else if(skippable)
-				fn->markCleanFor(this);
+				fn->markCleanFor(name());
 		}
 		return changed != 0;
 	}

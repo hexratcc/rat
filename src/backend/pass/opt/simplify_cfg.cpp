@@ -7,16 +7,17 @@
 
 namespace rat {
 	void SimplifyCFGPass::reachableControl(Function& fn) {
-		reach.clear();
-		reach.insert(fn.getStart());
+		reach.assign(fn.idBound(), 0);
+		reach[fn.getStart()->getId()] = 1;
 		stack.clear();
 		if(Node* e = fn.getStart()->projection(StartNode::controlProjIndex()))
 			stack.push_back(e);
 		while(!stack.empty()) {
 			Node* n = stack.back();
 			stack.pop_back();
-			if(!reach.insert(n).second)
+			if(reach[n->getId()])
 				continue;
+			reach[n->getId()] = 1;
 			for(Node* u : n->getUsers()) {
 				if(isControlNode(u)) {
 					stack.push_back(u);
@@ -27,6 +28,10 @@ namespace rat {
 				}
 			}
 		}
+	}
+
+	B32 SimplifyCFGPass::reached(Node* n) const {
+		return n && n->getId() < reach.size() && reach[n->getId()];
 	}
 
 	void SimplifyCFGPass::collectPhis(Node* region) {
@@ -230,7 +235,7 @@ namespace rat {
 		if(StopNode* stop = fn.getStop())
 			for(U32 i = stop->getInputCount(); i-- > 0;) {
 				Node* r = stop->getInput(i);
-				if(r && !reach.count(r)) {
+				if(r && !reached(r)) {
 					stop->removeInput(i);
 					++changed;
 				}
@@ -240,9 +245,9 @@ namespace rat {
 				continue;
 			B32 dead = false;
 			if(isControlNode(n))
-				dead = !reach.count(n);
+				dead = !reached(n);
 			else if(Node* ci = n->getControlInput())
-				dead = ci != fn.getStart() && !reach.count(ci);
+				dead = ci != fn.getStart() && !reached(ci);
 			if(!dead)
 				continue;
 			if(n->getInputCount() > 0) {
@@ -257,10 +262,10 @@ namespace rat {
 		U32 changed = 0;
 		for(Node* n : regions) {
 			RegionNode* r = cast<RegionNode>(n);
-			if(!reach.count(r))
+			if(!reached(r))
 				continue;
 			for(U32 i = r->getPredecessorCount(); i-- > 0;)
-				if(!reach.count(r->getPredecessor(i))) {
+				if(!reached(r->getPredecessor(i))) {
 					removePred(r, i);
 					++changed;
 				}
@@ -289,7 +294,7 @@ namespace rat {
 		U32 changed = 0;
 		for(Node* n : regions) {
 			RegionNode* r = cast<RegionNode>(n);
-			if(!reach.count(r) || r->getPredecessorCount() != 1)
+			if(!reached(r) || r->getPredecessorCount() != 1)
 				continue;
 			collectPhis(r);
 			for(PhiNode* phi : phis)

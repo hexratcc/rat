@@ -372,6 +372,22 @@ namespace rat {
 
 	void Function::retVoid() { ret(nullptr); }
 
+	B32 Function::isCleanFor(const void* pass) const {
+		for(const auto& [p, v] : cleanAt)
+			if(p == pass)
+				return v == version;
+		return false;
+	}
+
+	void Function::markCleanFor(const void* pass) {
+		for(auto& [p, v] : cleanAt)
+			if(p == pass) {
+				v = version;
+				return;
+			}
+		cleanAt.push_back({pass, version});
+	}
+
 	B32 Function::hasReturn() const {
 		for(Node* n : *this)
 			if(isa<ReturnNode>(n))
@@ -396,6 +412,8 @@ namespace rat {
 	}
 
 	U32 Function::eliminateDeadNodes(B32 includeControl) {
+		if(!includeControl && deadFreeAt == version)
+			return 0;										// unchanged since a sweep, which leaves no dead node
 		List<U8> deadMark(nextId, 0); // id-indexed
 		List<Node*> work(nodes.begin(), nodes.end());
 		U32 count = 0;
@@ -415,6 +433,7 @@ namespace rat {
 			touch();
 			eraseMarked(deadMark);
 		}
+		deadFreeAt = version;
 		return count;
 	}
 

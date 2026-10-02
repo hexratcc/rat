@@ -172,11 +172,8 @@ namespace rat {
 
 		U64 getVersion() const { return version; }
 		void touch() { ++version; }
-		B32 isCleanFor(const void* pass) const {
-			auto it = cleanAt.find(pass);
-			return it != cleanAt.end() && it->second == version;
-		}
-		void markCleanFor(const void* pass) { cleanAt[pass] = version; }
+		B32 isCleanFor(const void* pass) const;
+		void markCleanFor(const void* pass);
 		B32 hasReturn() const;
 
 		U32 eliminateDeadNodes(B32 includeControl = false);
@@ -228,8 +225,9 @@ namespace rat {
 		List<Node*> paramCache;
 
 		// pass state
-		U64 version = 0; // bumped on every mutation
-		Map<const void*, U64> cleanAt;
+		U64 version = 0;					// bumped on every mutation
+		U64 deadFreeAt = ~(U64)0; // version at the last dead-node sweep
+		List<Pair<const void*, U64>> cleanAt;
 
 		// builder state
 		Block* cur = nullptr; // current insertion block

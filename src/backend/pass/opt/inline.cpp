@@ -184,10 +184,7 @@ namespace rat {
 		}
 	}
 
-	void InlinePass::forgetCycles() {
-		for(auto& [fn, info] : infos)
-			info.cyclic = -1;
-	}
+	void InlinePass::forgetCycles() { ++cycleGen; }
 
 	// refresh the rows of functions mutated since their row was built
 	void InlinePass::syncCallGraph(Module& m) {
@@ -227,9 +224,10 @@ namespace rat {
 
 	B32 InlinePass::isCyclic(Function* fn) {
 		Info& info = infos[fn];
-		if(info.cyclic < 0) {
+		if(info.cyclicAt != cycleGen) {
 			++visitCur;
 			info.cyclic = reaches(&info, &info);
+			info.cyclicAt = cycleGen;
 		}
 		return info.cyclic;
 	}
@@ -245,6 +243,8 @@ namespace rat {
 	B32 InlinePass::shouldInline(const Function& caller, CallNode* call, Function* callee) {
 		if(!callee || callee == &caller)
 			return false; // missing or directly recursive
+		if(callee->size() > kInlineNodeBudget)
+			return false;
 		if(callee->getAttrs().noInline)
 			return false; // opted out via __attribute__((noinline))
 		if(isCyclic(callee))
@@ -261,7 +261,7 @@ namespace rat {
 		for(U32 i = 0, e = call->getArgCount(); i < e; ++i)
 			if(call->getArg(i)->getType() != callee->getParamType(i))
 				return false;
-		return callee->size() <= kInlineNodeBudget;
+		return true;
 	}
 
 	B32 InlinePass::run(Module& module, const TargetInfo& target) {
