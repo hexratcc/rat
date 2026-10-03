@@ -26,15 +26,14 @@ namespace rat {
 
 	MachineInstr& X86LowerPass::put(
 			X86Op op, List<MachineOperand> defs, List<MachineOperand> uses, I64 imm, I64 imm2) {
-		MachineInstr m;
+		MachineInstr& m = mb->insts.emplace_back();
 		m.op = (MachineOpcode)op;
 		m.regClass = x86OpInfo(op).cls;
 		m.defs = std::move(defs);
 		m.uses = std::move(uses);
 		m.imm = imm;
 		m.imm2 = imm2;
-		mb->insts.push_back(std::move(m));
-		return mb->insts.back();
+		return m;
 	}
 
 	// data movement

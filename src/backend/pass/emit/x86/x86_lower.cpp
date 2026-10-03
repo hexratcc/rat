@@ -504,6 +504,7 @@ namespace rat {
 			MachineBlock& block = out->blocks[b];
 			block.id = b;
 			block.loopDepth = sched->block(b).loopDepth;
+			block.insts.reserve(sched->block(b).nodes.size() * 2 + 4);
 			mb = &block;
 			if(i == 0)
 				emitPrologue();

@@ -15,12 +15,14 @@
 namespace rat {
 	struct MachineBlock;
 	struct MachineFunc;
+	struct MachineInstr;
 	struct MachineOperand;
 
 	namespace detail {
 		B32 isPureTestBlock(const MachineBlock& b);
 		U32 duplicateTestBlocks(MachineFunc& mf);
 		B32 isBlockRef(const MachineOperand& o);
+		B32 isBranch(const MachineInstr& in);
 		I32 resolveJump(const MachineFunc& mf, I32 id);
 		U32 forwardJumpChains(MachineFunc& mf);
 		List<B32> reachableFrom(const List<List<I32>>& succ, I32 entry);

@@ -25,16 +25,26 @@ namespace rat {
 		const C8* name() const override { return "x86-peephole"; }
 		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;
 	private:
-		static constexpr U32 kMaxPhys = 64;
+		static constexpr U32 kMaxPhys = X86Target::kStBase + 8; // every x86 register
 		static constexpr U64 kAllBits = ~(U64)0;
+
+		static U32 slotKey(I32 s, U32 keys);
+
+		struct SlotValue {
+			U32 value = 0;
+			U32 width = 0;
+			U32 epoch = 0; // stale unless it matches the state epoch
+		};
 
 		struct ValueState {
 			U32 reg[kMaxPhys];
-			Map<I32, U32> slot;
-			Map<I32, U32> slotWidth;
+			List<SlotValue> slot; // by slotKey
+			U32 keys = 0;
+			U32 epoch = 1;
 			U32 next = 1;
 
 			U32 fresh() { return next++; }
+			void begin(U32 frameKeys);
 			void reset();
 			void killAllRegs();
 			void killReg(PhysReg p);
@@ -52,10 +62,10 @@ namespace rat {
 		static B32 isSlotLoad(const MachineInstr& in);
 		static MachineInstr makeCopy(PhysReg dst, PhysReg src, U32 cls, U32 width);
 		static B32 writesUntrackedSlot(const MachineInstr& in);
-		U32 foldRegCopy(MachineInstr& in, List<MachineInstr>& out);
-		U32 foldSlotStore(MachineInstr& in, List<MachineInstr>& out);
-		U32 foldSlotLoad(MachineInstr& in, List<MachineInstr>& out);
-		void stepOther(MachineInstr& in, List<MachineInstr>& out);
+		U32 foldRegCopy(MachineInstr& in, B32& keep);
+		U32 foldSlotStore(MachineInstr& in, B32& keep);
+		U32 foldSlotLoad(MachineInstr& in, B32& keep);
+		void stepOther(const MachineInstr& in);
 		U32 runOnBlock(MachineBlock& b);
 
 		// demanded-bits phase
@@ -63,20 +73,31 @@ namespace rat {
 		static U64 lowMask(U32 n);
 		static U64 carryMask(U64 out);
 		static B32 isNormalize(X86Op op);
+		static B32 hasNormalize(const MachineBlock& b);
 		static void demandUses(const MachineInstr& in, U64 mask, U64* dem, U32 from = 0, U32 to = ~0u);
 		static B32 immCount(const MachineInstr& in, U32& out);
 		static B32 readsFlags(X86Op op);
 		static B32 writesFlags(X86Op op);
 		static B32 flagSafeToDrop(const MachineBlock& b, U32 at);
 		static void transfer(const MachineInstr& in, U64* dem);
+		static B32 isInPlace(const MachineInstr& in);
 		static void eraseMarked(MachineBlock& b, const List<B32>& drop);
 		static B32 orInto(List<U64>& into, const List<U64>& from);
+		static void seedWork(const MachineFunc& mf, List<U32>& work, List<B32>& queued);
+		static void queuePreds(const MachineBlock& b, List<U32>& work, List<B32>& queued);
 		U32 elimRedundantExt(MachineFunc& mf);
 
 		// dead-slot-store phase
+		static constexpr U32 kNoBit = ~0u;
+
+		// dense
 		struct TrackedSlots {
-			Map<I32, U32> index;
-			Map<I32, U32> readWidth;
+			List<U32> index;
+			List<U32> readWidth;
+			U32 keys = 0;
+			U32 count = 0;
+
+			U32 key(I32 s) const;
 		};
 
 		static B32 isAnySlotStore(const MachineInstr& in);

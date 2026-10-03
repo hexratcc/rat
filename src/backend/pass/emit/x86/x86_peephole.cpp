@@ -5,10 +5,23 @@
 #include "ir/module.h"
 
 namespace rat {
+	U32 X86PeepholePass::slotKey(I32 s, U32 keys) {
+		if(s >= 0 || (s & 7))
+			return keys;
+		U32 k = (U32)(-(I64)s >> 3);
+		if(k >= keys)
+			return keys;
+		return k;
+	}
+
+	void X86PeepholePass::ValueState::begin(U32 frameKeys) {
+		keys = frameKeys;
+		slot.assign(keys, {});
+	}
+
 	void X86PeepholePass::ValueState::reset() {
 		killAllRegs();
-		slot.clear();
-		slotWidth.clear();
+		++epoch;
 	}
 
 	void X86PeepholePass::ValueState::killAllRegs() {
@@ -34,16 +47,16 @@ namespace rat {
 	}
 
 	U32 X86PeepholePass::ValueState::slotValue(I32 s, U32 width) const {
-		auto it = slot.find(s);
-		if(it == slot.end())
+		U32 k = slotKey(s, keys);
+		if(k == keys || slot[k].epoch != epoch || slot[k].width != width)
 			return 0;
-		auto wt = slotWidth.find(s);
-		return wt != slotWidth.end() && wt->second == width ? it->second : 0;
+		return slot[k].value;
 	}
 
 	void X86PeepholePass::ValueState::setSlot(I32 s, U32 width, U32 v) {
-		slot[s] = v;
-		slotWidth[s] = width;
+		U32 k = slotKey(s, keys);
+		if(k < keys) // an untracked slot never holds a value
+			slot[k] = {v, width, epoch};
 	}
 
 	// an instruction that reaches frame memory outside its operands, or that can
@@ -133,38 +146,42 @@ namespace rat {
 		return false;
 	}
 
-	U32 X86PeepholePass::foldRegCopy(MachineInstr& in, List<MachineInstr>& out) {
+	U32 X86PeepholePass::foldRegCopy(MachineInstr& in, B32& keep) {
 		PhysReg d = in.defs[0].phys;
 		PhysReg s = in.uses[0].phys;
 		// both classes copy the full register, so the value carries exactly
-		if(d == s || st.valueOf(d) == st.valueOf(s))
+		if(d == s || st.valueOf(d) == st.valueOf(s)) {
+			keep = false;
 			return 1;
+		}
 		st.setReg(d, st.valueOf(s));
-		out.push_back(std::move(in));
 		return 0;
 	}
 
-	U32 X86PeepholePass::foldSlotStore(MachineInstr& in, List<MachineInstr>& out) {
+	U32 X86PeepholePass::foldSlotStore(MachineInstr& in, B32& keep) {
 		I32 sl = in.uses[0].slot;
 		U32 w = in.uses[1].width;
 		U32 v = st.valueOf(in.uses[1].phys);
-		if(st.slotValue(sl, w) == v) // memory already has it
+		if(st.slotValue(sl, w) == v) { // memory already has it
+			keep = false;
 			return 1;
+		}
 		st.setSlot(sl, w, v);
-		out.push_back(std::move(in));
 		return 0;
 	}
 
-	U32 X86PeepholePass::foldSlotLoad(MachineInstr& in, List<MachineInstr>& out) {
+	U32 X86PeepholePass::foldSlotLoad(MachineInstr& in, B32& keep) {
 		I32 sl = in.uses[0].slot;
 		U32 w = in.defs[0].width;
 		PhysReg d = in.defs[0].phys;
 		U32 v = st.slotValue(sl, w);
 		if(v != 0) {
-			if(st.valueOf(d) == v) // the register already has it
+			if(st.valueOf(d) == v) { // the register already has it
+				keep = false;
 				return 1;
+			}
 			if(PhysReg src = st.regHolding(v, d); src != kNoReg) {
-				out.push_back(makeCopy(d, src, in.regClass, w));
+				in = makeCopy(d, src, in.regClass, w);
 				st.setReg(d, v);
 				return 1;
 			}
@@ -174,14 +191,12 @@ namespace rat {
 			st.setReg(d, v);
 			st.setSlot(sl, w, v);
 		}
-		out.push_back(std::move(in));
 		return 0;
 	}
 
-	void X86PeepholePass::stepOther(MachineInstr& in, List<MachineInstr>& out) {
+	void X86PeepholePass::stepOther(const MachineInstr& in) {
 		X86Op op = (X86Op)in.op;
 		if(!isTransparent(op) || writesUntrackedSlot(in)) {
-			out.push_back(std::move(in));
 			st.reset();
 			return;
 		}
@@ -192,25 +207,30 @@ namespace rat {
 				st.killReg(d.phys);
 		for(PhysReg p : in.clobbers)
 			st.killReg(p);
-		out.push_back(std::move(in));
 	}
 
 	U32 X86PeepholePass::runOnBlock(MachineBlock& b) {
 		U32 changed = 0;
-		List<MachineInstr> out;
-		out.reserve(b.insts.size());
+		U32 kept = 0; // compacts in place, a fold never adds instructions
 		st.reset();
-		for(MachineInstr& in : b.insts) {
+		for(U32 i = 0; i < (U32)b.insts.size(); ++i) {
+			MachineInstr& in = b.insts[i];
+			B32 keep = true;
 			if(isRegCopy(in))
-				changed += foldRegCopy(in, out);
+				changed += foldRegCopy(in, keep);
 			else if(isSlotStore(in))
-				changed += foldSlotStore(in, out);
+				changed += foldSlotStore(in, keep);
 			else if(isSlotLoad(in))
-				changed += foldSlotLoad(in, out);
+				changed += foldSlotLoad(in, keep);
 			else
-				stepOther(in, out);
+				stepOther(in);
+			if(!keep)
+				continue;
+			if(kept != i)
+				b.insts[kept] = std::move(in);
+			++kept;
 		}
-		b.insts = std::move(out);
+		b.insts.erase(b.insts.begin() + kept, b.insts.end());
 		return changed;
 	}
 
@@ -293,6 +313,13 @@ namespace rat {
 		return true;
 	}
 
+	B32 X86PeepholePass::hasNormalize(const MachineBlock& b) {
+		for(const MachineInstr& in : b.insts)
+			if(isNormalize((X86Op)in.op))
+				return true;
+		return false;
+	}
+
 	// walk one instruction backwards, dem holds the demand after it on entry
 	void X86PeepholePass::transfer(const MachineInstr& in, U64* dem) {
 		X86Op op = (X86Op)in.op;
@@ -372,27 +399,34 @@ namespace rat {
 
 	// erase normalizations whose high bits nobody reads
 	U32 X86PeepholePass::elimRedundantExt(MachineFunc& mf) {
+		B32 any = false;
+		for(const MachineBlock& b : mf.blocks)
+			any |= b.id >= 0 && hasNormalize(b);
+		if(!any)
+			return 0;
+
 		U32 nb = (U32)mf.blocks.size();
 		List<List<U64>> demIn(nb, List<U64>(kMaxPhys, 0));
 		List<U64> cur(kMaxPhys, 0);
 
-		B32 running = true;
-		while(running) {
-			running = false;
-			for(U32 bi = nb; bi-- > 0;) {
-				const MachineBlock& b = mf.blocks[bi];
-				if(b.id < 0)
-					continue;
-				slotBlockOut(b, demIn, cur);
-				for(U32 i = (U32)b.insts.size(); i-- > 0;)
-					transfer(b.insts[i], cur.data());
-				running |= orInto(demIn[(U32)b.id], cur);
-			}
+		List<U32> work;
+		List<B32> queued(nb, false);
+		seedWork(mf, work, queued);
+		while(!work.empty()) {
+			U32 bi = work.back();
+			work.pop_back();
+			queued[bi] = false;
+			const MachineBlock& b = mf.blocks[bi];
+			slotBlockOut(b, demIn, cur);
+			for(U32 i = (U32)b.insts.size(); i-- > 0;)
+				transfer(b.insts[i], cur.data());
+			if(orInto(demIn[bi], cur))
+				queuePreds(b, work, queued);
 		}
 
-		U32 removed = 0;
+		U32 reshaped = 0;
 		for(MachineBlock& b : mf.blocks) {
-			if(b.id < 0 || b.insts.empty())
+			if(b.id < 0 || b.insts.empty() || !hasNormalize(b))
 				continue;
 			slotBlockOut(b, demIn, cur);
 
@@ -406,25 +440,34 @@ namespace rat {
 					 !(cur[in.defs[0].phys] & ~lowMask(n)) && flagSafeToDrop(b, i)) {
 					drop[i] = true;
 					++here;
+					if(!isInPlace(in))
+						++reshaped;
 					continue; // dead
 				}
 				transfer(in, cur.data());
 			}
-			removed += here;
 			if(here)
 				eraseMarked(b, drop);
 		}
-		return removed;
+		return reshaped;
+	}
+
+	B32 X86PeepholePass::isInPlace(const MachineInstr& in) {
+		return in.defs.size() == 1 && in.uses.size() == 1 && in.clobbers.empty() &&
+					 in.uses[0].isPhys() && in.uses[0].phys == in.defs[0].phys;
 	}
 
 	// drop the flagged instructions
 	void X86PeepholePass::eraseMarked(MachineBlock& b, const List<B32>& drop) {
-		List<MachineInstr> out;
-		out.reserve(b.insts.size());
-		for(U32 i = 0; i < (U32)b.insts.size(); ++i)
-			if(!drop[i])
-				out.push_back(std::move(b.insts[i]));
-		b.insts = std::move(out);
+		U32 kept = 0;
+		for(U32 i = 0; i < (U32)b.insts.size(); ++i) {
+			if(drop[i])
+				continue;
+			if(kept != i)
+				b.insts[kept] = std::move(b.insts[i]);
+			++kept;
+		}
+		b.insts.erase(b.insts.begin() + kept, b.insts.end());
 	}
 
 	B32 X86PeepholePass::orInto(List<U64>& into, const List<U64>& from) {
@@ -435,6 +478,42 @@ namespace rat {
 				grew = true;
 			}
 		return grew;
+	}
+
+	void X86PeepholePass::seedWork(const MachineFunc& mf, List<U32>& work, List<B32>& queued) {
+		List<U32> post;
+		List<std::pair<U32, U32>> stack; // block, next successor
+		for(U32 root = 0; root < (U32)mf.blocks.size(); ++root) {
+			if(mf.blocks[root].id < 0 || queued[root])
+				continue;
+			queued[root] = true;
+			stack.push_back({root, 0});
+			while(!stack.empty()) {
+				auto& [bi, next] = stack.back();
+				const List<I32>& succs = mf.blocks[bi].succs;
+				if(next == (U32)succs.size()) {
+					post.push_back(bi);
+					stack.pop_back();
+					continue;
+				}
+				U32 s = (U32)succs[next++];
+				if(!queued[s]) {
+					queued[s] = true;
+					stack.push_back({s, 0});
+				}
+			}
+		}
+		for(U32 i = (U32)post.size(); i-- > 0;)
+			work.push_back(post[i]);
+	}
+
+	// a grown live-in reaches the predecessors
+	void X86PeepholePass::queuePreds(const MachineBlock& b, List<U32>& work, List<B32>& queued) {
+		for(I32 p : b.preds)
+			if(!queued[(U32)p]) {
+				work.push_back((U32)p);
+				queued[(U32)p] = true;
+			}
 	}
 
 	// uses[0] = frame slot, uses[1] = source
@@ -467,92 +546,98 @@ namespace rat {
 					cur[i] |= liveIn[(U32)s][i];
 	}
 
+	U32 X86PeepholePass::TrackedSlots::key(I32 s) const { return slotKey(s, keys); }
+
 	// walk one instruction backwards over the tracked-slot liveness bits
 	void
 	X86PeepholePass::slotStep(const MachineInstr& in, const TrackedSlots& slots, List<U64>& cur) {
 		if(isAnySlotStore(in)) {
-			auto it = slots.index.find(in.uses[0].slot);
-			auto rw = slots.readWidth.find(in.uses[0].slot);
-			U32 widest = rw == slots.readWidth.end() ? 0 : rw->second;
-			if(it != slots.index.end() && in.uses[1].width >= widest)
-				cur[it->second >> 6] &= ~((U64)1 << (it->second & 63)); // full overwrite
+			U32 k = slots.key(in.uses[0].slot);
+			U32 bit = slots.index[k];
+			if(bit != kNoBit && in.uses[1].width >= slots.readWidth[k])
+				cur[bit >> 6] &= ~((U64)1 << (bit & 63)); // full overwrite
 			return;
 		}
 		if(isAnySlotLoad(in)) {
-			auto it = slots.index.find(in.uses[0].slot);
-			if(it != slots.index.end())
-				cur[it->second >> 6] |= (U64)1 << (it->second & 63);
+			U32 bit = slots.index[slots.key(in.uses[0].slot)];
+			if(bit != kNoBit)
+				cur[bit >> 6] |= (U64)1 << (bit & 63);
 			return;
 		}
 		if(in.isCall)
 			for(const MachineOperand& u : in.uses)
 				if(u.kind == MachineOperand::Kind::FrameSlot)
-					if(auto it = slots.index.find(u.slot); it != slots.index.end())
-						cur[it->second >> 6] |= (U64)1 << (it->second & 63);
+					if(U32 bit = slots.index[slots.key(u.slot)]; bit != kNoBit)
+						cur[bit >> 6] |= (U64)1 << (bit & 63);
 	}
 
 	X86PeepholePass::TrackedSlots X86PeepholePass::trackedSlots(const MachineFunc& mf) {
 		// a slot is tracked while it is only touched through the spill store and
 		// reload shapes plus call stack arguments
-		Set<I32> seen;
-		Set<I32> untracked;
 		TrackedSlots slots;
+		slots.keys = mf.frameBytes / 8 + 1;
+		List<U8> seen(slots.keys + 1, false);
+		List<U8> untracked(slots.keys + 1, false);
+		slots.index.assign(slots.keys + 1, kNoBit);
+		slots.readWidth.assign(slots.keys + 1, 0);
 		for(const MachineBlock& b : mf.blocks) {
 			if(b.id < 0)
 				continue;
 			for(const MachineInstr& in : b.insts) {
 				if(isAnySlotStore(in)) {
-					seen.insert(in.uses[0].slot);
+					seen[slots.key(in.uses[0].slot)] = true;
 					continue;
 				}
 				if(isAnySlotLoad(in)) {
-					I32 s = in.uses[0].slot;
-					seen.insert(s);
-					slots.readWidth[s] = std::max(slots.readWidth[s], in.defs[0].width);
+					U32 k = slots.key(in.uses[0].slot);
+					seen[k] = true;
+					slots.readWidth[k] = std::max(slots.readWidth[k], in.defs[0].width);
 					continue;
 				}
 				for(const MachineOperand& u : in.uses)
 					if(u.kind == MachineOperand::Kind::FrameSlot) {
+						U32 k = slots.key(u.slot);
 						if(in.isCall) {
-							seen.insert(u.slot);
-							slots.readWidth[u.slot] = std::max(slots.readWidth[u.slot], u.width);
+							seen[k] = true;
+							slots.readWidth[k] = std::max(slots.readWidth[k], u.width);
 						} else {
-							untracked.insert(u.slot);
+							untracked[k] = true;
 						}
 					}
 				for(const MachineOperand& d : in.defs)
 					if(d.kind == MachineOperand::Kind::FrameSlot)
-						untracked.insert(d.slot);
+						untracked[slots.key(d.slot)] = true;
 			}
 		}
-		for(I32 s : seen)
-			if(!untracked.count(s))
-				slots.index.emplace(s, (U32)slots.index.size());
+		for(U32 k = 0; k < slots.keys; ++k)
+			if(seen[k] && !untracked[k])
+				slots.index[k] = slots.count++;
 		return slots;
 	}
 
 	U32 X86PeepholePass::elimDeadSlotStores(MachineFunc& mf) {
 		TrackedSlots slots = trackedSlots(mf);
-		if(slots.index.empty())
+		if(!slots.count)
 			return 0;
 
 		U32 nb = (U32)mf.blocks.size();
-		U32 words = ((U32)slots.index.size() + 63) / 64;
+		U32 words = (slots.count + 63) / 64;
 		List<List<U64>> liveIn(nb, List<U64>(words, 0));
 		List<U64> cur(words, 0);
 
-		B32 running = true;
-		while(running) {
-			running = false;
-			for(U32 bi = nb; bi-- > 0;) {
-				const MachineBlock& b = mf.blocks[bi];
-				if(b.id < 0)
-					continue;
-				slotBlockOut(b, liveIn, cur);
-				for(U32 i = (U32)b.insts.size(); i-- > 0;)
-					slotStep(b.insts[i], slots, cur);
-				running |= orInto(liveIn[(U32)b.id], cur);
-			}
+		List<U32> work;
+		List<B32> queued(nb, false);
+		seedWork(mf, work, queued);
+		while(!work.empty()) {
+			U32 bi = work.back();
+			work.pop_back();
+			queued[bi] = false;
+			const MachineBlock& b = mf.blocks[bi];
+			slotBlockOut(b, liveIn, cur);
+			for(U32 i = (U32)b.insts.size(); i-- > 0;)
+				slotStep(b.insts[i], slots, cur);
+			if(orInto(liveIn[bi], cur))
+				queuePreds(b, work, queued);
 		}
 
 		U32 removed = 0;
@@ -565,8 +650,8 @@ namespace rat {
 			for(U32 i = (U32)b.insts.size(); i-- > 0;) {
 				const MachineInstr& in = b.insts[i];
 				if(isAnySlotStore(in)) {
-					auto it = slots.index.find(in.uses[0].slot);
-					if(it != slots.index.end() && !((cur[it->second >> 6] >> (it->second & 63)) & 1)) {
+					U32 bit = slots.index[slots.key(in.uses[0].slot)];
+					if(bit != kNoBit && !((cur[bit >> 6] >> (bit & 63)) & 1)) {
 						drop[i] = true;
 						++here;
 						continue; // dead
@@ -588,6 +673,7 @@ namespace rat {
 			for(U32 round = 0; round < 3; ++round)
 				if(!elimRedundantExt(mf))
 					break;
+			st.begin(mf.frameBytes / 8 + 1);
 			for(MachineBlock& b : mf.blocks)
 				if(b.id >= 0)
 					changed += runOnBlock(b);
