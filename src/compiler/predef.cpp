@@ -2,19 +2,13 @@
 
 namespace rat::cc {
 	namespace detail {
-		void append(String& out, const Def* defs, U32 n) {
-			for(U32 i = 0; i < n; ++i) {
-				out += "#define ";
-				out += defs[i].name;
-				if(defs[i].value && *defs[i].value) {
-					out += ' ';
-					out += defs[i].value;
-				}
-				out += '\n';
-			}
+		void appendDefine(String& out, const C8* name, const C8* value) {
+			out += "#define ";
+			out += name;
+			out += ' ';
+			out += value;
+			out += '\n';
 		}
-
-		template <U32 N> void append(String& out, const Def (&defs)[N]) { append(out, defs, N); }
 
 		void appendCommon(String& out) {
 			static const Def kDefs[] = {
@@ -173,131 +167,89 @@ namespace rat::cc {
 					{"__LDBL_HAS_QUIET_NAN__", "1"},
 					{"__DECIMAL_DIG__", "21"},
 			};
-			append(out, kDefs);
+			for(const Def& d : kDefs)
+				appendDefine(out, d.name, d.value);
 		}
 
-		void appendLinux(String& out) {
-			static const Def kDefs[] = {
-					{"__linux", "1"},
-					{"__linux__", "1"},
-					{"linux", "1"},
-					{"__gnu_linux__", "1"},
-					{"__unix", "1"},
-					{"__unix__", "1"},
-					{"unix", "1"},
-					{"__ELF__", "1"},
-					{"__LP64__", "1"},
-					{"_LP64", "1"},
-					{"__STDC_ISO_10646__", "201706L"},
-					{"__SIZEOF_LONG__", "8"},
-					{"__SIZEOF_WCHAR_T__", "4"},
-					{"__SIZEOF_WINT_T__", "4"},
-					{"__LONG_MAX__", "9223372036854775807L"},
-					{"__LONG_WIDTH__", "64"},
-					{"__WCHAR_TYPE__", "int"},
-					{"__WCHAR_MAX__", "2147483647"},
-					{"__WCHAR_MIN__", "(-2147483647 - 1)"},
-					{"__WCHAR_WIDTH__", "32"},
-					{"__WINT_TYPE__", "unsigned int"},
-					{"__WINT_MAX__", "4294967295U"},
-					{"__WINT_MIN__", "0U"},
-					{"__WINT_WIDTH__", "32"},
-					{"__SIZE_TYPE__", "long unsigned int"},
-					{"__PTRDIFF_TYPE__", "long int"},
-					{"__INTPTR_TYPE__", "long int"},
-					{"__UINTPTR_TYPE__", "long unsigned int"},
-					{"__INTMAX_TYPE__", "long int"},
-					{"__UINTMAX_TYPE__", "long unsigned int"},
-					{"__INT64_TYPE__", "long int"},
-					{"__UINT64_TYPE__", "long unsigned int"},
-					{"__INT_LEAST64_TYPE__", "long int"},
-					{"__UINT_LEAST64_TYPE__", "long unsigned int"},
-					{"__INT_FAST16_TYPE__", "long int"},
-					{"__UINT_FAST16_TYPE__", "long unsigned int"},
-					{"__INT_FAST32_TYPE__", "long int"},
-					{"__UINT_FAST32_TYPE__", "long unsigned int"},
-					{"__INT_FAST64_TYPE__", "long int"},
-					{"__UINT_FAST64_TYPE__", "long unsigned int"},
-					{"__INT_FAST16_MAX__", "9223372036854775807L"},
-					{"__INT_FAST32_MAX__", "9223372036854775807L"},
-					{"__INT_FAST64_MAX__", "9223372036854775807L"},
-					{"__UINT_FAST16_MAX__", "18446744073709551615UL"},
-					{"__UINT_FAST32_MAX__", "18446744073709551615UL"},
-					{"__UINT_FAST64_MAX__", "18446744073709551615UL"},
-					{"__INT_FAST8_MAX__", "127"},
-					{"__UINT_FAST8_MAX__", "255"},
-					{"__INT64_C(c)", "c ## L"},
-					{"__UINT64_C(c)", "c ## UL"},
-					{"__INTMAX_C(c)", "c ## L"},
-					{"__UINTMAX_C(c)", "c ## UL"},
+		void appendTarget(String& out, B32 windows) {
+			static const TargetDef kDefs[] = {
+					// name, linux, windows
+					{"__linux", "1", nullptr},
+					{"__linux__", "1", nullptr},
+					{"linux", "1", nullptr},
+					{"__gnu_linux__", "1", nullptr},
+					{"__unix", "1", nullptr},
+					{"__unix__", "1", nullptr},
+					{"unix", "1", nullptr},
+					{"__ELF__", "1", nullptr},
+					{"__LP64__", "1", nullptr},
+					{"_LP64", "1", nullptr},
+					{"__STDC_ISO_10646__", "201706L", nullptr},
+					{"_WIN32", nullptr, "1"},
+					{"_WIN64", nullptr, "1"},
+					{"WIN32", nullptr, "1"},
+					{"WIN64", nullptr, "1"},
+					{"__WIN32__", nullptr, "1"},
+					{"__WIN64__", nullptr, "1"},
+					{"__LLP64__", nullptr, "1"},
+					{"_INTEGRAL_MAX_BITS", nullptr, "64"},
+					{"__SIZEOF_LONG__", "8", "4"},
+					{"__SIZEOF_WCHAR_T__", "4", "2"},
+					{"__SIZEOF_WINT_T__", "4", "2"},
+					{"__LONG_MAX__", "9223372036854775807L", "2147483647L"},
+					{"__LONG_WIDTH__", "64", "32"},
+					{"__WCHAR_UNSIGNED__", nullptr, "1"},
+					{"__WCHAR_TYPE__", "int", "short unsigned int"},
+					{"__WCHAR_MAX__", "2147483647", "65535"},
+					{"__WCHAR_MIN__", "(-2147483647 - 1)", "0"},
+					{"__WCHAR_WIDTH__", "32", "16"},
+					{"__WINT_TYPE__", "unsigned int", "short unsigned int"},
+					{"__WINT_MAX__", "4294967295U", "65535"},
+					{"__WINT_MIN__", "0U", "0"},
+					{"__WINT_WIDTH__", "32", "16"},
+					{"__SIZE_TYPE__", "long unsigned int", "long long unsigned int"},
+					{"__PTRDIFF_TYPE__", "long int", "long long int"},
+					{"__INTPTR_TYPE__", "long int", "long long int"},
+					{"__UINTPTR_TYPE__", "long unsigned int", "long long unsigned int"},
+					{"__INTMAX_TYPE__", "long int", "long long int"},
+					{"__UINTMAX_TYPE__", "long unsigned int", "long long unsigned int"},
+					{"__INT64_TYPE__", "long int", "long long int"},
+					{"__UINT64_TYPE__", "long unsigned int", "long long unsigned int"},
+					{"__INT_LEAST64_TYPE__", "long int", "long long int"},
+					{"__UINT_LEAST64_TYPE__", "long unsigned int", "long long unsigned int"},
+					{"__INT_FAST16_TYPE__", "long int", "short int"},
+					{"__UINT_FAST16_TYPE__", "long unsigned int", "short unsigned int"},
+					{"__INT_FAST32_TYPE__", "long int", "int"},
+					{"__UINT_FAST32_TYPE__", "long unsigned int", "unsigned int"},
+					{"__INT_FAST64_TYPE__", "long int", "long long int"},
+					{"__UINT_FAST64_TYPE__", "long unsigned int", "long long unsigned int"},
+					{"__INT_FAST16_MAX__", "9223372036854775807L", "32767"},
+					{"__INT_FAST32_MAX__", "9223372036854775807L", "2147483647"},
+					{"__INT_FAST64_MAX__", "9223372036854775807L", "9223372036854775807LL"},
+					{"__UINT_FAST16_MAX__", "18446744073709551615UL", "65535"},
+					{"__UINT_FAST32_MAX__", "18446744073709551615UL", "4294967295U"},
+					{"__UINT_FAST64_MAX__", "18446744073709551615UL", "18446744073709551615ULL"},
+					{"__INT_FAST8_MAX__", "127", "127"},
+					{"__UINT_FAST8_MAX__", "255", "255"},
+					{"__INT64_C(c)", "c ## L", "c ## LL"},
+					{"__UINT64_C(c)", "c ## UL", "c ## ULL"},
+					{"__INTMAX_C(c)", "c ## L", "c ## LL"},
+					{"__UINTMAX_C(c)", "c ## UL", "c ## ULL"},
 			};
-			append(out, kDefs);
-		}
-
-		void appendWindows(String& out) {
-			static const Def kDefs[] = {
-					{"_WIN32", "1"},
-					{"_WIN64", "1"},
-					{"WIN32", "1"},
-					{"WIN64", "1"},
-					{"__WIN32__", "1"},
-					{"__WIN64__", "1"},
-					{"__LLP64__", "1"},
-					{"_INTEGRAL_MAX_BITS", "64"},
-					{"__SIZEOF_LONG__", "4"},
-					{"__SIZEOF_WCHAR_T__", "2"},
-					{"__SIZEOF_WINT_T__", "2"},
-					{"__LONG_MAX__", "2147483647L"},
-					{"__LONG_WIDTH__", "32"},
-					{"__WCHAR_UNSIGNED__", "1"},
-					{"__WCHAR_TYPE__", "short unsigned int"},
-					{"__WCHAR_MAX__", "65535"},
-					{"__WCHAR_MIN__", "0"},
-					{"__WCHAR_WIDTH__", "16"},
-					{"__WINT_TYPE__", "short unsigned int"},
-					{"__WINT_MAX__", "65535"},
-					{"__WINT_MIN__", "0"},
-					{"__WINT_WIDTH__", "16"},
-					{"__SIZE_TYPE__", "long long unsigned int"},
-					{"__PTRDIFF_TYPE__", "long long int"},
-					{"__INTPTR_TYPE__", "long long int"},
-					{"__UINTPTR_TYPE__", "long long unsigned int"},
-					{"__INTMAX_TYPE__", "long long int"},
-					{"__UINTMAX_TYPE__", "long long unsigned int"},
-					{"__INT64_TYPE__", "long long int"},
-					{"__UINT64_TYPE__", "long long unsigned int"},
-					{"__INT_LEAST64_TYPE__", "long long int"},
-					{"__UINT_LEAST64_TYPE__", "long long unsigned int"},
-					{"__INT_FAST16_TYPE__", "short int"},
-					{"__UINT_FAST16_TYPE__", "short unsigned int"},
-					{"__INT_FAST32_TYPE__", "int"},
-					{"__UINT_FAST32_TYPE__", "unsigned int"},
-					{"__INT_FAST64_TYPE__", "long long int"},
-					{"__UINT_FAST64_TYPE__", "long long unsigned int"},
-					{"__INT_FAST16_MAX__", "32767"},
-					{"__INT_FAST32_MAX__", "2147483647"},
-					{"__INT_FAST64_MAX__", "9223372036854775807LL"},
-					{"__UINT_FAST16_MAX__", "65535"},
-					{"__UINT_FAST32_MAX__", "4294967295U"},
-					{"__UINT_FAST64_MAX__", "18446744073709551615ULL"},
-					{"__INT_FAST8_MAX__", "127"},
-					{"__UINT_FAST8_MAX__", "255"},
-					{"__INT64_C(c)", "c ## LL"},
-					{"__UINT64_C(c)", "c ## ULL"},
-					{"__INTMAX_C(c)", "c ## LL"},
-					{"__UINTMAX_C(c)", "c ## ULL"},
-			};
-			append(out, kDefs);
+			for(const TargetDef& d : kDefs) {
+				const C8* value = d.linuxValue;
+				if(windows)
+					value = d.windowsValue;
+				if(value)
+					appendDefine(out, d.name, value);
+			}
 		}
 
 		String generate(const TargetTriple& t) {
 			String out;
 			out.reserve(8192);
 			appendCommon(out);
-			if(t.isWindows())
-				appendWindows(out);
-			else
-				appendLinux(out);
+			appendTarget(out, t.isWindows());
 			return out;
 		}
 	} // namespace detail

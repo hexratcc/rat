@@ -12,10 +12,15 @@ namespace rat::cc {
 			const C8* value;
 		};
 
-		void append(String& out, const Def* defs, U32 n);
+		struct TargetDef {
+			const C8* name;
+			const C8* linuxValue;
+			const C8* windowsValue;
+		};
+
+		void appendDefine(String& out, const C8* name, const C8* value);
 		void appendCommon(String& out);
-		void appendLinux(String& out);
-		void appendWindows(String& out);
+		void appendTarget(String& out, B32 windows);
 		String generate(const TargetTriple& t);
 	} // namespace detail
 
