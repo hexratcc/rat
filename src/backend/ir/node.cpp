@@ -53,8 +53,8 @@ namespace rat {
 	}
 
 	void Node::removeUser(Node* user) {
-		// remove a single occurrence: each using operand contributes one entry
-		for(U32 i = 0; i < userCount; ++i)
+		// remove a single occurrence: each using operand contributes one entry;
+		for(U32 i = userCount; i-- > 0;)
 			if(users[i] == user) {
 				users[i] = users[--userCount];
 				return;

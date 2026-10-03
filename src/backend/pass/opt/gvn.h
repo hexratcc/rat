@@ -38,7 +38,7 @@ namespace rat {
 				hashMix(h, k.type);
 				hashMix(h, (U64)k.payload);
 				hashMix(h, k.in0);
-				hashMix(h, ((U64)k.in1) << 32);
+				hashMix(h, k.in1);
 				if(k.sym)
 					hashMix(h, std::hash<String>{}(*k.sym));
 				return (U64)h;
