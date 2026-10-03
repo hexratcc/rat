@@ -54,6 +54,11 @@ namespace rat {
 
 		B32 isBlockRef(const MachineOperand& o) { return o.kind == MachineOperand::Kind::Block; }
 
+		B32 isBranch(const MachineInstr& in) {
+			X86Op op = (X86Op)in.op;
+			return op == X86Op::Jmp || op == X86Op::Br || op == X86Op::SwitchJump;
+		}
+
 		I32 resolveJump(const MachineFunc& mf, I32 id) {
 			U32 hops = 0;
 			while(hops++ < 16) {
@@ -80,14 +85,15 @@ namespace rat {
 				if(b.id < 0)
 					continue;
 				for(MachineInstr& in : b.insts)
-					for(MachineOperand& u : in.uses)
-						if(isBlockRef(u)) {
-							I32 r = resolveJump(mf, u.block);
-							if(r != u.block) {
-								u.block = r;
-								++changed;
+					if(isBranch(in))
+						for(MachineOperand& u : in.uses)
+							if(isBlockRef(u)) {
+								I32 r = resolveJump(mf, u.block);
+								if(r != u.block) {
+									u.block = r;
+									++changed;
+								}
 							}
-						}
 			}
 			return changed;
 		}
@@ -124,9 +130,10 @@ namespace rat {
 					continue;
 				blockAt[(U32)b.id] = i;
 				for(const MachineInstr& in : b.insts)
-					for(const MachineOperand& u : in.uses)
-						if(isBlockRef(u))
-							succ[(U32)b.id].push_back(u.block);
+					if(isBranch(in))
+						for(const MachineOperand& u : in.uses)
+							if(isBlockRef(u))
+								succ[(U32)b.id].push_back(u.block);
 			}
 
 			I32 entry = -1;
