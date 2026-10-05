@@ -195,14 +195,14 @@ namespace detail {
 	I32 emitViaModule(const Options& opt, TokenStream& ts, std::ostream& os) {
 		X86Target target(hostTargetTriple());
 
-		Arena arena;
+		Arena& arena = *new Arena;
 		PhaseClock::time_point t0 = PhaseClock::now();
 		TransUnit* unit = parse(ts, arena);
 		F64 parseMs = msSince(t0);
 		if(!unit)
 			return 1;
 
-		Module mod;
+		Module& mod = *new Module;
 		Emitter emitter(mod, TargetLayout::forTriple(hostTargetTriple()));
 		t0 = PhaseClock::now();
 		B32 emitOk = emitter.emit(*unit);
@@ -223,8 +223,7 @@ namespace detail {
 				cli::die(kTool, "unknown machine pass '" + name + "' (see -list-passes)");
 		}
 
-		// keep the pass manager local so we can print the timing report from it
-		PassManager pm(target);
+		PassManager& pm = *new PassManager(target);
 		composePipeline(pm, copt, os);
 		pm.run(mod);
 		if(opt.timePasses)
@@ -272,7 +271,7 @@ static I32 run(I32 argc, C8** argv) {
 
 	String pped;
 	String ppErr;
-	TokenStream ts;
+	TokenStream& ts = *new TokenStream; // never freed, as the compile state
 	::detail::PhaseClock::time_point tPp = ::detail::PhaseClock::now();
 	B32 ppOk = (!needText || preprocess(path, source, opt.pp, pped, ppErr)) &&
 						 (!needToks || preprocessToTokens(path, source, opt.pp, ts, ppErr));
