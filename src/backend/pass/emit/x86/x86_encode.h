@@ -18,7 +18,8 @@ namespace rat {
 		: os(&os) {}
 
 		const C8* name() const override { return "x86-encode"; }
-		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;
+		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
+		void finish(Module& module, const TargetInfo& target) override;
 	private:
 		struct JumpFix {
 			U32 dispAt;			 // offset of the rel32 displacement in code
@@ -30,7 +31,14 @@ namespace rat {
 			List<I32> targets; // slot target blocks
 		};
 
+		struct PlacedFunc {
+			const Function* fn;
+			U32 offset;		// in text
+			U32 relocEnd; // one past its last reloc
+		};
+
 		static void emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes);
+		void defineFunctions();
 
 		static U32 blockIdBound(const MachineFunc& f);
 		static B32 needsFrame(const MachineInstr& in);
@@ -88,6 +96,10 @@ namespace rat {
 		void prologue();
 	private:
 		std::ostream* os;
+		UniquePtr<ObjectFile> obj;
+		List<U8> code;
+		List<AsmReloc> relocs; // text, every function so far
+		List<PlacedFunc> placed;
 		const X86CallConv* conv = &abi::kSysV;
 		const MachineFunc* fn = nullptr;
 		const X86FrameLayout* fl = nullptr;

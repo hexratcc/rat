@@ -5,6 +5,7 @@
 namespace rat {
 	Pass::~Pass() = default;
 	MachinePass::~MachinePass() = default;
+	void MachinePass::finish(Module&, const TargetInfo&) {}
 
 	B32 FunctionPass::run(Module& module, const TargetInfo& target) {
 		U32 changed = 0;

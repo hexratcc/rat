@@ -81,7 +81,7 @@ One node per line: `vN = <mnemonic> : <type> <operands>`. Constants carry their 
 `VerifyPass` ([`Pass/Verify.h`](./pass/verify.h)) checks edge consistency (every input lists the node as a user and vice versa, no cross-function edges, no nulls) plus per-opcode structural invariants: arity, tuple shapes of `start`/`if`/`call`, operand kinds (control/memory/data in the right slots), unique `start`/`stop`, and that `stop` collects exactly the function's returns.
 
 # passes
-Passes come in three kinds: module `Pass`, `FunctionPass` (run per function), and `MachinePass` (post-lowering, over machine state). The `PassManager` runs all IR passes first, then machine passes, in insertion order, and can report per-pass timing. For more info see [`Pass/Pass.h`](./pass/pass.h).
+Passes come in three kinds: module `Pass`, `FunctionPass` (run per function), and `MachinePass` (post-lowering, over machine state). The `PassManager` runs all IR passes first, then all machine passes, in insertion order, on one function at a time, and can report per-pass timing. For more info see [`Pass/Pass.h`](./pass/pass.h).
 
 ## optimization
 - [**fold:**](./pass/opt/fold.h) Peephole constant folding and algebraic simplification, applied as local graph rewrites. Covers constant arithmetic, identities (`x + 0`, `x * 1`, `x & x`, `x ^ x`, ...), reassociation of constant chains, strength reduction (`mul`/`udiv`/`urem` by powers of two into shifts/masks), shift-of-shift collapse, and constant compares/converts.

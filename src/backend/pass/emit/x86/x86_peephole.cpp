@@ -1,8 +1,6 @@
 #include "pass/emit/x86/x86_peephole.h"
 
 #include "codegen/machine_function.h"
-#include "codegen/machine_module.h"
-#include "ir/module.h"
 
 namespace rat {
 	U32 X86PeepholePass::slotKey(I32 s, U32 keys) {
@@ -666,19 +664,16 @@ namespace rat {
 		return removed;
 	}
 
-	B32 X86PeepholePass::run(Module& module, MachineModule& mm, const TargetInfo&) {
+	B32 X86PeepholePass::run(Module&, const Function&, MachineFunc& mf, const TargetInfo&) {
 		U32 changed = 0;
-		for(const Function* fn : module) {
-			MachineFunc& mf = mm.get(fn);
-			for(U32 round = 0; round < 3; ++round)
-				if(!elimRedundantExt(mf))
-					break;
-			st.begin(mf.frameBytes / 8 + 1);
-			for(MachineBlock& b : mf.blocks)
-				if(b.id >= 0)
-					changed += runOnBlock(b);
-			changed += elimDeadSlotStores(mf);
-		}
+		for(U32 round = 0; round < 3; ++round)
+			if(!elimRedundantExt(mf))
+				break;
+		st.begin(mf.frameBytes / 8 + 1);
+		for(MachineBlock& b : mf.blocks)
+			if(b.id >= 0)
+				changed += runOnBlock(b);
+		changed += elimDeadSlotStores(mf);
 		return changed != 0;
 	}
 } // namespace rat

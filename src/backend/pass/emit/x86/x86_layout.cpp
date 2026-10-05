@@ -1,8 +1,6 @@
 #include "pass/emit/x86/x86_layout.h"
 
 #include "codegen/machine_function.h"
-#include "codegen/machine_module.h"
-#include "ir/module.h"
 #include "pass/emit/x86/x86_op.h"
 
 namespace rat {
@@ -186,14 +184,10 @@ namespace rat {
 		}
 	} // namespace detail
 
-	B32 X86LayoutPass::run(Module& module, MachineModule& mm, const TargetInfo&) {
-		U32 changed = 0;
-		for(const Function* fn : module) {
-			MachineFunc& mf = mm.get(fn);
-			changed += detail::duplicateTestBlocks(mf);
-			changed += detail::forwardJumpChains(mf);
-			detail::chainLayout(mf);
-		}
+	B32 X86LayoutPass::run(Module&, const Function&, MachineFunc& mf, const TargetInfo&) {
+		U32 changed = detail::duplicateTestBlocks(mf);
+		changed += detail::forwardJumpChains(mf);
+		detail::chainLayout(mf);
 		return changed != 0;
 	}
 } // namespace rat

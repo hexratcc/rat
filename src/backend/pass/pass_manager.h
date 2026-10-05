@@ -1,7 +1,6 @@
 #ifndef RAT_SUPPORT_PASSMANAGER_H
 #define RAT_SUPPORT_PASSMANAGER_H
 
-#include "codegen/machine_module.h"
 #include "core.h"
 #include "pass/pass.h"
 
@@ -39,16 +38,16 @@ namespace rat {
 		void printTimingReport(std::ostream& os) const;
 	private:
 		void record(const C8* name, U64 nanos);
-		B32 finish(const C8* name, U64 start, B32 changed, std::ostream* log);
+		B32 finish(const C8* name, U64 nanos, B32 changed, std::ostream* log);
 		B32 isDue(U32 i, const List<B32>& changedAt) const;
 		void runAt(U32 i, Module& module, List<B32>& changedAt, std::ostream* log);
+		void runMachine(Module& module, std::ostream* log);
 
 		const TargetInfo* target;
 		List<UniquePtr<Pass>> passes;
 		U32 fixpointEnd = 0; // 0 => no fixpoint (single pass over everything)
 		List<B32> gated;
 		List<UniquePtr<MachinePass>> machinePasses;
-		MachineModule mm;
 		List<PassTiming> timing;
 	};
 } // namespace rat

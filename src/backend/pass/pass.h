@@ -5,7 +5,7 @@
 
 namespace rat {
 	struct Function;
-	struct MachineModule;
+	struct MachineFunc;
 	struct Module;
 	struct TargetInfo;
 
@@ -23,13 +23,15 @@ namespace rat {
 		virtual B32 onlyReadsFunction() const { return true; }
 	};
 
-	// post-lowering pass over machine state, the pass manager runs all IR passes first, then machine
-	// passes in order
+	// post-lowering pass over machine state, the pass manager runs all IR passes first, then every
+	// machine pass in order on one function at a time
 	struct MachinePass {
 		virtual ~MachinePass();
 
 		virtual const C8* name() const = 0;
-		virtual B32 run(Module& module, MachineModule& mm, const TargetInfo& target) = 0;
+		virtual B32
+		run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) = 0;
+		virtual void finish(Module& module, const TargetInfo& target); // after the last function
 	};
 } // namespace rat
 

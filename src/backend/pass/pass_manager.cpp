@@ -1,5 +1,6 @@
 #include "pass/pass_manager.h"
 
+#include "codegen/machine_function.h"
 #include "ir/module.h"
 
 #include <chrono>
@@ -40,8 +41,8 @@ namespace rat {
 		timing.push_back({name, nanos, 1});
 	}
 
-	B32 PassManager::finish(const C8* name, U64 start, B32 changed, std::ostream* log) {
-		record(name, detail::nowNanos() - start);
+	B32 PassManager::finish(const C8* name, U64 nanos, B32 changed, std::ostream* log) {
+		record(name, nanos);
 		if(log)
 			*log << "; " << name << (changed ? " : changed\n" : " : unchanged\n");
 		return changed;
@@ -70,7 +71,7 @@ namespace rat {
 		}
 		U64 start = detail::nowNanos();
 		B32 changed = pass->run(module, *target);
-		changedAt[i] = finish(name, start, changed, log);
+		changedAt[i] = finish(name, detail::nowNanos() - start, changed, log);
 	}
 
 	void PassManager::run(Module& module, std::ostream* log) {
@@ -91,10 +92,25 @@ namespace rat {
 		}
 		for(U32 i = loopEnd; i < n; ++i)
 			runAt(i, module, changedAt, log);
-		for(auto& pass : machinePasses) {
+		runMachine(module, log);
+	}
+
+	void PassManager::runMachine(Module& module, std::ostream* log) {
+		List<B32> changed(machinePasses.size(), false);
+		List<U64> nanos(machinePasses.size(), 0);
+		for(const Function* f : module) {
+			MachineFunc mf;
+			for(U32 i = 0; i < machinePasses.size(); ++i) {
+				U64 start = detail::nowNanos();
+				changed[i] |= machinePasses[i]->run(module, *f, mf, *target);
+				nanos[i] += detail::nowNanos() - start;
+			}
+		}
+		for(U32 i = 0; i < machinePasses.size(); ++i) {
 			U64 start = detail::nowNanos();
-			B32 changed = pass->run(module, mm, *target);
-			finish(pass->name(), start, changed, log);
+			machinePasses[i]->finish(module, *target);
+			U64 total = nanos[i] + detail::nowNanos() - start;
+			finish(machinePasses[i]->name(), total, changed[i], log);
 		}
 	}
 

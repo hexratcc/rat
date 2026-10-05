@@ -14,7 +14,7 @@ namespace rat {
 
 	struct RegAllocPass : MachinePass {
 		const C8* name() const override { return "regalloc"; }
-		B32 run(Module& module, MachineModule& mm, const TargetInfo& target) override;
+		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
 	private:
 		using Seg = Pair<I32, I32>;
 
@@ -27,6 +27,7 @@ namespace rat {
 			I32 slot = 0;
 		};
 
+		void setup(const TargetInfo& target);
 		void allocate(MachineFunc& f);
 		// intervals
 		void number();

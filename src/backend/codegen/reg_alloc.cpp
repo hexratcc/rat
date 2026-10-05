@@ -3,8 +3,6 @@
 #include <cmath>
 #include <cstring>
 
-#include "codegen/machine_module.h"
-#include "ir/module.h"
 #include "target/target.h"
 
 namespace rat {
@@ -487,7 +485,14 @@ namespace rat {
 		}
 	}
 
-	B32 RegAllocPass::run(Module& module, MachineModule& mm, const TargetInfo& target) {
+	B32 RegAllocPass::run(Module&, const Function&, MachineFunc& mf, const TargetInfo& target) {
+		if(ri != target.registers())
+			setup(target);
+		allocate(mf);
+		return true;
+	}
+
+	void RegAllocPass::setup(const TargetInfo& target) {
 		ri = target.registers();
 		hooks = target.regAllocHooks();
 		for(const RegClass& rc : ri->classes) {
@@ -496,8 +501,5 @@ namespace rat {
 			for(PhysReg p : rc.calleeSaved)
 				calleeMask |= (U64)1 << p;
 		}
-		for(const Function* f : module)
-			allocate(mm.get(f));
-		return module.begin() != module.end();
 	}
 } // namespace rat

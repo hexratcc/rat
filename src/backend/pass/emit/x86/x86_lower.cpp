@@ -3,7 +3,6 @@
 #include <cstdio>
 
 #include "codegen/machine_function.h"
-#include "codegen/machine_module.h"
 #include "codegen/schedule.h"
 #include "ir/function.h"
 #include "ir/module.h"
@@ -528,11 +527,13 @@ namespace rat {
 				}
 	}
 
-	B32 X86LowerPass::run(Module& module, MachineModule& mm, const TargetInfo& target) {
+	B32 X86LowerPass::run(Module& module,
+												const Function& f,
+												MachineFunc& mf,
+												const TargetInfo& target) {
 		mod = &module;
-		for(const Function* f : module)
-			lowerFn(*f, mm.get(f), target);
-		return module.begin() != module.end();
+		lowerFn(f, mf, target);
+		return true;
 	}
 
 	void X86LowerPass::lowerFn(const Function& f, MachineFunc& mf, const TargetInfo& target) {

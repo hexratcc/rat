@@ -1,7 +1,6 @@
 #include "pass/emit/x86/x86_encode.h"
 
 #include "codegen/machine_function.h"
-#include "codegen/machine_module.h"
 #include "ir/function.h"
 #include "ir/module.h"
 #include "ir/opcode.h"
@@ -539,27 +538,38 @@ namespace rat {
 			obj.addReloc(sec, off + r.offset, r.symbol, RelocKind::Abs64, r.addend);
 	}
 
-	B32 X86EncodePass::run(Module& mod, MachineModule& mm, const TargetInfo& target) {
+	B32 X86EncodePass::run(Module&, const Function& f, MachineFunc& mf, const TargetInfo& target) {
 		conv = &x86CallConv(target.getTriple().os);
-		UniquePtr<ObjectFile> obj = createObjectFile(target.getTriple().os);
+		if(!obj)
+			obj = createObjectFile(target.getTriple().os);
+		code.clear();
+		Asm a(code, relocs);
+		encodeFunction(mf, a);
+		obj->align(ObjectFile::Text, std::max(f.getAttrs().align, 16u));
+		U32 off = obj->append(ObjectFile::Text, code.data(), (U32)code.size());
+		placed.push_back({&f, off, (U32)relocs.size()});
+		return false;
+	}
 
+	// after all globals, so the symbol order holds while lowering adds constant-pool globals
+	void X86EncodePass::defineFunctions() {
+		U32 r = 0;
+		for(const auto& [f, off, relocEnd] : placed) {
+			obj->defineSymbol(f->getName(), ObjectFile::Text, off, !f->getAttrs().isInternal(), true);
+			for(; r < relocEnd; ++r) {
+				const AsmReloc& x = relocs[r];
+				obj->addReloc(ObjectFile::Text, off + x.offset, x.symbol, x.kind, x.addend);
+			}
+		}
+	}
+
+	void X86EncodePass::finish(Module& mod, const TargetInfo& target) {
+		if(!obj)
+			obj = createObjectFile(target.getTriple().os);
 		for(const Global* g : mod.globals())
 			if(!g->isAlias())
 				emitGlobal(*obj, g, target.getPointerSizeInBytes());
-
-		List<U8> code;
-		List<AsmReloc> relocs;
-		for(const Function* f : mod) {
-			code.clear();
-			relocs.clear();
-			Asm a(code, relocs);
-			encodeFunction(mm.get(f), a);
-			obj->align(ObjectFile::Text, std::max(f->getAttrs().align, 16u));
-			U32 off = obj->append(ObjectFile::Text, code.data(), (U32)code.size());
-			obj->defineSymbol(f->getName(), ObjectFile::Text, off, !f->getAttrs().isInternal(), true);
-			for(const AsmReloc& r : relocs)
-				obj->addReloc(ObjectFile::Text, off + r.offset, r.symbol, r.kind, r.addend);
-		}
+		defineFunctions();
 
 		// aliases label storage that some other symbol owns
 		for(const Global* g : mod.globals()) {
@@ -571,6 +581,8 @@ namespace rat {
 		}
 
 		obj->write(*os);
-		return false;
+		obj = nullptr;
+		relocs.clear();
+		placed.clear();
 	}
 } // namespace rat
