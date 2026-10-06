@@ -111,6 +111,13 @@ namespace rat {
 						defs.emplace_back(o.vreg, b);
 					}
 			}
+		cross.assign(nv, 0);
+		if(local) {
+			for(const auto& [v, b] : ues)
+				cross[v] = 1;
+			liveOut.assign(nb, {});
+			return;
+		}
 		List<U32> defFirst;
 		List<U32> defBlocks;
 		List<U32> ueFirst;
@@ -160,7 +167,8 @@ namespace rat {
 	void RegAllocPass::noteCopy(const MachineInstr& in, U32 level) {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& s = in.uses[0];
-		if(d.isVReg() && s.isVReg() && fn->vregClass[d.vreg] == fn->vregClass[s.vreg])
+		if(d.isVReg() && s.isVReg() && !cross[d.vreg] && !cross[s.vreg] &&
+			 fn->vregClass[d.vreg] == fn->vregClass[s.vreg])
 			copies.push_back((U64)(detail::kMaxLevel - level) << 60 | (U64)d.vreg << 30 | s.vreg);
 		else if(d.isVReg() && s.isPhys())
 			iv[d.vreg].hint = s.phys;
@@ -198,7 +206,7 @@ namespace rat {
 				B32 copy = isCopy(in);
 				pinFixed(in, (U64)u, copy, fixed);
 				for(const MachineOperand& o : in.defs) {
-					if(!o.isVReg())
+					if(!o.isVReg() || cross[o.vreg])
 						continue;
 					iv[o.vreg].weight += (F32)weight;
 					I32 end = u + 1; // a dead def still takes its slot
@@ -213,7 +221,7 @@ namespace rat {
 					noteCopy(in, level);
 				}
 				for(const MachineOperand& o : in.uses) {
-					if(!o.isVReg())
+					if(!o.isVReg() || cross[o.vreg])
 						continue;
 					iv[o.vreg].weight += (F32)weight;
 					if(live[o.vreg])
@@ -327,7 +335,8 @@ namespace rat {
 			std::memcpy(&bits, &iv[v].weight, sizeof(bits));
 			order.push_back((U64)~bits << 32 | v);
 		}
-		std::sort(order.begin(), order.end());
+		if(!local) // few locals spill, their order hardly matters
+			std::sort(order.begin(), order.end());
 		List<Pair<I32, VReg>> spilled; // (start, bundle)
 		for(U64 key : order) {
 			VReg v = (VReg)key;
@@ -347,6 +356,9 @@ namespace rat {
 			}
 		}
 		assignSlots(spilled);
+		for(VReg v = 1; v < nv; ++v)
+			if(cross[v])
+				iv[v].slot = newSlot(fn->vregClass[v]);
 	}
 
 	void RegAllocPass::assignSlots(List<Pair<I32, VReg>>& spilled) {
@@ -366,12 +378,16 @@ namespace rat {
 				}
 			if(reused)
 				continue;
-			U32 bytes = ri->classes[cls].spillBytes;
-			if(!bytes)
-				bytes = ri->spillSlotBytes;
-			t.slot = hooks.allocSlot(*fn, cls, bytes);
+			t.slot = newSlot(cls);
 			pool[cls].emplace_back(t.slot, end);
 		}
+	}
+
+	I32 RegAllocPass::newSlot(U32 cls) {
+		U32 bytes = ri->classes[cls].spillBytes;
+		if(!bytes)
+			bytes = ri->spillSlotBytes;
+		return hooks.allocSlot(*fn, cls, bytes);
 	}
 
 	PhysReg RegAllocPass::pickTemp(U32 cls, U64 hard, U64 soft) {

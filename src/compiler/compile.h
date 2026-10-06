@@ -15,6 +15,7 @@ namespace rat::cc {
 	struct CompileOptions {
 		List<UniquePtr<Pass>> optPasses;
 		List<UniquePtr<MachinePass>> machinePasses; // empty = default x86 pipeline
+		B32 optimize = false;												// default pipeline runs the post-RA cleanups
 	};
 
 	void composePipeline(PassManager& pm, CompileOptions& opt, std::ostream& out);

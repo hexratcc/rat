@@ -217,6 +217,7 @@ namespace detail {
 
 		CompileOptions copt;
 		copt.optPasses = buildOptPasses(opt);
+		copt.optimize = opt.optLevel >= 1;
 		for(const String& name : splitTokens(opt.machineSpec)) {
 			copt.machinePasses.push_back(createMachinePass(name, os));
 			if(!copt.machinePasses.back())

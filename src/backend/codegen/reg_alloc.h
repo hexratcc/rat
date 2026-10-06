@@ -13,6 +13,9 @@ namespace rat {
 	} // namespace detail
 
 	struct RegAllocPass : MachinePass {
+		explicit RegAllocPass(B32 local = false)
+		: local(local) {}
+
 		const C8* name() const override { return "regalloc"; }
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
 	private:
@@ -43,6 +46,7 @@ namespace rat {
 		void merge(VReg a, VReg b);
 		void assignRegs();
 		void assignSlots(List<Pair<I32, VReg>>& spilled);
+		I32 newSlot(U32 cls);
 		PhysReg pick(VReg v) const;
 		// rewrite
 		void rewrite();
@@ -56,6 +60,7 @@ namespace rat {
 		const Interval& bundle(VReg v) const;
 		B32 sameBundle(const MachineOperand& a, const MachineOperand& b) const;
 	private:
+		B32 local = false;
 		MachineFunc* fn = nullptr;
 		const RegisterInfo* ri = nullptr;
 		RegAllocHooks hooks;
@@ -69,6 +74,7 @@ namespace rat {
 		U64 usedCallee = 0;
 		// liveness and bundles
 		List<List<VReg>> liveOut; // block -> live-out vregs
+		List<U8> cross;						// vreg -> lives on the stack (local mode)
 		List<Interval> iv;
 		List<U64> copies; // (kMaxLevel - level, def, source)
 		// rewrite of the current instruction
