@@ -217,19 +217,20 @@ namespace rat {
 		farith(kFOps[idx], d, lhs, rhs, w, (I64)w);
 	}
 
-	String X86LowerPass::vecPoolSym(const List<U8>& bytes) {
+	const String& X86LowerPass::vecPoolSym(const List<U8>& bytes) {
 		C8 buf[48];
 		U64 h = kFnvBasis;
 		for(U8 x : bytes)
 			hashMix(h, x);
 		std::snprintf(buf, sizeof buf, "__rat_vec_%016lx", (U64)h);
 		String name(buf);
-		if(!mod->getGlobal(name)) {
+		Global* g = mod->getGlobal(name);
+		if(!g) {
 			List<U8> init = bytes;
-			Global* g = mod->createGlobal(name, mod->getArray(mod->getInt(8), 16), true, std::move(init));
+			g = mod->createGlobal(name, mod->getArray(mod->getInt(8), 16), true, std::move(init));
 			g->setLinkage(Global::Linkage::Internal);
 		}
-		return name;
+		return g->getName(); // outlives the machine code that names it
 	}
 
 	void X86LowerPass::emitVecBinary(BinaryNode* n) {

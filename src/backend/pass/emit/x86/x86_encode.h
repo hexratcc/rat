@@ -41,6 +41,7 @@ namespace rat {
 		void defineFunctions();
 
 		static U32 blockIdBound(const MachineFunc& f);
+		static B32 touchesFrame(const MachineOperand& o);
 		static B32 needsFrame(const MachineInstr& in);
 		void encodeFunction(const MachineFunc& f, Asm& asm_);
 

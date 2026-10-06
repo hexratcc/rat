@@ -325,18 +325,19 @@ namespace rat {
 		return vregFor(n);
 	}
 
-	String X86LowerPass::fpPoolSym(U64 bits, U32 width) {
+	const String& X86LowerPass::fpPoolSym(U64 bits, U32 width) {
 		C8 buf[40];
 		std::snprintf(buf, sizeof buf, "__rat_fp%u_%016lx", width, bits);
 		String name(buf);
-		if(!mod->getGlobal(name)) {
+		Global* g = mod->getGlobal(name);
+		if(!g) {
 			List<U8> init(width);
 			for(U32 i = 0; i < width; ++i)
 				init[i] = (U8)(bits >> (8 * i));
-			Global* g = mod->createGlobal(name, mod->getFloat(width * 8), true, std::move(init));
+			g = mod->createGlobal(name, mod->getFloat(width * 8), true, std::move(init));
 			g->setLinkage(Global::Linkage::Internal);
 		}
-		return name;
+		return g->getName(); // outlives the machine code that names it
 	}
 
 	// rip-relative load from the constant pool
@@ -516,15 +517,6 @@ namespace rat {
 				out->blocks[b].succs.push_back(s);
 				out->blocks[s].preds.push_back(b);
 			}
-
-		// x87 sequences stage through r10/r11 in the encoder; declare so the
-		// allocator can use them elsewhere
-		for(MachineBlock& blk : out->blocks)
-			for(MachineInstr& in : blk.insts)
-				if((X86Op)in.op >= X86Op::X87LoadMem && (X86Op)in.op <= X86Op::X87Cmp) {
-					in.clobbers.push_back(gpReg(R10));
-					in.clobbers.push_back(gpReg(R11));
-				}
 	}
 
 	B32 X86LowerPass::run(Module& module,
@@ -555,39 +547,35 @@ namespace rat {
 		mf.aux = std::make_unique<X86FrameLayout>(frame); // the layout rides along on mf.aux
 	}
 
-	RegAllocHooks X86Target::regAllocHooks() const {
-		RegAllocHooks hooks;
-		hooks.makeReload = [](PhysReg dst, I32 slot, U32 cls, U32 width) {
-			MachineInstr m;
-			m.op = (MachineOpcode)(cls == detail::kFp ? X86Op::FLoad : X86Op::Load);
+	namespace detail {
+		void x86Reload(MachineInstr& m, PhysReg dst, I32 slot, U32 cls, U32 width) {
+			m.op = (MachineOpcode)(cls == kFp ? X86Op::FLoad : X86Op::Load);
 			m.regClass = cls;
 			m.defs = {MachineOperand::fixed(dst, width)};
 			m.uses = {MachineOperand::frameSlot(slot, width)};
-			return m;
-		};
-		hooks.makeSpill = [](I32 slot, PhysReg src, U32 cls, U32 width) {
-			MachineInstr m;
-			m.op = (MachineOpcode)(cls == detail::kFp ? X86Op::FStore : X86Op::Store);
+		}
+
+		void x86Spill(MachineInstr& m, I32 slot, PhysReg src, U32 cls, U32 width) {
+			m.op = (MachineOpcode)(cls == kFp ? X86Op::FStore : X86Op::Store);
 			m.regClass = cls;
 			m.uses = {MachineOperand::frameSlot(slot, width), MachineOperand::fixed(src, width)};
-			return m;
-		};
-		hooks.allocSlot = [](MachineFunc& fn, U32 /*cls*/, U32 width) {
+		}
+
+		I32 x86AllocSlot(MachineFunc& fn, U32, U32 width) {
 			fn.frameBytes += width < 8 ? 8 : width;
 			fn.frameBytes = (fn.frameBytes + 7u) & ~7u;
 			return -(I32)fn.frameBytes;
-		};
-		hooks.isCopy = [](const MachineInstr& in) {
-			return (x86OpInfo((X86Op)in.op).flags & kOpCopy) != 0;
-		};
-		hooks.isRemat = [](const MachineInstr& in) {
-			if(x86OpInfo((X86Op)in.op).flags & kOpRemat)
-				return true;
-			// constant-pool load
-			return in.op == (MachineOpcode)X86Op::FLoad && in.uses.size() == 1 &&
-						 in.uses[0].kind == MachineOperand::Kind::Sym;
-		};
+		}
+
+		B32 x86IsCopy(const MachineInstr& in) { return in.op == (MachineOpcode)X86Op::Copy; }
+	} // namespace detail
+
+	RegAllocHooks X86Target::regAllocHooks() const {
+		RegAllocHooks hooks;
+		hooks.makeReload = detail::x86Reload;
+		hooks.makeSpill = detail::x86Spill;
+		hooks.allocSlot = detail::x86AllocSlot;
+		hooks.isCopy = detail::x86IsCopy;
 		return hooks;
 	}
-
 } // namespace rat

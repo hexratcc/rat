@@ -10,33 +10,27 @@
 #include "target/x86/x86_asm.h"
 
 namespace rat {
-	List<PhysReg> X86LowerPass::callerSavedClobbers() const {
+	U64 X86LowerPass::callerSavedClobbers() const {
 		// volatile = allocatable minus callee-saved, plus the encoder scratch regs
-		static thread_local const RegisterInfo* cachedRegs = nullptr;
-		static thread_local List<PhysReg> cached;
-		if(cachedRegs == regs)
-			return cached;
-
-		List<PhysReg> cl;
+		U64 cl = 0;
 		for(const RegClass& rc : regs->classes) {
 			for(PhysReg p : rc.allocatable)
-				if(std::find(rc.calleeSaved.begin(), rc.calleeSaved.end(), p) == rc.calleeSaved.end())
-					cl.push_back(p);
+				cl |= detail::physBit(p);
+			for(PhysReg p : rc.calleeSaved)
+				cl &= ~detail::physBit(p);
 			for(PhysReg p : rc.scratch)
-				cl.push_back(p);
+				cl |= detail::physBit(p);
 		}
-		cached = std::move(cl);
-		cachedRegs = regs;
-		return cached;
+		return cl;
 	}
 
-	List<PhysReg> X86LowerPass::allRegClobbers() const {
-		List<PhysReg> cl;
+	U64 X86LowerPass::allRegClobbers() const {
+		U64 cl = 0;
 		for(const RegClass& rc : regs->classes) {
 			for(PhysReg p : rc.allocatable)
-				cl.push_back(p);
+				cl |= detail::physBit(p);
 			for(PhysReg p : rc.scratch)
-				cl.push_back(p);
+				cl |= detail::physBit(p);
 		}
 		return cl;
 	}

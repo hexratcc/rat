@@ -53,11 +53,10 @@ namespace rat {
 	} // namespace detail
 
 	struct RegAllocHooks {
-		Delegate<MachineInstr(PhysReg dst, I32 slot, U32 cls, U32 width)> makeReload;
-		Delegate<MachineInstr(I32 slot, PhysReg src, U32 cls, U32 width)> makeSpill;
-		Delegate<I32(MachineFunc& fn, U32 cls, U32 width)> allocSlot;
-		Delegate<B32(const MachineInstr&)> isCopy;
-		Delegate<B32(const MachineInstr&)> isRemat;
+		void (*makeReload)(MachineInstr& m, PhysReg dst, I32 slot, U32 cls, U32 width) = nullptr;
+		void (*makeSpill)(MachineInstr& m, I32 slot, PhysReg src, U32 cls, U32 width) = nullptr;
+		I32 (*allocSlot)(MachineFunc& fn, U32 cls, U32 width) = nullptr;
+		B32 (*isCopy)(const MachineInstr& in) = nullptr;
 	};
 
 	struct TargetInfo {

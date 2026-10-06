@@ -203,8 +203,8 @@ namespace rat {
 		for(const MachineOperand& d : in.defs)
 			if(d.isPhys())
 				st.killReg(d.phys);
-		for(PhysReg p : in.clobbers)
-			st.killReg(p);
+		for(U64 m = in.clobbers; m; m &= m - 1)
+			st.killReg((PhysReg)countTrailingZeros64(m));
 	}
 
 	U32 X86PeepholePass::runOnBlock(MachineBlock& b) {
@@ -327,9 +327,8 @@ namespace rat {
 		for(const MachineOperand& d : in.defs)
 			if(tracked(d))
 				dem[d.phys] = 0;
-		for(PhysReg p : in.clobbers)
-			if(p < kMaxPhys)
-				dem[p] = 0;
+		for(U64 m = in.clobbers & lowMask(kMaxPhys); m; m &= m - 1)
+			dem[countTrailingZeros64(m)] = 0;
 
 		U32 cnt = 0;
 		switch(op) {
@@ -451,8 +450,8 @@ namespace rat {
 	}
 
 	B32 X86PeepholePass::isInPlace(const MachineInstr& in) {
-		return in.defs.size() == 1 && in.uses.size() == 1 && in.clobbers.empty() &&
-					 in.uses[0].isPhys() && in.uses[0].phys == in.defs[0].phys;
+		return in.defs.size() == 1 && in.uses.size() == 1 && !in.clobbers && in.uses[0].isPhys() &&
+					 in.uses[0].phys == in.defs[0].phys;
 	}
 
 	// drop the flagged instructions
@@ -589,7 +588,7 @@ namespace rat {
 				if(isAnySlotLoad(in)) {
 					U32 k = slots.key(in.uses[0].slot);
 					seen[k] = true;
-					slots.readWidth[k] = std::max(slots.readWidth[k], in.defs[0].width);
+					slots.readWidth[k] = std::max(slots.readWidth[k], (U32)in.defs[0].width);
 					continue;
 				}
 				for(const MachineOperand& u : in.uses)
@@ -597,7 +596,7 @@ namespace rat {
 						U32 k = slots.key(u.slot);
 						if(in.isCall) {
 							seen[k] = true;
-							slots.readWidth[k] = std::max(slots.readWidth[k], u.width);
+							slots.readWidth[k] = std::max(slots.readWidth[k], (U32)u.width);
 						} else {
 							untracked[k] = true;
 						}

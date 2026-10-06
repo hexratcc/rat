@@ -1,74 +1,31 @@
 #include "codegen/machine_function.h"
 
 namespace rat {
-	MachineOperand MachineOperand::vr(VReg v, U32 w) {
+	MachineOperand MachineOperand::make(Kind k, U32 w, U32 v) {
 		MachineOperand o;
-		o.kind = Kind::VReg;
+		o.kind = k;
+		o.width = (U8)w;
 		o.vreg = v;
-		o.width = w;
+		o.imm = 0;
 		return o;
 	}
 
-	MachineOperand MachineOperand::fixed(PhysReg p, U32 w) {
-		MachineOperand o;
-		o.kind = Kind::Phys;
-		o.phys = p;
-		o.width = w;
-		return o;
+	MachineOperand MachineOperand::vr(VReg v, U32 w) { return make(Kind::VReg, w, v); }
+	MachineOperand MachineOperand::fixed(PhysReg p, U32 w) { return make(Kind::Phys, w, p); }
+	MachineOperand MachineOperand::frameSlot(I32 s, U32 w) {
+		return make(Kind::FrameSlot, w, (U32)s);
 	}
+	MachineOperand MachineOperand::blockRef(I32 b) { return make(Kind::Block, 8, (U32)b); }
 
 	MachineOperand MachineOperand::immVal(I64 v, U32 w) {
-		MachineOperand o;
-		o.kind = Kind::Imm;
+		MachineOperand o = make(Kind::Imm, w, 0);
 		o.imm = v;
-		o.width = w;
 		return o;
-	}
-
-	MachineOperand MachineOperand::frameSlot(I32 s, U32 w) {
-		MachineOperand o;
-		o.kind = Kind::FrameSlot;
-		o.slot = s;
-		o.width = w;
-		return o;
-	}
-
-	namespace detail {
-		MachineSymTable& machineSyms() {
-			static thread_local MachineSymTable t;
-			return t;
-		}
-	} // namespace detail
-
-	U32 internMachineSym(const String& s) {
-		if(s.empty())
-			return 0;
-		detail::MachineSymTable& t = detail::machineSyms();
-		auto it = t.ids.find(s);
-		if(it != t.ids.end())
-			return it->second;
-		U32 id = (U32)t.names.size();
-		t.names.push_back(s);
-		t.ids.emplace(s, id);
-		return id;
-	}
-
-	const String& machineSymName(U32 id) {
-		detail::MachineSymTable& t = detail::machineSyms();
-		return id < t.names.size() ? t.names[id] : t.names[0];
 	}
 
 	MachineOperand MachineOperand::symbol(const String& s) {
-		MachineOperand o;
-		o.kind = Kind::Sym;
-		o.symId = internMachineSym(s);
-		return o;
-	}
-
-	MachineOperand MachineOperand::blockRef(I32 b) {
-		MachineOperand o;
-		o.kind = Kind::Block;
-		o.block = b;
+		MachineOperand o = make(Kind::Sym, 8, 0);
+		o.name = &s;
 		return o;
 	}
 

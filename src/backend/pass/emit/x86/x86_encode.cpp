@@ -441,6 +441,10 @@ namespace rat {
 		return (U32)(maxId + 1);
 	}
 
+	B32 X86EncodePass::touchesFrame(const MachineOperand& o) {
+		return o.kind == MachineOperand::Kind::FrameSlot || (o.isPhys() && gpOf(o) == RBP);
+	}
+
 	B32 X86EncodePass::needsFrame(const MachineInstr& in) {
 		X86Op op = (X86Op)in.op;
 		if(in.isCall || op == X86Op::FrameAddr)
@@ -450,10 +454,12 @@ namespace rat {
 			return true; // reading [rbp+8] or jumping across frames needs rbp to survive
 		if(op == X86Op::FLoad && !in.uses.empty() && in.uses[0].kind == MachineOperand::Kind::Imm)
 			return true; // materializes through the rbp scratch slot
-		for(const List<MachineOperand>* ops : {&in.defs, &in.uses})
-			for(const MachineOperand& o : *ops)
-				if(o.kind == MachineOperand::Kind::FrameSlot || (o.isPhys() && gpOf(o) == RBP))
-					return true;
+		for(const MachineOperand& o : in.defs)
+			if(touchesFrame(o))
+				return true;
+		for(const MachineOperand& o : in.uses)
+			if(touchesFrame(o))
+				return true;
 		return false;
 	}
 

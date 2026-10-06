@@ -63,6 +63,99 @@ namespace rat {
 	template <typename First, typename Second> using Pair = std::pair<First, Second>;
 	template <typename Signature> using Delegate = std::function<Signature>;
 
+	// list of trivially copyable values, inline up to N, then on the heap with the inline storage
+	// holding the heap pointer
+	template <typename T, U32 N> struct SmallList {
+		static_assert(sizeof(T) * N >= sizeof(T*), "inline storage holds the heap pointer");
+
+		SmallList() = default;
+		SmallList(std::initializer_list<T> l) { assign(l.begin(), l.end()); }
+		SmallList(const SmallList& o) { *this = o; }
+		SmallList(SmallList&& o) noexcept { *this = std::move(o); }
+		~SmallList() { release(); }
+
+		SmallList& operator=(const SmallList& o) {
+			if(o.cap != N)
+				assign(o.begin(), o.end());
+			else if(this != &o)
+				take(o);
+			return *this;
+		}
+
+		SmallList& operator=(SmallList&& o) noexcept {
+			if(this != &o) {
+				take(o);
+				o.cap = N; // a heap block now belongs to this
+				o.n = 0;
+			}
+			return *this;
+		}
+
+		T* begin() { return cap == N ? buf : heap(); }
+		T* end() { return begin() + n; }
+		const T* begin() const { return cap == N ? buf : heap(); }
+		const T* end() const { return begin() + n; }
+		U32 size() const { return n; }
+		B32 empty() const { return n == 0; }
+		T& operator[](U32 i) { return begin()[i]; }
+		const T& operator[](U32 i) const { return begin()[i]; }
+		T& back() { return begin()[n - 1]; }
+		const T& back() const { return begin()[n - 1]; }
+		void clear() { n = 0; }
+		void pop_back() { --n; }
+
+		void erase(T* first, T* last) {
+			std::copy(last, end(), first);
+			n -= (U32)(last - first);
+		}
+
+		void push_back(const T& x) {
+			if(n == cap)
+				reserve(2 * cap);
+			begin()[n++] = x;
+		}
+
+		void assign(const T* b, const T* e) {
+			n = 0;
+			reserve((U32)(e - b));
+			std::copy(b, e, begin());
+			n = (U32)(e - b);
+		}
+
+		void reserve(U32 c) {
+			if(c <= cap)
+				return;
+			T* p = new T[c];
+			std::copy(begin(), end(), p);
+			release();
+			std::memcpy((void*)buf, (const void*)&p, sizeof(T*));
+			cap = c;
+		}
+	private:
+		T* heap() const {
+			T* p;
+			std::memcpy((void*)&p, (const void*)buf, sizeof(T*));
+			return p;
+		}
+
+		void take(const SmallList& o) {
+			release();
+			std::memcpy((void*)buf, (const void*)o.buf, sizeof(buf));
+			n = o.n;
+			cap = o.cap;
+		}
+
+		void release() {
+			if(cap != N)
+				delete[] heap();
+			cap = N;
+		}
+
+		T buf[N];
+		U32 n = 0;
+		U32 cap = N;
+	};
+
 	inline I64 signExtend(I64 v, U32 w) {
 		if(w == 0 || w >= 64)
 			return v;

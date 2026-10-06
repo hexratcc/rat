@@ -13,30 +13,24 @@ namespace rat {
 
 	constexpr VReg kNoVReg = 0;
 
-	namespace detail {
-		struct MachineSymTable {
-			List<String> names{String()}; // id 0 is the empty name
-			Map<String, U32> ids;
-		};
-		MachineSymTable& machineSyms();
-	} // namespace detail
-
-	U32 internMachineSym(const String& s);
-	const String& machineSymName(U32 id);
-
+	// trivial, so inline operand storage costs nothing to construct; build one through the factories
 	struct MachineOperand {
-		enum class Kind { None, VReg, Phys, Imm, FrameSlot, Sym, Block };
+		enum class Kind : U8 { None, VReg, Phys, Imm, FrameSlot, Sym, Block };
 
-		Kind kind = Kind::None;
-		VReg vreg = kNoVReg;
-		PhysReg phys = kNoReg;
-		I64 imm = 0;
-		I32 slot = 0;
-		U32 symId = 0;
-		I32 block = -1;
-		U32 width = 8;
+		Kind kind;
+		U8 width;
+		union { // by kind
+			VReg vreg;
+			PhysReg phys;
+			I32 slot;
+			I32 block;
+		};
+		union {
+			I64 imm;
+			const String* name;
+		};
 
-		const String& sym() const { return machineSymName(symId); }
+		const String& sym() const { return *name; }
 
 		static MachineOperand vr(VReg v, U32 w = 8);
 		static MachineOperand fixed(PhysReg p, U32 w = 8);
@@ -44,20 +38,24 @@ namespace rat {
 		static MachineOperand frameSlot(I32 s, U32 w = 8);
 		static MachineOperand symbol(const String& s);
 		static MachineOperand blockRef(I32 b);
+		static MachineOperand make(Kind k, U32 w, U32 v);
 
 		B32 isVReg() const { return kind == Kind::VReg; }
 		B32 isPhys() const { return kind == Kind::Phys; }
 	};
 
+	using MachineDefs = SmallList<MachineOperand, 2>;
+	using MachineOperands = SmallList<MachineOperand, 3>;
+
 	struct MachineInstr {
 		MachineOpcode op = 0;
-		List<MachineOperand> defs; // written results
-		List<MachineOperand> uses; // read operands
-		List<PhysReg> clobbers;		 // extra phys regs destroyed
-		U32 regClass = 0;					 // register class of the def
-		I64 imm = 0;							 // backend-defined small immediate
-		I64 imm2 = 0;							 // second backend-defined immediate
-		B32 isCall = false;				 // applies clobbers and bounds live intervals
+		U8 regClass = 0;			// register class of the def
+		U8 isCall = false;		// applies clobbers and bounds live intervals
+		MachineDefs defs;			// written results
+		MachineOperands uses; // read operands
+		U64 clobbers = 0;			// extra phys regs destroyed, by bit
+		I64 imm = 0;					// backend-defined small immediate
+		I64 imm2 = 0;					// second backend-defined immediate
 	};
 
 	struct MachineBlock {

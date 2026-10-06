@@ -14,6 +14,10 @@ namespace rat {
 
 		inline PhysReg gpPhys(Reg r) { return X86Target::kGpBase + (PhysReg)r; }
 		inline PhysReg xmmPhys(U32 n) { return X86Target::kXmmBase + n; }
+		inline U64 physBit(PhysReg p) { return (U64)1 << p; }
+		inline U64 scratchBits() {
+			return physBit(gpPhys(R10)) | physBit(gpPhys(R11));
+		} // encoder scratch
 
 		constexpr I64 kX87MemBits = 80;
 
@@ -127,15 +131,9 @@ namespace rat {
 
 	enum class VaArgKind : I64 { Int = 0, Sse = 1, X87 = 2 };
 
-	enum X86OpFlag : U8 {
-		kOpCopy = 1,	// register-to-register move, coalescable
-		kOpRemat = 2, // cheaper to recompute than to reload
-	};
-
 	struct X86OpInfo {
 		const C8* mnemonic;
 		U8 cls; // default register class
-		U8 flags;
 	};
 
 	const X86OpInfo& x86OpInfo(X86Op op);

@@ -28,6 +28,13 @@ namespace rat {
 	struct Type;
 	struct UnaryNode;
 
+	namespace detail {
+		void x86Reload(MachineInstr& m, PhysReg dst, I32 slot, U32 cls, U32 width);
+		void x86Spill(MachineInstr& m, I32 slot, PhysReg src, U32 cls, U32 width);
+		I32 x86AllocSlot(MachineFunc& fn, U32 cls, U32 width);
+		B32 x86IsCopy(const MachineInstr& in);
+	} // namespace detail
+
 	struct X86LowerPass : MachinePass {
 		const C8* name() const override { return "x86-lower"; }
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
@@ -50,7 +57,8 @@ namespace rat {
 			B32 hasIndex = false;
 		};
 		using Kind = X86ArgAssigner::Kind;
-		using Ops = List<MachineOperand>;
+		using Ops = MachineOperands;
+		using OpList = std::initializer_list<MachineOperand>;
 		struct CallArg {
 			MachineOperand val; // vreg, or a 16-byte frame slot for by-value x87
 			Kind cls;
@@ -82,7 +90,9 @@ namespace rat {
 		VReg fresh(U32 cls);
 		Slot x87SlotOf(const Node* n);
 		VReg vregFor(const Node* n);
-		MachineInstr& put(X86Op op, Ops defs, Ops uses, I64 imm = 0, I64 imm2 = 0);
+		MachineInstr& put(X86Op op, OpList defs, OpList uses, I64 imm = 0, I64 imm2 = 0);
+		MachineInstr& put(X86Op op, OpList defs, const Ops& uses, I64 imm = 0, I64 imm2 = 0);
+		MachineInstr& putDefs(X86Op op, OpList defs, I64 imm, I64 imm2);
 
 		// data movement
 		void mov(VReg d, VReg s);
@@ -185,9 +195,9 @@ namespace rat {
 		B32 addressOnlyScale(Node* n);
 		MachineOperand addrBase(const AddrParts& a);
 		I64 sibBits(I64 sign, const AddrParts& a);
-		List<MachineOperand> addrUses(const AddrParts& a);
+		Ops addrUses(const AddrParts& a);
 		VReg sseValue(Node* n);
-		String fpPoolSym(U64 bits, U32 width);
+		const String& fpPoolSym(U64 bits, U32 width);
 		void fpConstLoad(ConstantNode* c, VReg dst);
 		Slot x87Value(Node* n);
 		void emitStore(StoreNode* s);
@@ -208,7 +218,7 @@ namespace rat {
 		B32 emitConstPack(PackNode* n, U32 esz);
 		void emitPack(PackNode* n);
 		void emitSelect(SelectNode* n);
-		String vecPoolSym(const List<U8>& bytes);
+		const String& vecPoolSym(const List<U8>& bytes);
 		VReg gpConst(I64 v);
 		void emitBitScan(UnaryNode* n, B32 reverse);
 		void emitPopcnt(UnaryNode* n);
@@ -228,8 +238,8 @@ namespace rat {
 		void emitUIntToX87(ConvertNode* n, VReg s, U32 bits);
 		void emitX87ToU64(ConvertNode* n, Slot x);
 		void emitConvertX87(ConvertNode* n, Node* src, Opcode op);
-		List<PhysReg> callerSavedClobbers() const;
-		List<PhysReg> allRegClobbers() const;
+		U64 callerSavedClobbers() const;
+		U64 allRegClobbers() const;
 		B32 emitBuiltin(CallNode* c);
 		void emitCall(CallNode* c);
 		Ops callUses(CallNode* c, const List<CallArg>& args, U32 sseUsed);

@@ -76,15 +76,13 @@ namespace rat {
 	void RegAllocPass::pinFixed(const MachineInstr& in, U64 u, B32 copy, U64& live) {
 		U64 defs = 0;
 		U64 uses = 0;
-		U64 clob = 0;
 		for(const MachineOperand& o : in.defs)
 			if(o.isPhys())
 				defs |= (U64)1 << o.phys;
 		for(const MachineOperand& o : in.uses)
 			if(o.isPhys())
 				uses |= (U64)1 << o.phys;
-		for(PhysReg p : in.clobbers)
-			clob |= (U64)1 << p;
+		U64 clob = in.clobbers;
 		assert((in.isCall || !(clob & live)) && "clobber inside a fixed-register window");
 		busy[u + 1] |= live | defs | clob;
 		live &= ~(defs | clob);
@@ -399,7 +397,7 @@ namespace rat {
 			hard |= taken;
 		PhysReg r = pickTemp(cls, hard, own | taken);
 		if(use)
-			out.push_back(hooks.makeReload(r, iv[root].slot, cls, o.width));
+			hooks.makeReload(out.emplace_back(), r, iv[root].slot, cls, o.width);
 		taken |= (U64)1 << r;
 		temps.emplace_back(root, r);
 		return r;
@@ -408,9 +406,7 @@ namespace rat {
 	void RegAllocPass::rewriteInstr(List<MachineInstr>& out, MachineInstr& in, U32 i) {
 		temps.clear();
 		taken = 0;
-		own = 0;
-		for(PhysReg p : in.clobbers)
-			own |= (U64)1 << p;
+		own = in.clobbers;
 		stores.clear();
 		for(MachineOperand& o : in.uses) {
 			if(!o.isVReg())
@@ -431,7 +427,7 @@ namespace rat {
 			PhysReg r = t.reg;
 			if(r == kNoReg) {
 				r = spillReg(out, o, i, false);
-				stores.push_back(hooks.makeSpill(t.slot, r, fn->vregClass[o.vreg], o.width));
+				hooks.makeSpill(stores.emplace_back(), t.slot, r, fn->vregClass[o.vreg], o.width);
 			}
 			o = MachineOperand::fixed(r, o.width);
 		}
@@ -453,11 +449,11 @@ namespace rat {
 		if(sr == kNoReg) {
 			if(dr == kNoReg)
 				dr = pickTemp(fn->vregClass[s.vreg], busy[2 * (U64)i] | busy[2 * (U64)i + 1], 0);
-			out.push_back(hooks.makeReload(dr, bundle(s.vreg).slot, fn->vregClass[s.vreg], s.width));
+			hooks.makeReload(out.emplace_back(), dr, bundle(s.vreg).slot, fn->vregClass[s.vreg], s.width);
 			sr = dr;
 		}
 		if(d.isVReg() && bundle(d.vreg).reg == kNoReg)
-			out.push_back(hooks.makeSpill(bundle(d.vreg).slot, sr, fn->vregClass[d.vreg], d.width));
+			hooks.makeSpill(out.emplace_back(), bundle(d.vreg).slot, sr, fn->vregClass[d.vreg], d.width);
 		return true;
 	}
 
