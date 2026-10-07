@@ -5,10 +5,12 @@ namespace rat::cc {
 		if(!t.typeofExpr)
 			return true;
 		U32 quals = t.quals;
+		U32 vquals = t.vquals;
 		const Expr* operand = t.typeofExpr;
 		if(!typeOf(operand, t))
 			return false;
 		t.quals |= quals;
+		t.vquals |= vquals;
 		t.typeofExpr = nullptr;
 		return true;
 	}
@@ -74,7 +76,8 @@ namespace rat::cc {
 	static B32 funcTypesMatch(const FuncType* a, const FuncType* b);
 
 	static B32 genericTypesMatch(const CType& a, const CType& b) {
-		if(a.ptr != b.ptr || a.quals != b.quals || (a.func != nullptr) != (b.func != nullptr))
+		if(a.ptr != b.ptr || a.quals != b.quals || a.vquals != b.vquals ||
+			 (a.func != nullptr) != (b.func != nullptr))
 			return false;
 		if(a.func && b.func)
 			return funcTypesMatch(a.func, b.func);
@@ -115,6 +118,7 @@ namespace rat::cc {
 		if(ctrl.array != nullptr && ctrl.ptr == 0)
 			ctrl = decay(ctrl);
 		clearTopConst(ctrl);
+		clearTopVolatile(ctrl);
 
 		const Expr* fallback = nullptr;
 		for(const GenericAssoc& a : e->assocs) {

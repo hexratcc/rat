@@ -287,7 +287,7 @@ namespace rat::cc {
 			if(!v.node)
 				return false;
 			Node* val = convert(fn, v.node, v.type, d.type);
-			fn.store(slot, val);
+			fn.store(slot, val, isTopVolatile(d.type));
 			return true;
 		}
 		Node* init;
@@ -299,9 +299,10 @@ namespace rat::cc {
 		} else {
 			init = fn.constInt(irType(d.type), 0);
 		}
-		if(func.addrTaken.count(*d.name)) {
+		// a volatile local lives in memory, so every access stays
+		if(func.addrTaken.count(*d.name) || isTopVolatile(d.type)) {
 			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
-			fn.store(slot, init);
+			fn.store(slot, init, isTopVolatile(d.type));
 			func.scopes.declare(*d.name, Local::mem(slot, d.type));
 		} else {
 			func.scopes.declare(*d.name, Local::inVar(fn.declareLocal(*d.name, init), d.type));

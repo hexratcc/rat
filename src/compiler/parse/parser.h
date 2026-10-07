@@ -85,6 +85,7 @@ namespace rat::cc {
 			B32 isInline = false;
 			B32 isNoInline = false;
 			B32 isConst = false;
+			B32 isVolatile = false;
 			U32 storageCount = 0;
 		};
 		B32 startsType(const Token& tok);

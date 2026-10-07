@@ -150,6 +150,9 @@ namespace rat::cc {
 		case TokKind::KwConst:
 			seen.isConst = true;
 			break;
+		case TokKind::KwVolatile:
+			seen.isVolatile = true;
+			break;
 		case TokKind::KwNoinline:
 			seen.isNoInline = true;
 			break;
@@ -175,6 +178,8 @@ namespace rat::cc {
 		}
 		if(seen.isConst)
 			out.quals |= 1u;
+		if(seen.isVolatile)
+			setTopVolatile(out);
 		specs = seen;
 		return true;
 	}

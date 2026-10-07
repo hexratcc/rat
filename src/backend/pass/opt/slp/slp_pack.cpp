@@ -50,7 +50,19 @@ namespace rat {
 		return changed;
 	}
 
+	B32 SlpPackPass::hasVolatileAccess(Function& fn) {
+		for(Node* n : fn) {
+			if(LoadNode* l = dyn_cast<LoadNode>(n); l && l->isVolatile())
+				return true;
+			if(StoreNode* s = dyn_cast<StoreNode>(n); s && s->isVolatile())
+				return true;
+		}
+		return false;
+	}
+
 	U32 SlpPackPass::runOnFunction(Function& fn, const TargetInfo& target) {
+		if(hasVolatileAccess(fn))
+			return 0;
 		return Slp(fn, target, stats).run();
 	}
 } // namespace rat

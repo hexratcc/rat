@@ -430,6 +430,8 @@ namespace rat {
 	I32 Schedule::homeBlock(Node* n) const { return headBlock(headOf(n->getControlInput())); }
 
 	I32 Schedule::hoistTarget(const Node* n, I32 late, I32 early) const {
+		if(const LoadNode* l = dyn_cast<LoadNode>(n); l && l->isVolatile())
+			return late; // runs exactly where the program reads it
 		if(blocks[late].minDepthAbove >= blocks[late].loopDepth)
 			return late; // nothing above is shallower, so the walk cannot move it
 		Opcode op = n->getOpcode();

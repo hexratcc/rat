@@ -84,6 +84,7 @@ namespace rat::cc {
 		U32 bitPrec = 0; // bitfield width, 0 when the type is not a bitfield's
 		U32 ptr = 0;
 		U32 quals = 0;
+		U32 vquals = 0;
 		Base base = Base::Int;
 		U8 mods = 0;
 		const StructType* strukt = nullptr;
@@ -109,6 +110,9 @@ namespace rat::cc {
 	constexpr B32 isTopConst(CType t) { return (t.quals & (1u << t.ptr)) != 0; }
 	constexpr void setTopConst(CType& t) { t.quals |= (1u << t.ptr); }
 	constexpr void clearTopConst(CType& t) { t.quals &= ~(1u << t.ptr); }
+	constexpr B32 isTopVolatile(CType t) { return (t.vquals & (1u << t.ptr)) != 0; }
+	constexpr void setTopVolatile(CType& t) { t.vquals |= (1u << t.ptr); }
+	constexpr void clearTopVolatile(CType& t) { t.vquals &= ~(1u << t.ptr); }
 	constexpr B32 isFloating(CType t) { return t.isFloat() && !t.isComplex() && t.ptr == 0; }
 	constexpr B32 isComplexType(CType t) { return t.isComplex() && t.ptr == 0; }
 	constexpr CType complexElem(CType t) {

@@ -184,7 +184,7 @@ namespace rat {
 
 		loads.clear();
 		for(Node* n : fn)
-			if(LoadNode* l = dyn_cast<LoadNode>(n))
+			if(LoadNode* l = dyn_cast<LoadNode>(n); l && !l->isVolatile())
 				loads.push_back(l);
 		defs.assign(fn.idBound(), nullptr);
 		chainHops.assign(fn.idBound(), 0);

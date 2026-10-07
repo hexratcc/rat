@@ -107,8 +107,8 @@ namespace rat {
 		Node* sext(Node* in, Type* to);
 		Node* zext(Node* in, Type* to);
 
-		Node* load(Type* ty, Node* ptr);
-		void store(Node* pointer, Node* value);
+		Node* load(Type* ty, Node* ptr, B32 isVolatile = false);
+		void store(Node* pointer, Node* value, B32 isVolatile = false);
 
 		Node* global(const String& name);
 		Node* alloc(Type* type, U32 align = 0);

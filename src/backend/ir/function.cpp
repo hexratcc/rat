@@ -104,10 +104,19 @@ namespace rat {
 	Node* Function::sext(Node* in, Type* to) { return convert(Opcode::SExt, in, to); }
 	Node* Function::zext(Node* in, Type* to) { return convert(Opcode::ZExt, in, to); }
 
-	Node* Function::load(Type* ty, Node* ptr) { return create<LoadNode>(ty, control(), mem(), ptr); }
+	Node* Function::load(Type* ty, Node* ptr, B32 isVolatile) {
+		LoadNode* l = create<LoadNode>(ty, control(), mem(), ptr);
+		if(isVolatile) {
+			l->setVolatile(true);
+			inlineAsm(String(), {}, {l});
+		}
+		return l;
+	}
 
-	void Function::store(Node* pointer, Node* value) {
-		set(memVar, create<StoreNode>(memTy(), control(), mem(), pointer, value));
+	void Function::store(Node* pointer, Node* value, B32 isVolatile) {
+		StoreNode* s = create<StoreNode>(memTy(), control(), mem(), pointer, value);
+		s->setVolatile(isVolatile);
+		set(memVar, s);
 	}
 
 	Node* Function::global(const String& name) { return create<GlobalNode>(ptrTy(), name); }

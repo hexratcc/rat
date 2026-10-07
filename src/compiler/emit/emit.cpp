@@ -205,6 +205,8 @@ namespace rat::cc {
 		out.kind = LValue::Kind::Addr;
 		out.addr = f->offset ? fn.add(baseAddr, constSize(fn, f->offset)) : baseAddr;
 		out.type = f->type;
+		if(isTopVolatile(structType))
+			setTopVolatile(out.type);
 		out.isArray = f->isArray();
 		out.isBitfield = f->isBitfield();
 		out.bitWidth = f->bitWidth;
@@ -318,10 +320,11 @@ namespace rat::cc {
 	Node* Emitter::loadLValue(Function& fn, const LValue& lv) {
 		if(lv.isVar())
 			return fn.get(lv.var);
+		B32 isVolatile = isTopVolatile(lv.type);
 		if(lv.isBitfield) {
 			U32 unitBits = byteSize(lv.type) * 8;
 			Type* ty = mod.getInt(unitBits);
-			Node* unit = fn.load(ty, lv.addr);
+			Node* unit = fn.load(ty, lv.addr, isVolatile);
 			U32 hi = unitBits - lv.bitOffset - lv.bitWidth;
 			U32 lo = unitBits - lv.bitWidth;
 			Node* n = unit;
@@ -333,7 +336,7 @@ namespace rat::cc {
 			Type* want = irType(lv.type);
 			return want == ty ? n : fn.trunc(n, want);
 		}
-		return fn.load(irType(lv.type), lv.addr);
+		return fn.load(irType(lv.type), lv.addr, isVolatile);
 	}
 
 	void Emitter::storeLValue(Function& fn, const LValue& lv, Node* value) {
@@ -341,20 +344,21 @@ namespace rat::cc {
 			fn.set(lv.var, value);
 			return;
 		}
+		B32 isVolatile = isTopVolatile(lv.type);
 		if(lv.isBitfield) {
 			U32 unitBits = byteSize(lv.type) * 8;
 			Type* ty = mod.getInt(unitBits);
 			U64 maskBits = lv.bitWidth >= 64 ? ~0ull : ((1ull << lv.bitWidth) - 1);
 			U64 shifted = maskBits << lv.bitOffset;
-			Node* unit = fn.load(ty, lv.addr);
+			Node* unit = fn.load(ty, lv.addr, isVolatile);
 			Node* cleared = fn.and_(unit, fn.constInt(ty, (I64)~shifted));
 			Node* wide = value->getType() == ty ? value : fn.zext(value, ty);
 			Node* masked = fn.and_(wide, fn.constInt(ty, (I64)maskBits));
 			Node* placed = lv.bitOffset ? fn.shl(masked, fn.constInt(ty, lv.bitOffset)) : masked;
-			fn.store(lv.addr, fn.or_(cleared, placed));
+			fn.store(lv.addr, fn.or_(cleared, placed), isVolatile);
 			return;
 		}
-		fn.store(lv.addr, value);
+		fn.store(lv.addr, value, isVolatile);
 	}
 
 	Node* Emitter::offsetPtr(Function& fn, Node* base, U64 byteOff) {
@@ -448,9 +452,9 @@ namespace rat::cc {
 			Node* arg = fn.param(paramBase + i);
 			if(isAggregate(p.type)) {
 				func.scopes.declare(*p.name, Local::mem(arg, p.type));
-			} else if(func.addrTaken.count(*p.name)) {
+			} else if(func.addrTaken.count(*p.name) || isTopVolatile(p.type)) {
 				Node* slot = fn.alloc(irType(p.type));
-				fn.store(slot, arg);
+				fn.store(slot, arg, isTopVolatile(p.type));
 				func.scopes.declare(*p.name, Local::mem(slot, p.type));
 			} else {
 				func.scopes.declare(*p.name, Local::inVar(fn.declareLocal(*p.name, arg), p.type));

@@ -214,6 +214,12 @@ namespace rat {
 		Node* getControl() const;
 		Node* getMemory() const;
 		Node* getPointer() const;
+
+		// a volatile access is never removed, merged, forwarded or widened
+		B32 isVolatile() const { return volatileAccess; }
+		void setVolatile(B32 v) { volatileAccess = v; }
+	private:
+		B32 volatileAccess = false;
 	};
 
 	// produces the next memory state
@@ -225,6 +231,11 @@ namespace rat {
 		Node* getMemory() const;
 		Node* getPointer() const;
 		Node* getValue() const;
+
+		B32 isVolatile() const { return volatileAccess; }
+		void setVolatile(B32 v) { volatileAccess = v; }
+	private:
+		B32 volatileAccess = false;
 	};
 
 	struct CallNode : Node {

@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <sstream>
 
 #include "ir/function.h"
@@ -405,10 +406,14 @@ namespace rat {
 				return pn.allocType != nullptr;
 			case Opcode::Region: {
 				String body = remainder; // already trimmed
-				if(body.rfind("loop", 0) == 0 && (body.size() == 4 || std::isspace((U8)body[4]))) {
-					pn.loopHeader = true;
-					body = body.substr(4);
-				}
+				pn.loopHeader = takeKeyword(body, "loop");
+				pn.operands = parseVRefs(body);
+				return true;
+			}
+			case Opcode::Load:
+			case Opcode::Store: {
+				String body = remainder;
+				pn.isVolatile = takeKeyword(body, "volatile");
 				pn.operands = parseVRefs(body);
 				return true;
 			}
@@ -419,6 +424,15 @@ namespace rat {
 				pn.operands = parseVRefs(remainder);
 				return true;
 			}
+		}
+
+		// a leading keyword followed by a space or the end
+		B32 Parser::takeKeyword(String& body, const C8* word) {
+			U32 n = (U32)std::strlen(word);
+			if(body.rfind(word, 0) != 0 || (body.size() != n && !std::isspace((U8)body[n])))
+				return false;
+			body = body.substr(n);
+			return true;
 		}
 
 		B32 Parser::parseProj(const String& remainder, const String& line, ParsedNode& pn) {
@@ -538,10 +552,16 @@ namespace rat {
 				if(in[0] == fn->getStart() && pn.projIndex == StartNode::memoryProjIndex() && startMem)
 					return startMem;
 				return fn->create<ProjNode>(pn.ty, in[0], pn.projIndex, pn.projLabel);
-			case Opcode::Load:
-				return fn->create<LoadNode>(pn.ty, in[0], in[1], in[2]);
-			case Opcode::Store:
-				return fn->create<StoreNode>(pn.ty, in[0], in[1], in[2], in[3]);
+			case Opcode::Load: {
+				LoadNode* l = fn->create<LoadNode>(pn.ty, in[0], in[1], in[2]);
+				l->setVolatile(pn.isVolatile);
+				return l;
+			}
+			case Opcode::Store: {
+				StoreNode* s = fn->create<StoreNode>(pn.ty, in[0], in[1], in[2], in[3]);
+				s->setVolatile(pn.isVolatile);
+				return s;
+			}
 			case Opcode::Return:
 				return fn->create<ReturnNode>(pn.ty, in);
 			case Opcode::Call: {

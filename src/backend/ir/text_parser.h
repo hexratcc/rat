@@ -35,6 +35,7 @@ namespace rat {
 			String symbol;						 // Global
 			Type* allocType = nullptr; // Alloc
 			B32 loopHeader = false;		 // Region
+			B32 isVolatile = false;		 // Load, Store
 			List<U32> operands;
 		};
 
@@ -60,6 +61,7 @@ namespace rat {
 			B32 parseProj(const String& remainder, const String& line, ParsedNode& pn);
 			B32 parseLaneOp(const String& remainder, const String& line, ParsedNode& pn);
 			B32 singleRef(const String& remainder, const String& error, ParsedNode& pn);
+			static B32 takeKeyword(String& body, const C8* word);
 
 			B32 build(Function* fn, const List<ParsedNode>& nodes);
 			void seedStartStop(Function* fn, const List<ParsedNode>& nodes);

@@ -39,7 +39,7 @@ namespace rat::cc {
 			return {p.node, decay(pt)};
 		if(isAggregate(pt))
 			return {p.node, pt};
-		return {fn.load(irType(pt), p.node), pt};
+		return {fn.load(irType(pt), p.node, isTopVolatile(pt)), pt};
 	}
 
 	Emitter::Value Emitter::emitUnary(Function& fn, const Expr* e) {
@@ -129,7 +129,7 @@ namespace rat::cc {
 			if(isAggregate(loc.type))
 				return {loc.addr, loc.type};
 			if(loc.inMem())
-				return {fn.load(irType(loc.type), loc.addr), loc.type};
+				return {fn.load(irType(loc.type), loc.addr, isTopVolatile(loc.type)), loc.type};
 			return {fn.get(loc.var), loc.type};
 		}
 		auto g = syms.globals.find(*e->ident.name);
@@ -140,7 +140,7 @@ namespace rat::cc {
 				return {fn.global(sym), pointerTo(gt)};
 			if(isAggregate(gt))
 				return {fn.global(sym), gt};
-			return {fn.load(irType(gt), fn.global(sym)), gt};
+			return {fn.load(irType(gt), fn.global(sym), isTopVolatile(gt)), gt};
 		}
 		auto f = syms.functions.find(*e->ident.name);
 		if(f != syms.functions.end())

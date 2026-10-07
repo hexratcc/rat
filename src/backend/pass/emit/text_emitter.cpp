@@ -83,6 +83,14 @@ namespace rat {
 			if(cast<RegionNode>(node)->isLoopHeader())
 				comment("  loop");
 			break;
+		case Opcode::Load:
+			if(cast<LoadNode>(node)->isVolatile())
+				*os << Green << "  volatile" << Reset;
+			break;
+		case Opcode::Store:
+			if(cast<StoreNode>(node)->isVolatile())
+				*os << Green << "  volatile" << Reset;
+			break;
 		case Opcode::Extract:
 			*os << Green << "  #" << cast<ExtractNode>(node)->getLane() << Reset;
 			break;

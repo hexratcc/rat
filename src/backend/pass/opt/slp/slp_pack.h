@@ -207,6 +207,8 @@ namespace rat {
 		B32 run(Module& module, const TargetInfo& target) override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
+		static B32 hasVolatileAccess(Function& fn);
+
 		SlpStats stats;
 	};
 } // namespace rat

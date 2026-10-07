@@ -386,10 +386,16 @@ namespace rat {
 			return into.create<PhiNode>(t, nulls);
 		case Opcode::Constant:
 			return into.create<ConstantNode>(t, cast<ConstantNode>(n)->getValue());
-		case Opcode::Load:
-			return into.create<LoadNode>(t, nullptr, nullptr, nullptr);
-		case Opcode::Store:
-			return into.create<StoreNode>(t, nullptr, nullptr, nullptr, nullptr);
+		case Opcode::Load: {
+			LoadNode* l = into.create<LoadNode>(t, nullptr, nullptr, nullptr);
+			l->setVolatile(cast<LoadNode>(n)->isVolatile());
+			return l;
+		}
+		case Opcode::Store: {
+			StoreNode* s = into.create<StoreNode>(t, nullptr, nullptr, nullptr, nullptr);
+			s->setVolatile(cast<StoreNode>(n)->isVolatile());
+			return s;
+		}
 		case Opcode::Call: {
 			const CallNode* c = cast<CallNode>(n);
 			return into.create<CallNode>(t, c->getCallee(), c->returnsValue(), nulls, c->isIndirect());
