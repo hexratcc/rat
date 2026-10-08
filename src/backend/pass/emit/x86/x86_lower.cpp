@@ -97,11 +97,11 @@ namespace rat {
 	}
 
 	void X86LowerPass::layout() {
-		for(const Node* n : *fn)
-			if(const AllocNode* al = dyn_cast<AllocNode>(n)) {
-				U32 sz = std::max(al->getAllocType()->byteSize(ptrBytes), 8u);
-				allocOff[n->getId()] = reserve((sz + 7u) & ~7u, al->getAlign());
-			}
+		for(const Node* n : sched->allocNodes()) {
+			const AllocNode* al = cast<AllocNode>(n);
+			U32 sz = std::max(al->getAllocType()->byteSize(ptrBytes), 8u);
+			allocOff[n->getId()] = reserve((sz + 7u) & ~7u, al->getAlign());
+		}
 		if(conv->x87ByRef && isX87Ty(fn->getReturnType()))
 			fl->sretSlot = reserve(8); // stash for the hidden x87 sret pointer
 		fl->variadic = fn->getAttrs().variadic;
@@ -438,10 +438,10 @@ namespace rat {
 
 	// parallel-move semantics
 	void X86LowerPass::emitPhiCopies(I32 targetBlock, I32 predIdx) {
-		const Schedule::Block& tb = sched->block(targetBlock);
 		List<Pair<PhiNode*, VReg>> moves;
 		List<Pair<PhiNode*, Slot>> x87Moves;
-		for(PhiNode* phi : tb.phis) {
+		for(Node* n : sched->phis(targetBlock)) {
+			PhiNode* phi = cast<PhiNode>(n);
 			Node* v = phi->getValue(predIdx);
 			if(v == phi)
 				continue;
@@ -504,16 +504,19 @@ namespace rat {
 			MachineBlock& block = out->blocks[b];
 			block.id = b;
 			block.loopDepth = sched->block(b).loopDepth;
-			block.insts.reserve(sched->block(b).nodes.size() * 2 + 4);
+			block.insts.reserve(sched->nodes(b).size() * 2 + 4);
+			block.succs.reserve(sched->succCount(b));
+			block.preds.reserve(sched->predCount(b));
 			mb = &block;
 			if(i == 0)
 				emitPrologue();
-			for(Node* n : sched->block(b).nodes)
+			for(Node* n : sched->nodes(b))
 				emitNode(n);
 			emitTerminator(b);
 		}
 		for(I32 b : order)
-			for(I32 s : sched->successors(b)) {
+			for(U32 i = 0, e = sched->succCount(b); i < e; ++i) {
+				I32 s = sched->succAt(b, i);
 				out->blocks[b].succs.push_back(s);
 				out->blocks[s].preds.push_back(b);
 			}

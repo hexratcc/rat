@@ -11,17 +11,15 @@
 
 #include "core.h"
 
+#include "ir/node.h"
+
 namespace rat {
 	struct AliasAnalysis;
 	struct Function;
-	struct LoadNode;
-	struct Node;
-	struct PhiNode;
-	struct StoreNode;
 
 	namespace detail {
 		B32 storeMayAliasLoad(const AliasAnalysis& aa, const StoreNode* st, const LoadNode* ld);
-		B32 laterId(const Node* a, const Node* b);
+		B32 earlierId(const Node* a, const Node* b);
 	} // namespace detail
 
 	struct Schedule {
@@ -40,15 +38,11 @@ namespace rat {
 			I32 gotoB = -1;							// goto successor (a region block)
 			I32 gotoPredIdx = -1;				// which predecessor slot of gotoB this edge is
 			List<I32> caseB;						// switch successors, slot order
-			List<I32> preds;						// predecessor block indices
 
 			I32 idom = -1;				 // immediate dominator (entry dominates itself)
 			I32 domDepth = 0;			 // depth in the dominator tree
 			I32 loopDepth = 0;		 // number of natural loops containing this block
 			I32 minDepthAbove = 0; // least loopDepth on the idom path up to entry
-
-			List<PhiNode*> phis; // data phis merged at this block (region only)
-			List<Node*> nodes;	 // scheduled compute nodes, in emit order
 		};
 
 		explicit Schedule(const Function& fn);
@@ -58,10 +52,15 @@ namespace rat {
 		I32 numBlocks() const;
 		const Block& block(I32 b) const;
 		const List<I32>& rpo() const;
+		NodeSpan phis(I32 b) const;
+		NodeSpan nodes(I32 b) const;
+		const List<Node*>& allocNodes() const;
 
 		I32 blockOf(const Node* n) const;
 
-		List<I32> successors(I32 b) const;
+		U32 succCount(I32 b) const;
+		I32 succAt(I32 b, U32 i) const;
+		U32 predCount(I32 b) const;
 		B32 dominates(I32 a, I32 b) const;
 
 		static B32 isFloating(const Node* n);
@@ -76,12 +75,11 @@ namespace rat {
 
 		I32 blockOfHead(const Node* head) const;
 		I32 headBlock(const Node* head) const;
-		U32 succCount(I32 b) const;
-		I32 succAt(I32 b, U32 i) const;
 
 		void buildBlocks();
-		void collectHeads();
+		void scanNodes();
 		void buildCFG();
+		void pin(Node* n, I32 b);
 		BlockEnd walkBlock(I32 b);
 		void setTerminator(I32 b, const BlockEnd& end);
 		void computeRpo();
@@ -89,17 +87,22 @@ namespace rat {
 		void computeLoops();
 		void computeHoistBounds();
 		void scheduleEarly(const List<Node*>& work, List<I32>& early);
+		static Node* pendingInput(const Node* n, U32& next, const List<I32>& early);
 		I32 deepestInput(const Node* n, const List<I32>& early) const;
 		void scheduleLate(const List<Node*>& work, const List<I32>& early);
+		static Node* pendingUser(const Node* n, U32& next, const List<U8>& done);
 		I32 lateBlock(Node* n) const;
-		void placeLoads(const List<Node*>& work, const List<I32>& early);
-		List<Node*> floatingCone(const List<LoadNode*>& loads) const;
+		void placeLoads(const List<Node*>& loads, const List<I32>& early);
 		B32 place(Node* n, I32 late, const List<I32>& early);
-		I32 listedBlock(const Node* n) const;
 		void buildBlockLists();
+		static void bucket(const List<Node*>& items,
+											 const List<I32>& keys,
+											 U32 nb,
+											 List<I32>& start,
+											 List<Node*>& flat);
 
 		static B32 isHeadNode(const Node* n);
-		Node* headOf(Node* ctrl) const;
+		I32 ctrlBlock(Node* ctrl) const;
 
 		I32 intersect(I32 a, I32 b) const;
 		I32 lca(I32 a, I32 b) const;
@@ -108,26 +111,28 @@ namespace rat {
 		I32 predBlockForRegionInput(I32 regionBlock, U32 i) const;
 		I32 hoistTarget(const Node* n, I32 late, I32 early) const;
 		I32 homeBlock(Node* n) const;
-		void markGuarded(const List<Node*>& work);
+		B32 isGuarded(const Node* n) const;
 
 		struct TopoScratch {
 			List<I32> localOf; // node id -> local index in the current block (-1)
 			List<I32> inDeg;	 // per local index
 			List<I32> stHead;	 // memory-state node id -> local index of the store/call consuming it (-1)
-			List<I32> touchedSt; // state node ids to reset after the block
-			List<I32> succHead;	 // per local index: head of the extra-edge chain (-1)
-			List<I32> succNext;	 // edge -> next edge in the chain
-			List<I32> succTo;		 // edge -> target local index
-			List<Node*> ready;	 // binary heap of ready nodes
+			List<I32> touchedSt;	// state node ids to reset after the block
+			List<I32> succHead;		// per local index: head of the extra-edge chain (-1)
+			List<I32> succNext;		// edge -> next edge in the chain
+			List<I32> succTo;			// edge -> target local index
+			List<I32> ready;			// binary heap of ready local indices, local order is id order
+			List<Node*> out;			// topological order when some edge runs backward
+			B32 backward = false; // some edge runs against local order
 
 			I32 local(const Node* n) const;
 			void addEdge(Node* before, Node* after);
-			void push(Node* n);
-			Node* pop();
+			void push(I32 i);
+			I32 pop();
 		};
-		List<Node*> topoOrder(List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& scratch) const;
-		static void addAntiDeps(const List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& s);
-		static void addOrderEdges(const List<Node*>& nodes, TopoScratch& s);
+		void topoOrder(Node** nodes, U32 k, const AliasAnalysis& aa, TopoScratch& scratch) const;
+		static void addAntiDeps(NodeSpan nodes, const AliasAnalysis& aa, TopoScratch& s);
+		static void addOrderEdges(NodeSpan nodes, TopoScratch& s);
 
 		I32 fixedDataBlock(Node* n, const List<I32>& early) const;
 		static Node* requireProj(Node* n, U32 index);
@@ -136,13 +141,23 @@ namespace rat {
 	private:
 		const Function& fn;
 		List<Block> blocks;
-		List<I32> headIndex; // node id -> block, for head nodes (-1 = not a head)
-		List<I32> nodeBlock; // node id -> block, for placed nodes (-1 = unplaced)
-		List<I32> post;			 // postorder number per block
+		mutable List<I32> headIndex; // node id -> block, for heads and memoized control nodes (-1)
+		List<I32> nodeBlock;				 // node id -> block, for placed nodes (-1 = unplaced)
+		List<I32> post;							 // postorder number per block
 		List<I32> rpoOrder;
 		I32 entryBlock = -1;
-		mutable List<Node*> headMemo;
-		List<C8> guarded;
+		List<C8> guarded;			// full schedule only, filled by scheduleEarly
+		List<Node*> floating; // function order
+		List<Node*> pinned;		// stores, calls, asm and stack ops, placed by their control
+		List<Node*> dataPhis; // data phis
+		List<Node*> allocs;		// stack objects, function order
+		// block b owns [start[b], start[b + 1])
+		List<I32> predStart;
+		List<I32> predFlat;
+		List<I32> phiStart;
+		List<Node*> phiFlat;
+		List<I32> nodeStart;
+		List<Node*> nodeFlat;
 	};
 } // namespace rat
 

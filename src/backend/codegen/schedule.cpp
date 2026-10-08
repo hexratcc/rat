@@ -8,21 +8,17 @@ namespace rat {
 	Schedule::Schedule(const Function& fn)
 	: fn(fn) {
 		buildBlocks();
-		List<Node*> work;
-		for(Node* n : fn)
-			if(isFloating(n))
-				work.push_back(n);
 		List<I32> early(fn.idBound(), -1);
-		scheduleEarly(work, early);
-		markGuarded(work);
-		scheduleLate(work, early);
+		guarded.assign(fn.idBound(), 0);
+		scheduleEarly(floating, early);
+		scheduleLate(floating, early);
 		buildBlockLists();
 	}
 
 	Schedule::Schedule(const Function& fn, const List<LoadNode*>& loads)
 	: fn(fn) {
 		buildBlocks();
-		List<Node*> work = floatingCone(loads);
+		List<Node*> work(loads.begin(), loads.end());
 		List<I32> early(fn.idBound(), -1);
 		scheduleEarly(work, early);
 		placeLoads(work, early);
@@ -32,32 +28,12 @@ namespace rat {
 		U32 count = fn.idBound();
 		headIndex.assign(count, -1);
 		nodeBlock.assign(count, -1);
-		headMemo.assign(count, nullptr);
-		collectHeads();
+		scanNodes();
 		buildCFG();
 		computeRpo();
 		computeDominators();
 		computeLoops();
 		computeHoistBounds();
-	}
-
-	List<Node*> Schedule::floatingCone(const List<LoadNode*>& loads) const {
-		List<U8> seen(fn.idBound(), 0);
-		List<Node*> work;
-		for(LoadNode* l : loads) {
-			seen[l->getId()] = 1;
-			work.push_back(l);
-		}
-		for(U32 i = 0; i < work.size(); ++i)
-			for(U32 k = 0, e = work[i]->getInputCount(); k < e; ++k) {
-				Node* in = work[i]->getInput(k);
-				if(in && isFloating(in) && !seen[in->getId()]) {
-					seen[in->getId()] = 1;
-					work.push_back(in);
-				}
-			}
-		std::reverse(work.begin(), work.end()); // inputs first, the early fixpoint settles sooner
-		return work;
 	}
 
 	I32 Schedule::numBlocks() const { return (I32)blocks.size(); }
@@ -83,9 +59,16 @@ namespace rat {
 		return false;
 	}
 
-	void Schedule::collectHeads() {
+	void Schedule::scanNodes() {
 		for(Node* n : fn) {
-			if(isHeadNode(n)) {
+			if(isFloating(n)) {
+				floating.push_back(n);
+			} else if(PhiNode* phi = dyn_cast<PhiNode>(n)) {
+				if(phi->getType()->isData())
+					dataPhis.push_back(n);
+			} else if(isa<AllocNode>(n)) {
+				allocs.push_back(n);
+			} else if(isHeadNode(n)) {
 				I32 b = (I32)blocks.size();
 				headIndex[n->getId()] = b;
 				blocks.emplace_back();
@@ -106,31 +89,36 @@ namespace rat {
 		return b;
 	}
 
-	Node* Schedule::headOf(Node* ctrl) const {
-		List<Node*> path;
+	I32 Schedule::ctrlBlock(Node* ctrl) const {
 		Node* c = ctrl;
-		while(true) {
-			if(Node* memo = headMemo[c->getId()]) {
-				c = memo;
-				break;
-			}
-			if(isHeadNode(c))
-				break;
-			path.push_back(c);
-			ProjNode* p = cast<ProjNode>(c);
-			c = p->getProducer()->getControlInput();
-		}
-		for(Node* n : path)
-			headMemo[n->getId()] = c;
-		return c;
+		I32 b;
+		while((b = headIndex[c->getId()]) < 0)
+			c = cast<ProjNode>(c)->getProducer()->getControlInput();
+		for(Node* p = ctrl; p != c; p = cast<ProjNode>(p)->getProducer()->getControlInput())
+			headIndex[p->getId()] = b;
+		return b;
 	}
 
 	void Schedule::buildCFG() {
-		for(I32 b = 0; b < (I32)blocks.size(); ++b) {
+		U32 nb = (U32)blocks.size();
+		predStart.assign(nb + 1, 0);
+		for(I32 b = 0; b < (I32)nb; ++b) {
 			setTerminator(b, walkBlock(b));
 			for(U32 i = 0, e = succCount(b); i < e; ++i)
-				blocks[succAt(b, i)].preds.push_back(b);
+				++predStart[succAt(b, i) + 1];
 		}
+		for(U32 b = 0; b < nb; ++b)
+			predStart[b + 1] += predStart[b];
+		predFlat.resize(predStart[nb]);
+		List<I32> fill(predStart.begin(), predStart.end() - 1);
+		for(I32 b = 0; b < (I32)nb; ++b)
+			for(U32 i = 0, e = succCount(b); i < e; ++i)
+				predFlat[fill[succAt(b, i)]++] = b;
+	}
+
+	void Schedule::pin(Node* n, I32 b) {
+		nodeBlock[n->getId()] = b;
+		pinned.push_back(n);
 	}
 
 	Schedule::BlockEnd Schedule::walkBlock(I32 b) {
@@ -145,12 +133,12 @@ namespace rat {
 				case Opcode::StackSave:
 				case Opcode::StackRestore:
 					if(u->getControlInput() == cur)
-						nodeBlock[u->getId()] = b;
+						pin(u, b);
 					break;
 				case Opcode::Call:
 				case Opcode::Asm:
 					if(u->getControlInput() == cur) {
-						nodeBlock[u->getId()] = b;
+						pin(u, b);
 						nextCall = u;
 					}
 					break;
@@ -233,12 +221,7 @@ namespace rat {
 		return -1;
 	}
 
-	List<I32> Schedule::successors(I32 b) const {
-		List<I32> out;
-		for(U32 i = 0, e = succCount(b); i < e; ++i)
-			out.push_back(succAt(b, i));
-		return out;
-	}
+	U32 Schedule::predCount(I32 b) const { return (U32)(predStart[b + 1] - predStart[b]); }
 
 	void Schedule::computeRpo() {
 		I32 count = (I32)blocks.size();
@@ -281,7 +264,8 @@ namespace rat {
 				if(b == entryBlock)
 					continue;
 				I32 newIdom = -1;
-				for(I32 p : blocks[b].preds) {
+				for(I32 k = predStart[b]; k < predStart[b + 1]; ++k) {
+					I32 p = predFlat[k];
 					if(blocks[p].idom == -1)
 						continue;
 					newIdom = (newIdom == -1) ? p : intersect(p, newIdom);
@@ -362,8 +346,8 @@ namespace rat {
 				while(!stack.empty()) {
 					I32 x = stack.back();
 					stack.pop_back();
-					for(I32 p : blocks[x].preds)
-						if(stamp[p] != g) { // stops at the header
+					for(I32 k = predStart[x]; k < predStart[x + 1]; ++k)
+						if(I32 p = predFlat[k]; stamp[p] != g) { // stops at the header
 							stamp[p] = g;
 							++blocks[p].loopDepth;
 							stack.push_back(p);
@@ -410,24 +394,18 @@ namespace rat {
 		return d == 0 || (isSigned && d == -1); // INT_MIN / -1 traps
 	}
 
-	void Schedule::markGuarded(const List<Node*>& work) {
-		guarded.assign(fn.idBound(), 0);
-		List<Node*> stack;
-		for(Node* n : work)
-			if(mayTrap(n))
-				stack.push_back(n);
-		while(!stack.empty()) {
-			Node* n = stack.back();
-			stack.pop_back();
-			if(guarded[n->getId()] || isa<LoadNode>(n) || !isFloating(n))
-				continue;
-			guarded[n->getId()] = 1;
-			for(Node* u : n->getUsers())
-				stack.push_back(u);
-		}
+	B32 Schedule::isGuarded(const Node* n) const {
+		if(isa<LoadNode>(n))
+			return false;
+		if(mayTrap(n))
+			return true;
+		for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
+			if(const Node* in = n->getInput(i); in && guarded[in->getId()])
+				return true;
+		return false;
 	}
 
-	I32 Schedule::homeBlock(Node* n) const { return headBlock(headOf(n->getControlInput())); }
+	I32 Schedule::homeBlock(Node* n) const { return ctrlBlock(n->getControlInput()); }
 
 	I32 Schedule::hoistTarget(const Node* n, I32 late, I32 early) const {
 		if(const LoadNode* l = dyn_cast<LoadNode>(n); l && l->isVolatile())
@@ -436,7 +414,7 @@ namespace rat {
 			return late; // nothing above is shallower, so the walk cannot move it
 		Opcode op = n->getOpcode();
 		B32 remat = op == Opcode::Constant || op == Opcode::Global;
-		B32 trapping = mayTrap(n) || (n->getId() < guarded.size() && guarded[n->getId()]);
+		B32 trapping = mayTrap(n) || (!guarded.empty() && guarded[n->getId()]);
 		I32 cur = late, pick = late;
 		while(true) {
 			if(blocks[cur].loopDepth < blocks[pick].loopDepth) {
@@ -480,25 +458,39 @@ namespace rat {
 		}
 	}
 
+	// depth-first, inputs before users, so each node is visited once with its inputs final
 	void Schedule::scheduleEarly(const List<Node*>& work, List<I32>& early) {
-		for(Node* n : work)
-			early[n->getId()] = entryBlock;
-
-		// deepest input block, to fixpoint (a floating input may not be settled)
-		B32 changed = true;
-		while(changed) {
-			changed = false;
-			for(Node* n : work) {
+		List<Pair<Node*, U32>> stack; // node, next input
+		for(Node* root : work) {
+			if(early[root->getId()] >= 0)
+				continue;
+			stack.push_back({root, 0});
+			while(!stack.empty()) {
+				Node* n = stack.back().first;
+				if(Node* in = pendingInput(n, stack.back().second, early)) {
+					stack.push_back({in, 0});
+					continue;
+				}
+				stack.pop_back();
 				I32 e = deepestInput(n, early);
 				// a load's placement follows from its home block alone
 				if(isa<LoadNode>(n))
 					e = hoistTarget(n, homeBlock(n), e);
-				if(early[n->getId()] != e) {
-					early[n->getId()] = e;
-					changed = true;
-				}
+				early[n->getId()] = e;
+				if(!guarded.empty())
+					guarded[n->getId()] = isGuarded(n);
 			}
 		}
+	}
+
+	// the next floating input without an early block
+	Node* Schedule::pendingInput(const Node* n, U32& next, const List<I32>& early) {
+		for(U32 e = n->getInputCount(); next < e; ++next) {
+			Node* in = n->getInput(next);
+			if(in && early[in->getId()] < 0 && isFloating(in))
+				return in;
+		}
+		return nullptr;
 	}
 
 	I32 Schedule::deepestInput(const Node* n, const List<I32>& early) const {
@@ -533,7 +525,7 @@ namespace rat {
 	}
 
 	I32 Schedule::predBlockForRegionInput(I32 rb, U32 i) const {
-		return headBlock(headOf(blocks[rb].head->getInput(i)));
+		return ctrlBlock(blocks[rb].head->getInput(i));
 	}
 
 	B32 Schedule::place(Node* n, I32 late, const List<I32>& early) {
@@ -546,18 +538,35 @@ namespace rat {
 	}
 
 	void Schedule::scheduleLate(const List<Node*>& work, const List<I32>& early) {
-		// late = LCA of use blocks; then hoist to the shallowest loop depth on the
-		// dominator path between early and late. Iterated to a fixpoint
-		B32 changed = true;
-		while(changed) {
-			changed = false;
-			for(U32 wi = (U32)work.size(); wi > 0; --wi) {
-				Node* n = work[wi - 1];
+		List<U8> done(fn.idBound(), 0);
+		List<Pair<Node*, U32>> stack; // node, next user
+		for(U32 wi = (U32)work.size(); wi > 0; --wi) {
+			if(done[work[wi - 1]->getId()])
+				continue;
+			stack.push_back({work[wi - 1], 0});
+			while(!stack.empty()) {
+				Node* n = stack.back().first;
+				if(Node* u = pendingUser(n, stack.back().second, done)) {
+					stack.push_back({u, 0});
+					continue;
+				}
+				stack.pop_back();
+				done[n->getId()] = 1;
 				I32 late = lateBlock(n);
-				if(late >= 0 && place(n, late, early))
-					changed = true;
+				if(late >= 0)
+					place(n, late, early);
 			}
 		}
+	}
+
+	Node* Schedule::pendingUser(const Node* n, U32& next, const List<U8>& done) {
+		if(isa<LoadNode>(n))
+			return nullptr;
+		NodeSpan users = n->getUsers();
+		for(; next < users.size(); ++next)
+			if(!done[users[next]->getId()] && isFloating(users[next]))
+				return users[next];
+		return nullptr;
 	}
 
 	I32 Schedule::lateBlock(Node* n) const {
@@ -568,61 +577,71 @@ namespace rat {
 		I32 late = -1;
 		for(Node* u : n->getUsers())
 			late = lca(late, useBlock(u, n));
-		return late; // -1: no placed use yet
+		return late; // -1: no placed use
 	}
 
 	// a load's placement reads only early and its home block, never another
 	// node's late block, so it is final after one pass
-	void Schedule::placeLoads(const List<Node*>& work, const List<I32>& early) {
-		for(Node* n : work)
-			if(isa<LoadNode>(n))
-				place(n, homeBlock(n), early);
+	void Schedule::placeLoads(const List<Node*>& loads, const List<I32>& early) {
+		for(Node* n : loads)
+			place(n, homeBlock(n), early);
 	}
 
 	I32 Schedule::blockOf(const Node* n) const { return n ? nodeBlock[n->getId()] : -1; }
 
-	void Schedule::buildBlockLists() {
-		for(Node* n : fn)
-			if(PhiNode* phi = dyn_cast<PhiNode>(n))
-				if(phi->getType()->isData())
-					blocks[headBlock(phi->getRegion())].phis.push_back(phi);
+	NodeSpan Schedule::phis(I32 b) const {
+		return NodeSpan{phiFlat.data() + phiStart[b], (U32)(phiStart[b + 1] - phiStart[b])};
+	}
 
-		// bucket the placed nodes by block, in function order, without a list per block
-		U32 nb = (U32)blocks.size();
-		List<I32> start(nb + 1, 0);
-		for(Node* n : fn) {
-			I32 b = listedBlock(n);
-			if(b >= 0)
-				++start[b + 1];
-		}
+	NodeSpan Schedule::nodes(I32 b) const {
+		return NodeSpan{nodeFlat.data() + nodeStart[b], (U32)(nodeStart[b + 1] - nodeStart[b])};
+	}
+
+	const List<Node*>& Schedule::allocNodes() const { return allocs; }
+
+	void Schedule::bucket(const List<Node*>& items,
+												const List<I32>& keys,
+												U32 nb,
+												List<I32>& start,
+												List<Node*>& flat) {
+		start.assign(nb + 1, 0);
+		for(I32 k : keys)
+			++start[k + 1];
 		for(U32 b = 0; b < nb; ++b)
 			start[b + 1] += start[b];
 		List<I32> fill(start.begin(), start.end() - 1);
-		List<Node*> flat(start[nb]);
-		for(Node* n : fn) {
-			I32 b = listedBlock(n);
-			if(b >= 0)
-				flat[fill[b]++] = n;
-		}
+		flat.resize(items.size());
+		for(U32 i = 0; i < items.size(); ++i)
+			flat[fill[keys[i]]++] = items[i];
+	}
+
+	void Schedule::buildBlockLists() {
+		U32 nb = (U32)blocks.size();
+		List<I32> keys;
+		for(Node* phi : dataPhis)
+			keys.push_back(headBlock(cast<PhiNode>(phi)->getRegion()));
+		bucket(dataPhis, keys, nb, phiStart, phiFlat);
+
+		// placed nodes in function (id) order
+		List<Node*> listed;
+		for(Node* n : floating)
+			if(nodeBlock[n->getId()] >= 0)
+				listed.push_back(n);
+		auto mid = listed.insert(listed.end(), pinned.begin(), pinned.end());
+		std::sort(mid, listed.end(), detail::earlierId);
+		std::inplace_merge(listed.begin(), mid, listed.end(), detail::earlierId);
+		keys.clear();
+		for(Node* n : listed)
+			keys.push_back(nodeBlock[n->getId()]);
+		bucket(listed, keys, nb, nodeStart, nodeFlat);
 
 		TopoScratch scratch;
 		scratch.localOf.assign(fn.idBound(), -1);
 		scratch.stHead.assign(fn.idBound(), -1);
 		AliasAnalysis aa(8);
-		List<Node*> raw;
-		for(U32 b = 0; b < nb; ++b) {
-			raw.assign(flat.begin() + start[b], flat.begin() + start[b + 1]);
-			blocks[b].nodes = topoOrder(raw, aa, scratch);
-		}
-	}
-
-	// block of a node that goes into a block list
-	I32 Schedule::listedBlock(const Node* n) const {
-		B32 pinned =
-				isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n) || isStackOpcode(n->getOpcode());
-		if(!pinned && !isFloating(n))
-			return -1; // none
-		return nodeBlock[n->getId()];
+		for(U32 b = 0; b < nb; ++b)
+			topoOrder(
+					nodeFlat.data() + nodeStart[b], (U32)(nodeStart[b + 1] - nodeStart[b]), aa, scratch);
 	}
 
 	Node* Schedule::memoryInputOf(const Node* n) {
@@ -650,7 +669,7 @@ namespace rat {
 						 AliasResult::NoAlias;
 		}
 
-		B32 laterId(const Node* a, const Node* b) { return a->getId() > b->getId(); }
+		B32 earlierId(const Node* a, const Node* b) { return a->getId() < b->getId(); }
 	} // namespace detail
 
 	I32 Schedule::TopoScratch::local(const Node* n) const { return n ? localOf[n->getId()] : -1; }
@@ -662,56 +681,55 @@ namespace rat {
 		I32 bi = local(before), ai = local(after);
 		if(bi < 0 || ai < 0)
 			return;
+		backward |= bi > ai;
 		succTo.push_back(ai);
 		succNext.push_back(succHead[bi]);
 		succHead[bi] = (I32)succTo.size() - 1;
 		++inDeg[ai];
 	}
 
-	void Schedule::TopoScratch::push(Node* n) {
-		ready.push_back(n);
-		std::push_heap(ready.begin(), ready.end(), detail::laterId);
+	void Schedule::TopoScratch::push(I32 i) {
+		ready.push_back(i);
+		std::push_heap(ready.begin(), ready.end(), std::greater<I32>());
 	}
 
-	Node* Schedule::TopoScratch::pop() {
-		Node* n = ready.front();
-		std::pop_heap(ready.begin(), ready.end(), detail::laterId);
+	I32 Schedule::TopoScratch::pop() {
+		std::pop_heap(ready.begin(), ready.end(), std::greater<I32>());
+		I32 i = ready.back();
 		ready.pop_back();
-		return n;
+		return i;
 	}
 
-	List<Node*>
-	Schedule::topoOrder(List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& s) const {
-		U32 k = (U32)nodes.size();
-		List<Node*> out;
-		out.reserve(k);
-		if(k == 0)
-			return out;
-
+	// reorders nodes[0, k) in place
+	void Schedule::topoOrder(Node** nodes, U32 k, const AliasAnalysis& aa, TopoScratch& s) const {
+		if(k < 2)
+			return;
 		for(U32 i = 0; i < k; ++i)
 			s.localOf[nodes[i]->getId()] = (I32)i;
 		s.inDeg.assign(k, 0);
 		s.succHead.assign(k, -1);
 		s.succNext.clear();
 		s.succTo.clear();
-		addAntiDeps(nodes, aa, s);
-		addOrderEdges(nodes, s);
+		s.backward = false;
+		addOrderEdges(NodeSpan{nodes, k}, s);
+		addAntiDeps(NodeSpan{nodes, k}, aa, s);
 
+		s.out.clear();
 		s.ready.clear();
-		for(U32 i = 0; i < k; ++i)
+		for(U32 i = 0; i < k && s.backward; ++i)
 			if(s.inDeg[i] == 0)
-				s.push(nodes[i]);
+				s.push((I32)i);
 		while(!s.ready.empty()) {
-			Node* n = s.pop();
-			out.push_back(n);
-			for(Node* u : n->getUsers()) {
+			I32 i = s.pop();
+			s.out.push_back(nodes[i]);
+			for(Node* u : nodes[i]->getUsers()) {
 				I32 ui = s.local(u);
 				if(ui >= 0 && --s.inDeg[ui] == 0)
-					s.push(u);
+					s.push(ui);
 			}
-			for(I32 e = s.succHead[s.local(n)]; e >= 0; e = s.succNext[e])
+			for(I32 e = s.succHead[i]; e >= 0; e = s.succNext[e])
 				if(--s.inDeg[s.succTo[e]] == 0)
-					s.push(nodes[s.succTo[e]]);
+					s.push(s.succTo[e]);
 		}
 
 		for(U32 i = 0; i < k; ++i)
@@ -720,21 +738,13 @@ namespace rat {
 			s.stHead[sid] = -1;
 		s.touchedSt.clear();
 
-		assert(out.size() == nodes.size() && "cycle in intra-block schedule");
-		return out;
+		assert((!s.backward || s.out.size() == k) && "cycle in intra-block schedule");
+		if(s.backward)
+			std::copy(s.out.begin(), s.out.end(), nodes);
 	}
 
-	// WAR anti-deps. a store/call/asm/stackrestore totally orders the block's memory
-	void Schedule::addAntiDeps(const List<Node*>& nodes, const AliasAnalysis& aa, TopoScratch& s) {
+	void Schedule::addAntiDeps(NodeSpan nodes, const AliasAnalysis& aa, TopoScratch& s) {
 		U32 k = (U32)nodes.size();
-		for(U32 i = 0; i < k; ++i) {
-			Node* m = isMemWriter(nodes[i]) ? memoryInputOf(nodes[i]) : nullptr;
-			if(!m)
-				continue;
-			if(s.stHead[m->getId()] < 0)
-				s.touchedSt.push_back((I32)m->getId());
-			s.stHead[m->getId()] = (I32)i;
-		}
 		for(U32 i = 0; i < k; ++i) {
 			LoadNode* ld = dyn_cast<LoadNode>(nodes[i]);
 			if(!ld)
@@ -753,33 +763,35 @@ namespace rat {
 		}
 	}
 
-	void Schedule::addOrderEdges(const List<Node*>& nodes, TopoScratch& s) {
-		for(Node* n : nodes) {
-			Node* prod = memoryInputOf(n);
+	void Schedule::addOrderEdges(NodeSpan nodes, TopoScratch& s) {
+		Node* prevStack = nullptr;
+		for(U32 i = 0; i < nodes.size(); ++i) {
+			Node* n = nodes[i];
+			Node* mem = memoryInputOf(n);
+			Node* prod = mem;
 			if(ProjNode* p = dyn_cast<ProjNode>(prod))
 				prod = p->getProducer();
 			if(prod && isMemWriter(prod))
 				s.addEdge(prod, n);
-		}
-
-		// every stack op moves rsp, so they run in the order they were built
-		Node* prevStack = nullptr;
-		for(Node* n : nodes) {
-			if(!isStackOpcode(n->getOpcode()))
-				continue;
-			if(prevStack)
-				s.addEdge(prevStack, n);
-			prevStack = n;
-		}
-
-		// restore edge
-		for(U32 i = 0; i < nodes.size(); ++i)
-			for(U32 j = 0, e = nodes[i]->getInputCount(); j < e; ++j) {
-				Node* in = nodes[i]->getInput(j);
-				if(s.local(in) >= 0)
-					++s.inDeg[i];
-				if(ProjNode* p = dyn_cast<ProjNode>(in))
-					s.addEdge(p->getProducer(), nodes[i]);
+			if(mem && isMemWriter(n)) {
+				if(s.stHead[mem->getId()] < 0)
+					s.touchedSt.push_back((I32)mem->getId());
+				s.stHead[mem->getId()] = (I32)i;
 			}
+			if(isStackOpcode(n->getOpcode())) {
+				if(prevStack)
+					s.addEdge(prevStack, n);
+				prevStack = n;
+			}
+			for(U32 j = 0, e = n->getInputCount(); j < e; ++j) {
+				Node* in = n->getInput(j);
+				if(s.local(in) >= 0) {
+					++s.inDeg[i];
+					s.backward |= s.local(in) > (I32)i;
+				}
+				if(ProjNode* p = dyn_cast<ProjNode>(in))
+					s.addEdge(p->getProducer(), n);
+			}
+		}
 	}
 } // namespace rat
