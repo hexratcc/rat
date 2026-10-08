@@ -22,6 +22,23 @@ namespace rat {
 		return true;
 	}
 
+	B32 X86LowerPass::lowHalfOnlyLoad(const LoadNode* l) {
+		const Type* t = l->getType();
+		if(!t || !t->isInt() || intBits(t) != 32 || l->getUsers().empty())
+			return false;
+		for(Node* u : l->getUsers()) {
+			Opcode op = u->getOpcode();
+			if(op == Opcode::SIToFP || op == Opcode::Trunc)
+				continue;
+			if(StoreNode* s = dyn_cast<StoreNode>(u); s && s->getValue() == l && s->getPointer() != l)
+				continue;
+			if(AsmNode* a = dyn_cast<AsmNode>(u); a && a->getOutputCount() == 0) // volatile anchor
+				continue;
+			return false;
+		}
+		return true;
+	}
+
 	void X86LowerPass::emitStore(StoreNode* s) {
 		Node* val = s->getValue();
 		U32 w = opWidth(val->getType());
@@ -67,7 +84,7 @@ namespace rat {
 		if(isSseTy(l->getType())) {
 			ldf(vregFor(l), w, a);
 		} else {
-			B32 sign = l->getType() && l->getType()->isInt() && !zextOnlyLoad(l);
+			B32 sign = l->getType() && l->getType()->isInt() && !zextOnlyLoad(l) && !lowHalfOnlyLoad(l);
 			ld(vregFor(l), w, a, sign);
 		}
 	}
@@ -566,7 +583,12 @@ namespace rat {
 			VReg z = fresh(detail::kGp);
 			mov(z, s);
 			maskBits(z, sb);
-			s = z;
+			cvtf(vregFor(n), w, z, 8, Asm::ssePrefixByte(w), 0x2a, true);
+			return;
+		}
+		if(sb <= 32) {
+			cvtf(vregFor(n), w, s, 4, Asm::ssePrefixByte(w), 0x2a, false);
+			return;
 		}
 		cvtf(vregFor(n), w, s, 8, Asm::ssePrefixByte(w), 0x2a, true);
 	}
