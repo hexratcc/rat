@@ -22,7 +22,7 @@ namespace rat {
 	struct InlinePass : FunctionPass {
 		static constexpr U32 kInlineNodeBudget = 96;			 // max callee size to inline
 		static constexpr U32 kMaxInlinesPerFunction = 256; // per-caller fuel
-		static constexpr U32 kCallerGrowthBudget = 384;		 // max nodes a caller may gain
+		static constexpr U32 kCallerGrowthBudget = 768;		 // max nodes a caller may gain
 
 		const C8* name() const override;
 		void beginModule(Module& module, const CallGraph& graph) override;
