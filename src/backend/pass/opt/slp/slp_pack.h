@@ -204,7 +204,8 @@ namespace rat {
 
 	struct SlpPackPass : FunctionPass {
 		const C8* name() const override;
-		B32 run(Module& module, const TargetInfo& target) override;
+		void beginModule(Module& module, const CallGraph& graph) override;
+		void endModule(Module& module) override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
 		static B32 hasVolatileAccess(Function& fn);

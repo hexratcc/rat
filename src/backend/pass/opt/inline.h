@@ -25,32 +25,10 @@ namespace rat {
 		static constexpr U32 kCallerGrowthBudget = 384;		 // max nodes a caller may gain
 
 		const C8* name() const override;
-		B32 run(Module& module, const TargetInfo& target) override;
+		void beginModule(Module& module, const CallGraph& graph) override;
 		U32 runOnFunction(Function& caller, const TargetInfo& target) override;
 		B32 onlyReadsFunction() const override { return false; } // reads callees
 	private:
-		// call graph row
-		struct Info {
-			Function* fn = nullptr;
-			List<Info*> callees;	// direct callees, sorted, live functions only
-			U64 version = kNoRow; // caller version the row was built from
-			U64 quietAt = 0;			// stamp of the last run that inlined nothing, 0 = none
-			U32 firstSize = 0;		// caller size when first seen, bounds growth per module run
-			U32 visit = 0;				// dfs stamp
-			B32 cyclic = false;		// cached isCyclic
-			U32 cyclicAt = 0;
-		};
-		static constexpr U64 kNoRow = ~(U64)0;
-
-		void syncCallGraph(Module& m);
-		void dropDeadRows(Module& m);
-		B32 refreshCallees(Function& fn, Info& info);
-		void forgetCycles();
-		Function* lookup(const String& name) const;
-		B32 reaches(Info* from, Info* target);
-		B32 isCyclic(Function* fn);
-		U64 quietStamp(const Function& caller, const Info& info) const;
-
 		struct Merged {
 			Node* ctrl;
 			Node* mem;
@@ -70,11 +48,7 @@ namespace rat {
 		static void replaceCall(Function& caller, CallNode* call, const Merged& m);
 		B32 inlineCallSite(Function& caller, CallNode* call, Function& callee);
 	private:
-		Module* module = nullptr;
-		Map<const Function*, Info> infos;
-		Map<String, Function*> byName;
-		U32 visitCur = 0;
-		U32 cycleGen = 1; // bumped when a call edge changes
+		const CallGraph* graph = nullptr; // of the current module run
 
 		// scratch reused across call sites
 		List<Node*> cloneMap; // callee node id -> caller node

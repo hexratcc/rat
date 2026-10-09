@@ -33,9 +33,9 @@ namespace rat {
 
 	const C8* SlpPackPass::name() const { return "slp"; }
 
-	B32 SlpPackPass::run(Module& module, const TargetInfo& target) {
-		stats = SlpStats{};
-		B32 changed = FunctionPass::run(module, target);
+	void SlpPackPass::beginModule(Module&, const CallGraph&) { stats = SlpStats{}; }
+
+	void SlpPackPass::endModule(Module& module) {
 		if(statsEnabled()) {
 			const SlpStats& s = stats;
 			std::cerr << "slp[" << module.getName() << "]: windows " << s.windowsSeen << " packed "
@@ -47,7 +47,6 @@ namespace rat {
 								<< " (tree " << s.rejectedTree << ", profit " << s.rejectedProfit << ", guard "
 								<< s.rejectedGuarded << ", overlap " << s.rejectedOverlap << ")\n";
 		}
-		return changed;
 	}
 
 	B32 SlpPackPass::hasVolatileAccess(Function& fn) {

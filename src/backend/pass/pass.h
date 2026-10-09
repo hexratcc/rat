@@ -4,6 +4,7 @@
 #include "core.h"
 
 namespace rat {
+	struct CallGraph;
 	struct Function;
 	struct MachineFunc;
 	struct Module;
@@ -16,9 +17,14 @@ namespace rat {
 		virtual B32 run(Module& module, const TargetInfo& target) = 0;
 	};
 
+	// the pass manager runs consecutive function passes function by function (see PassManager)
 	struct FunctionPass : Pass {
 		B32 run(Module& module, const TargetInfo& target) override;
+		B32 runFunction(Function& fn, const TargetInfo& target); // skips fn if clean for this pass
 
+		// graph: the module's call graph as the run starts
+		virtual void beginModule(Module&, const CallGraph&) {}
+		virtual void endModule(Module&) {}
 		virtual U32 runOnFunction(Function& fn, const TargetInfo& target) = 0;
 		virtual B32 onlyReadsFunction() const { return true; }
 	};
