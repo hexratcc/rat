@@ -61,8 +61,8 @@ namespace rat {
 	struct MachineBlock {
 		I32 id = -1;
 		I32 loopDepth = 0; // natural loops containing this block
-		List<I32> preds;
-		List<I32> succs;
+		SmallList<I32, 2> preds;
+		SmallList<I32, 2> succs;
 		List<MachineInstr> insts;
 	};
 
@@ -79,6 +79,7 @@ namespace rat {
 		UniquePtr<MachineFuncAux> aux;
 
 		VReg newVReg(U32 cls);
+		void reset(); // keeps the block storage
 	};
 } // namespace rat
 

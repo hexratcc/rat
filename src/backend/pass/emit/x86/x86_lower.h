@@ -259,6 +259,7 @@ namespace rat {
 		void moveValue(VReg dst, VReg src, U32 cls, U32 w);
 		void emitPhiCopies(I32 targetBlock, I32 predIdx);
 		void emitTerminator(I32 b);
+	private:
 		static constexpr I32 kNoSlot = INT32_MIN;
 		// target
 		const X86CallConv* conv = &abi::kSysV;
@@ -276,6 +277,8 @@ namespace rat {
 		List<VReg> vregOf;
 		List<I32> x87Slot;
 		List<I32> allocOff;
+		List<Pair<PhiNode*, VReg>> phiMoves;
+		List<Pair<PhiNode*, Slot>> x87Moves;
 	};
 } // namespace rat
 

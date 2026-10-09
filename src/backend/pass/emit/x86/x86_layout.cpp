@@ -50,10 +50,10 @@ namespace rat {
 			return changed;
 		}
 
-		B32 isBlockRef(const MachineOperand& o) { return o.kind == MachineOperand::Kind::Block; }
-
-		B32 isBranch(const MachineInstr& in) {
-			X86Op op = (X86Op)in.op;
+		B32 endsInBranch(const MachineBlock& b) {
+			if(b.insts.empty())
+				return false;
+			X86Op op = (X86Op)b.insts.back().op;
 			return op == X86Op::Jmp || op == X86Op::Br || op == X86Op::SwitchJump;
 		}
 
@@ -80,33 +80,31 @@ namespace rat {
 		U32 forwardJumpChains(MachineFunc& mf) {
 			U32 changed = 0;
 			for(MachineBlock& b : mf.blocks) {
-				if(b.id < 0)
+				if(b.id < 0 || !endsInBranch(b))
 					continue;
-				for(MachineInstr& in : b.insts)
-					if(isBranch(in))
-						for(MachineOperand& u : in.uses)
-							if(isBlockRef(u)) {
-								I32 r = resolveJump(mf, u.block);
-								if(r != u.block) {
-									u.block = r;
-									++changed;
-								}
-							}
+				for(MachineOperand& u : b.insts.back().uses)
+					if(u.kind == MachineOperand::Kind::Block) {
+						I32 r = resolveJump(mf, u.block);
+						if(r != u.block) {
+							u.block = r;
+							++changed;
+						}
+					}
 			}
 			return changed;
 		}
 
 		// reachable from entry
-		List<B32> reachableFrom(const List<List<I32>>& succ, I32 entry) {
-			U32 n = (U32)succ.size();
+		List<B32> reachableFrom(const List<U32>& first, const List<I32>& succ, I32 entry) {
+			U32 n = (U32)first.size() - 1;
 			List<B32> reach(n, false);
 			List<I32> work{entry};
 			reach[(U32)entry] = true;
 			while(!work.empty()) {
 				I32 id = work.back();
 				work.pop_back();
-				for(I32 t : succ[(U32)id])
-					if(t >= 0 && t < (I32)n && !reach[(U32)t]) {
+				for(U32 k = first[(U32)id]; k < first[(U32)id + 1]; ++k)
+					if(I32 t = succ[k]; t >= 0 && t < (I32)n && !reach[(U32)t]) {
 						reach[(U32)t] = true;
 						work.push_back(t);
 					}
@@ -120,18 +118,19 @@ namespace rat {
 			U32 n = (U32)mf.blocks.size();
 			if(n < 2)
 				return;
-			List<List<I32>> succ(n);
-			List<U32> blockAt(n, 0); // id -> vector index
-			for(U32 i = 0; i < n; ++i) {
-				const MachineBlock& b = mf.blocks[i];
-				if(b.id < 0)
-					continue;
-				blockAt[(U32)b.id] = i;
-				for(const MachineInstr& in : b.insts)
-					if(isBranch(in))
-						for(const MachineOperand& u : in.uses)
-							if(isBlockRef(u))
-								succ[(U32)b.id].push_back(u.block);
+			List<U32> blockAt(n, 0);
+			List<U32> first(n + 1, 0);
+			for(U32 i = 0; i < n; ++i)
+				if(mf.blocks[i].id >= 0)
+					blockAt[(U32)mf.blocks[i].id] = i;
+			List<I32> succ;
+			for(U32 id = 0; id < n; ++id) {
+				const MachineBlock& b = mf.blocks[blockAt[id]];
+				if(b.id == (I32)id && endsInBranch(b))
+					for(const MachineOperand& u : b.insts.back().uses)
+						if(u.kind == MachineOperand::Kind::Block)
+							succ.push_back(u.block);
+				first[id + 1] = (U32)succ.size();
 			}
 
 			I32 entry = -1;
@@ -141,7 +140,7 @@ namespace rat {
 			if(entry < 0)
 				return;
 
-			List<B32> reach = reachableFrom(succ, entry);
+			List<B32> reach = reachableFrom(first, succ, entry);
 
 			// greedy: prefer the last block operand (else/jump target), the edge
 			// the encoder can elide when adjacent
@@ -157,10 +156,9 @@ namespace rat {
 					placed[(U32)id] = true;
 					order.push_back(blockAt[(U32)id]);
 					I32 next = -1;
-					const List<I32>& ss = succ[(U32)id];
-					for(auto it = ss.rbegin(); it != ss.rend(); ++it)
-						if(*it >= 0 && !placed[(U32)*it] && reach[(U32)*it]) {
-							next = *it;
+					for(U32 k = first[(U32)id + 1]; k-- > first[(U32)id];)
+						if(I32 t = succ[k]; t >= 0 && !placed[(U32)t] && reach[(U32)t]) {
+							next = t;
 							break;
 						}
 					id = next;

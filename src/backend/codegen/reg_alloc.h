@@ -9,7 +9,7 @@
 namespace rat {
 	namespace detail {
 		PhysReg firstFree(const List<PhysReg>& regs, U64 blocked);
-		void groupByVReg(const List<Pair<VReg, U32>>& in, U32 nv, List<U32>& first, List<U32>& out);
+		void groupBy(const List<Pair<U32, U32>>& in, U32 nk, List<U32>& first, List<U32>& out);
 	} // namespace detail
 
 	struct RegAllocPass : MachinePass {
@@ -28,6 +28,8 @@ namespace rat {
 			PhysReg hint = kNoReg;
 			PhysReg reg = kNoReg;
 			I32 slot = 0;
+
+			void reset(VReg self); // keeps the segment storage
 		};
 
 		void setup(const TargetInfo& target);
@@ -68,15 +70,18 @@ namespace rat {
 		U64 allocMask[kMaxRegClasses] = {};
 		U64 calleeMask = 0;
 		// numbering
-		List<U32> blockFirst; // block -> first instruction, one past the end at the back
+		List<U32> blockFirst; // block -> first instruction
 		List<U64> busy;				// slot -> busy physical registers
+		List<U8> copyAt;			// instruction -> is a coalescable copy
 		List<U64> chunk;			// 64 slots -> busy anywhere in them
 		U64 usedCallee = 0;
 		// liveness and bundles
-		List<List<VReg>> liveOut; // block -> live-out vregs
-		List<U8> cross;						// vreg -> lives on the stack (local mode)
-		List<Interval> iv;
-		List<U64> copies; // (kMaxLevel - level, def, source)
+		List<U32> outFirst; // block -> first of its live-out vregs
+		List<VReg> outVRegs;
+		List<U8> cross;		 // vreg -> lives on the stack (local mode)
+		List<Interval> iv; // grows only, the first nv are live
+		List<Seg> merged;	 // merge scratch
+		List<U64> copies;	 // (kMaxLevel - level, def, source)
 		// rewrite of the current instruction
 		List<Pair<VReg, PhysReg>> temps; // spilled bundle -> its temp
 		U64 taken = 0;									 // temps

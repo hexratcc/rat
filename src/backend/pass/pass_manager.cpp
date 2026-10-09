@@ -98,8 +98,9 @@ namespace rat {
 	void PassManager::runMachine(Module& module, std::ostream* log) {
 		List<B32> changed(machinePasses.size(), false);
 		List<U64> nanos(machinePasses.size(), 0);
+		MachineFunc mf;
 		for(const Function* f : module) {
-			MachineFunc mf;
+			mf.reset();
 			for(U32 i = 0; i < machinePasses.size(); ++i) {
 				U64 start = detail::nowNanos();
 				changed[i] |= machinePasses[i]->run(module, *f, mf, *target);

@@ -29,6 +29,21 @@ namespace rat {
 		return o;
 	}
 
+	void MachineFunc::reset() {
+		for(MachineBlock& b : blocks) {
+			b.id = -1;
+			b.loopDepth = 0;
+			b.preds.clear();
+			b.succs.clear();
+			b.insts.clear();
+		}
+		nextVReg = 1;
+		vregClass.clear();
+		frameBytes = 0;
+		usedCalleeSaved.clear();
+		aux.reset();
+	}
+
 	VReg MachineFunc::newVReg(U32 cls) {
 		VReg v = nextVReg++;
 		if(vregClass.size() <= v)

@@ -23,16 +23,16 @@ namespace rat {
 			return kNoReg;
 		}
 
-		void groupByVReg(const List<Pair<VReg, U32>>& in, U32 nv, List<U32>& first, List<U32>& out) {
-			first.assign(nv + 1, 0);
-			for(const auto& [v, b] : in)
-				++first[v + 1];
-			for(U32 v = 0; v < nv; ++v)
-				first[v + 1] += first[v];
+		void groupBy(const List<Pair<U32, U32>>& in, U32 nk, List<U32>& first, List<U32>& out) {
+			first.assign(nk + 1, 0);
+			for(const auto& [k, x] : in)
+				++first[k + 1];
+			for(U32 k = 0; k < nk; ++k)
+				first[k + 1] += first[k];
 			List<U32> pos(first.begin(), first.end() - 1);
 			out.resize(in.size());
-			for(const auto& [v, b] : in)
-				out[pos[v]++] = b;
+			for(const auto& [k, x] : in)
+				out[pos[k]++] = x;
 		}
 	} // namespace detail
 
@@ -42,7 +42,6 @@ namespace rat {
 		assert(nv <= detail::kCopyVRegMask && "too many vregs for a copy key");
 		usedCallee = 0;
 		copies.clear();
-		iv.clear();
 		number();
 		liveness();
 		buildIntervals();
@@ -69,6 +68,7 @@ namespace rat {
 		for(const MachineBlock& blk : fn->blocks)
 			blockFirst.push_back(blockFirst.back() + (U32)blk.insts.size());
 		busy.assign(2 * (U64)blockFirst.back(), 0);
+		copyAt.resize(blockFirst.back());
 	}
 
 	// a fixed register is busy from its def to its last use in the block (call argument
@@ -94,10 +94,8 @@ namespace rat {
 
 	void RegAllocPass::liveness() {
 		U32 nb = (U32)fn->blocks.size();
-		List<U32> defStamp(nv, 0);
-		List<U32> ueStamp(nv, 0);
-		List<Pair<VReg, U32>> defs; // (vreg, block), blocks ascending
-		List<Pair<VReg, U32>> ues;
+		List<U32> defStamp(nv, 0), ueStamp(nv, 0);
+		List<Pair<VReg, U32>> defs, ues;
 		for(U32 b = 0; b < nb; ++b)
 			for(const MachineInstr& in : fn->blocks[b].insts) {
 				for(const MachineOperand& o : in.uses)
@@ -115,20 +113,15 @@ namespace rat {
 		if(local) {
 			for(const auto& [v, b] : ues)
 				cross[v] = 1;
-			liveOut.assign(nb, {});
+			outFirst.assign(nb + 1, 0);
 			return;
 		}
-		List<U32> defFirst;
-		List<U32> defBlocks;
-		List<U32> ueFirst;
-		List<U32> ueBlocks;
-		detail::groupByVReg(defs, nv, defFirst, defBlocks);
-		detail::groupByVReg(ues, nv, ueFirst, ueBlocks);
-		List<VReg> defIn(nb, kNoVReg);
-		List<VReg> liveIn(nb, kNoVReg);
-		List<VReg> outStamp(nb, kNoVReg);
+		List<U32> defFirst, defBlocks, ueFirst, ueBlocks;
+		detail::groupBy(defs, nv, defFirst, defBlocks);
+		detail::groupBy(ues, nv, ueFirst, ueBlocks);
+		List<VReg> defIn(nb, kNoVReg), liveIn(nb, kNoVReg), outStamp(nb, kNoVReg);
 		List<U32> work;
-		liveOut.assign(nb, {});
+		List<Pair<U32, VReg>> outs;
 		for(VReg v = 1; v < nv; ++v) {
 			if(ueFirst[v] == ueFirst[v + 1])
 				continue;
@@ -144,7 +137,7 @@ namespace rat {
 				for(I32 p : fn->blocks[x].preds) {
 					if(outStamp[p] != v) {
 						outStamp[p] = v;
-						liveOut[p].push_back(v);
+						outs.emplace_back(p, v);
 					}
 					if(defIn[p] != v && liveIn[p] != v) {
 						liveIn[p] = v;
@@ -153,6 +146,16 @@ namespace rat {
 				}
 			}
 		}
+		detail::groupBy(outs, nb, outFirst, outVRegs);
+	}
+
+	void RegAllocPass::Interval::reset(VReg self) {
+		segs.clear();
+		weight = 0;
+		root = self;
+		hint = kNoReg;
+		reg = kNoReg;
+		slot = 0;
 	}
 
 	// segments come in descending order per vreg, merge touching ones
@@ -178,9 +181,10 @@ namespace rat {
 
 	// backward walk per block from its live-out set, blocks in reverse
 	void RegAllocPass::buildIntervals() {
-		iv.resize(nv);
+		if(iv.size() < nv)
+			iv.resize(nv);
 		for(VReg v = 0; v < nv; ++v)
-			iv[v].root = v;
+			iv[v].reset(v);
 		List<U8> live(nv, 0);
 		List<I32> segEnd(nv, 0);
 		List<VReg> liveList;
@@ -188,7 +192,8 @@ namespace rat {
 			const MachineBlock& blk = fn->blocks[b];
 			if(blk.insts.empty())
 				continue;
-			for(VReg v : liveOut[b]) {
+			for(U32 k = outFirst[b]; k < outFirst[b + 1]; ++k) {
+				VReg v = outVRegs[k];
 				live[v] = 1;
 				segEnd[v] = 2 * (I32)blockFirst[b + 1] - 1;
 				liveList.push_back(v);
@@ -204,6 +209,7 @@ namespace rat {
 				const MachineInstr& in = blk.insts[k];
 				I32 u = 2 * (I32)(blockFirst[b] + k);
 				B32 copy = isCopy(in);
+				copyAt[blockFirst[b] + k] = (U8)copy;
 				pinFixed(in, (U64)u, copy, fixed);
 				for(const MachineOperand& o : in.defs) {
 					if(!o.isVReg() || cross[o.vreg])
@@ -238,8 +244,8 @@ namespace rat {
 				}
 			liveList.clear();
 		}
-		for(Interval& t : iv)
-			std::reverse(t.segs.begin(), t.segs.end());
+		for(VReg v = 0; v < nv; ++v)
+			std::reverse(iv[v].segs.begin(), iv[v].segs.end());
 		chunk.assign((busy.size() + 63) / 64, 0);
 		for(U64 s = 0; s < busy.size(); ++s)
 			chunk[s >> 6] |= busy[s];
@@ -272,15 +278,15 @@ namespace rat {
 	void RegAllocPass::merge(VReg a, VReg b) {
 		Interval& t = iv[a];
 		Interval& o = iv[b];
-		List<Seg> segs(t.segs.size() + o.segs.size());
-		std::merge(t.segs.begin(), t.segs.end(), o.segs.begin(), o.segs.end(), segs.begin());
+		merged.resize(t.segs.size() + o.segs.size());
+		std::merge(t.segs.begin(), t.segs.end(), o.segs.begin(), o.segs.end(), merged.begin());
 		t.segs.clear();
-		for(const auto& [start, end] : segs) // join touching segments
+		for(const auto& [start, end] : merged) // join touching segments
 			if(!t.segs.empty() && t.segs.back().second + 1 == start)
 				t.segs.back().second = end;
 			else
 				t.segs.emplace_back(start, end);
-		o.segs = {};
+		o.segs.clear();
 		t.weight += o.weight;
 		if(t.hint == kNoReg)
 			t.hint = o.hint;
@@ -489,7 +495,7 @@ namespace rat {
 			for(U32 k = 0; k < insts.size(); ++k) {
 				MachineInstr& in = insts[k];
 				U32 i = blockFirst[b] + k;
-				if(isCopy(in) && (sameBundle(in.defs[0], in.uses[0]) || rewriteCopy(out, in, i)))
+				if(copyAt[i] && (sameBundle(in.defs[0], in.uses[0]) || rewriteCopy(out, in, i)))
 					continue;
 				rewriteInstr(out, in, i);
 			}

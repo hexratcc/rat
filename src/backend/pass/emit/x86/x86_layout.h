@@ -21,11 +21,10 @@ namespace rat {
 	namespace detail {
 		B32 isPureTestBlock(const MachineBlock& b);
 		U32 duplicateTestBlocks(MachineFunc& mf);
-		B32 isBlockRef(const MachineOperand& o);
-		B32 isBranch(const MachineInstr& in);
+		B32 endsInBranch(const MachineBlock& b);
 		I32 resolveJump(const MachineFunc& mf, I32 id);
 		U32 forwardJumpChains(MachineFunc& mf);
-		List<B32> reachableFrom(const List<List<I32>>& succ, I32 entry);
+		List<B32> reachableFrom(const List<U32>& first, const List<I32>& succ, I32 entry);
 		void chainLayout(MachineFunc& mf);
 	} // namespace detail
 

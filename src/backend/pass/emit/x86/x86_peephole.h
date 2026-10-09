@@ -26,8 +26,9 @@ namespace rat {
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
 	private:
 		static constexpr U32 kMaxPhys = X86Target::kStBase + 8; // every x86 register
+		static constexpr U32 kDemRegs = X86Target::kXmmBase;
 		static constexpr U64 kAllBits = ~(U64)0;
-
+	private:
 		static U32 slotKey(I32 s, U32 keys);
 
 		struct SlotValue {
@@ -69,7 +70,7 @@ namespace rat {
 		U32 runOnBlock(MachineBlock& b);
 
 		// demanded-bits phase
-		static B32 tracked(const MachineOperand& o) { return o.isPhys() && o.phys < kMaxPhys; }
+		static B32 tracked(const MachineOperand& o) { return o.isPhys() && o.phys < kDemRegs; }
 		static U64 lowMask(U32 n);
 		static U64 carryMask(U64 out);
 		static B32 isNormalize(X86Op op);
@@ -80,13 +81,13 @@ namespace rat {
 		static B32 writesFlags(X86Op op);
 		static B32 flagSafeToDrop(const MachineBlock& b, U32 at);
 		static void transfer(const MachineInstr& in, U64* dem);
-		static B32 isInPlace(const MachineInstr& in);
 		static void eraseMarked(MachineBlock& b, const List<B32>& drop);
-		static B32 orInto(List<U64>& into, const List<U64>& from);
-		static void seedWork(const MachineFunc& mf, List<U32>& work, List<B32>& queued);
+		static B32 orInto(U64* into, const List<U64>& from);
+		void seedWork(const MachineFunc& mf, List<U32>& work, List<B32>& queued);
+		void postorder(const MachineFunc& mf);
 		static void queuePreds(const MachineBlock& b, List<U32>& work, List<B32>& queued);
 		U32 elimRedundantExt(MachineFunc& mf);
-
+	private:
 		// dead-slot-store phase
 		static constexpr U32 kNoBit = ~0u;
 
@@ -94,20 +95,29 @@ namespace rat {
 		struct TrackedSlots {
 			List<U32> index;
 			List<U32> readWidth;
+			List<B32> touches; // block id -> has a slot store, reload or call slot argument
+			List<U8> seen;
+			List<U8> untracked;
 			U32 keys = 0;
 			U32 count = 0;
 
 			U32 key(I32 s) const;
+			void begin(const MachineFunc& mf);
+			void note(const MachineInstr& in, U32 block);
+			void finish();
 		};
 
 		static B32 isAnySlotStore(const MachineInstr& in);
 		static B32 isAnySlotLoad(const MachineInstr& in);
-		static void slotBlockOut(const MachineBlock& b, const List<List<U64>>& liveIn, List<U64>& cur);
+		static void slotBlockOut(const MachineBlock& b, const List<U64>& liveIn, List<U64>& cur);
 		static void slotStep(const MachineInstr& in, const TrackedSlots& slots, List<U64>& cur);
-		static TrackedSlots trackedSlots(const MachineFunc& mf);
 		U32 elimDeadSlotStores(MachineFunc& mf);
 
 		ValueState st;
+		TrackedSlots slots;
+		List<U32> seed;				// block postorder
+		List<B32> seedQueued; // block -> in seed, empty until computed
+		List<B32> drop;				// per instruction of the block being swept
 	};
 } // namespace rat
 

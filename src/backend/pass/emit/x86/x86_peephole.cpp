@@ -224,6 +224,7 @@ namespace rat {
 				stepOther(in);
 			if(!keep)
 				continue;
+			slots.note(in, (U32)b.id);
 			if(kept != i)
 				b.insts[kept] = std::move(in);
 			++kept;
@@ -322,12 +323,12 @@ namespace rat {
 	void X86PeepholePass::transfer(const MachineInstr& in, U64* dem) {
 		X86Op op = (X86Op)in.op;
 		U64 outD = 0;
-		if(!in.defs.empty() && tracked(in.defs[0]))
-			outD = dem[in.defs[0].phys];
+		if(!in.defs.empty() && in.defs[0].isPhys())
+			outD = tracked(in.defs[0]) ? dem[in.defs[0].phys] : kAllBits;
 		for(const MachineOperand& d : in.defs)
 			if(tracked(d))
 				dem[d.phys] = 0;
-		for(U64 m = in.clobbers & lowMask(kMaxPhys); m; m &= m - 1)
+		for(U64 m = in.clobbers & lowMask(kDemRegs); m; m &= m - 1)
 			dem[countTrailingZeros64(m)] = 0;
 
 		U32 cnt = 0;
@@ -396,18 +397,21 @@ namespace rat {
 
 	// erase normalizations whose high bits nobody reads
 	U32 X86PeepholePass::elimRedundantExt(MachineFunc& mf) {
+		U32 nb = (U32)mf.blocks.size();
+		List<U8> norm(nb, 0);
 		B32 any = false;
-		for(const MachineBlock& b : mf.blocks)
-			any |= b.id >= 0 && hasNormalize(b);
+		for(U32 bi = 0; bi < nb; ++bi) {
+			norm[bi] = (U8)(mf.blocks[bi].id >= 0 && hasNormalize(mf.blocks[bi]));
+			any |= norm[bi];
+		}
 		if(!any)
 			return 0;
 
-		U32 nb = (U32)mf.blocks.size();
-		List<List<U64>> demIn(nb, List<U64>(kMaxPhys, 0));
-		List<U64> cur(kMaxPhys, 0);
+		List<U64> demIn((U64)nb * kDemRegs, 0);
+		List<U64> cur(kDemRegs, 0);
 
 		List<U32> work;
-		List<B32> queued(nb, false);
+		List<B32> queued;
 		seedWork(mf, work, queued);
 		while(!work.empty()) {
 			U32 bi = work.back();
@@ -417,17 +421,18 @@ namespace rat {
 			slotBlockOut(b, demIn, cur);
 			for(U32 i = (U32)b.insts.size(); i-- > 0;)
 				transfer(b.insts[i], cur.data());
-			if(orInto(demIn[bi], cur))
+			if(orInto(&demIn[(U64)bi * kDemRegs], cur))
 				queuePreds(b, work, queued);
 		}
 
-		U32 reshaped = 0;
-		for(MachineBlock& b : mf.blocks) {
-			if(b.id < 0 || b.insts.empty() || !hasNormalize(b))
+		U32 dropped = 0;
+		for(U32 bi = 0; bi < nb; ++bi) {
+			MachineBlock& b = mf.blocks[bi];
+			if(!norm[bi])
 				continue;
 			slotBlockOut(b, demIn, cur);
 
-			List<B32> drop(b.insts.size(), false);
+			drop.assign(b.insts.size(), false);
 			U32 here = 0;
 			for(U32 i = (U32)b.insts.size(); i-- > 0;) {
 				const MachineInstr& in = b.insts[i];
@@ -437,21 +442,15 @@ namespace rat {
 					 !(cur[in.defs[0].phys] & ~lowMask(n)) && flagSafeToDrop(b, i)) {
 					drop[i] = true;
 					++here;
-					if(!isInPlace(in))
-						++reshaped;
 					continue; // dead
 				}
 				transfer(in, cur.data());
 			}
+			dropped += here;
 			if(here)
 				eraseMarked(b, drop);
 		}
-		return reshaped;
-	}
-
-	B32 X86PeepholePass::isInPlace(const MachineInstr& in) {
-		return in.defs.size() == 1 && in.uses.size() == 1 && !in.clobbers && in.uses[0].isPhys() &&
-					 in.uses[0].phys == in.defs[0].phys;
+		return dropped;
 	}
 
 	// drop the flagged instructions
@@ -467,18 +466,27 @@ namespace rat {
 		b.insts.erase(b.insts.begin() + kept, b.insts.end());
 	}
 
-	B32 X86PeepholePass::orInto(List<U64>& into, const List<U64>& from) {
-		B32 grew = false;
-		for(U32 i = 0; i < (U32)into.size(); ++i)
-			if((into[i] | from[i]) != into[i]) {
-				into[i] |= from[i];
-				grew = true;
-			}
-		return grew;
+	B32 X86PeepholePass::orInto(U64* into, const List<U64>& from) {
+		U64 grew = 0;
+		for(U32 i = 0; i < (U32)from.size(); ++i) {
+			grew |= from[i] & ~into[i];
+			into[i] |= from[i];
+		}
+		return grew != 0;
 	}
 
 	void X86PeepholePass::seedWork(const MachineFunc& mf, List<U32>& work, List<B32>& queued) {
-		List<U32> post;
+		if(seedQueued.empty())
+			postorder(mf);
+		work.assign(seed.rbegin(), seed.rend());
+		queued = seedQueued;
+	}
+
+	void X86PeepholePass::postorder(const MachineFunc& mf) {
+		List<B32>& queued = seedQueued;
+		List<U32>& post = seed;
+		post.clear();
+		queued.assign(mf.blocks.size(), false);
 		List<std::pair<U32, U32>> stack; // block, next successor
 		for(U32 root = 0; root < (U32)mf.blocks.size(); ++root) {
 			if(mf.blocks[root].id < 0 || queued[root])
@@ -487,7 +495,7 @@ namespace rat {
 			stack.push_back({root, 0});
 			while(!stack.empty()) {
 				auto& [bi, next] = stack.back();
-				const List<I32>& succs = mf.blocks[bi].succs;
+				const SmallList<I32, 2>& succs = mf.blocks[bi].succs;
 				if(next == (U32)succs.size()) {
 					post.push_back(bi);
 					stack.pop_back();
@@ -500,8 +508,6 @@ namespace rat {
 				}
 			}
 		}
-		for(U32 i = (U32)post.size(); i-- > 0;)
-			work.push_back(post[i]);
 	}
 
 	// a grown live-in reaches the predecessors
@@ -530,17 +536,19 @@ namespace rat {
 
 	// union of successor live-ins, everything for open blocks
 	// inline: called per block in the demand fixpoints
-	inline void X86PeepholePass::slotBlockOut(const MachineBlock& b,
-																						const List<List<U64>>& liveIn,
-																						List<U64>& cur) {
+	inline void
+	X86PeepholePass::slotBlockOut(const MachineBlock& b, const List<U64>& liveIn, List<U64>& cur) {
 		B32 open = b.succs.empty() && !b.insts.empty() && (X86Op)b.insts.back().op != X86Op::Ret &&
 							 (X86Op)b.insts.back().op != X86Op::Ud2;
-		for(U32 i = 0; i < (U32)cur.size(); ++i)
-			cur[i] = open ? kAllBits : 0;
+		U64 stride = cur.size();
+		U64* out = cur.data();
+		std::fill(out, out + stride, open ? kAllBits : 0);
 		for(I32 s : b.succs)
-			if(s >= 0 && s < (I32)liveIn.size())
-				for(U32 i = 0; i < (U32)cur.size(); ++i)
-					cur[i] |= liveIn[(U32)s][i];
+			if(s >= 0 && (U64)s * stride < liveIn.size()) {
+				const U64* in = liveIn.data() + (U64)s * stride;
+				for(U64 i = 0; i < stride; ++i)
+					out[i] |= in[i];
+			}
 	}
 
 	U32 X86PeepholePass::TrackedSlots::key(I32 s) const { return slotKey(s, keys); }
@@ -568,62 +576,64 @@ namespace rat {
 						cur[bit >> 6] |= (U64)1 << (bit & 63);
 	}
 
-	X86PeepholePass::TrackedSlots X86PeepholePass::trackedSlots(const MachineFunc& mf) {
-		// a slot is tracked while it is only touched through the spill store and
-		// reload shapes plus call stack arguments
-		TrackedSlots slots;
-		slots.keys = mf.frameBytes / 8 + 1;
-		List<U8> seen(slots.keys + 1, false);
-		List<U8> untracked(slots.keys + 1, false);
-		slots.index.assign(slots.keys + 1, kNoBit);
-		slots.readWidth.assign(slots.keys + 1, 0);
-		for(const MachineBlock& b : mf.blocks) {
-			if(b.id < 0)
-				continue;
-			for(const MachineInstr& in : b.insts) {
-				if(isAnySlotStore(in)) {
-					seen[slots.key(in.uses[0].slot)] = true;
-					continue;
-				}
-				if(isAnySlotLoad(in)) {
-					U32 k = slots.key(in.uses[0].slot);
-					seen[k] = true;
-					slots.readWidth[k] = std::max(slots.readWidth[k], (U32)in.defs[0].width);
-					continue;
-				}
-				for(const MachineOperand& u : in.uses)
-					if(u.kind == MachineOperand::Kind::FrameSlot) {
-						U32 k = slots.key(u.slot);
-						if(in.isCall) {
-							seen[k] = true;
-							slots.readWidth[k] = std::max(slots.readWidth[k], (U32)u.width);
-						} else {
-							untracked[k] = true;
-						}
-					}
-				for(const MachineOperand& d : in.defs)
-					if(d.kind == MachineOperand::Kind::FrameSlot)
-						untracked[slots.key(d.slot)] = true;
-			}
+	// a slot is tracked while it is only touched through the spill store and
+	// reload shapes plus call stack arguments
+	void X86PeepholePass::TrackedSlots::begin(const MachineFunc& mf) {
+		keys = mf.frameBytes / 8 + 1;
+		count = 0;
+		seen.assign(keys + 1, false);
+		untracked.assign(keys + 1, false);
+		index.assign(keys + 1, kNoBit);
+		readWidth.assign(keys + 1, 0);
+		touches.assign(mf.blocks.size(), false);
+	}
+
+	void X86PeepholePass::TrackedSlots::note(const MachineInstr& in, U32 block) {
+		if(isAnySlotStore(in)) {
+			seen[key(in.uses[0].slot)] = true;
+			touches[block] = true;
+			return;
 		}
-		for(U32 k = 0; k < slots.keys; ++k)
+		if(isAnySlotLoad(in)) {
+			U32 k = key(in.uses[0].slot);
+			touches[block] = true;
+			seen[k] = true;
+			readWidth[k] = std::max(readWidth[k], (U32)in.defs[0].width);
+			return;
+		}
+		for(const MachineOperand& u : in.uses)
+			if(u.kind == MachineOperand::Kind::FrameSlot) {
+				U32 k = key(u.slot);
+				if(in.isCall) {
+					seen[k] = true;
+					touches[block] = true;
+					readWidth[k] = std::max(readWidth[k], (U32)u.width);
+				} else {
+					untracked[k] = true;
+				}
+			}
+		for(const MachineOperand& d : in.defs)
+			if(d.kind == MachineOperand::Kind::FrameSlot)
+				untracked[key(d.slot)] = true;
+	}
+
+	void X86PeepholePass::TrackedSlots::finish() {
+		for(U32 k = 0; k < keys; ++k)
 			if(seen[k] && !untracked[k])
-				slots.index[k] = slots.count++;
-		return slots;
+				index[k] = count++;
 	}
 
 	U32 X86PeepholePass::elimDeadSlotStores(MachineFunc& mf) {
-		TrackedSlots slots = trackedSlots(mf);
 		if(!slots.count)
 			return 0;
 
 		U32 nb = (U32)mf.blocks.size();
 		U32 words = (slots.count + 63) / 64;
-		List<List<U64>> liveIn(nb, List<U64>(words, 0));
+		List<U64> liveIn((U64)nb * words, 0); // block -> live slot bits at entry
 		List<U64> cur(words, 0);
 
 		List<U32> work;
-		List<B32> queued(nb, false);
+		List<B32> queued;
 		seedWork(mf, work, queued);
 		while(!work.empty()) {
 			U32 bi = work.back();
@@ -631,18 +641,18 @@ namespace rat {
 			queued[bi] = false;
 			const MachineBlock& b = mf.blocks[bi];
 			slotBlockOut(b, liveIn, cur);
-			for(U32 i = (U32)b.insts.size(); i-- > 0;)
+			for(U32 i = slots.touches[bi] ? (U32)b.insts.size() : 0; i-- > 0;)
 				slotStep(b.insts[i], slots, cur);
-			if(orInto(liveIn[bi], cur))
+			if(orInto(&liveIn[(U64)bi * words], cur))
 				queuePreds(b, work, queued);
 		}
 
 		U32 removed = 0;
 		for(MachineBlock& b : mf.blocks) {
-			if(b.id < 0 || b.insts.empty())
+			if(b.id < 0 || !slots.touches[(U32)b.id])
 				continue;
 			slotBlockOut(b, liveIn, cur);
-			List<B32> drop(b.insts.size(), false);
+			drop.assign(b.insts.size(), false);
 			U32 here = 0;
 			for(U32 i = (U32)b.insts.size(); i-- > 0;) {
 				const MachineInstr& in = b.insts[i];
@@ -664,14 +674,14 @@ namespace rat {
 	}
 
 	B32 X86PeepholePass::run(Module&, const Function&, MachineFunc& mf, const TargetInfo&) {
-		U32 changed = 0;
-		for(U32 round = 0; round < 3; ++round)
-			if(!elimRedundantExt(mf))
-				break;
+		seedQueued.clear();
+		U32 changed = elimRedundantExt(mf);
 		st.begin(mf.frameBytes / 8 + 1);
+		slots.begin(mf);
 		for(MachineBlock& b : mf.blocks)
 			if(b.id >= 0)
 				changed += runOnBlock(b);
+		slots.finish();
 		changed += elimDeadSlotStores(mf);
 		return changed != 0;
 	}

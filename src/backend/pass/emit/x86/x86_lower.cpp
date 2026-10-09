@@ -438,8 +438,8 @@ namespace rat {
 
 	// parallel-move semantics
 	void X86LowerPass::emitPhiCopies(I32 targetBlock, I32 predIdx) {
-		List<Pair<PhiNode*, VReg>> moves;
-		List<Pair<PhiNode*, Slot>> x87Moves;
+		phiMoves.clear();
+		x87Moves.clear();
 		for(Node* n : sched->phis(targetBlock)) {
 			PhiNode* phi = cast<PhiNode>(n);
 			Node* v = phi->getValue(predIdx);
@@ -456,9 +456,9 @@ namespace rat {
 			}
 			VReg t = fresh(cls);
 			moveValue(t, cls == detail::kFp ? sseValue(v) : gpValue(v), cls, opWidth(phi->getType()));
-			moves.push_back({phi, t});
+			phiMoves.push_back({phi, t});
 		}
-		for(const auto& [phi, t] : moves)
+		for(const auto& [phi, t] : phiMoves)
 			moveValue(vregFor(phi), t, classOf(phi->getType()), opWidth(phi->getType()));
 		for(const auto& [phi, t] : x87Moves)
 			fldSlot(x87SlotOf(phi), t);
@@ -498,7 +498,7 @@ namespace rat {
 	void X86LowerPass::lowerBlocks() {
 		layout();
 		const List<I32>& order = sched->rpo();
-		out->blocks.assign(sched->numBlocks(), {});
+		out->blocks.resize(sched->numBlocks());
 		for(U32 i = 0; i < order.size(); ++i) {
 			I32 b = order[i];
 			MachineBlock& block = out->blocks[b];
