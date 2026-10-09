@@ -1,5 +1,6 @@
 #include "pass/pass_manager.h"
 
+#include "analysis/call_graph.h"
 #include "codegen/machine_function.h"
 #include "ir/module.h"
 
@@ -25,20 +26,14 @@ namespace rat {
 		return machinePasses.emplace_back(std::move(p)).get();
 	}
 
-	void PassManager::gateLastOnChangesSinceSelf() {
-		gated.resize(passes.size(), false);
-		gated.back() = true;
-	}
-
 	void PassManager::record(const C8* name, U64 nanos) {
 		for(auto& t : timing) {
 			if(t.name == name) {
 				t.nanos += nanos;
-				++t.calls;
 				return;
 			}
 		}
-		timing.push_back({name, nanos, 1});
+		timing.push_back({name, nanos});
 	}
 
 	B32 PassManager::finish(const C8* name, U64 nanos, B32 changed, std::ostream* log) {
@@ -48,50 +43,51 @@ namespace rat {
 		return changed;
 	}
 
-	B32 PassManager::isDue(U32 i, const List<B32>& changedAt) const {
-		if(i >= gated.size() || !gated[i])
-			return true;
-		for(U32 j = i; j-- > 0;) {
-			if(std::strcmp(passes[j]->name(), passes[i]->name()) == 0)
-				return false;
-			if(changedAt[j])
-				return true;
-		}
-		return true;
+	U32 PassManager::functionPassRun(U32 first) const {
+		U32 last = first;
+		while(last < passes.size() && dynamic_cast<FunctionPass*>(passes[last].get()))
+			++last;
+		return last;
 	}
 
-	void PassManager::runAt(U32 i, Module& module, List<B32>& changedAt, std::ostream* log) {
-		Pass* pass = passes[i].get();
-		const C8* name = pass->name();
-		if(!isDue(i, changedAt)) {
-			if(log)
-				*log << "; " << name << " : skipped (no changes since last run)\n";
-			changedAt[i] = false;
-			return;
+	// passes [first, last) run function by function, callees first, so a callee is fully optimized
+	// before any caller inlines it
+	void PassManager::runFunctionPasses(U32 first, U32 last, Module& module, std::ostream* log) {
+		List<FunctionPass*> group;
+		for(U32 i = first; i < last; ++i)
+			group.push_back(static_cast<FunctionPass*>(passes[i].get()));
+		List<U64> nanos(group.size(), 0);
+		List<B32> changed(group.size(), false);
+		CallGraph graph;
+		graph.build(module);
+		for(FunctionPass* p : group)
+			p->beginModule(module, graph);
+		for(Function* fn : graph.bottomUp()) {
+			for(U32 i = 0; i < group.size(); ++i) {
+				U64 start = detail::nowNanos();
+				changed[i] |= group[i]->runFunction(*fn, *target);
+				nanos[i] += detail::nowNanos() - start;
+			}
 		}
-		U64 start = detail::nowNanos();
-		B32 changed = pass->run(module, *target);
-		changedAt[i] = finish(name, detail::nowNanos() - start, changed, log);
+		for(U32 i = 0; i < group.size(); ++i) {
+			group[i]->endModule(module);
+			finish(group[i]->name(), nanos[i], changed[i], log);
+		}
 	}
 
 	void PassManager::run(Module& module, std::ostream* log) {
-		List<B32> changedAt(passes.size(), false);
-		U32 n = (U32)passes.size();
-		U32 loopEnd = fixpointEnd; // fixpoint covers [0, loopEnd); rest runs once
-		if(fixpointEnd) {
-			constexpr U32 kMaxSweeps = 32;
-			B32 sweepChanged = true;
-			for(U32 s = 0; s < kMaxSweeps && sweepChanged; ++s) {
-				sweepChanged = false;
-				changedAt.assign(n, false);
-				for(U32 i = 0; i < loopEnd; ++i) {
-					runAt(i, module, changedAt, log);
-					sweepChanged = sweepChanged || changedAt[i];
-				}
+		for(U32 i = 0; i < passes.size();) {
+			U32 last = functionPassRun(i);
+			if(last > i) {
+				runFunctionPasses(i, last, module, log);
+				i = last;
+				continue;
 			}
+			U64 start = detail::nowNanos();
+			B32 changed = passes[i]->run(module, *target);
+			finish(passes[i]->name(), detail::nowNanos() - start, changed, log);
+			++i;
 		}
-		for(U32 i = loopEnd; i < n; ++i)
-			runAt(i, module, changedAt, log);
 		runMachine(module, log);
 	}
 

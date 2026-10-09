@@ -77,9 +77,10 @@ namespace rat {
 				{"x86-encode", "instruction encoding and object emission", &mk<MachinePass, X86EncodePass>},
 		};
 
-		// the -O1 pipeline; repeats gate on changes since their last run
-		static const C8* kDefaultOpt = "sccp fold simplifycfg gvn memoryopt inline fold gvn"
-																	 " strengthreduce fold gvn slp fold gvn dfe";
+		// the -O1 pipeline, run function by function, callees first; a repeat skips functions
+		// unchanged since its last run
+		static const C8* kDefaultOpt = "sccp fold simplifycfg gvn memoryopt inline fold gvn simplifycfg"
+																	 " memoryopt strengthreduce fold gvn slp fold gvn dfe";
 	} // namespace detail
 
 	UniquePtr<Pass> createPass(const String& name, std::ostream& out) {

@@ -4,16 +4,8 @@
 
 namespace rat::cc {
 	void composePipeline(PassManager& pm, CompileOptions& opt, std::ostream& out) {
-		Set<String> seen;
-		for(UniquePtr<Pass>& p : opt.optPasses) {
-			String name = p->name();
+		for(UniquePtr<Pass>& p : opt.optPasses)
 			pm.add(std::move(p));
-			if(!seen.insert(name).second)
-				pm.gateLastOnChangesSinceSelf();
-		}
-
-		pm.markFixpointEnd();
-
 		if(!opt.machinePasses.empty()) {
 			for(UniquePtr<MachinePass>& p : opt.machinePasses)
 				pm.add(std::move(p));

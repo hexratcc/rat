@@ -81,7 +81,7 @@ One node per line: `vN = <mnemonic> : <type> <operands>`. Constants carry their 
 `VerifyPass` ([`Pass/Verify.h`](./pass/verify.h)) checks edge consistency (every input lists the node as a user and vice versa, no cross-function edges, no nulls) plus per-opcode structural invariants: arity, tuple shapes of `start`/`if`/`call`, operand kinds (control/memory/data in the right slots), unique `start`/`stop`, and that `stop` collects exactly the function's returns.
 
 # passes
-Passes come in three kinds: module `Pass`, `FunctionPass` (run per function), and `MachinePass` (post-lowering, over machine state). The `PassManager` runs all IR passes first, then all machine passes, in insertion order, on one function at a time, and can report per-pass timing. For more info see [`Pass/Pass.h`](./pass/pass.h).
+Passes come in three kinds: module `Pass`, `FunctionPass` (run per function), and `MachinePass` (post-lowering, over machine state). The `PassManager` runs all IR passes first, then all machine passes, in insertion order, on one function at a time, and can report per-pass timing. Consecutive function passes run function by function in [call graph](./analysis/call_graph.h) order, callees first, so a callee is fully optimized before any caller inlines it; a repeated pass skips functions unchanged since its last run. For more info see [`Pass/Pass.h`](./pass/pass.h).
 
 ## optimization
 - [**fold:**](./pass/opt/fold.h) Peephole constant folding and algebraic simplification, applied as local graph rewrites. Covers constant arithmetic, identities (`x + 0`, `x * 1`, `x & x`, `x ^ x`, ...), reassociation of constant chains, strength reduction (`mul`/`udiv`/`urem` by powers of two into shifts/masks), shift-of-shift collapse, and constant compares/converts.
@@ -100,7 +100,7 @@ Visualization passes (`text-emitter`, `graph-emitter`) are covered in [x86-64 ba
 ## default pipeline
 `-O1` runs, in order:
 ```rs
-sccp, fold, simplifycfg, gvn, memoryopt, inline, fold, gvn, strengthreduce, fold, gvn, slp, fold, gvn, dfe
+sccp, fold, simplifycfg, gvn, memoryopt, inline, fold, gvn, simplifycfg, memoryopt, strengthreduce, fold, gvn, slp, fold, gvn, dfe
 ```
 
 # codegen
