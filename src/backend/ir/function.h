@@ -185,6 +185,7 @@ namespace rat {
 	private:
 		U32 allocateId();
 		Node** allocEdges(U32 count) { return arena.makeArray<Node*>(count); }
+		U32* allocSlots(U32 count) { return arena.makeArray<U32>(count); }
 		const C8* internString(const C8* s, U64 len) { return arena.internString(s, len); }
 		B32 isDeadNode(Node* n, B32 includeControl) const;
 		U32 eraseMarked(const List<U8>& mark);

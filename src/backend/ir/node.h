@@ -64,22 +64,27 @@ namespace rat {
 		B32 hasSideEffects() const;
 		B32 isCommutative() const;
 
+		// the users entry of input index points back at this node and slot
+		B32 inputEdgeIndexed(U32 index) const;
+
 		// the control anchor for anchored nodes
 		Node* getControlInput() const;
 
 		// find this node's projection or null
 		ProjNode* projection(U32 index) const;
 	protected:
-		void removeUser(Node* user);
-		void addUser(Node* user);
+		void detachInput(U32 index); // drop the users entry of a live slot
+		void addUser(Node* user, U32 slot);
 		void growInputs(U32 needed);
 
 		Opcode op;
 		Type* ty;
 		U32 id; // unique per function
 		Function* fn;
-		Node** inputs = nullptr; // ordered defs; may contain null placeholders
-		Node** users = nullptr;	 // reverse edges; one entry per using operand
+		Node** inputs = nullptr;	// ordered defs; may contain null placeholders
+		Node** users = nullptr;		// reverse edges; one entry per using operand
+		U32* inputPos = nullptr;	// index of this node's entry in inputs[i]->users
+		U32* userSlots = nullptr; // slot of users[k] that points here
 		U32 inputCount = 0;
 		U32 inputCap = 0;
 		U32 userCount = 0;

@@ -12,24 +12,31 @@ namespace rat {
 		if(inputCount) {
 			inputCap = inputCount;
 			this->inputs = fn.allocEdges(inputCap);
+			inputPos = fn.allocSlots(inputCap);
 			std::memcpy(this->inputs, inputs.data(), sizeof(Node*) * inputCount);
 			for(U32 i = 0; i < inputCount; ++i)
 				if(Node* in = this->inputs[i])
-					in->addUser(this);
+					in->addUser(this, i);
 		}
 	}
 
 	const C8* Node::getMnemonic() const { return getOpcodeMnemonic(op); }
 
-	void Node::addUser(Node* user) {
+	void Node::addUser(Node* user, U32 slot) {
 		if(userCount == userCap) {
 			U32 cap = userCap ? userCap * 2 : 4;
 			Node** grown = fn->allocEdges(cap);
-			if(userCount)
+			U32* grownSlots = fn->allocSlots(cap);
+			if(userCount) {
 				std::memcpy(grown, users, sizeof(Node*) * userCount);
+				std::memcpy(grownSlots, userSlots, sizeof(U32) * userCount);
+			}
 			users = grown;
+			userSlots = grownSlots;
 			userCap = cap;
 		}
+		user->inputPos[slot] = userCount;
+		userSlots[userCount] = slot;
 		users[userCount++] = user;
 	}
 
@@ -38,9 +45,13 @@ namespace rat {
 			return;
 		U32 cap = std::max(inputCap ? inputCap * 2 : 4, needed);
 		Node** grown = fn->allocEdges(cap);
-		if(inputCount)
+		U32* grownPos = fn->allocSlots(cap);
+		if(inputCount) {
 			std::memcpy(grown, inputs, sizeof(Node*) * inputCount);
+			std::memcpy(grownPos, inputPos, sizeof(U32) * inputCount);
+		}
 		inputs = grown;
+		inputPos = grownPos;
 		inputCap = cap;
 	}
 
@@ -49,36 +60,46 @@ namespace rat {
 		growInputs(inputCount + 1);
 		inputs[inputCount++] = value;
 		if(value)
-			value->addUser(this);
+			value->addUser(this, inputCount - 1);
 	}
 
-	void Node::removeUser(Node* user) {
-		// remove a single occurrence: each using operand contributes one entry;
-		for(U32 i = userCount; i-- > 0;)
-			if(users[i] == user) {
-				users[i] = users[--userCount];
-				return;
-			}
+	void Node::detachInput(U32 index) {
+		Node* def = inputs[index];
+		U32 at = inputPos[index];
+		U32 last = --def->userCount;
+		if(at == last)
+			return;
+		Node* moved = def->users[last];
+		U32 slot = def->userSlots[last];
+		def->users[at] = moved;
+		def->userSlots[at] = slot;
+		moved->inputPos[slot] = at;
 	}
 
 	void Node::setInput(U32 index, Node* value) {
+		assert(index < inputCount && "setInput on a slot that is not live");
 		Node* old = inputs[index];
 		if(old == value)
 			return;
 		fn->touch();
 		if(old)
-			old->removeUser(this);
+			detachInput(index);
 		inputs[index] = value;
 		if(value)
-			value->addUser(this);
+			value->addUser(this, index);
 	}
 
 	void Node::removeInput(U32 index) {
+		assert(index < inputCount && "removeInput on a slot that is not live");
 		fn->touch();
 		if(inputs[index])
-			inputs[index]->removeUser(this);
-		for(U32 i = index + 1; i < inputCount; ++i)
+			detachInput(index);
+		for(U32 i = index + 1; i < inputCount; ++i) {
 			inputs[i - 1] = inputs[i];
+			inputPos[i - 1] = inputPos[i];
+			if(inputs[i - 1])
+				inputs[i - 1]->userSlots[inputPos[i - 1]] = i - 1;
+		}
 		--inputCount;
 	}
 
@@ -87,7 +108,7 @@ namespace rat {
 			fn->touch();
 		for(U32 i = 0; i < inputCount; ++i)
 			if(inputs[i])
-				inputs[i]->removeUser(this);
+				detachInput(i);
 		inputCount = 0;
 	}
 
@@ -102,10 +123,16 @@ namespace rat {
 				if(user->inputs[i] == this) {
 					user->inputs[i] = value;
 					if(value)
-						value->addUser(user);
+						value->addUser(user, i);
 				}
 		}
 		userCount = 0;
+	}
+
+	B32 Node::inputEdgeIndexed(U32 index) const {
+		const Node* in = inputs[index];
+		U32 at = inputPos[index];
+		return at < in->userCount && in->users[at] == this && in->userSlots[at] == index;
 	}
 
 	B32 Node::isCFG() const { return getOpcodeInfo(op).isCFG; }

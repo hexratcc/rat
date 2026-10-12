@@ -92,9 +92,8 @@ namespace rat {
 				err(n, "input " + std::to_string(i) + " (" + vref(in) + ") is not a node of this function");
 				continue;
 			}
-			if(!listsAsUser(in, n))
-				err(n,
-						"broken reverse edge: input " + vref(in) + " does not list " + vref(n) + " as a user");
+			if(!n->inputEdgeIndexed(i))
+				err(n, "broken reverse edge: input " + vref(in) + " slot " + std::to_string(i));
 		}
 		for(Node* u : n->getUsers()) {
 			if(!u) {
