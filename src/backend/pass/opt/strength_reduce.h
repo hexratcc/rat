@@ -5,6 +5,7 @@
 
 #include "core.h"
 
+#include "ir/opcode.h"
 #include "pass/pass.h"
 
 namespace rat {
@@ -14,6 +15,7 @@ namespace rat {
 
 	namespace detail {
 		B32 matchLinearIV(PhiNode* p, I64& step, U32& recIdx);
+		B32 foldableScale(Opcode op, I64 k, U32 width);
 		ConstantNode* affineScale(Node* u, PhiNode* p);
 	} // namespace detail
 

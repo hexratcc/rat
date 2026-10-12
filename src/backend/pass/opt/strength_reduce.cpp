@@ -29,6 +29,14 @@ namespace rat {
 			return false;
 		}
 
+		B32 foldableScale(Opcode op, I64 k, U32 width) {
+			if(width != 64)
+				return false;
+			if(op == Opcode::Shl)
+				return k >= 1 && k <= 3;
+			return k == 2 || k == 4 || k == 8;
+		}
+
 		ConstantNode* affineScale(Node* u, PhiNode* p) {
 			if(u->getInputCount() != 2)
 				return nullptr;
@@ -42,7 +50,10 @@ namespace rat {
 			if(u->getInput(0) == p && u->getInput(1) == p)
 				return nullptr; // p * p is quadratic
 			Node* other = u->getInput(0) == p ? u->getInput(1) : u->getInput(0);
-			return dyn_cast<ConstantNode>(other);
+			ConstantNode* c = dyn_cast<ConstantNode>(other);
+			if(c && foldableScale(op, c->getValue(), p->getType()->getIntWidth()))
+				return nullptr;
+			return c;
 		}
 	} // namespace detail
 
