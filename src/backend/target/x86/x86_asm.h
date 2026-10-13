@@ -304,8 +304,8 @@ namespace rat {
 		void storeXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width);
 		void loadXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width);
 		void loadXmmRipSym(U32 xmm, const String& sym, U32 width);
-		// packed SSE op with an explicit mandatory prefix (0 = none), esc38 adds the sse4.1 escape
-		void ssePacked(U8 pfx, U8 op, U32 dst, U32 src, B32 esc38);
+		// packed SSE op with an explicit mandatory prefix and escape byte 0x38 or 0x3a, 0 = none
+		void ssePacked(U8 pfx, U8 op, U32 dst, U32 src, U8 esc);
 		void movaps(U32 dst, U32 src);
 		void sseArith(U8 op, U32 w, U32 d, U32 s);
 		void ucomis(U32 w, U32 a, U32 bx);

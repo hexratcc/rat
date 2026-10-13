@@ -422,23 +422,23 @@ namespace rat {
 		b((U8)(0x05 | ((xmm & 7) << 3))); // rip-relative
 		relocs.push_back({reserve32(), sym, RelocKind::Pc32, -4});
 	}
-	void Asm::ssePacked(U8 pfx, U8 op, U32 dst, U32 src, B32 esc38) {
+	void Asm::ssePacked(U8 pfx, U8 op, U32 dst, U32 src, U8 esc) {
 		if(pfx)
 			b(pfx);
 		rex(false, dst, 0, src);
 		b(0x0f);
-		if(esc38)
-			b(0x38);
+		if(esc)
+			b(esc);
 		b(op);
 		modrmReg(dst, src);
 	}
-	void Asm::movaps(U32 dst, U32 src) { ssePacked(0, 0x28, dst, src, false); }
-	void Asm::sseArith(U8 op, U32 w, U32 d, U32 s) { ssePacked(ssePrefixByte(w), op, d, s, false); }
-	void Asm::ucomis(U32 w, U32 a, U32 bx) { ssePacked(w == 8 ? 0x66 : 0, 0x2e, a, bx, false); }
-	void Asm::pxor(U32 a, U32 bx) { ssePacked(0x66, 0xef, a, bx, false); }
-	void Asm::pcmpeqd(U32 a, U32 bx) { ssePacked(0x66, 0x76, a, bx, false); }
+	void Asm::movaps(U32 dst, U32 src) { ssePacked(0, 0x28, dst, src, 0); }
+	void Asm::sseArith(U8 op, U32 w, U32 d, U32 s) { ssePacked(ssePrefixByte(w), op, d, s, 0); }
+	void Asm::ucomis(U32 w, U32 a, U32 bx) { ssePacked(w == 8 ? 0x66 : 0, 0x2e, a, bx, 0); }
+	void Asm::pxor(U32 a, U32 bx) { ssePacked(0x66, 0xef, a, bx, 0); }
+	void Asm::pcmpeqd(U32 a, U32 bx) { ssePacked(0x66, 0x76, a, bx, 0); }
 	void Asm::pshufd(U32 dst, U32 src, U8 sel) {
-		ssePacked(0x66, 0x70, dst, src, false);
+		ssePacked(0x66, 0x70, dst, src, 0);
 		b(sel);
 	}
 	void Asm::movdXmmGp(U32 xmm, Reg src, B32 wide) {

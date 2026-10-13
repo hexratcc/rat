@@ -93,9 +93,9 @@ namespace rat {
 		FCmpFlags, // flags-only ucomis use[0],use[1]; swap in imm2 (cc consumed by a fused Br)
 		Cvt,			 // SSE convert; pfx/opc/w packed in imm
 		// SSE packed vector (128-bit)
-		VArith,		// dst = dst OP use[1] packed; imm = (0f38 escape << 16) | (prefix << 8) | opcode byte
-		VSplat,		// dst = broadcast use[0] to all lanes; imm = elem bytes, imm2 = int?
-		VExtract, // dst = lane imm of use[0]; imm2 = (elem bytes << 1) | int?
+		VArith,			// dst = dst OP use[1] packed; imm = (escape << 16) | (prefix << 8) | opcode byte
+		VSplat,			// dst = broadcast use[0] to all lanes; imm = elem bytes, imm2 = int?
+		VExtract,		// dst = lane imm of use[0]; imm2 = (elem bytes << 1) | int?
 		VPackLane,	// [vec scratch + imm2>>1 * imm] = use[0]
 		VPack,			// dst = the vec scratch slot
 		VPackReg,		// dst = movd/movq of int lane use[0]

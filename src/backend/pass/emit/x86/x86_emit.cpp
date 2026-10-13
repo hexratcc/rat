@@ -244,9 +244,16 @@ namespace rat {
 
 	// sse packed vector
 
+	// the VArith imm of the instruction pfx 0f esc opc, a pfx or esc of 0 is left out
+	I64 X86LowerPass::vecDesc(U8 pfx, U8 opc, U8 esc) {
+		return ((I64)esc << 16) | ((I64)pfx << 8) | opc;
+	}
+
 	void X86LowerPass::varith(VReg d, VReg a, VReg b, U8 pfx, U8 opc, B32 esc38) {
-		I64 desc = ((I64)(esc38 ? 1 : 0) << 16) | ((I64)pfx << 8) | opc;
-		farith(X86Op::VArith, d, a, b, 16, desc);
+		U8 esc = 0;
+		if(esc38)
+			esc = 0x38;
+		farith(X86Op::VArith, d, a, b, 16, vecDesc(pfx, opc, esc));
 	}
 
 	void X86LowerPass::vsplat(VReg d, VReg s, U32 esz, B32 isInt) {
