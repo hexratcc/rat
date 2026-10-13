@@ -670,7 +670,7 @@ namespace rat {
 		TopoScratch scratch;
 		scratch.localOf.assign(fn.idBound(), -1);
 		scratch.stHead.assign(fn.idBound(), -1);
-		AliasAnalysis aa(8);
+		AliasAnalysis aa(8, AliasAnalysis::restrictFacts(fn));
 		for(U32 b = 0; b < nb; ++b)
 			topoOrder(
 					nodeFlat.data() + nodeStart[b], (U32)(nodeStart[b + 1] - nodeStart[b]), aa, scratch);

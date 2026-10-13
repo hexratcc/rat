@@ -180,7 +180,7 @@ namespace rat {
 	U32 MemoryOptPass::runOnFunction(Function& fn, const TargetInfo& target) {
 		fn.eliminateDeadNodes();
 
-		AliasAnalysis aa(target.getPointerSizeInBytes());
+		AliasAnalysis aa(target.getPointerSizeInBytes(), 0);
 
 		loads.clear();
 		for(Node* n : fn)

@@ -93,7 +93,7 @@ namespace rat {
 	: fn(fn),
 		ptrBytes(target.getPointerSizeInBytes()),
 		sse41(target.hasSse41()),
-		aa(ptrBytes),
+		aa(ptrBytes, 0),
 		stats(stats) {}
 
 	const Slp::StoreAddr& slp::Slp::storeAddr(StoreNode* s) {

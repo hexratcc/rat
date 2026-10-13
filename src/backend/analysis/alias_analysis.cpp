@@ -1,6 +1,8 @@
 #include "analysis/alias_analysis.h"
 
+#include "ir/function.h"
 #include "ir/node.h"
+#include "ir/opcode.h"
 #include "ir/type.h"
 
 namespace rat {
@@ -8,8 +10,9 @@ namespace rat {
 		B32 idLess(const Node* a, const Node* b) { return a->getId() < b->getId(); }
 	} // namespace detail
 
-	AliasAnalysis::AliasAnalysis(U32 pointerBytes)
-	: ptrBytes(pointerBytes) {}
+	AliasAnalysis::AliasAnalysis(U32 pointerBytes, U64 restrictParams)
+	: ptrBytes(pointerBytes),
+		restrictParams(restrictParams) {}
 
 	const AliasAnalysis::Address& AliasAnalysis::decompose(Node* addr) const {
 		auto it = decomposeCache.find(addr);
@@ -80,10 +83,77 @@ namespace rat {
 		return cast<GlobalNode>(a)->getSymbol() != cast<GlobalNode>(b)->getSymbol();
 	}
 
+	I32 AliasAnalysis::paramIndex(const Node* n) {
+		const ProjNode* p = dyn_cast<ProjNode>(n);
+		U32 first = StartNode::paramProjIndex(0);
+		if(!p || !isa<StartNode>(p->getProducer()) || p->getIndex() < first)
+			return -1;
+		return (I32)(p->getIndex() - first);
+	}
+
+	B32 AliasAnalysis::isRestrictParam(I32 index, U64 restricts) {
+		return index >= 0 && index < (I32)kMaxRestrictParams && (restricts >> index & 1);
+	}
+
+	B32 AliasAnalysis::mayCarryRestrict(List<const Node*> work, U64 restricts, U32 cap) {
+		Set<const Node*> seen;
+		while(!work.empty()) {
+			const Node* c = work.back();
+			work.pop_back();
+			if(!c || !seen.insert(c).second)
+				continue;
+			if(seen.size() > cap)
+				return true;
+			Opcode op = c->getOpcode();
+			I32 index = paramIndex(c);
+			if(isRestrictParam(index, restricts))
+				return true;
+			if(index >= 0 || op == Opcode::Constant || op == Opcode::Load || op == Opcode::Proj ||
+				 isIdentified(c))
+				continue;
+			B32 pure = isArithmeticOpcode(op) || isVectorUtilOpcode(op) || op == Opcode::Select ||
+								 op == Opcode::Phi;
+			if(!pure)
+				return true;
+			for(U32 i = 0; i < c->getInputCount(); ++i)
+				if(const Node* in = c->getInput(i); in && in->getType() && in->getType()->isData())
+					work.push_back(in);
+		}
+		return false;
+	}
+
+	U64 AliasAnalysis::restrictFacts(const Function& fn) {
+		U64 restricts = fn.getAttrs().restrictParams;
+		if(!restricts)
+			return 0;
+		List<const Node*> taken;
+		for(Node* n : fn) {
+			if(StoreNode* s = dyn_cast<StoreNode>(n); s && s->getInputCount())
+				taken.push_back(s->getValue());
+			else if(isa<CallNode>(n) || isa<AsmNode>(n))
+				for(U32 i = 2; i < n->getInputCount(); ++i)
+					taken.push_back(n->getInput(i));
+		}
+		if(mayCarryRestrict(std::move(taken), restricts, ~0u))
+			return 0;
+		return restricts;
+	}
+
 	Node* AliasAnalysis::objectOf(Node* addr) const {
-		Node* base = decompose(addr).base;
-		if(!isIdentified(base))
+		const Address& a = decompose(addr);
+		Node* base = a.base;
+		I32 index = paramIndex(base);
+		B32 isRestrict = isRestrictParam(index, restrictParams);
+		if(!isRestrict && !isIdentified(base))
 			return nullptr;
+		for(Node* t : a.symbolic)
+			if(restrictParams && mayCarryRestrict({t}, restrictParams, kMaxCarryCone))
+				return nullptr;
+		if(isRestrict) {
+			if(!paramObjects[index])
+				paramObjects[index] = base;
+			return paramObjects[index];
+		}
 		GlobalNode* g = dyn_cast<GlobalNode>(base);
 		if(!g)
 			return base;

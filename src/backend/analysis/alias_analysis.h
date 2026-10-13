@@ -11,6 +11,7 @@
 
 #include "core.h"
 #include "hash.h"
+#include "ir/function.h"
 
 namespace rat {
 	struct Node;
@@ -22,7 +23,9 @@ namespace rat {
 	enum class AliasResult { NoAlias, MayAlias, MustAlias };
 
 	struct AliasAnalysis {
-		AliasAnalysis(U32 pointerBytes);
+		static constexpr U32 kMaxCarryCone = 32; // cone nodes mayCarryRestrict walks per address term
+
+		AliasAnalysis(U32 pointerBytes, U64 restrictParams);
 
 		AliasResult alias(Node* addrA, U32 sizeA, Node* addrB, U32 sizeB) const;
 
@@ -57,6 +60,10 @@ namespace rat {
 		// object identity, independent of any offset
 		static B32 isIdentified(const Node* n); // an Alloc or a Global
 		static B32 distinctObjects(const Node* a, const Node* b);
+		static I32 paramIndex(const Node* n); // parameter of a Start projection, else -1
+		static B32 isRestrictParam(I32 index, U64 restricts);
+		static B32 mayCarryRestrict(List<const Node*> work, U64 restricts, U32 cap);
+		static U64 restrictFacts(const Function& fn);
 		Node* objectOf(Node* addr) const;
 	private:
 		struct Address {
@@ -69,8 +76,11 @@ namespace rat {
 		static Node* accessAddress(Node* n); // pointer operand of a Load/Store (else null)
 	private:
 		U32 ptrBytes;
+		U64 restrictParams;
 		mutable Map<Node*, Address> decomposeCache;
 		mutable Map<String, Node*> symbolObjects; // first global node seen per symbol
+		// first projection seen per restrict parameter
+		mutable Node* paramObjects[kMaxRestrictParams] = {};
 	};
 } // namespace rat
 
