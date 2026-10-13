@@ -112,6 +112,7 @@ namespace rat {
 		I32 predBlockForRegionInput(I32 regionBlock, U32 i) const;
 		I32 hoistTarget(const Node* n, I32 late, I32 early) const;
 		I32 homeBlock(Node* n) const;
+		B32 loadsGlobal(const Node* n) const;
 		B32 isGuarded(const Node* n) const;
 
 		struct TopoScratch {

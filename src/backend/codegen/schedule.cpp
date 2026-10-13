@@ -2,6 +2,7 @@
 
 #include "analysis/alias_analysis.h"
 #include "ir/function.h"
+#include "ir/module.h"
 #include "ir/node.h"
 
 namespace rat {
@@ -394,6 +395,18 @@ namespace rat {
 		return d == 0 || (isSigned && d == -1); // INT_MIN / -1 traps
 	}
 
+	// a load inside a global this module defines cannot fault, so it may run before a branch
+	B32 Schedule::loadsGlobal(const Node* n) const {
+		const LoadNode* l = dyn_cast<LoadNode>(n);
+		if(!l)
+			return false;
+		const GlobalNode* g = dyn_cast<GlobalNode>(l->getPointer());
+		if(!g)
+			return false;
+		const Global* obj = fn.getModule().getGlobal(g->getSymbol());
+		return obj && !obj->isAlias() && obj->getType()->byteSize(8) >= l->getType()->byteSize(8);
+	}
+
 	B32 Schedule::isGuarded(const Node* n) const {
 		if(isa<LoadNode>(n))
 			return false;
@@ -414,7 +427,7 @@ namespace rat {
 			return late; // nothing above is shallower, so the walk cannot move it
 		Opcode op = n->getOpcode();
 		B32 remat = op == Opcode::Constant || op == Opcode::Global;
-		B32 trapping = mayTrap(n) || (!guarded.empty() && guarded[n->getId()]);
+		B32 trapping = (mayTrap(n) && !loadsGlobal(n)) || (!guarded.empty() && guarded[n->getId()]);
 		I32 cur = late, pick = late;
 		while(true) {
 			if(blocks[cur].loopDepth < blocks[pick].loopDepth) {
