@@ -342,6 +342,7 @@ namespace rat::cc {
 	void Emitter::storeLValue(Function& fn, const LValue& lv, Node* value) {
 		if(lv.isVar()) {
 			fn.set(lv.var, value);
+			dropRestrictParam(fn, lv.var);
 			return;
 		}
 		B32 isVolatile = isTopVolatile(lv.type);
@@ -457,9 +458,25 @@ namespace rat::cc {
 				fn.store(slot, arg, isTopVolatile(p.type));
 				func.scopes.declare(*p.name, Local::mem(slot, p.type));
 			} else {
-				func.scopes.declare(*p.name, Local::inVar(fn.declareLocal(*p.name, arg), p.type));
+				Function::Var v = fn.declareLocal(*p.name, arg);
+				func.scopes.declare(*p.name, Local::inVar(v, p.type));
+				if(isPointer(p.type) && isTopRestrict(p.type))
+					markRestrictParam(fn, v, paramBase + i);
 			}
 		}
+	}
+
+	void Emitter::markRestrictParam(Function& fn, Function::Var v, U32 index) {
+		if(index >= kMaxRestrictParams)
+			return;
+		fn.getAttrs().restrictParams |= (U64)1 << index;
+		func.restrictVars.push_back({v, index});
+	}
+
+	void Emitter::dropRestrictParam(Function& fn, Function::Var v) {
+		for(const auto& [var, index] : func.restrictVars)
+			if(var == v)
+				fn.getAttrs().restrictParams &= ~((U64)1 << index);
 	}
 
 	B32 Emitter::emitFunctionBody(const FuncDef* def) {

@@ -52,8 +52,8 @@ namespace rat {
 			B32 parse(std::istream& in);
 			Type* parseType(const String& s);
 			Type* parseCounted(const String& t, const C8* kind, const C8* countName, U32& count);
-			B32 parseTypeList(const String& s, List<Type*>& out);
-			B32 flushType(String& cur, List<Type*>& out);
+			B32 parseTypeList(const String& s, List<Type*>& out, U64* restricts = nullptr);
+			B32 flushType(String& cur, List<Type*>& out, U64* restricts);
 			B32 parseGlobal(const String& line);
 			B32 parseFunction(const String& header, std::istream& in);
 			B32 parseNodeLine(const String& line, ParsedNode& pn);
@@ -62,6 +62,7 @@ namespace rat {
 			B32 parseLaneOp(const String& remainder, const String& line, ParsedNode& pn);
 			B32 singleRef(const String& remainder, const String& error, ParsedNode& pn);
 			static B32 takeKeyword(String& body, const C8* word);
+			static B32 takeSuffix(String& body, const C8* word);
 
 			B32 build(Function* fn, const List<ParsedNode>& nodes);
 			void seedStartStop(Function* fn, const List<ParsedNode>& nodes);

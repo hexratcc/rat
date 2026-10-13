@@ -222,7 +222,7 @@ namespace rat {
 			return elem;
 		}
 
-		B32 Parser::parseTypeList(const String& s, List<Type*>& out) {
+		B32 Parser::parseTypeList(const String& s, List<Type*>& out, U64* restricts) {
 			U32 depth = 0;
 			String cur;
 			for(C8 c : s) {
@@ -231,20 +231,22 @@ namespace rat {
 				if(c == ')')
 					--depth;
 				if(c == ',' && depth == 0) {
-					if(!flushType(cur, out))
+					if(!flushType(cur, out, restricts))
 						return false;
 				} else {
 					cur.push_back(c);
 				}
 			}
-			return flushType(cur, out);
+			return flushType(cur, out, restricts);
 		}
 
-		B32 Parser::flushType(String& cur, List<Type*>& out) {
+		B32 Parser::flushType(String& cur, List<Type*>& out, U64* restricts) {
 			String e = trim(cur);
 			cur.clear();
 			if(e.empty())
 				return true;
+			if(restricts && takeSuffix(e, " restrict") && out.size() < kMaxRestrictParams)
+				*restricts |= (U64)1 << out.size();
 			Type* et = parseType(e);
 			if(!et)
 				return false;
@@ -294,7 +296,8 @@ namespace rat {
 			}
 
 			List<Type*> params;
-			if(!parseTypeList(paramsStr, params))
+			U64 restricts = 0;
+			if(!parseTypeList(paramsStr, params, &restricts))
 				return false;
 
 			Type* ret = nullptr;
@@ -306,6 +309,7 @@ namespace rat {
 
 			Function* fn = mod.createFunction(name, params, ret);
 			fn->getAttrs().noInline = noInline;
+			fn->getAttrs().restrictParams = restricts;
 
 			List<ParsedNode> parsed;
 			String line;
@@ -432,6 +436,15 @@ namespace rat {
 			if(body.rfind(word, 0) != 0 || (body.size() != n && !std::isspace((U8)body[n])))
 				return false;
 			body = body.substr(n);
+			return true;
+		}
+
+		// strip a trailing word that follows other text, then trim the rest
+		B32 Parser::takeSuffix(String& body, const C8* word) {
+			U32 n = (U32)std::strlen(word);
+			if(body.size() <= n || body.compare(body.size() - n, n, word) != 0)
+				return false;
+			body = trim(body.substr(0, body.size() - n));
 			return true;
 		}
 

@@ -19,11 +19,14 @@ namespace rat {
 	// symbol linkage, shared by functions and globals
 	enum class Linkage { External, Internal };
 
+	constexpr U32 kMaxRestrictParams = 64;
+
 	struct FunctionAttrs {
 		Linkage linkage = Linkage::External;
 		U32 align = 0; // 0 = target default
 		B32 variadic = false;
 		B32 noInline = false;
+		U64 restrictParams = 0;
 
 		B32 isInternal() const { return linkage == Linkage::Internal; }
 	};

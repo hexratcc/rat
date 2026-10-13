@@ -81,6 +81,7 @@ namespace rat::cc {
 		Node* sp = nullptr;
 		B32 sawAlloca = false;
 		Set<String> addrTaken;
+		List<Pair<Function::Var, U32>> restrictVars;
 		Map<String, Label> labels;
 		List<LoopFrame> loops;
 		List<Map<const Stmt*, Block*>> switches;
