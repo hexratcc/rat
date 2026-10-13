@@ -80,6 +80,16 @@ namespace rat {
 		return cast<GlobalNode>(a)->getSymbol() != cast<GlobalNode>(b)->getSymbol();
 	}
 
+	Node* AliasAnalysis::objectOf(Node* addr) const {
+		Node* base = decompose(addr).base;
+		if(!isIdentified(base))
+			return nullptr;
+		GlobalNode* g = dyn_cast<GlobalNode>(base);
+		if(!g)
+			return base;
+		return symbolObjects.try_emplace(g->getSymbol(), base).first->second;
+	}
+
 	AliasResult AliasAnalysis::alias(Node* addrA, U32 sizeA, Node* addrB, U32 sizeB) const {
 		// alias query between two addresses with known access sizes (0 = unknown)
 		const Address& a = decompose(addrA);

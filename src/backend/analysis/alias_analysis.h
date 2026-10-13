@@ -57,6 +57,7 @@ namespace rat {
 		// object identity, independent of any offset
 		static B32 isIdentified(const Node* n); // an Alloc or a Global
 		static B32 distinctObjects(const Node* a, const Node* b);
+		Node* objectOf(Node* addr) const;
 	private:
 		struct Address {
 			Node* base;						// pointer
@@ -69,6 +70,7 @@ namespace rat {
 	private:
 		U32 ptrBytes;
 		mutable Map<Node*, Address> decomposeCache;
+		mutable Map<String, Node*> symbolObjects; // first global node seen per symbol
 	};
 } // namespace rat
 
