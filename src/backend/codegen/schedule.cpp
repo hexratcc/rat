@@ -615,6 +615,24 @@ namespace rat {
 			flat[fill[keys[i]]++] = items[i];
 	}
 
+	B32 Schedule::emitsEarly(const Node* n) {
+		NodeSpan users = n->getUsers();
+		if(users.empty() || isa<LoadNode>(n) || !isFloating(n))
+			return true;
+		for(Node* u : users)
+			if(!isa<PhiNode>(u))
+				return true;
+		B32 readsUser = false;
+		for(U32 i = 0, e = n->getInputCount(); i < e; ++i) {
+			Node* in = n->getInput(i);
+			B32 user = std::find(users.begin(), users.end(), in) != users.end();
+			if(!user && !isa<ConstantNode>(in))
+				return true;
+			readsUser |= user;
+		}
+		return !readsUser;
+	}
+
 	void Schedule::buildBlockLists() {
 		U32 nb = (U32)blocks.size();
 		List<I32> keys;
@@ -622,7 +640,7 @@ namespace rat {
 			keys.push_back(headBlock(cast<PhiNode>(phi)->getRegion()));
 		bucket(dataPhis, keys, nb, phiStart, phiFlat);
 
-		// placed nodes in function (id) order
+		// placed nodes in function (id) order, induction steps last
 		List<Node*> listed;
 		for(Node* n : floating)
 			if(nodeBlock[n->getId()] >= 0)
@@ -630,6 +648,7 @@ namespace rat {
 		auto mid = listed.insert(listed.end(), pinned.begin(), pinned.end());
 		std::sort(mid, listed.end(), detail::earlierId);
 		std::inplace_merge(listed.begin(), mid, listed.end(), detail::earlierId);
+		std::stable_partition(listed.begin(), listed.end(), emitsEarly);
 		keys.clear();
 		for(Node* n : listed)
 			keys.push_back(nodeBlock[n->getId()]);

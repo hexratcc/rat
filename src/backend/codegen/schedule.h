@@ -95,6 +95,7 @@ namespace rat {
 		void placeLoads(const List<Node*>& loads, const List<I32>& early);
 		B32 place(Node* n, I32 late, const List<I32>& early);
 		void buildBlockLists();
+		static B32 emitsEarly(const Node* n);
 		static void bucket(const List<Node*>& items,
 											 const List<I32>& keys,
 											 U32 nb,
@@ -121,7 +122,7 @@ namespace rat {
 			List<I32> succHead;		// per local index: head of the extra-edge chain (-1)
 			List<I32> succNext;		// edge -> next edge in the chain
 			List<I32> succTo;			// edge -> target local index
-			List<I32> ready;			// binary heap of ready local indices, local order is id order
+			List<I32> ready;			// binary heap of ready local indices, local order is list order
 			List<Node*> out;			// topological order when some edge runs backward
 			B32 backward = false; // some edge runs against local order
 
