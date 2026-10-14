@@ -351,10 +351,16 @@ namespace rat {
 					err(n, "Pack lane " + std::to_string(i) + " type does not match the vector element");
 			break;
 		default:
-			if(!t->isVec())
-				err(n, "Shuffle type must be a vector");
-			else if(in != t)
+			if(!t->isVec() || t->getVecLanes() > ShuffleNode::kMaxLanes) {
+				String maxLanes = std::to_string(ShuffleNode::kMaxLanes);
+				err(n, "Shuffle type must be a vector of at most " + maxLanes + " lanes");
+				break;
+			}
+			if(in != t || n->getInput(1)->getType() != t)
 				err(n, "Shuffle operand type does not match the result vector");
+			for(U32 i = 0; i < t->getVecLanes(); ++i)
+				if(cast<ShuffleNode>(n)->getSource(i) >= 2 * t->getVecLanes())
+					err(n, "Shuffle lane source is out of range");
 			break;
 		}
 	}

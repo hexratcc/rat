@@ -399,11 +399,9 @@ namespace rat {
 		case Opcode::Pack:
 			emitPack(cast<PackNode>(n));
 			return;
-		case Opcode::Shuffle: {
-			VReg v = sseValue(cast<ShuffleNode>(n)->getVector());
-			vshuf(vregFor(n), v, cast<ShuffleNode>(n)->getSelector());
+		case Opcode::Shuffle:
+			emitShuffle(cast<ShuffleNode>(n));
 			return;
-		}
 		case Opcode::Select:
 			emitSelect(cast<SelectNode>(n));
 			return;

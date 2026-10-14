@@ -427,6 +427,54 @@ namespace rat {
 			vmerge(d, s, 0, 0x16, 0, -1);
 	}
 
+	void X86LowerPass::shuffleDwords(const ShuffleNode* n, U8& sel, U8& mask, B32& inPlace) {
+		Type* vt = n->getType();
+		U32 lanes = vt->getVecLanes();
+		U32 per = opWidth(vt->getVecElement()) / 4;
+		U32 src[4] = {0, 1, 2, 3};
+		for(U32 i = 0; i < lanes; ++i) {
+			U32 s = n->getSource(i);
+			for(U32 k = 0; k < per; ++k)
+				src[i * per + k] = s / lanes * 4 + s % lanes * per + k;
+		}
+		sel = 0;
+		mask = 0;
+		inPlace = true;
+		for(U32 i = 0; i < 4; ++i) {
+			if(n->getFirst() == n->getSecond())
+				src[i] &= 3;
+			sel |= (U8)((src[i] & 3) << (2 * i));
+			mask |= (U8)((src[i] >> 2) << i);
+			inPlace &= (src[i] & 3) == i;
+		}
+	}
+
+	void X86LowerPass::emitShuffle(ShuffleNode* n) {
+		U8 sel = 0, mask = 0;
+		B32 inPlace = true;
+		shuffleDwords(n, sel, mask, inPlace);
+		VReg a = sseValue(n->getFirst());
+		VReg b = sseValue(n->getSecond());
+		VReg d = vregFor(n);
+		if(inPlace && mask != 0 && mask != 15) {
+			varithImm(d, a, b, 0x66, 0x0c, 0x3a, mask); // blendps
+			return;
+		}
+		if(mask == 15 || mask == 3)
+			std::swap(a, b); // the low half comes from second
+		if(mask == 0 || mask == 15) {
+			vshuf(d, a, sel);
+		} else if(mask == 12 || mask == 3) {
+			varithImm(d, a, b, 0, 0xc6, 0, sel); // shufps
+		} else {
+			VReg ta = fresh(detail::kFp);
+			VReg tb = fresh(detail::kFp);
+			vshuf(ta, a, sel);
+			vshuf(tb, b, sel);
+			varithImm(d, ta, tb, 0x66, 0x0c, 0x3a, mask);
+		}
+	}
+
 	// a fresh register holding a constant too wide for an ALU immediate
 	VReg X86LowerPass::gpConst(I64 v) {
 		VReg t = fresh(detail::kGp);

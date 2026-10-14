@@ -471,6 +471,11 @@ namespace rat {
 			// reuse the proj payload slot for the selector
 			if(!parseIndex(laneTok.substr(1), pn.projIndex))
 				return fail("lane selector out of range: " + line);
+			if(pn.op == Opcode::Shuffle) {
+				pn.operands = parseVRefs(remainder);
+				B32 ok = pn.operands.size() == 2 && pn.projIndex <= UINT16_MAX;
+				return ok || fail("shuffle takes a 16-bit selector and two vectors: " + line);
+			}
 			return singleRef(remainder, "lane op must reference exactly one vector: " + line, pn);
 		}
 
@@ -596,7 +601,7 @@ namespace rat {
 			case Opcode::Extract:
 				return fn->create<ExtractNode>(pn.ty, in[0], pn.projIndex);
 			case Opcode::Shuffle:
-				return fn->create<ShuffleNode>(pn.ty, in[0], (U8)pn.projIndex);
+				return fn->create<ShuffleNode>(pn.ty, in[0], in[1], (U16)pn.projIndex);
 			case Opcode::Select:
 				return fn->create<SelectNode>(pn.ty, in[0], in[1], in[2]);
 			case Opcode::Pack:

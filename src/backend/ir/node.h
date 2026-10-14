@@ -334,14 +334,20 @@ namespace rat {
 		Node* getFalse() const;
 	};
 
-	// permute 32-bit lanes by a pshufd-style selector
+	// lane i of the result is lane (sel >> 4i) & 15 of the lanes of first followed by those of second
 	struct ShuffleNode : Node {
-		ShuffleNode(Function& fn, Type* vecType, Node* vector, U8 sel);
+		static constexpr U32 kSourceBits = 4;
+		static constexpr U32 kSourceMask = (1u << kSourceBits) - 1;
+		static constexpr U32 kMaxLanes = 4; // a 16-bit selector holds four sources
 
-		Node* getVector() const;
-		U8 getSelector() const;
+		ShuffleNode(Function& fn, Type* vecType, Node* first, Node* second, U16 sel);
+
+		Node* getFirst() const;
+		Node* getSecond() const;
+		U16 getSelector() const;
+		U32 getSource(U32 lane) const;
 	private:
-		U8 sel;
+		U16 sel;
 	};
 
 	// address of a module-level symbol (global or function), as a pointer

@@ -358,12 +358,14 @@ namespace rat {
 	Node* SelectNode::getTrue() const { return getInput(1); }
 	Node* SelectNode::getFalse() const { return getInput(2); }
 
-	ShuffleNode::ShuffleNode(Function& fn, Type* vecType, Node* vector, U8 sel)
-	: Node(fn, Opcode::Shuffle, vecType, {vector}),
+	ShuffleNode::ShuffleNode(Function& fn, Type* vecType, Node* first, Node* second, U16 sel)
+	: Node(fn, Opcode::Shuffle, vecType, {first, second}),
 		sel(sel) {}
 
-	Node* ShuffleNode::getVector() const { return getInput(0); }
-	U8 ShuffleNode::getSelector() const { return sel; }
+	Node* ShuffleNode::getFirst() const { return getInput(0); }
+	Node* ShuffleNode::getSecond() const { return getInput(1); }
+	U16 ShuffleNode::getSelector() const { return sel; }
+	U32 ShuffleNode::getSource(U32 lane) const { return sel >> (kSourceBits * lane) & kSourceMask; }
 
 	B32 isControlNode(const Node* n) {
 		switch(n->getOpcode()) {
@@ -450,7 +452,7 @@ namespace rat {
 		case Opcode::Pack:
 			return into.create<PackNode>(t, nulls);
 		case Opcode::Shuffle:
-			return into.create<ShuffleNode>(t, nullptr, cast<ShuffleNode>(n)->getSelector());
+			return into.create<ShuffleNode>(t, nullptr, nullptr, cast<ShuffleNode>(n)->getSelector());
 		case Opcode::Select:
 			return into.create<SelectNode>(t, nullptr, nullptr, nullptr);
 		default:

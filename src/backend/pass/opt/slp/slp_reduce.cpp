@@ -49,10 +49,13 @@ namespace rat {
 
 	// log2 shuffle+add finish
 	Node* slp::Slp::emitHsum(Node* acc, Opcode addOp, Type* vecTy, U32 w) {
-		Node* s1 = fn.create<ShuffleNode>(vecTy, acc, (U8)0x4e); // swap 64-bit halves
+		U16 half = 0x01; // swap the two lanes
+		if(w == 4)
+			half = 0x1032; // swap the 64-bit halves
+		Node* s1 = fn.create<ShuffleNode>(vecTy, acc, acc, half);
 		acc = fn.create<BinaryNode>(addOp, vecTy, acc, s1);
 		if(w == 4) {
-			Node* s2 = fn.create<ShuffleNode>(vecTy, acc, (U8)0xb1); // swap 32-bit pairs
+			Node* s2 = fn.create<ShuffleNode>(vecTy, acc, acc, (U16)0x2301); // swap 32-bit pairs
 			acc = fn.create<BinaryNode>(addOp, vecTy, acc, s2);
 		}
 		return acc;

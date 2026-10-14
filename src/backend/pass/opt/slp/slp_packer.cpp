@@ -364,15 +364,11 @@ namespace rat {
 			Node* wide = fn.create<LoadNode>(
 					vecTy, cs[i].load->getControl(), cs[i].load->getMemory(), cs[i].load->getPointer());
 			for(U32 j = 0; j < w; ++j) {
-				// broadcast lane j: pshufd selector for 4-byte lanes, unpack hi/lo for 8-byte
-				U8 sel;
-				if(esz == 4)
-					sel = (U8)(j * 0x55);
-				else if(j)
-					sel = 0xee;
-				else
-					sel = 0x44;
-				cs[i + j].splat->replaceAllUsesWith(fn.create<ShuffleNode>(vecTy, wide, sel));
+				// broadcast lane j
+				U16 sel = 0;
+				for(U32 k = 0; k < w; ++k)
+					sel |= (U16)(j << (ShuffleNode::kSourceBits * k));
+				cs[i + j].splat->replaceAllUsesWith(fn.create<ShuffleNode>(vecTy, wide, wide, sel));
 			}
 			i += w;
 		}

@@ -22,6 +22,7 @@ namespace rat {
 	struct PackNode;
 	struct ProjNode;
 	struct SelectNode;
+	struct ShuffleNode;
 	struct ReturnNode;
 	struct SplatNode;
 	struct StoreNode;
@@ -149,7 +150,7 @@ namespace rat {
 		void ldf(VReg d, U32 w, const String& s);
 		void ldf(VReg d, U32 w, const AddrParts& a);
 		void stf(const AddrParts& a, VReg s, U32 w);
-		void farith(X86Op op, VReg d, VReg a, VReg b, U32 w, I64 desc);
+		MachineInstr& farith(X86Op op, VReg d, VReg a, VReg b, U32 w, I64 desc);
 		void fneg(VReg d, VReg s, U32 w);
 		void fsqrt(VReg d, VReg s, U32 w);
 		void fabs_(VReg d, VReg s, U32 w);
@@ -160,6 +161,7 @@ namespace rat {
 		// sse packed vector
 		static I64 vecDesc(U8 pfx, U8 opc, U8 esc);
 		void varith(VReg d, VReg a, VReg b, U8 pfx, U8 opc, B32 esc38);
+		void varithImm(VReg d, VReg a, VReg b, U8 pfx, U8 opc, U8 esc, U8 imm8);
 		void vmerge(VReg d, VReg s, U8 pfx, U8 opc, U8 esc, I32 imm8);
 		void vunary(VReg d, VReg s, U8 pfx, U8 opc, U8 esc);
 		void vsplat(VReg d, VReg s, U32 esz, B32 isInt);
@@ -228,6 +230,8 @@ namespace rat {
 		void emitPackMem(PackNode* n, U32 esz, B32 isInt);
 		void packLaneZero(PackNode* n, VReg d, U32 esz, B32 isInt);
 		void insertLane(VReg d, Node* lane, U32 i, U32 esz, B32 isInt);
+		static void shuffleDwords(const ShuffleNode* n, U8& sel, U8& mask, B32& inPlace);
+		void emitShuffle(ShuffleNode* n);
 		void emitSelect(SelectNode* n);
 		const String& vecPoolSym(const List<U8>& bytes);
 		VReg gpConst(I64 v);
