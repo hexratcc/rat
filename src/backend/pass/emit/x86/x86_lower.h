@@ -84,6 +84,8 @@ namespace rat {
 		static B32 lowHalfOnlyLoad(const LoadNode* l);
 		static B32 splatOnlyLoad(const Node* n);
 		static B32 packOnlyConst(const Node* n);
+		static BinaryNode* addSubOf(const ShuffleNode* n);
+		static B32 addSubOnly(const Node* n);
 		static U32 opWidth(const Type* t);
 
 		I32 reserve(U32 bytes, U32 align = 8);
@@ -230,6 +232,7 @@ namespace rat {
 		void emitPackMem(PackNode* n, U32 esz, B32 isInt);
 		void packLaneZero(PackNode* n, VReg d, U32 esz, B32 isInt);
 		void insertLane(VReg d, Node* lane, U32 i, U32 esz, B32 isInt);
+		void emitAddSub(ShuffleNode* n, BinaryNode* sub);
 		static void shuffleDwords(const ShuffleNode* n, U8& sel, U8& mask, B32& inPlace);
 		void emitShuffle(ShuffleNode* n);
 		void emitSelect(SelectNode* n);

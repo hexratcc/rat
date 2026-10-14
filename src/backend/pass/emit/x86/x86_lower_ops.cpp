@@ -55,6 +55,36 @@ namespace rat {
 		return n->hasUsers();
 	}
 
+	BinaryNode* X86LowerPass::addSubOf(const ShuffleNode* n) {
+		U32 lanes = n->getType()->getVecLanes();
+		Node* from[2] = {n->getFirst(), n->getSecond()};
+		Node* parity[2] = {nullptr, nullptr}; // source of the even and the odd lanes
+		for(U32 i = 0; i < lanes; ++i) {
+			U32 s = n->getSource(i);
+			Node*& want = parity[i % 2];
+			if(s % lanes != i || (want && want != from[s / lanes]))
+				return nullptr;
+			want = from[s / lanes];
+		}
+		BinaryNode* sub = dyn_cast<BinaryNode>(parity[0]);
+		BinaryNode* add = dyn_cast<BinaryNode>(parity[1]);
+		if(!sub || !add || sub->getOpcode() != Opcode::FSub || add->getOpcode() != Opcode::FAdd)
+			return nullptr;
+		if(sub->getLHS() != add->getLHS() || sub->getRHS() != add->getRHS())
+			return nullptr;
+		return sub;
+	}
+
+	B32 X86LowerPass::addSubOnly(const Node* n) {
+		Opcode op = n->getOpcode();
+		if(!n->getType()->isVec() || (op != Opcode::FAdd && op != Opcode::FSub))
+			return false;
+		for(Node* u : n->getUsers())
+			if(!isa<ShuffleNode>(u) || !addSubOf(cast<ShuffleNode>(u)))
+				return false;
+		return n->hasUsers();
+	}
+
 	void X86LowerPass::emitStore(StoreNode* s) {
 		Node* val = s->getValue();
 		U32 w = opWidth(val->getType());
@@ -427,6 +457,13 @@ namespace rat {
 			vmerge(d, s, 0, 0x16, 0, -1);
 	}
 
+	void X86LowerPass::emitAddSub(ShuffleNode* n, BinaryNode* sub) {
+		U8 pfx = 0xf2; // addsubps
+		if(opWidth(n->getType()->getVecElement()) == 8)
+			pfx = 0x66; // addsubpd
+		varith(vregFor(n), sseValue(sub->getLHS()), sseValue(sub->getRHS()), pfx, 0xd0, false);
+	}
+
 	void X86LowerPass::shuffleDwords(const ShuffleNode* n, U8& sel, U8& mask, B32& inPlace) {
 		Type* vt = n->getType();
 		U32 lanes = vt->getVecLanes();
@@ -450,6 +487,10 @@ namespace rat {
 	}
 
 	void X86LowerPass::emitShuffle(ShuffleNode* n) {
+		if(BinaryNode* sub = addSubOf(n)) {
+			emitAddSub(n, sub);
+			return;
+		}
 		U8 sel = 0, mask = 0;
 		B32 inPlace = true;
 		shuffleDwords(n, sel, mask, inPlace);

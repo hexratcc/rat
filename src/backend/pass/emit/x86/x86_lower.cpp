@@ -423,6 +423,8 @@ namespace rat {
 				return; // folded into base+index*scale+disp of every using load/store
 			if(addressOnlyScale(n))
 				return; // folded into the SIB scale of every using address
+			if(addSubOnly(n))
+				return; // each addsub shuffle computes it
 			emitBinary(cast<BinaryNode>(n));
 		}
 	}
