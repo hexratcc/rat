@@ -82,6 +82,7 @@ namespace rat {
 		static B32 zextOnlyLoad(const LoadNode* l);
 		static B32 lowHalfOnlyLoad(const LoadNode* l);
 		static B32 splatOnlyLoad(const Node* n);
+		static B32 packOnlyConst(const Node* n);
 		static U32 opWidth(const Type* t);
 
 		I32 reserve(U32 bytes, U32 align = 8);
@@ -159,6 +160,8 @@ namespace rat {
 		// sse packed vector
 		static I64 vecDesc(U8 pfx, U8 opc, U8 esc);
 		void varith(VReg d, VReg a, VReg b, U8 pfx, U8 opc, B32 esc38);
+		void vmerge(VReg d, VReg s, U8 pfx, U8 opc, U8 esc, I32 imm8);
+		void vunary(VReg d, VReg s, U8 pfx, U8 opc, U8 esc);
 		void vsplat(VReg d, VReg s, U32 esz, B32 isInt);
 		void vextract(VReg d, VReg s, U32 lane, U32 esz, B32 isInt);
 		void vpackMem(VReg d, const List<MachineOperand>& lanes, U32 esz, B32 isInt);
@@ -223,6 +226,8 @@ namespace rat {
 		B32 emitConstPack(PackNode* n, U32 esz);
 		void emitPack(PackNode* n);
 		void emitPackMem(PackNode* n, U32 esz, B32 isInt);
+		void packLaneZero(PackNode* n, VReg d, U32 esz, B32 isInt);
+		void insertLane(VReg d, Node* lane, U32 i, U32 esz, B32 isInt);
 		void emitSelect(SelectNode* n);
 		const String& vecPoolSym(const List<U8>& bytes);
 		VReg gpConst(I64 v);

@@ -48,6 +48,13 @@ namespace rat {
 		return n->hasUsers();
 	}
 
+	B32 X86LowerPass::packOnlyConst(const Node* n) {
+		for(Node* u : n->getUsers())
+			if(!isa<PackNode>(u))
+				return false;
+		return n->hasUsers();
+	}
+
 	void X86LowerPass::emitStore(StoreNode* s) {
 		Node* val = s->getValue();
 		U32 w = opWidth(val->getType());
@@ -354,7 +361,7 @@ namespace rat {
 		B32 isInt = !et->isFloat();
 		if(emitConstPack(n, esz))
 			return;
-		if(!isInt || !sse41) {
+		if(!sse41) {
 			emitPackMem(n, esz, isInt);
 			return;
 		}
@@ -365,13 +372,13 @@ namespace rat {
 		if(fromPool)
 			ldf(d, 16, vecPoolSym(bytes));
 		else
-			vmovd(d, gpValue(n->getLane(0)), esz);
+			packLaneZero(n, d, esz, isInt);
 		for(U32 i = 0; i < w; ++i)
 			if(!isa<ConstantNode>(n->getLane(i)) && (i || fromPool))
-				vinsert(d, gpValue(n->getLane(i)), esz, i);
+				insertLane(d, n->getLane(i), i, esz, isInt);
 	}
 
-	// float lanes, and int lanes without sse4.1, go through the vec scratch slot
+	// without sse4.1 the lanes go through the vec scratch slot
 	void X86LowerPass::emitPackMem(PackNode* n, U32 esz, B32 isInt) {
 		if(fl->vecScratch == 0)
 			fl->vecScratch = reserve(16);
@@ -384,6 +391,40 @@ namespace rat {
 				lanes.push_back(MachineOperand::vr(sseValue(lane), esz));
 		}
 		vpackMem(vregFor(n), lanes, esz, isInt);
+	}
+
+	void X86LowerPass::packLaneZero(PackNode* n, VReg d, U32 esz, B32 isInt) {
+		Node* lane = n->getLane(0);
+		if(isInt) {
+			vmovd(d, gpValue(lane), esz);
+			return;
+		}
+		U8 zero = 0; // insertps zero mask
+		for(U32 i = 1; i < n->getLaneCount(); ++i)
+			if(isa<ConstantNode>(n->getLane(i)))
+				zero |= (U8)(1 << i);
+		VReg s = sseValue(lane);
+		if(zero && esz == 8) {
+			vunary(d, s, 0xf3, 0x7e, 0); // movq
+			return;
+		}
+		movaps(d, s, esz);
+		if(zero)
+			vmerge(d, d, 0x66, 0x21, 0x3a, zero); // insertps, zeroing the constant lanes
+	}
+
+	void X86LowerPass::insertLane(VReg d, Node* lane, U32 i, U32 esz, B32 isInt) {
+		if(isInt) {
+			vinsert(d, gpValue(lane), esz, i);
+			return;
+		}
+		VReg s = sseValue(lane);
+		if(esz == 4)
+			vmerge(d, s, 0x66, 0x21, 0x3a, (I32)(i << 4));
+		else if(i == 0)
+			vmerge(d, s, 0xf2, 0x10, 0, -1);
+		else
+			vmerge(d, s, 0, 0x16, 0, -1);
 	}
 
 	// a fresh register holding a constant too wide for an ALU immediate

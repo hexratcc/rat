@@ -63,6 +63,7 @@ namespace rat {
 		{"cvt",          kFp},
 		// sse packed vector
 		{"varith",       kFp},
+		{"vunary",       kFp},
 		{"vsplat",       kFp},
 		{"vextract",     kFp},
 		{"vpacklane",    kFp},

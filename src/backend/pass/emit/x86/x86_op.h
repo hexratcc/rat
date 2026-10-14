@@ -33,6 +33,9 @@ namespace rat {
 		constexpr U8 kFpSwap[] = {0, 0, 1, 1, 0, 0};
 
 		constexpr U8 kSseOp[] = {0x58, 0x5c, 0x59, 0x5e};
+
+		// VArith desc bit, set when imm2 holds an imm8 that follows the modrm
+		constexpr I64 kVecImm8 = (I64)1 << 24;
 	} // namespace detail
 
 	enum class X86Op : U32 {
@@ -93,7 +96,10 @@ namespace rat {
 		FCmpFlags, // flags-only ucomis use[0],use[1]; swap in imm2 (cc consumed by a fused Br)
 		Cvt,			 // SSE convert; pfx/opc/w packed in imm
 		// SSE packed vector (128-bit)
-		VArith,			// dst = dst OP use[1] packed; imm = (escape << 16) | (prefix << 8) | opcode byte
+		// dst = dst OP use[1] packed, imm = (escape << 16) | (prefix << 8) | opcode, plus kVecImm8 when
+		// imm2 holds an imm8
+		VArith,
+		VUnary,			// dst = OP use[0] packed, imm as VArith
 		VSplat,			// dst = broadcast use[0] to all lanes; imm = elem bytes, imm2 = int?
 		VExtract,		// dst = lane imm of use[0]; imm2 = (elem bytes << 1) | int?
 		VPackLane,	// [vec scratch + imm2>>1 * imm] = use[0]

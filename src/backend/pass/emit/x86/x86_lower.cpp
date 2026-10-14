@@ -362,7 +362,7 @@ namespace rat {
 			lea(vregFor(n), cast<GlobalNode>(n)->getSymbol());
 			return;
 		case Opcode::Constant:
-			if(isSseTy(n->getType()))
+			if(isSseTy(n->getType()) && !packOnlyConst(n))
 				fpConstLoad(cast<ConstantNode>(n), vregFor(n));
 			return;
 		case Opcode::Store:
