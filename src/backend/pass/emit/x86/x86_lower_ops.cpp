@@ -39,6 +39,15 @@ namespace rat {
 		return true;
 	}
 
+	B32 X86LowerPass::splatOnlyLoad(const Node* n) {
+		if(!isa<LoadNode>(n) || !n->getType()->isInt() || intBits(n->getType()) < 32)
+			return false;
+		for(Node* u : n->getUsers())
+			if(!isa<SplatNode>(u))
+				return false;
+		return n->hasUsers();
+	}
+
 	void X86LowerPass::emitStore(StoreNode* s) {
 		Node* val = s->getValue();
 		U32 w = opWidth(val->getType());
@@ -83,6 +92,9 @@ namespace rat {
 		AddrParts a = matchAddr(l->getPointer());
 		if(isSseTy(l->getType())) {
 			ldf(vregFor(l), w, a);
+		} else if(splatOnlyLoad(l)) {
+			vregOf[l->getId()] = fresh(detail::kFp); // movss/movsd, no gp round trip
+			ldf(vregOf[l->getId()], w, a);
 		} else {
 			B32 sign = l->getType() && l->getType()->isInt() && !zextOnlyLoad(l) && !lowHalfOnlyLoad(l);
 			ld(vregFor(l), w, a, sign);
@@ -293,9 +305,13 @@ namespace rat {
 	void X86LowerPass::emitSplat(SplatNode* n) {
 		Type* et = n->getType()->getVecElement();
 		U32 esz = et->byteSize(ptrBytes);
-		B32 isInt = !et->isFloat();
-		VReg s = isInt ? gpValue(n->getScalar()) : sseValue(n->getScalar());
-		vsplat(vregFor(n), s, esz, isInt);
+		B32 inGp = !et->isFloat() && !splatOnlyLoad(n->getScalar());
+		VReg s = kNoVReg;
+		if(inGp)
+			s = gpValue(n->getScalar());
+		else
+			s = sseValue(n->getScalar());
+		vsplat(vregFor(n), s, esz, inGp);
 	}
 
 	void X86LowerPass::emitExtract(ExtractNode* n) {

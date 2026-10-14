@@ -81,6 +81,7 @@ namespace rat {
 		static BinaryNode* asAdd(Node* n);
 		static B32 zextOnlyLoad(const LoadNode* l);
 		static B32 lowHalfOnlyLoad(const LoadNode* l);
+		static B32 splatOnlyLoad(const Node* n);
 		static U32 opWidth(const Type* t);
 
 		I32 reserve(U32 bytes, U32 align = 8);
