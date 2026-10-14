@@ -278,12 +278,14 @@ namespace rat {
 		put(X86Op::VPack, {vr(d, 16)}, {}, (I64)esz, isInt ? 1 : 0);
 	}
 
-	void X86LowerPass::vpackReg(VReg d, const List<MachineOperand>& lanes, U32 esz) {
-		put(X86Op::VPackReg, {vr(d, 16)}, {lanes[0]}, (I64)esz, 1);
-		for(U32 i = 1; i < (U32)lanes.size(); ++i) {
-			Ops uses = {vr(d, 16), lanes[i]};
-			put(X86Op::VInsertReg, {vr(d, 16)}, std::move(uses), (I64)esz, (I64)i);
-		}
+	// movd/movq of an int lane, the upper lanes zero
+	void X86LowerPass::vmovd(VReg d, VReg gp, U32 esz) {
+		put(X86Op::VPackReg, {vr(d, 16)}, {vr(gp)}, (I64)esz, 1);
+	}
+
+	// pinsrd/pinsrq of an int into lane of d
+	void X86LowerPass::vinsert(VReg d, VReg gp, U32 esz, U32 lane) {
+		put(X86Op::VInsertReg, {vr(d, 16)}, {vr(d, 16), vr(gp)}, (I64)esz, (I64)lane);
 	}
 
 	void X86LowerPass::vshuf(VReg d, VReg s, U8 sel) {

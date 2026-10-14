@@ -162,7 +162,8 @@ namespace rat {
 		void vsplat(VReg d, VReg s, U32 esz, B32 isInt);
 		void vextract(VReg d, VReg s, U32 lane, U32 esz, B32 isInt);
 		void vpackMem(VReg d, const List<MachineOperand>& lanes, U32 esz, B32 isInt);
-		void vpackReg(VReg d, const List<MachineOperand>& lanes, U32 esz);
+		void vmovd(VReg d, VReg gp, U32 esz);
+		void vinsert(VReg d, VReg gp, U32 esz, U32 lane);
 		void vshuf(VReg d, VReg s, U8 sel);
 		// x87
 		void fld(Slot d, VReg addr);
@@ -218,8 +219,10 @@ namespace rat {
 		void emitVecBinary(BinaryNode* n);
 		void emitSplat(SplatNode* n);
 		void emitExtract(ExtractNode* n);
+		List<U8> constLanes(PackNode* n, U32 esz);
 		B32 emitConstPack(PackNode* n, U32 esz);
 		void emitPack(PackNode* n);
+		void emitPackMem(PackNode* n, U32 esz, B32 isInt);
 		void emitSelect(SelectNode* n);
 		const String& vecPoolSym(const List<U8>& bytes);
 		VReg gpConst(I64 v);

@@ -324,19 +324,26 @@ namespace rat {
 		vextract(vregFor(n), v, n->getLane(), esz, isInt);
 	}
 
-	// all-constant packs come from the constant pool as one movups
-	B32 X86LowerPass::emitConstPack(PackNode* n, U32 esz) {
-		U32 w = n->getLaneCount();
-		for(U32 i = 0; i < w; ++i)
-			if(!isa<ConstantNode>(n->getLane(i)))
-				return false;
+	// the constant lanes of n as 16 pool bytes, zero in the other lanes
+	List<U8> X86LowerPass::constLanes(PackNode* n, U32 esz) {
 		List<U8> bytes(16, 0);
-		for(U32 i = 0; i < w; ++i) {
-			U64 v = (U64)cast<ConstantNode>(n->getLane(i))->getValue();
+		for(U32 i = 0; i < n->getLaneCount(); ++i) {
+			ConstantNode* c = dyn_cast<ConstantNode>(n->getLane(i));
+			if(!c)
+				continue;
+			U64 v = (U64)c->getValue();
 			for(U32 b = 0; b < esz; ++b)
 				bytes[i * esz + b] = (U8)(v >> (8 * b));
 		}
-		ldf(vregFor(n), 16, vecPoolSym(bytes));
+		return bytes;
+	}
+
+	// all-constant packs come from the constant pool as one movups
+	B32 X86LowerPass::emitConstPack(PackNode* n, U32 esz) {
+		for(U32 i = 0; i < n->getLaneCount(); ++i)
+			if(!isa<ConstantNode>(n->getLane(i)))
+				return false;
+		ldf(vregFor(n), 16, vecPoolSym(constLanes(n, esz)));
 		return true;
 	}
 
@@ -347,23 +354,36 @@ namespace rat {
 		B32 isInt = !et->isFloat();
 		if(emitConstPack(n, esz))
 			return;
-		// int lanes with sse4.1 build the vector in-register (VPackReg); float and pre-sse4.1
-		// fall back to gathering through the vec scratch slot (VPack)
-		B32 useReg = isInt && sse41;
-		if(!useReg && fl->vecScratch == 0)
+		if(!isInt || !sse41) {
+			emitPackMem(n, esz, isInt);
+			return;
+		}
+		List<U8> bytes = constLanes(n, esz);
+		B32 nonZero = std::count(bytes.begin(), bytes.end(), 0) < 16;
+		B32 fromPool = nonZero || isa<ConstantNode>(n->getLane(0));
+		VReg d = vregFor(n);
+		if(fromPool)
+			ldf(d, 16, vecPoolSym(bytes));
+		else
+			vmovd(d, gpValue(n->getLane(0)), esz);
+		for(U32 i = 0; i < w; ++i)
+			if(!isa<ConstantNode>(n->getLane(i)) && (i || fromPool))
+				vinsert(d, gpValue(n->getLane(i)), esz, i);
+	}
+
+	// float lanes, and int lanes without sse4.1, go through the vec scratch slot
+	void X86LowerPass::emitPackMem(PackNode* n, U32 esz, B32 isInt) {
+		if(fl->vecScratch == 0)
 			fl->vecScratch = reserve(16);
 		List<MachineOperand> lanes;
-		for(U32 i = 0; i < w; ++i) {
+		for(U32 i = 0; i < n->getLaneCount(); ++i) {
 			Node* lane = n->getLane(i);
 			if(isInt)
 				lanes.push_back(MachineOperand::vr(gpValue(lane)));
 			else
 				lanes.push_back(MachineOperand::vr(sseValue(lane), esz));
 		}
-		if(useReg)
-			vpackReg(vregFor(n), lanes, esz);
-		else
-			vpackMem(vregFor(n), lanes, esz, isInt);
+		vpackMem(vregFor(n), lanes, esz, isInt);
 	}
 
 	// a fresh register holding a constant too wide for an ALU immediate
