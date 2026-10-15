@@ -17,8 +17,8 @@ namespace rat {
 	U32 X86LowerPass::opWidth(const Type* t) {
 		if(!t)
 			return 8;
-		if(t->isVec())
-			return 16;
+		if(t->isVec()) // 16, or 8 or 4 bytes for a vector in the low lanes
+			return t->getVecLanes() * opWidth(t->getVecElement());
 		if(t->isPtr())
 			return 8;
 		if(t->isFloat())
