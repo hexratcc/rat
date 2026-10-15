@@ -601,9 +601,12 @@ namespace rat {
 			return;
 		}
 		U32 w = opWidth(n->getType());
+		U32 lane = w;
+		if(n->getType()->isVec())
+			lane = opWidth(n->getType()->getVecElement());
 		VReg s = sseValue(n->getOperand());
 		needScratch();
-		fneg(vregFor(n), s, w);
+		fneg(vregFor(n), s, w, lane);
 	}
 
 	void X86LowerPass::emitUnary(UnaryNode* n) {

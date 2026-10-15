@@ -214,9 +214,9 @@ namespace rat {
 		return put(op, {vr(d, w)}, {vr(d, w), vr(rhs, w)}, desc);
 	}
 
-	void X86LowerPass::fneg(VReg d, VReg s, U32 w) {
-		// the encoder builds 0-x through the top volatile xmm
-		put(X86Op::FNeg, {vr(d, w)}, {vr(s, w)}, (I64)w).clobbers =
+	void X86LowerPass::fneg(VReg d, VReg s, U32 w, U32 lane) {
+		// the encoder builds the sign mask of each lane through the top volatile xmm
+		put(X86Op::FNeg, {vr(d, w)}, {vr(s, w)}, (I64)lane).clobbers =
 				physBit(xmmReg(conv->sseVolatileCount - 1));
 	}
 

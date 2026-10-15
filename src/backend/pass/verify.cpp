@@ -490,7 +490,8 @@ namespace rat {
 		auto* u = cast<UnaryNode>(n);
 		const Type* t = n->getType();
 		if(n->getOpcode() == Opcode::FNeg) {
-			if(!t->isFloat())
+			B32 floatLanes = t->isVec() && t->getVecElement()->isFloat();
+			if(!t->isFloat() && !floatLanes)
 				err(n, "fneg operates on a non-float type");
 		} else if(!t->isInt()) {
 			err(n, "unary operates on a non-integer type");

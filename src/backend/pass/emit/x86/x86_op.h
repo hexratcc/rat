@@ -93,7 +93,7 @@ namespace rat {
 		FSub,
 		FMul,
 		FDiv,			 // two-address on the def xmm
-		FNeg,			 // pxor-based scalar negate
+		FNeg,			 // pxor-based negate, lane width in imm
 		FSqrt,		 // dst = sqrt(use[0]); width in imm
 		FAbs,			 // dst = |use[0]| via lane shifts; width in imm
 		FCmp,			 // ucomis use[0],use[1] + setcc; cc in imm, swap in imm2

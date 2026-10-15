@@ -153,7 +153,7 @@ namespace rat {
 		void ldf(VReg d, U32 w, const AddrParts& a);
 		void stf(const AddrParts& a, VReg s, U32 w);
 		MachineInstr& farith(X86Op op, VReg d, VReg a, VReg b, U32 w, I64 desc);
-		void fneg(VReg d, VReg s, U32 w);
+		void fneg(VReg d, VReg s, U32 w, U32 lane);
 		void fsqrt(VReg d, VReg s, U32 w);
 		void fabs_(VReg d, VReg s, U32 w);
 		void ucomis(VReg d, VReg a, VReg b, U32 w, U8 cc, B32 swap);				 // FCmp
