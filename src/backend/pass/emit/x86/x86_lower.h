@@ -242,6 +242,7 @@ namespace rat {
 		void emitSelect(SelectNode* n);
 		VReg vecMask(CompareNode* c, B32& invert);
 		VReg vecIntMask(Opcode op, VReg l, VReg r, U32 esz);
+		B32 emitVecMinMax(SelectNode* n, CompareNode* c);
 		void emitVecSelect(SelectNode* n);
 		const String& vecPoolSym(const List<U8>& bytes);
 		VReg gpConst(I64 v);

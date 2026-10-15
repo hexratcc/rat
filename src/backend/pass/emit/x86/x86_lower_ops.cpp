@@ -723,8 +723,27 @@ namespace rat {
 		return m;
 	}
 
+	B32 X86LowerPass::emitVecMinMax(SelectNode* n, CompareNode* c) {
+		Opcode op = c->getOpcode();
+		B32 isSigned = op == Opcode::Slt || op == Opcode::Sle;
+		B32 isUnsigned = op == Opcode::Ult || op == Opcode::Ule;
+		B32 min = n->getTrue() == c->getLHS() && n->getFalse() == c->getRHS();
+		B32 max = n->getTrue() == c->getRHS() && n->getFalse() == c->getLHS();
+		if(opWidth(n->getType()->getVecElement()) != 4 || !(isSigned || isUnsigned) || !(min || max))
+			return false;
+		U8 opc = 0x39; // pminsd, pminud 0x3b, pmaxsd 0x3d, pmaxud 0x3f
+		if(isUnsigned)
+			opc += 2;
+		if(max)
+			opc += 4;
+		varith(vregFor(n), sseValue(c->getLHS()), sseValue(c->getRHS()), 0x66, opc, true);
+		return true;
+	}
+
 	void X86LowerPass::emitVecSelect(SelectNode* n) {
 		CompareNode* c = cast<CompareNode>(n->getCondition());
+		if(emitVecMinMax(n, c))
+			return;
 		B32 invert = false;
 		VReg m = vecMask(c, invert);
 		Node* t = n->getTrue();
