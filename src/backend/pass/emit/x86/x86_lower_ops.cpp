@@ -716,6 +716,10 @@ namespace rat {
 	void X86LowerPass::emitConvert(ConvertNode* n) {
 		Node* src = n->getOperand();
 		Opcode op = n->getOpcode();
+		if(n->getType()->isVec()) {
+			emitVecConvert(n);
+			return;
+		}
 		if(isX87Ty(n->getType()) || isX87Ty(src->getType())) {
 			emitConvertX87(n, src, op);
 			return;
@@ -744,6 +748,49 @@ namespace rat {
 		default:
 			return;
 		}
+	}
+
+	void X86LowerPass::emitVecConvert(ConvertNode* n) {
+		Node* src = n->getOperand();
+		U32 sw = opWidth(src->getType()->getVecElement());
+		U32 dw = opWidth(n->getType()->getVecElement());
+		Opcode op = n->getOpcode();
+		U8 pfx = 0, opc = 0x5a; // cvtps2pd
+		U8 esc = 0;
+		if(op == Opcode::SIToFP) {
+			opc = 0x5b;
+			if(dw == 8) {
+				pfx = 0xf3;
+				opc = 0xe6;
+			}
+		} else if(op == Opcode::FPToSI) {
+			pfx = 0xf3;
+			opc = 0x5b;
+			if(sw == 8) {
+				pfx = 0x66;
+				opc = 0xe6;
+			}
+		} else if(op == Opcode::FPTrunc) {
+			pfx = 0x66;
+		} else if(op == Opcode::SExt || op == Opcode::ZExt) {
+			pfx = 0x66;
+			esc = 0x38;
+			opc = pmovOpc(sw, dw, op == Opcode::ZExt);
+		}
+		vunary(vregFor(n), sseValue(src), pfx, opc, esc);
+	}
+
+	U8 X86LowerPass::pmovOpc(U32 sw, U32 dw, B32 zext) {
+		U8 opc = 0x23;
+		if(sw == 1)
+			opc = 0x21;
+		else if(sw == 4)
+			opc = 0x25;
+		else if(dw == 8)
+			opc = 0x24;
+		if(zext)
+			opc += 0x10;
+		return opc;
 	}
 
 	// values live sign-extended in 64-bit registers

@@ -505,6 +505,14 @@ namespace rat {
 		Opcode op = n->getOpcode();
 		const Type* t = n->getType();
 		const Type* src = c->getOperand()->getType();
+		if(t->isVec() || src->isVec()) {
+			if(!t->isVec() || !src->isVec() || t->getVecLanes() != src->getVecLanes()) {
+				err(n, "vector conversion changes the lane count");
+				return;
+			}
+			t = t->getVecElement(); // the rules below hold per lane
+			src = src->getVecElement();
+		}
 		switch(op) {
 		case Opcode::Trunc:
 		case Opcode::SExt:

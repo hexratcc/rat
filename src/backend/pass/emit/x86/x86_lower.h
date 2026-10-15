@@ -248,6 +248,8 @@ namespace rat {
 		void emitCompare(CompareNode* n);
 		static I64 cvtDesc(U8 pfx, U8 opc, B32 w);
 		void emitConvert(ConvertNode* n);
+		void emitVecConvert(ConvertNode* n);
+		static U8 pmovOpc(U32 sw, U32 dw, B32 zext);
 		void emitIntResize(ConvertNode* n, Node* src);
 		void emitIntToFP(ConvertNode* n, Node* src);
 		void emitFPToInt(ConvertNode* n, Node* src);
