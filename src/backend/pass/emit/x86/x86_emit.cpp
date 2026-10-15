@@ -282,6 +282,23 @@ namespace rat {
 		put(X86Op::VShiftImm, {vr(d, 16)}, {vr(d, 16)}, (I64)laneBits, ((I64)ext << 8) | cnt);
 	}
 
+	void X86LowerPass::vcmpf(VReg d, VReg a, VReg b, U32 esz, U8 pred) {
+		U8 pfx = 0; // cmpps
+		if(esz == 8)
+			pfx = 0x66; // cmppd
+		varithImm(d, a, b, pfx, 0xc2, 0, pred);
+	}
+
+	// d = mask ? t : f per lane, blendvps/blendvpd read the mask from xmm0
+	void X86LowerPass::vblend(VReg d, VReg f, VReg t, VReg mask, U32 esz) {
+		U8 opc = 0x14; // blendvps
+		if(esz == 8)
+			opc = 0x15; // blendvpd
+		I64 desc = vecDesc(0x66, opc, 0x38);
+		movaps(xmm(0, 16), mask);
+		farith(X86Op::VArith, d, f, t, 16, desc).uses.push_back(xm(xmm(0, 16)));
+	}
+
 	void X86LowerPass::vsplat(VReg d, VReg s, U32 esz, B32 isInt) {
 		Ops uses = {vr(s, isInt ? 8 : esz)};
 		put(X86Op::VSplat, {vr(d, 16)}, std::move(uses), (I64)esz, isInt ? 1 : 0);

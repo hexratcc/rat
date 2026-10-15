@@ -409,6 +409,8 @@ namespace rat {
 			break;
 		}
 		if(isCompareOpcode(op)) {
+			if(n->getType()->isVec())
+				return; // a lane mask, each vector select re-emits it
 			if(branchOnlyCompare(n))
 				return; // no value users; each If re-emits the compare fused with its jcc
 			if(selectOnlyCompare(n))

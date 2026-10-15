@@ -36,6 +36,8 @@ namespace rat {
 
 		// VArith desc bit, set when imm2 holds an imm8 that follows the modrm
 		constexpr I64 kVecImm8 = (I64)1 << 24;
+		// FEq..FGe -> cmpps/cmppd predicate, gt and ge are lt and le with swapped operands
+		constexpr U8 kVecFpPred[] = {0, 4, 1, 2, 1, 2};
 		// Shl, LShr, AShr -> /ext of pslld, psrld, psrad by an imm8
 		constexpr U8 kVecShiftExt[] = {6, 2, 4};
 		// Shl, LShr, AShr -> pslld, psrld, psrad by an xmm count, +1 for the qword form
@@ -101,7 +103,7 @@ namespace rat {
 		Cvt,			 // SSE convert; pfx/opc/w packed in imm
 		// SSE packed vector (128-bit)
 		// dst = dst OP use[1] packed, imm = (escape << 16) | (prefix << 8) | opcode, plus kVecImm8 when
-		// imm2 holds an imm8
+		// imm2 holds an imm8. A use[2] of xmm0 is the implicit blendv mask
 		VArith,
 		VUnary,			// dst = OP use[0] packed, imm as VArith
 		VShiftImm,	// dst = dst shifted by an immediate, imm = lane bits, imm2 = (/ext << 8) | count

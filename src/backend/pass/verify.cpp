@@ -4,6 +4,7 @@
 #include "ir/module.h"
 #include "ir/node.h"
 #include "ir/type.h"
+#include "target/target.h"
 
 #include <sstream>
 
@@ -368,10 +369,15 @@ namespace rat {
 	void VerifyPass::FunctionVerifier::checkSelect(const Node* n) {
 		const SelectNode* s = cast<SelectNode>(n);
 		const Type* t = n->getType();
-		if(!t->isInt() && !t->isPtr())
+		const Node* cond = s->getCondition();
+		if(t->isVec()) {
+			if(cond->getType() != t || !isCompareOpcode(cond->getOpcode()))
+				err(n, "vector Select condition must be a compare with the Select's type");
+		} else if(!t->isInt() && !t->isPtr()) {
 			err(n, "Select type must be an integer or pointer");
-		if(!isBool(s->getCondition()->getType()))
+		} else if(!isBool(cond->getType())) {
 			err(n, "Select condition must be i1");
+		}
 		if(s->getTrue()->getType() != t)
 			err(n, "Select then-value type does not match the result");
 		if(s->getFalse()->getType() != t)
@@ -424,10 +430,7 @@ namespace rat {
 			checkUnary(n);
 			break;
 		case OpClass::Compare:
-			if(!isBool(n->getType()))
-				err(n, "comparison result must be i1");
-			if(n->getInput(0)->getType() != n->getInput(1)->getType())
-				err(n, "comparison operands have different types");
+			checkCompare(n);
 			break;
 		case OpClass::Convert:
 			checkConvert(n);
@@ -435,6 +438,23 @@ namespace rat {
 		case OpClass::None:
 			break;
 		}
+	}
+
+	void VerifyPass::FunctionVerifier::checkCompare(const Node* n) {
+		const Type* t = n->getType();
+		const Type* in = n->getInput(0)->getType();
+		if(in != n->getInput(1)->getType())
+			err(n, "comparison operands have different types");
+		if(!in->isVec()) {
+			if(!isBool(t))
+				err(n, "comparison result must be i1");
+			return;
+		}
+		U32 ptrBytes = TargetInfo::kPointerSizeInBits / 8;
+		B32 mask = t->isVec() && t->getVecElement()->isInt() && t->getVecLanes() == in->getVecLanes() &&
+							 t->byteSize(ptrBytes) == in->byteSize(ptrBytes);
+		if(!mask)
+			err(n, "vector comparison result must be an integer lane mask");
 	}
 
 	void VerifyPass::FunctionVerifier::checkBinary(const Node* n) {

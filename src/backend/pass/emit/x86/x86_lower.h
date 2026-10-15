@@ -167,6 +167,8 @@ namespace rat {
 		void vmerge(VReg d, VReg s, U8 pfx, U8 opc, U8 esc, I32 imm8);
 		void vunary(VReg d, VReg s, U8 pfx, U8 opc, U8 esc);
 		void vshiftImm(VReg d, VReg s, U32 laneBits, U8 ext, U8 cnt);
+		void vcmpf(VReg d, VReg a, VReg b, U32 esz, U8 pred);
+		void vblend(VReg d, VReg f, VReg t, VReg mask, U32 esz);
 		void vsplat(VReg d, VReg s, U32 esz, B32 isInt);
 		void vextract(VReg d, VReg s, U32 lane, U32 esz, B32 isInt);
 		void vpackMem(VReg d, const List<MachineOperand>& lanes, U32 esz, B32 isInt);
@@ -238,6 +240,9 @@ namespace rat {
 		static void shuffleDwords(const ShuffleNode* n, U8& sel, U8& mask, B32& inPlace);
 		void emitShuffle(ShuffleNode* n);
 		void emitSelect(SelectNode* n);
+		VReg vecMask(CompareNode* c, B32& invert);
+		VReg vecIntMask(Opcode op, VReg l, VReg r, U32 esz);
+		void emitVecSelect(SelectNode* n);
 		const String& vecPoolSym(const List<U8>& bytes);
 		VReg gpConst(I64 v);
 		void emitBitScan(UnaryNode* n, B32 reverse);

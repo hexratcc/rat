@@ -664,6 +664,10 @@ namespace rat {
 	// dst starts as the else-value, then cmov overwrites it when the flags say so
 	// the condition folds into the cmp when it is an integer compare used only here
 	void X86LowerPass::emitSelect(SelectNode* n) {
+		if(n->getType()->isVec()) {
+			emitVecSelect(n);
+			return;
+		}
 		Node* cond = n->getCondition();
 		VReg d = vregFor(n);
 		// materialize both arms before the compare
@@ -678,6 +682,56 @@ namespace rat {
 			cmp(cv, imm(0));
 		}
 		cmov(d, t, cc);
+	}
+
+	VReg X86LowerPass::vecMask(CompareNode* c, B32& invert) {
+		Type* et = c->getLHS()->getType()->getVecElement();
+		U32 esz = opWidth(et);
+		Opcode op = c->getOpcode();
+		VReg l = sseValue(c->getLHS());
+		VReg r = sseValue(c->getRHS());
+		invert = op == Opcode::Ne || op == Opcode::Sle || op == Opcode::Ult;
+		if(!et->isFloat())
+			return vecIntMask(op, l, r, esz);
+		VReg m = fresh(detail::kFp);
+		if(op == Opcode::FGt || op == Opcode::FGe)
+			std::swap(l, r);
+		vcmpf(m, l, r, esz, detail::kVecFpPred[(U32)op - (U32)Opcode::FEq]);
+		return m;
+	}
+
+	VReg X86LowerPass::vecIntMask(Opcode op, VReg l, VReg r, U32 esz) {
+		VReg m = fresh(detail::kFp);
+		if(op == Opcode::Eq || op == Opcode::Ne) {
+			if(esz == 8)
+				varith(m, l, r, 0x66, 0x29, true); // pcmpeqq
+			else
+				varith(m, l, r, 0x66, 0x76, false); // pcmpeqd
+			return m;
+		}
+		if(op == Opcode::Slt || op == Opcode::Sle) {
+			if(op == Opcode::Slt)
+				std::swap(l, r);
+			varith(m, l, r, 0x66, 0x66, false); // pcmpgtd
+			return m;
+		}
+		if(op == Opcode::Ult)
+			std::swap(l, r);
+		VReg t = fresh(detail::kFp);
+		varith(t, l, r, 0x66, 0x3b, true);	// pminud
+		varith(m, t, l, 0x66, 0x76, false); // pcmpeqd
+		return m;
+	}
+
+	void X86LowerPass::emitVecSelect(SelectNode* n) {
+		CompareNode* c = cast<CompareNode>(n->getCondition());
+		B32 invert = false;
+		VReg m = vecMask(c, invert);
+		Node* t = n->getTrue();
+		Node* f = n->getFalse();
+		if(invert)
+			std::swap(t, f);
+		vblend(vregFor(n), sseValue(f), sseValue(t), m, opWidth(n->getType()->getVecElement()));
 	}
 
 	void X86LowerPass::emitCompare(CompareNode* n) {
