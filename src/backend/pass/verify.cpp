@@ -458,15 +458,14 @@ namespace rat {
 				err(n, "binary operands have different types");
 			}
 		} else if(lt->isVec()) {
-			if(rt != lt)
+			// a vector shift is by one scalar amount
+			if(shift) {
+				if(!rt->isInt())
+					err(n, "shift amount is not an integer");
+			} else if(rt != lt) {
 				err(n, "binary operands have different types");
-			// only the SSE2-lowerable subset may appear at vector types
-			const Type* et = lt->getVecElement();
-			B32 legal = et->isInt() ? (op == Opcode::Add || op == Opcode::Sub || op == Opcode::And ||
-																 op == Opcode::Or || op == Opcode::Xor)
-															: (op == Opcode::FAdd || op == Opcode::FSub || op == Opcode::FMul ||
-																 op == Opcode::FDiv);
-			if(!legal)
+			}
+			if(!hasVectorLowering(op, lt->getVecElement()))
 				err(n, "binary opcode has no vector lowering");
 		} else if(lt->isFloat()) {
 			if(rt != lt)
@@ -474,6 +473,17 @@ namespace rat {
 		} else {
 			err(n, "binary operates on a non-data type");
 		}
+	}
+
+	// only the SSE4.1-lowerable subset may appear at vector types
+	B32 VerifyPass::FunctionVerifier::hasVectorLowering(Opcode op, const Type* et) {
+		if(!et->isInt())
+			return op == Opcode::FAdd || op == Opcode::FSub || op == Opcode::FMul || op == Opcode::FDiv;
+		// Mul and AShr lower only at 32-bit lanes
+		if(op == Opcode::Mul || op == Opcode::AShr)
+			return et->getIntWidth() == 32;
+		return op == Opcode::Add || op == Opcode::Sub || op == Opcode::And || op == Opcode::Or ||
+					 op == Opcode::Xor || op == Opcode::Shl || op == Opcode::LShr;
 	}
 
 	void VerifyPass::FunctionVerifier::checkUnary(const Node* n) {

@@ -277,6 +277,11 @@ namespace rat {
 		put(X86Op::VUnary, {vr(d, 16)}, {vr(s, 16)}, vecDesc(pfx, opc, esc));
 	}
 
+	void X86LowerPass::vshiftImm(VReg d, VReg s, U32 laneBits, U8 ext, U8 cnt) {
+		movaps(d, s, 16);
+		put(X86Op::VShiftImm, {vr(d, 16)}, {vr(d, 16)}, (I64)laneBits, ((I64)ext << 8) | cnt);
+	}
+
 	void X86LowerPass::vsplat(VReg d, VReg s, U32 esz, B32 isInt) {
 		Ops uses = {vr(s, isInt ? 8 : esz)};
 		put(X86Op::VSplat, {vr(d, 16)}, std::move(uses), (I64)esz, isInt ? 1 : 0);

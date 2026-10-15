@@ -338,6 +338,8 @@ namespace rat {
 			U32 d = xmmOf(in.defs[0]), s = xmmOf(in.uses[0]);
 			return a->ssePacked((U8)(imm >> 8), (U8)imm, d, s, (U8)(imm >> 16));
 		}
+		case X86Op::VShiftImm:
+			return a->sseShiftImm((U32)in.imm, (U8)(in.imm2 >> 8), xmmOf(in.defs[0]), (U8)in.imm2);
 		case X86Op::VSplat:
 			return emitVSplat(in);
 		case X86Op::VExtract:

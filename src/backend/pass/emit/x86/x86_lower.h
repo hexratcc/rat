@@ -166,6 +166,7 @@ namespace rat {
 		void varithImm(VReg d, VReg a, VReg b, U8 pfx, U8 opc, U8 esc, U8 imm8);
 		void vmerge(VReg d, VReg s, U8 pfx, U8 opc, U8 esc, I32 imm8);
 		void vunary(VReg d, VReg s, U8 pfx, U8 opc, U8 esc);
+		void vshiftImm(VReg d, VReg s, U32 laneBits, U8 ext, U8 cnt);
 		void vsplat(VReg d, VReg s, U32 esz, B32 isInt);
 		void vextract(VReg d, VReg s, U32 lane, U32 esz, B32 isInt);
 		void vpackMem(VReg d, const List<MachineOperand>& lanes, U32 esz, B32 isInt);
@@ -224,6 +225,7 @@ namespace rat {
 		void emitBinary(BinaryNode* n);
 		void emitFloatBinary(BinaryNode* n);
 		void emitVecBinary(BinaryNode* n);
+		void emitVecShift(BinaryNode* n);
 		void emitSplat(SplatNode* n);
 		void emitExtract(ExtractNode* n);
 		List<U8> constLanes(PackNode* n, U32 esz);

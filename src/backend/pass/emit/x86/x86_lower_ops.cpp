@@ -303,6 +303,10 @@ namespace rat {
 		Type* et = n->getType()->getVecElement();
 		U32 esz = et->byteSize(ptrBytes);
 		Opcode op = n->getOpcode();
+		if(op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr) {
+			emitVecShift(n);
+			return;
+		}
 		U8 pfx = 0, opc = 0;
 		B32 esc38 = false;
 		// clang-format off
@@ -337,6 +341,25 @@ namespace rat {
 		VReg rhs = sseValue(n->getRHS());
 		VReg d = vregFor(n);
 		varith(d, lhs, rhs, pfx, opc, esc38);
+	}
+
+	void X86LowerPass::emitVecShift(BinaryNode* n) {
+		U32 bits = opWidth(n->getType()->getVecElement()) * 8;
+		U32 idx = (U32)n->getOpcode() - (U32)Opcode::Shl;
+		U8 ext = detail::kVecShiftExt[idx];
+		U8 opc = detail::kVecShiftOpc[idx];
+		if(bits == 64)
+			++opc;
+		VReg s = sseValue(n->getLHS());
+		VReg d = vregFor(n);
+		I64 cnt = 0;
+		if(immOf(n->getRHS(), cnt)) {
+			vshiftImm(d, s, bits, ext, (U8)cnt);
+			return;
+		}
+		VReg c = fresh(detail::kFp);
+		vmovd(c, gpValue(n->getRHS()), 4);
+		varith(d, s, c, 0x66, opc, false);
 	}
 
 	void X86LowerPass::emitSplat(SplatNode* n) {

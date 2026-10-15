@@ -36,6 +36,10 @@ namespace rat {
 
 		// VArith desc bit, set when imm2 holds an imm8 that follows the modrm
 		constexpr I64 kVecImm8 = (I64)1 << 24;
+		// Shl, LShr, AShr -> /ext of pslld, psrld, psrad by an imm8
+		constexpr U8 kVecShiftExt[] = {6, 2, 4};
+		// Shl, LShr, AShr -> pslld, psrld, psrad by an xmm count, +1 for the qword form
+		constexpr U8 kVecShiftOpc[] = {0xf2, 0xd2, 0xe2};
 	} // namespace detail
 
 	enum class X86Op : U32 {
@@ -100,6 +104,7 @@ namespace rat {
 		// imm2 holds an imm8
 		VArith,
 		VUnary,			// dst = OP use[0] packed, imm as VArith
+		VShiftImm,	// dst = dst shifted by an immediate, imm = lane bits, imm2 = (/ext << 8) | count
 		VSplat,			// dst = broadcast use[0] to all lanes; imm = elem bytes, imm2 = int?
 		VExtract,		// dst = lane imm of use[0]; imm2 = (elem bytes << 1) | int?
 		VPackLane,	// [vec scratch + imm2>>1 * imm] = use[0]
