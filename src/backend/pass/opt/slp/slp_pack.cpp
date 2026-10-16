@@ -80,7 +80,8 @@ namespace rat {
 		}
 
 		Node* memoryOperand(const Node* n) {
-			if(isa<LoadNode>(n) || isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n))
+			B32 access = isa<LoadNode>(n) || isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n);
+			if(access || isStackOpcode(n->getOpcode()))
 				return n->getInput(1);
 			return nullptr;
 		}
