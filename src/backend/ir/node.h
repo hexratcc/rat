@@ -48,6 +48,7 @@ namespace rat {
 		Node* getInput(U32 index) const { return inputs[index]; }
 
 		NodeSpan getUsers() const { return NodeSpan{users, userCount}; }
+		U32 getUserSlot(U32 index) const { return userSlots[index]; }
 		B32 hasUsers() const { return userCount != 0; }
 
 		// all edge mutation keeps the users index consistent

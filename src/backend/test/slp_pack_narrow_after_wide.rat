@@ -1,0 +1,60 @@
+@name slp: a load hoists past a narrow store that follows a wider one at its offset, so the window has no observer
+@passes slp
+
+@input
+var a : [4 x i32] = ""
+var c : [1 x i32] = ""
+
+func t() -> void {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v24
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = global : ptr  "a"
+	v5 = global : ptr  "c"
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v9 = const : i64  -1
+	v10 = const : i32  1
+	v11 = const : i32  2
+	v12 = const : i32  3
+	v13 = const : i32  4
+	v14 = add : ptr v4, v6
+	v15 = add : ptr v4, v7
+	v16 = add : ptr v4, v8
+	v17 = store : mem v2, v3, v4, v9
+	v18 = store : mem v2, v17, v4, v10
+	v19 = load : i32 v2, v18, v14
+	v20 = store : mem v2, v18, v14, v11
+	v21 = store : mem v2, v20, v15, v12
+	v22 = store : mem v2, v21, v16, v13
+	v23 = store : mem v2, v22, v5, v19
+	v24 = return : ctrl v2, v23
+}
+
+@expect
+var a : [4 x i32] = ""
+var c : [1 x i32] = ""
+
+func t() -> void {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v18
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = global : ptr  "a"
+	v5 = global : ptr  "c"
+	v6 = const : i64  4
+	v7 = const : i64  -1
+	v8 = const : i32  1
+	v9 = const : i32  2
+	v10 = const : i32  3
+	v11 = const : i32  4
+	v12 = add : ptr v4, v6
+	v13 = store : mem v2, v3, v4, v7
+	v14 = load : i32 v2, v13, v12
+	v15 = pack : <4 x i32> v8, v9, v10, v11
+	v16 = store : mem v2, v13, v4, v15
+	v17 = store : mem v2, v16, v5, v14
+	v18 = return : ctrl v2, v17
+}

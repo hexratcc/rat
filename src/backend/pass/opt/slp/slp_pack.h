@@ -1,204 +1,296 @@
-// scheduling-free SLP vectorization: pack adjacent scalar stores (and add
-// reductions) into SSE vectors by rewriting the graph, no instruction motion
+// SLP vectorization on store chains Runs of adjacent stores and integer reductions pack into SSE vector
 
 #ifndef RAT_PASS_OPT_SLPPACK_H
 #define RAT_PASS_OPT_SLPPACK_H
 
 #include "core.h"
 
-#include "analysis/alias_analysis.h"
+#include "analysis/address.h"
 #include "ir/opcode.h"
-#include "pass/opt/slp/slp_util.h"
 #include "pass/pass.h"
+
+#include <array>
+#include <tuple>
 
 namespace rat {
 	struct Node;
 	struct StoreNode;
 	struct LoadNode;
-	struct BinaryNode;
 	struct Type;
 
 	struct SlpStats {
-		U32 windowsSeen = 0;		 // structurally valid windows examined
+		U32 windowsSeen = 0;		 // windows and reduction roots examined
 		U32 packedUnguarded = 0; // windows fused statically
 		U32 packedGuarded = 0;	 // windows fused behind a runtime guard
-		U32 packedReduction = 0; // add chains folded into vector hsum
+		U32 packedReduction = 0; // reductions packed into vectors
 		U32 guardedRuns = 0;		 // merged guard regions emitted
 		U32 guardPairs = 0;			 // runtime disjointness checks emitted
-		U32 rejectedTree = 0;		 // vector recomputation failed to build
-		U32 rejectedProfit = 0;	 // cost model said no
-		U32 rejectedGuarded = 0; // guarded gates (budget/escape/contamination)
-		U32 rejectedOverlap = 0; // load range straddles the store window (store-forward trap)
+		U32 rejected = 0;				 // windows rejected early, and seeds that did not pack
 	};
 
 	namespace slp {
-		constexpr U32 kMaxDepth = 16;				// pack-growth recursion bound
-		constexpr I32 kMinProfit = 2;				// scalar ops saved, net of lane plumbing
-		constexpr U32 kMaxRunWindows = 4;		// windows sharing one guard branch
-		constexpr U32 kMaxGuards = 4;				// runtime checks per guarded run
-		constexpr I32 kGuardCheckCost = 6;	// ops per runtime disjointness check
-		constexpr I32 kGuardBranchCost = 6; // branch + else-arm bloat per guarded run
-		constexpr U32 kMaxHops = 64;				// store-chain hops a reachability query may cover
+		constexpr U32 kVecBytes = 16;						// SSE baseline
+		constexpr U32 kVecShift = 4;						// log2 kVecBytes
+		constexpr U32 kMaxLanes = 4;						// i32/f32 in 16 bytes
+		constexpr U32 kMaxInputs = 3;						// most inputs of a lane op, a select has 3
+		constexpr U32 kNone = ~0u;							// no record
+		constexpr Opcode kNoOp = Opcode::Start; // no opcode
+		constexpr I32 kMinProfit = 2;						// scalar ops saved per window, net of lane plumbing
+		constexpr U32 kMaxRunWindows = 4;				// windows sharing one guard branch
+		constexpr U32 kMaxGuards = 4;						// runtime checks per guarded run
+		constexpr I32 kGuardCheckCost = 6;			// ops per runtime disjointness check
+		constexpr I32 kGuardBranchCost = 6;			// branch + else-arm bloat per guarded run
+		constexpr U32 kMaxTerms = 64;						// most terms of one reduction
+		static_assert(1u << kVecShift == kVecBytes, "kVecShift is log2 kVecBytes");
+		// offset bound of a known access, so its 16-byte blocks fit a block key
+		constexpr I64 kMaxOffset = INT32_MAX - (I64)kVecBytes;
+		// work bounds, so each search stays linear in the function
+		constexpr U32 kMaxOps = 64;				 // Op records tried per seed tuple
+		constexpr U32 kMaxSortGroups = 16; // groups of a stretch, the sort compares them pairwise
+		constexpr U32 kMaxCone = 64;			 // address cone nodes visited per hoisted load
+		constexpr U32 kMaxHops = 16;			 // stores walked between a lane load's state and memIn
 
-		// env-gated diagnostics/tuning
-		B32 statsEnabled();
-		B32 shapesDisabled();
+		// reduction finish shuffles by [w / 4][round], nibble i is the source of lane i
+		constexpr U16 kFinishSel[2][2] = {{0x01}, {0x1032, 0x2301}};
+
+		// lane type classes of the op table
+		enum TypeBits : U8 { kI8 = 1, kI16 = 2, kI32 = 4, kI64 = 8, kF32 = 16, kF64 = 32, kPtr = 64 };
+		constexpr U8 kI32I64 = kI32 | kI64, kFp = kF32 | kF64, kElem = kI32I64 | kFp;
+
+		// how the inputs of op lanes become the operands of their vector op
+		enum class Form : U8 {
+			Lanewise, // every input is a tuple
+		};
+
+		// lanes of one opcode in [first, last] become one vector op of that opcode
+		struct OpRule {
+			Opcode first, last;
+			U8 types; // lane types, a compare lane is its mask
+			U8 from;	// input 0 types of a compare or convert, 0 for no check
+			Form form;
+			B32 sse41;
+		};
+
+		// clang-format off
+		constexpr OpRule kOpRules[] = {
+			{Opcode::Add, Opcode::Sub, kI32I64, 0, Form::Lanewise, false},
+			{Opcode::Mul, Opcode::Mul, kI32, 0, Form::Lanewise, true},						// pmulld, no i64 mul
+			{Opcode::And, Opcode::Xor, kI32I64, 0, Form::Lanewise, false},
+			{Opcode::FAdd, Opcode::FDiv, kFp, 0, Form::Lanewise, false},
+		};
+		// clang-format on
+		static_assert((I32)Opcode::Sub - (I32)Opcode::Add == 1 &&
+											(I32)Opcode::Xor - (I32)Opcode::And == 2 &&
+											(I32)Opcode::FDiv - (I32)Opcode::FAdd == 3,
+									"kOpRules ranges follow ir/opcode.h");
+
+		using Lanes = SmallList<Node*, kMaxLanes>;
+		using Chain = List<StoreNode*>;
+
+		struct Access {
+			Addr addr;
+			U32 size = 0;
+		};
+
+		struct LastOutside {
+			void add(U32 at, U32 group);
+			U32 outside(U32 group) const; // the last store outside group, 0 for none
+
+			U32 last = 0, lastGroup = 0, lastOther = 0;
+		};
+
+		// the stores of a chain seen so far (indexed from 1), to find the last that may overlap a load
+		struct Conflicts {
+			static U64 blockKey(U32 group, I64 offset);
+			void add(U32 at, const Access& a);
+			U32 lastConflict(const Access& a) const;
+
+			LastOutside all;														 // every store
+			U32 lastWild = 0;														 // the last store without an object
+			Map<U32, LastOutside> objects;							 // object -> its stores
+			Map<U64, std::array<U32, kVecBytes>> blocks; // (group, 16-byte block) -> last store per byte
+		};
+
+		// sort key of a store in a stretch
+		struct SortKey {
+			B32 operator<(const SortKey& o) const;
+
+			U32 groupAt = 0;
+			I64 offset = 0;
+			U32 at = 0;
+		};
+
+		struct Window {
+			U32 begin = 0, w = 0, bytes = 0;
+			I64 lo = 0;
+			StoreNode* lane[kMaxLanes] = {};
+		};
+
+		// windows of one group that continue each other
+		using Run = SmallList<Window, kMaxRunWindows>;
+
+		// the tuples to pack, one vector each, for a run of stores or for a reduction
+		struct Seed {
+			List<Lanes> tuples;
+			I32 profit = 0;
+			U32 windows = 1;
+			Node* memIn = nullptr;
+			SmallList<StoreNode*, kMaxRunWindows * kMaxLanes> stores;
+			SmallList<StoreNode*, kMaxRunWindows> heads;
+			Node* root = nullptr;
+			List<Node*> steps;
+		};
+
+		// how a record builds its vector
+		enum class Kind : U8 {
+			Gather,
+			Load,
+			Op,
+		};
+
+		// one vector of a plan
+		struct Record {
+			Lanes lanes;
+			Kind kind = Kind::Gather;
+			I32 profit = 0;
+			Opcode op = kNoOp;
+			U32 in[kMaxInputs] = {kNone, kNone, kNone};
+			Node* mem = nullptr;
+			LoadNode* lowest = nullptr;
+			I64 off = 0;
+			U32 wideLoads = 0;
+			B32 guard = false;
+		};
+
+		struct GuardGroup {
+			U32 group = 0;
+			Node* ptr = nullptr; // pointer of the access at lo
+			I64 lo = 0, hi = 0;
+		};
+
+		struct Plan {
+			List<Record> records;
+			SmallList<U32, kMaxTerms / 4> tuples;
+			List<GuardGroup> guards;
+		};
+
+		struct Made {
+			List<Node*> nodes, vectors;
+			List<Pair<LoadNode*, Addr>> loads;
+		};
+
+		struct Forms {
+			Opcode op[kMaxLanes] = {};
+			Node* in[kMaxLanes][kMaxInputs] = {};
+			Opcode first = kNoOp;
+		};
+
+		// whether a lane load may read memIn instead of its state
+		enum class Edge : U8 { None, Weak, Strong };
+
+		enum Role : U8 { kLoadLane = 1, kOpLane = 2, kSink = 4, kKept = 8 };
+
+		struct GuardSplit {
+			Node *block, *memIn, *phi, *iff, *region; // phi: final state, iff: first guard branch
+		};
+
 		B32 guardsDisabled();
 		B32 guardCostDisabled();
-		B32 fpReduceEnabled();
+		B32 statsEnabled();
 
-		struct StoreInfo {
-			StoreNode* store = nullptr;
-			RefinedAddr key;
-			List<LoadNode*> observers; // loads reading this store's output state
-		};
+		// helpers without pass state
+		U8 typeBits(const Type* t);
+		Node* memoryOperand(const Node* n);
+		void replaceUses(Node* from, Node* to);
+		I32 gatherCost(const Lanes& lanes);
+		B32 oneScalar(const Lanes& lanes);
+		StoreNode* chainSuccessor(StoreNode* prev);
+		U32 coneState(LoadNode* l, const List<U32>& index);
+		void sortStretch(Chain& chain, const List<Access>& acc, U32 lo, U32 hi);
+		B32 sortDisjoint(const List<Access>& acc, const List<SortKey>& keys);
+		Seed runSeed(const Chain& chain, const Run& run);
+		List<Node*> flattenReduction(Node* root, List<Node*>& steps);
+		I32 profitMargin(const Seed& seed, const Plan& plan);
+		B32 isInner(const Seed& seed, const Node* m);
 
-		// one walk of the store chain through candidate stores
-		using Segment = List<StoreInfo>;
-
-		struct WindowShape {
-			U32 begin = 0;
-			U32 w = 0;
-			Type* elemTy = nullptr;
-			Node* ctrl = nullptr;
-			I64 lo = 0;
-			List<const StoreInfo*> byOff; // lane order
-		};
-
-		StoreNode* soleChainSuccessor(StoreNode* s, List<LoadNode*>& observers);
-		B32 windowAt(const Segment& seg, U32 at, WindowShape& out);
-		B32 windowHasObs(const Segment& seg, const WindowShape& ws);
-		List<Node*> laneValues(const WindowShape& w);
-		List<Node*> flattenAddChain(BinaryNode* root, Opcode addOp, Type* t);
-
-		struct Slp;
-
-		// grows one vector value per store window
-		struct Packer {
-			// runtime disjointness guards
-			struct GuardGroup {
-				String sig;					 // group identity
-				Node* ptr = nullptr; // pointer of the lane at minC
-				I64 minC = 0, maxC = 0;
-			};
-
-			// how a load tuple is addressed
-			struct LoadShape {
-				LoadNode* first = nullptr;
-				RefinedAddr k0; // address of lane 0
-				U32 esz = 0;
-				B32 sharedState = false; // every lane reads one memory state
-				B32 adjacent = false;		 // lane i is at k0 + i*esz
-				B32 equal = false;			 // every lane hits k0
-			};
-
-			Packer(Slp& drv, Node* memIn, const RefinedAddr* windowKey);
-
-			void collectRun(const Segment& seg, U32 begin, U32 count);
-			void addGuard(const RefinedAddr& k, Node* lane0Ptr, U32 bytes);
-			Node* anchorPtr(Node* ptr, const RefinedAddr& k);
-			void coalesceSplats();
-			B32 coneTouchesObserver(const Node* n) const;
-			B32 madeLoadsReadMemIn() const;
-			static String tupleKey(const List<Node*>& lanes);
-			Node* packTuple(const List<Node*>& lanes, Type* elemTy, U32 depth);
-			Node* packTupleUncached(const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth);
-			B32 matchLoadShape(const List<Node*>& lanes, Type* elemTy, LoadShape& out) const;
-			B32 straddlesWindow(const LoadShape& sh, U32 w) const;
-			B32 innerStatesHoistable(const List<Node*>& lanes, const LoadShape& sh);
-			void guardAgainstWindow(const LoadShape& sh, U32 w);
-			Node* packLoads(const List<Node*>& lanes, Type* elemTy, Type* vecTy);
-			Node* packBinaryLanes(const List<Node*>& lanes, Type* elemTy, Type* vecTy, U32 depth);
-			Node* packWideOrSplat(Node* mem,
-														LoadNode* first,
-														const RefinedAddr& k0,
-														Type* elemTy,
-														Type* vecTy,
-														U32 w,
-														B32 equal);
-
-			Slp& drv;
-			Function& fn;
-
-			// window context, null for reductions
-			Node* memIn;
-			const RefinedAddr* windowKey;
-			Set<const Node*> runStores; // the scalar stores being fused
-			// inner store -> lane offsets already written in the state that store produces,
-			// its own offset included
-			Map<const Node*, List<I64>> interWritten;
-			Set<const Node*> observers; // loads reading an inner store's state
-			B32 dead = false;						// a matched strategy could not be built, the window is rejected
-			List<GuardGroup> guardGroups;
-			// splat reloads kept for post-commit coalescing into wide loads
-			List<Pair<Node*, LoadNode*>> splatLoads;
-			// loads this packer created; only these may be sunk into a speculative arm
-			Set<const Node*> madeLoads;
-			// tuple -> already built vector node, so shared subtrees pack once
-			Map<String, Node*> memo;
-			I32 profit = 0;
-			U32 interior = 0; // vector arithmetic / wide loads created
-		};
-
-		// function driver
 		struct Slp {
-			struct StoreAddr {
-				RefinedAddr key; // invalid when the pointer does not refine
-				String sig;			 // groupSig(key), empty when invalid
-			};
-
 			Slp(Function& fn, const TargetInfo& target, SlpStats& stats);
-
-			const StoreAddr& storeAddr(StoreNode* s);
-			B32 disjointStores(StoreNode* a, StoreNode* b);
-			Node* skipDisjointRun(StoreNode* s, Node* loadBase);
-			B32 reachesUp(Node* from, Node* to);
-			void normalizeLoadEdges();
-			B32 trySwapAdjacentStores(StoreNode* s, StoreNode* p);
-			void normalizeStoreChains();
-			void sortDisjointRuns();
-			Map<Node*, StoreInfo> collectCandidates();
-			List<Segment> buildSegments(const Map<Node*, StoreInfo>& cand);
-			U32 processSegment(Segment& seg);
-			B32 packRun(Packer& packer, const List<WindowShape>& run, List<Node*>& vecs);
-			U32 tryStaticWindow(Segment& seg, U32 i, const WindowShape& w0);
-			U32 tryGuardedRun(Segment& seg, U32 i, const WindowShape& w0);
-			void commitGuardedRun(Segment& seg,
-														U32 i,
-														const List<WindowShape>& run,
-														const List<Node*>& vecs,
-														Packer& packer);
-			// thin fn.create wrappers for the guard cascade
-			Node* guardBranch(Node* ctrl, Node* pred);
-			Node* guardProj(Node* of, U32 index, const C8* label);
-			// build the disjointness-guard branch cascade; returns the speculating
-			// then-control and fills iff (first branch) and fails (else-arm controls)
-			Node* emitGuardCascade(const List<Packer::GuardGroup>& groups,
-														 Node* startCtrl,
-														 Node* wPtr,
-														 Node* wEnd,
-														 Node*& iff,
-														 List<Node*>& fails);
-			// states the incoming window state transitively derives from
-			static Set<const Node*> preStates(Node* memIn);
-			// steer every other user of the pre-branch control to the right arm
-			void
-			rerouteBlock(Node* startCtrl, Node* iff, Node* region, Node* elseP, const Packer& packer);
-			void sortReductionTerms(List<Node*>& terms, U32 esz);
-			Node* emitHsum(Node* acc, Opcode addOp, Type* vecTy, U32 w);
-			U32 packReduction(BinaryNode* root);
-			U32 packReductions();
 			U32 run();
+			B32 pack(const Seed& seed);
+			// order
+			Access accessOf(Node* n);
+			List<Chain> collectChains();
+			void orderChain(Chain& chain, List<U32>& index);
+			void hoistLoads(const Chain& chain, const List<Access>& acc, List<U32>& index);
+			// seed
+			B32 windowAt(const Chain& chain, U32 at, U32 bytes, Window& out);
+			U32 processChain(const Chain& chain);
+			U32 tryRun(const Chain& chain, U32 i, U32 bytes);
+			void extendRun(const Chain& chain, Run& run);
+			I32 leafProfit(const Window& w);
+			U32 packReductions();
+			B32 reduces(const Node* n);
+			U32 tryReduction(Node* root);
+			// check
+			void setRoles(const Seed& seed, const Plan& plan, B32 on);
+			U8 roleOf(const Node* n) const;
+			U32 keepLanes(const Plan& plan);
+			B32 usedOutside(const Node* n, B32 copies) const;
+			B32 dies(const Node* n) const;
+			B32 innerReadersDie(const Seed& seed) const;
+			// apply
+			void apply(const Seed& seed, const Plan& plan);
+			Made emit(const Plan& plan);
+			Node* emitGather(const Record& r, Type* vecTy);
+			Node* emitLoad(const Record& r, Type* vecTy, Made& made);
+			Node* wideLoad(const Record& r, Type* vecTy, I64 off, Made& made);
+			Node* emitOp(const Record& r, Type* vecTy, const Made& made);
+			Node* makeOp(Opcode op, Type* vecTy, Node* const* in);
+			Node* anchorPtr(Node* ptr, I64 off);
+			Pair<Node*, I64> anchorOf(Node* ptr);
+			Node* chainWideStores(const Seed& seed, const Made& made, Node* ctrl);
+			void commitRun(const Seed& seed, const Made& made);
+			void commitGuarded(const Seed& seed, const Plan& plan, const Made& made);
+			void moveToElse(const Seed& seed, const Plan& plan, Node* block, Node* elseP);
+			Node* emitGuardCascade(const Seed& seed, const Plan& plan, Node*& iff, Node*& elseP);
+			void splitBlocks();
+			B32 moveLaterUsers(const GuardSplit& g, const Map<const Node*, U32>& runAt);
+			void commitReduction(const Seed& seed, const Made& made);
 
 			Function& fn;
 			U32 ptrBytes;
 			B32 sse41;
-			AliasAnalysis aa;
 			SlpStats& stats;
-			ShapeHash shapes;
-			Map<String, Pair<Node*, I64>> addrAnchors; // group sig -> (anchor ptr, its refined constant)
-			Map<const Node*, StoreAddr> addrCache;		 // refineAddr is not free
-			Map<const Node*, Map<const Node*, Node*>> skipMemo; // load base -> store -> run end
+			AddrCache addrs;
+			Map<U32, Pair<Node*, I64>> anchors; // group -> (anchor ptr, its offset)
+			List<GuardSplit> splits;						// the guarded runs, for splitBlocks
+			Set<const Node*> guardedBlocks;			// blocks with a guarded run, for loadState
+			List<U8> roles;											// node id -> Role bits of the plan being checked, else 0
+		};
+
+		struct Planner {
+			Planner(Slp& s, const Seed& seed);
+			B32 planSeed();
+			U32 vectorOf(const Lanes& lanes);
+			U32 gather(const Lanes& lanes);
+			// Load
+			U32 loads(const Lanes& lanes);
+			B32 loadShape(const Lanes& lanes, Record& r);
+			B32 loadState(const Lanes& lanes, Record& r);
+			Edge readsAtMemIn(LoadNode* l, const Addr& run);
+			// Op
+			U32 op(const Lanes& lanes);
+			B32 laneForms(const Lanes& lanes, Forms& f);
+			const OpRule* ruleOf(Opcode op, Node* n);
+			U32 operandTuples(const Lanes& lanes, const Forms& f, Lanes* ops);
+			std::tuple<Opcode, const Type*, U32> operandKey(Node* n);
+			void orient(const Forms& f, Lanes* ops);
+			void addGuard(const Record& r);
+
+			Slp& s;
+			const Seed& seed;
+			Plan plan;
+			U32 budget = 0; // Op records left to try, kMaxOps more per seed tuple
 		};
 	} // namespace slp
 
