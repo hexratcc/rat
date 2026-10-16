@@ -10,8 +10,6 @@ namespace rat {
 		// add scale * n to constant and terms. narrow: n is an i32 under a sext, so an add or sub
 		// splits off only a constant and a shift stays below 31
 		void refineTerm(const Node* n, I64 scale, B32 narrow, I64& constant, Terms& terms, U32 depth) {
-			if(scale == 0)
-				return;
 			const BinaryNode* b = dyn_cast<BinaryNode>(n);
 			const ConstantNode* k = nullptr;
 			if(b)
@@ -22,7 +20,9 @@ namespace rat {
 				in = n->getInput(0)->getType();
 			B32 wide = n->getType()->isInt() && n->getType()->getIntWidth() == 64;
 			B32 split = b && depth < kMaxRefineDepth && (narrow || wide);
-			if(const ConstantNode* c = dyn_cast<ConstantNode>(n))
+			if(scale == 0) // a cancelled var stays in the key, so a group's pointers share their vars
+				terms.push_back({n, 0});
+			else if(const ConstantNode* c = dyn_cast<ConstantNode>(n))
 				constant += scale * c->getValue();
 			else if(in && !narrow && in->isInt() && in->getIntWidth() == 32)
 				refineTerm(n->getInput(0), scale, true, constant, terms, depth + 1);
@@ -50,11 +50,6 @@ namespace rat {
 				else
 					terms[n++] = terms[i];
 			}
-			terms.resize(n);
-			n = 0;
-			for(U32 i = 0; i < terms.size(); ++i)
-				if(terms[i].second != 0) // a cancelled var drops out
-					terms[n++] = terms[i];
 			terms.resize(n);
 		}
 	} // namespace detail
