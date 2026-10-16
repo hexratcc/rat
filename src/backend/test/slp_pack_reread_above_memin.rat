@@ -1,0 +1,50 @@
+@name slp: a lane load hoisted above the window's incoming state is re-read there, as no store in between touches its bytes
+@passes slp
+
+@input
+func t(ptr, i64) -> void {
+	v0 = start : (ctrl, mem, ptr, i64)
+	v1 = stop : ctrl v60
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "g" of v0
+	v5 = proj : i64  #3 "x" of v0
+	v6 = alloc : ptr  [16 x i8]
+	v7 = alloc : ptr  [16 x i8]
+	v8 = const : i64  8
+	v9 = add : ptr v6, v8
+	v10 = add : ptr v7, v8
+	v11 = const : i32  0
+	v12 = store : mem v2, v3, v6, v11
+	v13 = store : mem v2, v12, v9, v5
+	v14 = load : i64 v2, v13, v6
+	v15 = store : mem v2, v13, v7, v14
+	v16 = load : i64 v2, v15, v9
+	v17 = store : mem v2, v15, v10, v16
+	v18 = call : (ctrl, mem)  "use" v2, v17, v7
+	v19 = proj : ctrl  #0 "ctrl" of v18
+	v20 = proj : mem  #1 "mem" of v18
+	v60 = return : ctrl v19, v20
+}
+
+@expect
+func t(ptr, i64) -> void {
+	v0 = start : (ctrl, mem, ptr, i64)
+	v1 = stop : ctrl v17
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i64  #3 "x" of v0
+	v5 = alloc : ptr  [16 x i8]
+	v6 = alloc : ptr  [16 x i8]
+	v7 = const : i64  8
+	v8 = add : ptr v5, v7
+	v9 = const : i32  0
+	v10 = store : mem v2, v3, v5, v9
+	v11 = store : mem v2, v10, v8, v4
+	v12 = load : <2 x i64> v2, v11, v5
+	v13 = store : mem v2, v11, v6, v12
+	v14 = call : (ctrl, mem)  "use" v2, v13, v6
+	v15 = proj : ctrl  #0 "ctrl" of v14
+	v16 = proj : mem  #1 "mem" of v14
+	v17 = return : ctrl v15, v16
+}

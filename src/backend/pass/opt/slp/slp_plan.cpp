@@ -129,9 +129,9 @@ namespace rat {
 					return Edge::None;
 				return Edge::Weak;
 			}
-			if(!inner && l->getMemory() != seed.memIn)
-				return Edge::Strong; // a state above memIn
-			Node *later = l->getMemory(), *earlier = seed.memIn;
+			Node *later = seed.memIn, *earlier = l->getMemory();
+			if(inner)
+				std::swap(later, earlier);
 			U32 size = l->getType()->byteSize(s.ptrBytes);
 			for(U32 hops = 0; later != earlier; ++hops) {
 				StoreNode* st = dyn_cast<StoreNode>(later);
