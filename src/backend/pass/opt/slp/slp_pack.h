@@ -200,6 +200,8 @@ namespace rat {
 
 		// helpers without pass state
 		U8 typeBits(const Type* t);
+		B32 writesMemory(const Node* n);
+		Node* stateWriter(Node* m);
 		Node* memoryOperand(const Node* n);
 		void replaceUses(Node* from, Node* to);
 		I32 gatherCost(const Lanes& lanes);
@@ -231,6 +233,8 @@ namespace rat {
 			U32 packReductions();
 			B32 reduces(const Node* n);
 			U32 tryReduction(Node* root);
+			// planner queries
+			B32 pinned(Node* m, Node* ctrl);
 			// check
 			void setRoles(const Seed& seed, const Plan& plan, B32 on);
 			U8 roleOf(const Node* n) const;
@@ -262,10 +266,11 @@ namespace rat {
 			B32 sse41;
 			SlpStats& stats;
 			AddrCache addrs;
-			Map<U32, Pair<Node*, I64>> anchors; // group -> (anchor ptr, its offset)
-			List<GuardSplit> splits;						// the guarded runs, for splitBlocks
-			Set<const Node*> guardedBlocks;			// blocks with a guarded run, for loadState
-			List<U8> roles;											// node id -> Role bits of the plan being checked, else 0
+			Map<U32, Pair<Node*, I64>> anchors;				// group -> (anchor ptr, its offset)
+			Map<const Node*, Node*> firstWriterState; // control -> state its first writer reads, or null
+			List<GuardSplit> splits;									// the guarded runs, for splitBlocks
+			Set<const Node*> guardedBlocks;						// blocks with a guarded run, for loadState
+			List<U8> roles; // node id -> Role bits of the plan being checked, else 0
 		};
 
 		struct Planner {

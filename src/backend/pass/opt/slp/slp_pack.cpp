@@ -79,6 +79,19 @@ namespace rat {
 			return (bits == 32) * kI32 | (bits == 64) * kI64;
 		}
 
+		B32 writesMemory(const Node* n) {
+			return isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n) || isa<StackRestoreNode>(n);
+		}
+
+		Node* stateWriter(Node* m) {
+			Node* w = m;
+			if(ProjNode* p = dyn_cast<ProjNode>(m))
+				w = p->getProducer();
+			if(!m->getType()->isMemory() || !writesMemory(w))
+				return nullptr;
+			return w;
+		}
+
 		Node* memoryOperand(const Node* n) {
 			B32 access = isa<LoadNode>(n) || isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n);
 			if(access || isStackOpcode(n->getOpcode()))
