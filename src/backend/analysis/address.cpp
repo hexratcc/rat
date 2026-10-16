@@ -54,6 +54,9 @@ namespace rat {
 		}
 	} // namespace detail
 
+	AddrCache::AddrCache(U64 restrictParams)
+	: restrictParams(restrictParams) {}
+
 	const Addr& AddrCache::get(Node* ptr) {
 		if(auto it = addrs.find(ptr); it != addrs.end())
 			return it->second;
@@ -88,15 +91,30 @@ namespace rat {
 		return addrs.emplace(ptr, a).first->second;
 	}
 
-	// object id of a group's base
+	// kind and object id of a group's base
+	// unknown when a term may carry a restrict parameter, as a + (d - a) is based on d
 	Addr AddrCache::classify(const detail::Terms& terms) {
 		Addr a;
 		const Node* base = terms.back().first;
+		if(restrictParams)
+			for(U32 i = 0; i + 1 < terms.size(); ++i) {
+				const Node* var = terms[i].first;
+				if(AliasAnalysis::mayCarryRestrict({var}, restrictParams, AliasAnalysis::kMaxCarryCone))
+					return a;
+			}
+		I32 index = AliasAnalysis::paramIndex(base);
 		if(const GlobalNode* g = dyn_cast<GlobalNode>(base)) {
 			U32 number = symbols.try_emplace(g->getSymbol(), (U32)symbols.size()).first->second;
+			a.kind = BaseKind::Object;
 			a.object = detail::kObjectTags * number + detail::kGlobalTag;
 		} else if(AliasAnalysis::isIdentified(base)) {
+			a.kind = BaseKind::Object;
 			a.object = detail::kObjectTags * base->getId() + detail::kAllocTag;
+		} else if(AliasAnalysis::isRestrictParam(index, restrictParams)) {
+			a.kind = BaseKind::Restrict;
+			a.object = detail::kObjectTags * (U32)index + detail::kRestrictTag;
+		} else if(index >= 0) {
+			a.kind = BaseKind::Param;
 		}
 		return a;
 	}
@@ -104,7 +122,10 @@ namespace rat {
 	B32 disjointBases(const Addr& a, const Addr& b) {
 		if(a.object == b.object)
 			return false; // one object, or two bases without one
-		return a.object && b.object;
+		if(a.object && b.object)
+			return true;
+		return (a.kind == BaseKind::Restrict && b.kind == BaseKind::Param) ||
+					 (a.kind == BaseKind::Param && b.kind == BaseKind::Restrict);
 	}
 
 	B32 disjoint(const Addr& a, U32 sza, const Addr& b, U32 szb) {

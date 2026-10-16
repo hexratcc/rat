@@ -1,5 +1,6 @@
 #include "pass/opt/slp/slp_pack.h"
 
+#include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/module.h"
 #include "ir/node.h"
@@ -31,7 +32,8 @@ namespace rat {
 		: fn(fn),
 			ptrBytes(target.getPointerSizeInBytes()),
 			sse41(target.hasSse41()),
-			stats(stats) {}
+			stats(stats),
+			addrs(AliasAnalysis::restrictFacts(fn)) {}
 
 		// order all chains before packing any, so a lane load reading another chain's state is hoisted
 		U32 Slp::run() {
