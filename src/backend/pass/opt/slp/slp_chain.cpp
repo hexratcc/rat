@@ -71,7 +71,7 @@ namespace rat {
 				StoreNode* st = dyn_cast<StoreNode>(u);
 				if(isa<LoadNode>(u))
 					continue;
-				if(!st || succ || st->getControl() != prev->getControl())
+				if(!st || succ || st->getControl() != prev->getControl() || st->isVolatile())
 					return nullptr;
 				succ = st;
 			}
@@ -85,7 +85,7 @@ namespace rat {
 				StoreNode* p = nullptr;
 				if(st)
 					p = dyn_cast<StoreNode>(st->getMemory());
-				if(!st || (p && chainSuccessor(p) == st))
+				if(!st || st->isVolatile() || (p && !p->isVolatile() && chainSuccessor(p) == st))
 					continue; // not a chain head
 				chains.emplace_back();
 				for(StoreNode* c = st; c; c = chainSuccessor(c))
@@ -118,7 +118,7 @@ namespace rat {
 				seen.add(k, acc[k - 1]);
 				readers.clear(); // copy first, a hoist changes the store's users
 				for(Node* u : chain[k - 1]->getUsers())
-					if(LoadNode* l = dyn_cast<LoadNode>(u); l && l->getControl() == block)
+					if(LoadNode* l = dyn_cast<LoadNode>(u); l && l->getControl() == block && !l->isVolatile())
 						readers.push_back(l);
 				for(LoadNode* l : readers) {
 					Access la = accessOf(l);

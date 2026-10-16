@@ -80,7 +80,8 @@ namespace rat {
 			r.off = a0.offset;
 			for(U32 i = 0; i < w; ++i) {
 				LoadNode* l = dyn_cast<LoadNode>(lanes[i]);
-				if(!l || l->getType() != l0->getType() || l->getControl() != l0->getControl())
+				if(!l || l->isVolatile() || l->getType() != l0->getType() ||
+					 l->getControl() != l0->getControl())
 					return false;
 				const Addr& a = s.addrs.get(l->getPointer());
 				if(a.group != a0.group)
@@ -134,7 +135,7 @@ namespace rat {
 			U32 size = l->getType()->byteSize(s.ptrBytes);
 			for(U32 hops = 0; later != earlier; ++hops) {
 				StoreNode* st = dyn_cast<StoreNode>(later);
-				if(!st || hops == kMaxHops || st->getControl() != l->getControl())
+				if(!st || hops == kMaxHops || st->isVolatile() || st->getControl() != l->getControl())
 					return Edge::Strong;
 				const Addr& b = s.addrs.get(st->getPointer());
 				if(!disjoint(a, size, b, st->getValue()->getType()->byteSize(s.ptrBytes)))
