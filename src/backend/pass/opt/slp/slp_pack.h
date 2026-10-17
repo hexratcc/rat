@@ -40,6 +40,7 @@ namespace rat {
 		constexpr U32 kMaxGuards = 4;						// runtime checks per guarded run
 		constexpr I32 kGuardCheckCost = 6;			// ops per runtime disjointness check
 		constexpr I32 kGuardBranchCost = 6;			// branch + else-arm bloat per guarded run
+		constexpr U32 kMinTerms = 4;						// fewest terms of a reduction
 		constexpr U32 kMaxTerms = 64;						// most terms of one reduction
 		static_assert(1u << kVecShift == kVecBytes, "kVecShift is log2 kVecBytes");
 		// offset bound of a known access, so its 16-byte blocks fit a block key
@@ -138,7 +139,7 @@ namespace rat {
 			SmallList<StoreNode*, kMaxRunWindows * kMaxLanes> stores;
 			SmallList<StoreNode*, kMaxRunWindows> heads;
 			Node* root = nullptr;
-			List<Node*> steps;
+			List<Node*> steps, rest;
 		};
 
 		// how a record builds its vector

@@ -368,14 +368,15 @@ namespace rat {
 			U32 w = kVecBytes / root->getType()->byteSize(ptrBytes);
 			List<Node*> terms = flattenReduction(root, s.steps);
 			U32 n = (U32)terms.size(), g = n / w;
-			if(n < 2 * w || n % w)
+			if(n < kMinTerms)
 				return 0;
 			++stats.windowsSeen;
 			s.tuples.resize(g);
 			for(U32 v = 0; v < g; ++v)
 				s.tuples[v].assign(terms.data() + v * w, terms.data() + (v + 1) * w);
+			s.rest.assign(terms.begin() + g * w, terms.end());
 			I32 finish = 2 * (I32)(w / 2) + 1; // w / 2 shuffle and op rounds, then the extract
-			s.profit = (I32)n - 1 - ((I32)g - 1 + finish);
+			s.profit = (I32)n - 1 - (I32)s.rest.size() - ((I32)g - 1 + finish);
 			return pack(s);
 		}
 	} // namespace slp

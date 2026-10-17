@@ -233,7 +233,7 @@ namespace rat {
 			return next;
 		}
 
-		// combine the vectors by the op, then fold the lanes by shuffles
+		// combine the vectors by the op, fold the lanes by shuffles, then the other terms as scalars
 		void Slp::commitReduction(const Seed& seed, const Made& made) {
 			const List<Node*>& vecs = made.vectors;
 			Opcode op = seed.root->getOpcode();
@@ -247,6 +247,8 @@ namespace rat {
 				acc = fn.create<BinaryNode>(op, vecTy, acc, half);
 			}
 			Node* res = fn.create<ExtractNode>(seed.root->getType(), acc, 0);
+			for(Node* r : seed.rest)
+				res = fn.create<BinaryNode>(op, seed.root->getType(), res, r);
 			replaceUses(seed.root, res);
 			++stats.packedReduction;
 		}
