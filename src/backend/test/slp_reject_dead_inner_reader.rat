@@ -1,0 +1,58 @@
+@name slp: a load of an inner state whose value reaches no store of the run is no covered lane, so the run that removes its state is rejected and the stores after the last such state pack
+@passes slp
+
+@input
+func t(ptr, ptr) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v30
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "p" of v0
+	v5 = proj : ptr  #3 "q" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v9 = add : ptr v4, v6
+	v10 = add : ptr v4, v7
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v5, v6
+	v13 = add : ptr v5, v7
+	v14 = add : ptr v5, v8
+	v15 = load : i32 v2, v3, v5
+	v16 = load : i32 v2, v3, v12
+	v17 = load : i32 v2, v3, v13
+	v18 = load : i32 v2, v3, v14
+	v19 = store : mem v2, v3, v4, v15
+	v20 = store : mem v2, v19, v9, v16
+	v21 = store : mem v2, v20, v10, v17
+	v22 = store : mem v2, v21, v11, v18
+	v23 = load : i32 v2, v19, v5
+	v24 = load : i32 v2, v20, v5
+	v25 = add : i32 v23, v23
+	v26 = add : i32 v24, v24
+	v30 = return : ctrl v2, v22
+}
+
+@expect
+func t(ptr, ptr) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v27
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "p" of v0
+  v5 = proj : ptr  #3 "q" of v0
+  v6 = const : i64  4
+  v9 = add : ptr v4, v6
+  v12 = add : ptr v5, v6
+  v15 = load : i32 v2, v3, v5
+  v16 = load : i32 v2, v3, v12
+  v19 = store : mem v2, v3, v4, v15
+  v20 = store : mem v2, v19, v9, v16
+  v27 = return : ctrl v2, v33
+  v28 = const : i64  8
+  v29 = add : ptr v5, v28
+  v30 = load : <2 x i32> v2, v3, v29
+  v31 = const : i64  8
+  v32 = add : ptr v4, v31
+  v33 = store : mem v2, v20, v32, v30
+}

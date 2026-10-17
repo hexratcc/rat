@@ -235,6 +235,8 @@ namespace rat {
 			U32 changed = 0;
 			for(U32 i = 0; i < chain.size();) {
 				U32 used = tryRun(chain, i, kVecBytes);
+				if(!used)
+					used = tryRun(chain, i, kVecBytes / 2); // 2 x 32-bit
 				changed += used != 0;
 				i += std::max(used, 1u);
 			}
