@@ -55,7 +55,7 @@ namespace rat {
 
 		// lane type classes of the op table
 		enum TypeBits : U8 { kI8 = 1, kI16 = 2, kI32 = 4, kI64 = 8, kF32 = 16, kF64 = 32, kPtr = 64 };
-		constexpr U8 kI32I64 = kI32 | kI64, kFp = kF32 | kF64, kElem = kI32I64 | kFp;
+		constexpr U8 kI32I64 = kI32 | kI64, kFp = kF32 | kF64, kElem = kI32I64 | kFp | kPtr;
 
 		// how the inputs of op lanes become the operands of their vector op
 		enum class Form : U8 {

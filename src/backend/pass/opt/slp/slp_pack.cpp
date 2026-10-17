@@ -73,8 +73,10 @@ namespace rat {
 		}
 
 		U8 typeBits(const Type* t) {
-			if(!t || !(t->isInt() || t->isFloat()))
+			if(!t || !(t->isInt() || t->isFloat() || t->isPtr()))
 				return 0;
+			if(t->isPtr())
+				return kPtr;
 			if(t->isFloat())
 				return (t->getFloatWidth() == 32) * kF32 | (t->getFloatWidth() == 64) * kF64;
 			U32 bits = t->getIntWidth();
