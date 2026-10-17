@@ -62,8 +62,8 @@ namespace rat {
 			B32 ok = margin >= 0;
 			if(ok) {
 				setRoles(seed, plan, true);
-				keepLanes(plan); // mark the lanes that stay live
-				ok = innerReadersDie(seed);
+				// the first innerReadersDie is a cheap early reject, as kept lanes can only make it fail
+				ok = innerReadersDie(seed) && (I32)keepLanes(plan) <= margin && innerReadersDie(seed);
 				if(ok)
 					apply(seed, plan);
 				setRoles(seed, plan, false);
