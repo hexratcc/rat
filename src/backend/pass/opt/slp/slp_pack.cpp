@@ -108,14 +108,19 @@ namespace rat {
 				from->getUsers()[k]->setInput(from->getUserSlot(k), to);
 		}
 
-		// a broadcast, a pool load of constants, or an insert per lane and the pack
 		I32 gatherCost(const Lanes& lanes) {
 			if(oneScalar(lanes))
 				return 1;
-			for(Node* n : lanes)
-				if(!isa<ConstantNode>(n))
-					return (I32)lanes.size() + 1;
-			return 1;
+			I32 vars = 0;
+			B32 base = isa<ConstantNode>(lanes[0]); // needs a pool load
+			for(Node* n : lanes) {
+				if(const ConstantNode* c = dyn_cast<ConstantNode>(n))
+					base |= c->getValue() != 0;
+				else
+					++vars;
+			}
+			B32 anyConstant = vars < (I32)lanes.size();
+			return vars + (base || !anyConstant);
 		}
 
 		B32 isInner(const Seed& seed, const Node* m) {
