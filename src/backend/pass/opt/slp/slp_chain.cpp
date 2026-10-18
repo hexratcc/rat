@@ -287,7 +287,7 @@ namespace rat {
 			LoadNode* l0 = dyn_cast<LoadNode>(w.lane[0]->getValue());
 			for(U32 k = 0; k < w.w; ++k) {
 				Node* v = w.lane[k]->getValue();
-				if(isArithmeticOpcode(v->getOpcode()))
+				if(isArithmeticOpcode(v->getOpcode()) || isa<SelectNode>(v))
 					return INT32_MAX;
 				lanes.push_back(v);
 				LoadNode* l = dyn_cast<LoadNode>(v);

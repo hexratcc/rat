@@ -75,7 +75,8 @@ namespace rat {
 				return false;
 			U32 w = lanes.size(), lsz = l0->getType()->byteSize(s.ptrBytes);
 			Addr a0 = s.addrs.get(l0->getPointer());
-			B32 adjacent = true, equal = true;
+			// i8 and i16 lanes, the source of a convert, load only adjacent
+			B32 elem = (typeBits(l0->getType()) & kElem) != 0, adjacent = true, equal = elem;
 			I64 hi = a0.offset + (I64)lsz;
 			r.lowest = l0;
 			r.off = a0.offset;
@@ -98,7 +99,7 @@ namespace rat {
 			if(!equal)
 				r.wideLoads = 1 + (hi - r.off > (I64)(w * lsz));
 			r.shuffle = !adjacent && !equal;
-			return adjacent || equal || permuteSpan(lanes, r, hi);
+			return adjacent || equal || (elem && permuteSpan(lanes, r, hi));
 		}
 
 		B32 Planner::permuteSpan(const Lanes& lanes, Record& r, I64 hi) {
@@ -187,7 +188,7 @@ namespace rat {
 			if(!rule)
 				return kNone;
 			Lanes ops[kMaxInputs];
-			U32 count = operandTuples(lanes, f, ops);
+			U32 count = operandTuples(lanes, f, rule->form, ops);
 			if(!count)
 				return kNone;
 			--budget;
@@ -204,7 +205,10 @@ namespace rat {
 			r.kind = Kind::Op;
 			r.op = f.first;
 			r.op2 = f.second;
-			r.profit = (I32)lanes.size() - 1;
+			if(rule->form == Form::Uniform)
+				r.amount = lanes[0]->getInput(1);
+			// a variable shift amount costs a move to xmm
+			r.profit = (I32)lanes.size() - 1 - (r.amount && !isa<ConstantNode>(r.amount));
 			if(f.second != kNoOp)
 				r.profit = blendProfit(f, lanes.size(), r.sel);
 			plan.records.push_back(r);
@@ -216,7 +220,7 @@ namespace rat {
 			for(U32 i = 0; i < lanes.size(); ++i) {
 				Node* n = lanes[i];
 				f.op[i] = n->getOpcode();
-				if(!isArithmeticOpcode(f.op[i]))
+				if(!isArithmeticOpcode(f.op[i]) && f.op[i] != Opcode::Select)
 					return false;
 				for(U32 k = 0; k < n->getInputCount(); ++k)
 					f.in[i][k] = n->getInput(k);
@@ -273,7 +277,7 @@ namespace rat {
 
 		// the row of opcode op over lanes like n, null when n's input type or the target does not fit
 		const OpRule* Planner::ruleOf(Opcode op, Node* n) {
-			U8 types = typeBits(n->getType());
+			U8 types = typeBits(s.laneType(n));
 			for(const OpRule& row : kOpRules) {
 				if(op < row.first || op > row.last || !(types & row.types))
 					continue;
@@ -286,8 +290,10 @@ namespace rat {
 		}
 
 		// one operand tuple per vector input, or 0 when the lanes do not fit one vector op
-		U32 Planner::operandTuples(const Lanes& lanes, const Forms& f, Lanes* ops) {
+		U32 Planner::operandTuples(const Lanes& lanes, const Forms& f, Form form, Lanes* ops) {
 			U32 count = (U32)getOpcodeInfo(f.first).minInputs;
+			if(form == Form::Uniform)
+				count = 1;
 			for(U32 i = 0; i < lanes.size(); ++i) {
 				if(lanes[i]->getType() != lanes[0]->getType())
 					return 0;
@@ -297,9 +303,28 @@ namespace rat {
 					ops[k].push_back(f.in[i][k]);
 				}
 			}
+			for(U32 k = 0; k < count; ++k) {
+				U32 bytes = lanes.size() * s.laneType(ops[k][0])->byteSize(s.ptrBytes);
+				if(bytes > kVecBytes || bytes < 4) // at most a vector, at least a movd
+					return 0;
+			}
+			if(form == Form::Uniform && !uniformShift(lanes))
+				return 0;
+			if(form == Form::Select && s.laneType(ops[0][0]) != lanes[0]->getType())
+				return 0;
 			if(count == 2)
 				orient(f, ops);
 			return count;
+		}
+
+		// every lane shifts by one node, below the lane width when it is a constant
+		B32 Planner::uniformShift(const Lanes& lanes) {
+			Node* amount = lanes[0]->getInput(1);
+			for(Node* n : lanes)
+				if(n->getInput(1) != amount)
+					return false;
+			const ConstantNode* c = dyn_cast<ConstantNode>(amount);
+			return !c || (c->getValue() >= 0 && c->getValue() < (I64)lanes[0]->getType()->getIntWidth());
 		}
 
 		// opcode, type and, for a load, its address group: what orient compares

@@ -62,6 +62,8 @@ namespace rat {
 		// how the inputs of op lanes become the operands of their vector op
 		enum class Form : U8 {
 			Lanewise, // every input is a tuple
+			Uniform,	// input 1 is one shift amount for all lanes
+			Select,		// a blend by a compare mask
 		};
 
 		// lanes of one opcode in [first, last] become one vector op of that opcode
@@ -78,12 +80,29 @@ namespace rat {
 			{Opcode::Add, Opcode::Sub, kI32I64, 0, Form::Lanewise, false},
 			{Opcode::Mul, Opcode::Mul, kI32, 0, Form::Lanewise, true},						// pmulld, no i64 mul
 			{Opcode::And, Opcode::Xor, kI32I64, 0, Form::Lanewise, false},
+			{Opcode::Shl, Opcode::LShr, kI32I64, 0, Form::Uniform, false},
+			{Opcode::AShr, Opcode::AShr, kI32, 0, Form::Uniform, false},					// psrad, no i64 sar
 			{Opcode::FAdd, Opcode::FDiv, kFp, 0, Form::Lanewise, false},
+			{Opcode::FNeg, Opcode::FNeg, kFp, 0, Form::Lanewise, false},
+			{Opcode::Eq, Opcode::Ne, kI32I64, kI32I64, Form::Lanewise, false},		// pcmpeqd, pcmpeqq
+			{Opcode::Slt, Opcode::Ule, kI32, kI32, Form::Lanewise, false},				// pcmpgtd, pminud
+			{Opcode::FEq, Opcode::FGe, kI32I64, kFp, Form::Lanewise, false},			// cmpps, cmppd
+			{Opcode::SExt, Opcode::ZExt, kI32I64, kI8 | kI16 | kI32, Form::Lanewise, true}, // pmovsx/zx
+			{Opcode::SIToFP, Opcode::SIToFP, kFp, kI32, Form::Lanewise, false},		// cvtdq2ps/pd
+			{Opcode::FPToSI, Opcode::FPToSI, kI32, kFp, Form::Lanewise, false},		// cvttps2dq/pd2dq
+			{Opcode::FPExt, Opcode::FPExt, kF64, kF32, Form::Lanewise, false},		// cvtps2pd
+			{Opcode::FPTrunc, Opcode::FPTrunc, kF32, kF64, Form::Lanewise, false}, // cvtpd2ps
+			{Opcode::Select, Opcode::Select, kI32I64, 0, Form::Select, true},			// blendv
 		};
 		// clang-format on
 		static_assert((I32)Opcode::Sub - (I32)Opcode::Add == 1 &&
 											(I32)Opcode::Xor - (I32)Opcode::And == 2 &&
-											(I32)Opcode::FDiv - (I32)Opcode::FAdd == 3,
+											(I32)Opcode::LShr - (I32)Opcode::Shl == 1 &&
+											(I32)Opcode::FDiv - (I32)Opcode::FAdd == 3 &&
+											(I32)Opcode::Ne - (I32)Opcode::Eq == 1 &&
+											(I32)Opcode::Ule - (I32)Opcode::Slt == 3 &&
+											(I32)Opcode::FGe - (I32)Opcode::FEq == 5 &&
+											(I32)Opcode::ZExt - (I32)Opcode::SExt == 1,
 									"kOpRules ranges follow ir/opcode.h");
 
 		using Lanes = SmallList<Node*, kMaxLanes>;
@@ -157,6 +176,7 @@ namespace rat {
 			I32 profit = 0;
 			Opcode op = kNoOp, op2 = kNoOp;
 			U32 in[kMaxInputs] = {kNone, kNone, kNone};
+			Node* amount = nullptr;
 			Node* mem = nullptr;
 			LoadNode* lowest = nullptr;
 			I64 off = 0;
@@ -223,6 +243,7 @@ namespace rat {
 			Slp(Function& fn, const TargetInfo& target, SlpStats& stats);
 			U32 run();
 			B32 pack(const Seed& seed);
+			Type* laneType(const Node* n);
 			// order
 			Access accessOf(Node* n);
 			List<Chain> collectChains();
@@ -299,7 +320,8 @@ namespace rat {
 			void subAsAdd(const Lanes& lanes, Forms& f);
 			const OpRule* formRule(const Forms& f, Node* n0);
 			const OpRule* ruleOf(Opcode op, Node* n);
-			U32 operandTuples(const Lanes& lanes, const Forms& f, Lanes* ops);
+			U32 operandTuples(const Lanes& lanes, const Forms& f, Form form, Lanes* ops);
+			B32 uniformShift(const Lanes& lanes);
 			std::tuple<Opcode, const Type*, U32> operandKey(Node* n);
 			void orient(const Forms& f, Lanes* ops);
 			I32 blendProfit(const Forms& f, U32 w, U16& sel);

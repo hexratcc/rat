@@ -72,6 +72,12 @@ namespace rat {
 			return ok;
 		}
 
+		Type* Slp::laneType(const Node* n) {
+			if(isCompareOpcode(n->getOpcode()))
+				return fn.types().getInt(8 * n->getInput(0)->getType()->byteSize(ptrBytes));
+			return n->getType();
+		}
+
 		U8 typeBits(const Type* t) {
 			if(!t || !(t->isInt() || t->isFloat() || t->isPtr()))
 				return 0;
@@ -80,7 +86,7 @@ namespace rat {
 			if(t->isFloat())
 				return (t->getFloatWidth() == 32) * kF32 | (t->getFloatWidth() == 64) * kF64;
 			U32 bits = t->getIntWidth();
-			return (bits == 32) * kI32 | (bits == 64) * kI64;
+			return (bits == 8) * kI8 | (bits == 16) * kI16 | (bits == 32) * kI32 | (bits == 64) * kI64;
 		}
 
 		B32 writesMemory(const Node* n) {
@@ -182,10 +188,13 @@ namespace rat {
 
 		U32 Slp::keepLanes(const Plan& plan) {
 			SmallList<const Node*, 64> work;
-			for(const Record& r : plan.records)
+			for(const Record& r : plan.records) {
 				for(Node* n : r.lanes)
 					if(r.kind == Kind::Gather || usedOutside(n, r.kind == Kind::Load))
 						work.push_back(n);
+				if(r.amount)
+					work.push_back(r.amount);
+			}
 			U32 kept = 0;
 			while(!work.empty()) {
 				const Node* n = work.back();

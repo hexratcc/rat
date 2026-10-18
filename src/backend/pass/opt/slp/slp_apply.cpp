@@ -21,7 +21,7 @@ namespace rat {
 		Made Slp::emit(const Plan& plan) {
 			Made made;
 			for(const Record& r : plan.records) {
-				Type* vecTy = fn.types().getVec(r.lanes[0]->getType(), r.lanes.size());
+				Type* vecTy = fn.types().getVec(laneType(r.lanes[0]), r.lanes.size());
 				if(r.kind == Kind::Load)
 					made.nodes.push_back(emitLoad(r, vecTy, made));
 				else if(r.kind == Kind::Op)
@@ -78,6 +78,8 @@ namespace rat {
 			for(U32 i = 0; i < kMaxInputs; ++i)
 				if(r.in[i] != kNone)
 					in[i] = made.nodes[r.in[i]];
+			if(r.amount)
+				in[1] = r.amount;
 			Node* a = makeOp(r.op, vecTy, in);
 			if(r.op2 == kNoOp)
 				return a;
@@ -85,7 +87,18 @@ namespace rat {
 		}
 
 		Node* Slp::makeOp(Opcode op, Type* vecTy, Node* const* in) {
-			return fn.create<BinaryNode>(op, vecTy, in[0], in[1]);
+			switch(getOpClass(op)) {
+			case OpClass::Binary:
+				return fn.create<BinaryNode>(op, vecTy, in[0], in[1]);
+			case OpClass::Unary:
+				return fn.create<UnaryNode>(op, vecTy, in[0]);
+			case OpClass::Compare:
+				return fn.create<CompareNode>(op, vecTy, in[0], in[1]);
+			case OpClass::Convert:
+				return fn.create<ConvertNode>(op, vecTy, in[0]);
+			default:
+				return fn.create<SelectNode>(vecTy, in[0], in[1], in[2]);
+			}
 		}
 
 		// offset off of ptr's group as the group's anchor plus a constant, so lowering folds it
