@@ -139,6 +139,16 @@ namespace rat {
 		}
 	}
 
+	B32 MemoryOptPass::loopInvariant(const AliasAnalysis& aa, PhiNode* m, U32 back, LoadNode* l) {
+		AliasAnalysis::MustAliasKey key = aa.mustAliasKey(l);
+		if(!key.symbolic.empty() || !(isa<GlobalNode>(key.base) || isa<AllocNode>(key.base)))
+			return false;
+		for(Node* mem = m->getValue(back); mem != m; mem = cast<StoreNode>(mem)->getMemory())
+			if(aa.mustAliasKey(mem).base == key.base)
+				return false; // any store to the object counts, so all its loads keep one state
+		return true;
+	}
+
 	// a load whose def is a loop memory phi reads either the value stored on
 	// the previous iteration or the last store before the loop, forward both
 	// through a data phi and the load (not the store) becomes dead
@@ -158,6 +168,14 @@ namespace rat {
 				continue;
 			const ChainScan& entry = a.loops ? b : a;
 			const ChainScan& back = a.loops ? a : b;
+			U32 backIdx = 1;
+			if(a.loops)
+				backIdx = 0;
+			if(!back.clobbered && !back.store && !entry.store && loopInvariant(aa, m, backIdx, l)) {
+				l->setInput(1, m->getValue(1 - backIdx));
+				++removed;
+				continue;
+			}
 			if(entry.clobbered || back.clobbered || !entry.store)
 				continue;
 			Node* init = entry.store->getValue();

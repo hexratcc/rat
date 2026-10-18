@@ -1,0 +1,62 @@
+@name memoryopt: a load of a fixed location no loop store aliases reads the loop-entry state
+@passes memoryopt
+
+@input
+var a : [1024 x i32] = ""
+var s : i32 = ""
+
+func f() -> void {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v22
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = const : i64  0
+	v5 = region : ctrl  loop v2, v10
+	v6 = phi : i64 v5, v4, v21
+	v7 = const : i64  1000
+	v8 = slt : i1 v6, v7
+	v9 = if : (ctrl, ctrl) v5, v8
+	v10 = proj : ctrl  #0 "then" of v9
+	v11 = proj : ctrl  #1 "else" of v9
+	v12 = global : ptr  "a"
+	v13 = const : i64  2
+	v14 = shl : i64 v6, v13
+	v15 = add : ptr v12, v14
+	v16 = global : ptr  "s"
+	v17 = phi : mem v5, v3, v19
+	v18 = load : i32 v10, v17, v16
+	v19 = store : mem v10, v17, v15, v18
+	v20 = const : i64  1
+	v21 = add : i64 v6, v20
+	v22 = return : ctrl v11, v17
+}
+
+@expect
+var a : [1024 x i32] = ""
+var s : i32 = ""
+
+func f() -> void {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v22
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = const : i64  0
+	v5 = region : ctrl  loop v2, v10
+	v6 = phi : i64 v5, v4, v21
+	v7 = const : i64  1000
+	v8 = slt : i1 v6, v7
+	v9 = if : (ctrl, ctrl) v5, v8
+	v10 = proj : ctrl  #0 "then" of v9
+	v11 = proj : ctrl  #1 "else" of v9
+	v12 = global : ptr  "a"
+	v13 = const : i64  2
+	v14 = shl : i64 v6, v13
+	v15 = add : ptr v12, v14
+	v16 = global : ptr  "s"
+	v17 = phi : mem v5, v3, v19
+	v18 = load : i32 v10, v3, v16
+	v19 = store : mem v10, v17, v15, v18
+	v20 = const : i64  1
+	v21 = add : i64 v6, v20
+	v22 = return : ctrl v11, v17
+}
