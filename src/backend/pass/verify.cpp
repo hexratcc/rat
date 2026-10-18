@@ -4,6 +4,7 @@
 #include "ir/module.h"
 #include "ir/node.h"
 #include "ir/type.h"
+#include "target/target.h"
 
 #include <sstream>
 
@@ -92,9 +93,8 @@ namespace rat {
 				err(n, "input " + std::to_string(i) + " (" + vref(in) + ") is not a node of this function");
 				continue;
 			}
-			if(!listsAsUser(in, n))
-				err(n,
-						"broken reverse edge: input " + vref(in) + " does not list " + vref(n) + " as a user");
+			if(!n->inputEdgeIndexed(i))
+				err(n, "broken reverse edge: input " + vref(in) + " slot " + std::to_string(i));
 		}
 		for(Node* u : n->getUsers()) {
 			if(!u) {
@@ -352,10 +352,16 @@ namespace rat {
 					err(n, "Pack lane " + std::to_string(i) + " type does not match the vector element");
 			break;
 		default:
-			if(!t->isVec())
-				err(n, "Shuffle type must be a vector");
-			else if(in != t)
+			if(!t->isVec() || t->getVecLanes() > ShuffleNode::kMaxLanes) {
+				String maxLanes = std::to_string(ShuffleNode::kMaxLanes);
+				err(n, "Shuffle type must be a vector of at most " + maxLanes + " lanes");
+				break;
+			}
+			if(in != t || n->getInput(1)->getType() != t)
 				err(n, "Shuffle operand type does not match the result vector");
+			for(U32 i = 0; i < t->getVecLanes(); ++i)
+				if(cast<ShuffleNode>(n)->getSource(i) >= 2 * t->getVecLanes())
+					err(n, "Shuffle lane source is out of range");
 			break;
 		}
 	}
@@ -363,10 +369,15 @@ namespace rat {
 	void VerifyPass::FunctionVerifier::checkSelect(const Node* n) {
 		const SelectNode* s = cast<SelectNode>(n);
 		const Type* t = n->getType();
-		if(!t->isInt() && !t->isPtr())
+		const Node* cond = s->getCondition();
+		if(t->isVec()) {
+			if(cond->getType() != t || !isCompareOpcode(cond->getOpcode()))
+				err(n, "vector Select condition must be a compare with the Select's type");
+		} else if(!t->isInt() && !t->isPtr()) {
 			err(n, "Select type must be an integer or pointer");
-		if(!isBool(s->getCondition()->getType()))
+		} else if(!isBool(cond->getType())) {
 			err(n, "Select condition must be i1");
+		}
 		if(s->getTrue()->getType() != t)
 			err(n, "Select then-value type does not match the result");
 		if(s->getFalse()->getType() != t)
@@ -419,10 +430,7 @@ namespace rat {
 			checkUnary(n);
 			break;
 		case OpClass::Compare:
-			if(!isBool(n->getType()))
-				err(n, "comparison result must be i1");
-			if(n->getInput(0)->getType() != n->getInput(1)->getType())
-				err(n, "comparison operands have different types");
+			checkCompare(n);
 			break;
 		case OpClass::Convert:
 			checkConvert(n);
@@ -430,6 +438,23 @@ namespace rat {
 		case OpClass::None:
 			break;
 		}
+	}
+
+	void VerifyPass::FunctionVerifier::checkCompare(const Node* n) {
+		const Type* t = n->getType();
+		const Type* in = n->getInput(0)->getType();
+		if(in != n->getInput(1)->getType())
+			err(n, "comparison operands have different types");
+		if(!in->isVec()) {
+			if(!isBool(t))
+				err(n, "comparison result must be i1");
+			return;
+		}
+		U32 ptrBytes = TargetInfo::kPointerSizeInBits / 8;
+		B32 mask = t->isVec() && t->getVecElement()->isInt() && t->getVecLanes() == in->getVecLanes() &&
+							 t->byteSize(ptrBytes) == in->byteSize(ptrBytes);
+		if(!mask)
+			err(n, "vector comparison result must be an integer lane mask");
 	}
 
 	void VerifyPass::FunctionVerifier::checkBinary(const Node* n) {
@@ -453,15 +478,14 @@ namespace rat {
 				err(n, "binary operands have different types");
 			}
 		} else if(lt->isVec()) {
-			if(rt != lt)
+			// a vector shift is by one scalar amount
+			if(shift) {
+				if(!rt->isInt())
+					err(n, "shift amount is not an integer");
+			} else if(rt != lt) {
 				err(n, "binary operands have different types");
-			// only the SSE2-lowerable subset may appear at vector types
-			const Type* et = lt->getVecElement();
-			B32 legal = et->isInt() ? (op == Opcode::Add || op == Opcode::Sub || op == Opcode::And ||
-																 op == Opcode::Or || op == Opcode::Xor)
-															: (op == Opcode::FAdd || op == Opcode::FSub || op == Opcode::FMul ||
-																 op == Opcode::FDiv);
-			if(!legal)
+			}
+			if(!hasVectorLowering(op, lt->getVecElement()))
 				err(n, "binary opcode has no vector lowering");
 		} else if(lt->isFloat()) {
 			if(rt != lt)
@@ -471,11 +495,23 @@ namespace rat {
 		}
 	}
 
+	// only the SSE4.1-lowerable subset may appear at vector types
+	B32 VerifyPass::FunctionVerifier::hasVectorLowering(Opcode op, const Type* et) {
+		if(!et->isInt())
+			return op == Opcode::FAdd || op == Opcode::FSub || op == Opcode::FMul || op == Opcode::FDiv;
+		// Mul and AShr lower only at 32-bit lanes
+		if(op == Opcode::Mul || op == Opcode::AShr)
+			return et->getIntWidth() == 32;
+		return op == Opcode::Add || op == Opcode::Sub || op == Opcode::And || op == Opcode::Or ||
+					 op == Opcode::Xor || op == Opcode::Shl || op == Opcode::LShr;
+	}
+
 	void VerifyPass::FunctionVerifier::checkUnary(const Node* n) {
 		auto* u = cast<UnaryNode>(n);
 		const Type* t = n->getType();
 		if(n->getOpcode() == Opcode::FNeg) {
-			if(!t->isFloat())
+			B32 floatLanes = t->isVec() && t->getVecElement()->isFloat();
+			if(!t->isFloat() && !floatLanes)
 				err(n, "fneg operates on a non-float type");
 		} else if(!t->isInt()) {
 			err(n, "unary operates on a non-integer type");
@@ -489,6 +525,14 @@ namespace rat {
 		Opcode op = n->getOpcode();
 		const Type* t = n->getType();
 		const Type* src = c->getOperand()->getType();
+		if(t->isVec() || src->isVec()) {
+			if(!t->isVec() || !src->isVec() || t->getVecLanes() != src->getVecLanes()) {
+				err(n, "vector conversion changes the lane count");
+				return;
+			}
+			t = t->getVecElement(); // the rules below hold per lane
+			src = src->getVecElement();
+		}
 		switch(op) {
 		case Opcode::Trunc:
 		case Opcode::SExt:

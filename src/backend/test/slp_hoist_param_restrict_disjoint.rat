@@ -1,0 +1,54 @@
+@name slp: the hoist reads a parameter against a restrict parameter as may alias (the index keeps classes per object, not per base kind), so neither load moves past the other base's stores
+@passes slp
+
+@input
+func t(ptr restrict, ptr) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "d" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = const : i64  1
+	v9 = const : i64  2
+	v10 = const : i64  3
+	v7 = add : ptr v4, v6
+	v8 = add : ptr v5, v6
+	v11 = add : ptr v5, v9
+	v12 = add : ptr v4, v10
+	v13 = add : ptr v5, v10
+	v20 = load : i8 v2, v3, v5
+	v21 = store : mem v2, v3, v4, v20
+	v22 = load : i8 v2, v21, v8
+	v23 = store : mem v2, v21, v7, v22
+	v24 = store : mem v2, v23, v11, v22
+	v25 = load : i8 v2, v24, v12
+	v26 = store : mem v2, v24, v13, v25
+	v40 = return : ctrl v2, v26
+}
+
+@expect
+func t(ptr restrict, ptr) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v21
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "d" of v0
+  v5 = proj : ptr  #3 "a" of v0
+  v6 = const : i64  1
+  v7 = const : i64  2
+  v8 = const : i64  3
+  v9 = add : ptr v4, v6
+  v10 = add : ptr v5, v6
+  v11 = add : ptr v5, v7
+  v12 = add : ptr v4, v8
+  v13 = add : ptr v5, v8
+  v14 = load : i8 v2, v3, v5
+  v15 = store : mem v2, v3, v4, v14
+  v16 = load : i8 v2, v15, v10
+  v17 = store : mem v2, v15, v9, v16
+  v18 = store : mem v2, v17, v11, v16
+  v19 = load : i8 v2, v18, v12
+  v20 = store : mem v2, v18, v13, v19
+  v21 = return : ctrl v2, v20
+}

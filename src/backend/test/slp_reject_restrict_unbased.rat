@@ -1,0 +1,62 @@
+@name slp: a pointer loaded from memory may be based on a restrict parameter, so its loads stay below the stores through it
+@passes slp
+
+@input
+func t(ptr restrict, ptr) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "d" of v0
+	v5 = proj : ptr  #3 "q" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v9 = add : ptr v4, v6
+	v10 = add : ptr v4, v7
+	v11 = add : ptr v4, v8
+	v15 = store : mem v2, v3, v5, v4
+	v16 = load : ptr v2, v15, v5
+	v12 = add : ptr v16, v6
+	v13 = add : ptr v16, v7
+	v14 = add : ptr v16, v8
+	v20 = load : i32 v2, v15, v16
+	v21 = store : mem v2, v15, v4, v20
+	v22 = load : i32 v2, v21, v12
+	v23 = store : mem v2, v21, v9, v22
+	v24 = load : i32 v2, v23, v13
+	v25 = store : mem v2, v23, v10, v24
+	v26 = load : i32 v2, v25, v14
+	v27 = store : mem v2, v25, v11, v26
+	v40 = return : ctrl v2, v27
+}
+
+@expect
+func t(ptr restrict, ptr) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v25
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "d" of v0
+  v5 = proj : ptr  #3 "q" of v0
+  v6 = const : i64  4
+  v7 = const : i64  8
+  v8 = const : i64  12
+  v9 = add : ptr v4, v6
+  v10 = add : ptr v4, v7
+  v11 = add : ptr v4, v8
+  v12 = store : mem v2, v3, v5, v4
+  v13 = load : ptr v2, v12, v5
+  v14 = add : ptr v13, v6
+  v15 = add : ptr v13, v7
+  v16 = add : ptr v13, v8
+  v17 = load : i32 v2, v12, v13
+  v18 = store : mem v2, v12, v4, v17
+  v19 = load : i32 v2, v18, v14
+  v20 = store : mem v2, v18, v9, v19
+  v21 = load : i32 v2, v20, v15
+  v22 = store : mem v2, v20, v10, v21
+  v23 = load : i32 v2, v22, v16
+  v24 = store : mem v2, v22, v11, v23
+  v25 = return : ctrl v2, v24
+}

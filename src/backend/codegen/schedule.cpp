@@ -2,6 +2,7 @@
 
 #include "analysis/alias_analysis.h"
 #include "ir/function.h"
+#include "ir/module.h"
 #include "ir/node.h"
 
 namespace rat {
@@ -394,6 +395,18 @@ namespace rat {
 		return d == 0 || (isSigned && d == -1); // INT_MIN / -1 traps
 	}
 
+	// a load inside a global this module defines cannot fault, so it may run before a branch
+	B32 Schedule::loadsGlobal(const Node* n) const {
+		const LoadNode* l = dyn_cast<LoadNode>(n);
+		if(!l)
+			return false;
+		const GlobalNode* g = dyn_cast<GlobalNode>(l->getPointer());
+		if(!g)
+			return false;
+		const Global* obj = fn.getModule().getGlobal(g->getSymbol());
+		return obj && !obj->isAlias() && obj->getType()->byteSize(8) >= l->getType()->byteSize(8);
+	}
+
 	B32 Schedule::isGuarded(const Node* n) const {
 		if(isa<LoadNode>(n))
 			return false;
@@ -414,7 +427,7 @@ namespace rat {
 			return late; // nothing above is shallower, so the walk cannot move it
 		Opcode op = n->getOpcode();
 		B32 remat = op == Opcode::Constant || op == Opcode::Global;
-		B32 trapping = mayTrap(n) || (!guarded.empty() && guarded[n->getId()]);
+		B32 trapping = (mayTrap(n) && !loadsGlobal(n)) || (!guarded.empty() && guarded[n->getId()]);
 		I32 cur = late, pick = late;
 		while(true) {
 			if(blocks[cur].loopDepth < blocks[pick].loopDepth) {
@@ -615,6 +628,24 @@ namespace rat {
 			flat[fill[keys[i]]++] = items[i];
 	}
 
+	B32 Schedule::emitsEarly(const Node* n) {
+		NodeSpan users = n->getUsers();
+		if(users.empty() || isa<LoadNode>(n) || !isFloating(n))
+			return true;
+		for(Node* u : users)
+			if(!isa<PhiNode>(u))
+				return true;
+		B32 readsUser = false;
+		for(U32 i = 0, e = n->getInputCount(); i < e; ++i) {
+			Node* in = n->getInput(i);
+			B32 user = std::find(users.begin(), users.end(), in) != users.end();
+			if(!user && !isa<ConstantNode>(in))
+				return true;
+			readsUser |= user;
+		}
+		return !readsUser;
+	}
+
 	void Schedule::buildBlockLists() {
 		U32 nb = (U32)blocks.size();
 		List<I32> keys;
@@ -622,7 +653,7 @@ namespace rat {
 			keys.push_back(headBlock(cast<PhiNode>(phi)->getRegion()));
 		bucket(dataPhis, keys, nb, phiStart, phiFlat);
 
-		// placed nodes in function (id) order
+		// placed nodes in function (id) order, induction steps last
 		List<Node*> listed;
 		for(Node* n : floating)
 			if(nodeBlock[n->getId()] >= 0)
@@ -630,6 +661,7 @@ namespace rat {
 		auto mid = listed.insert(listed.end(), pinned.begin(), pinned.end());
 		std::sort(mid, listed.end(), detail::earlierId);
 		std::inplace_merge(listed.begin(), mid, listed.end(), detail::earlierId);
+		std::stable_partition(listed.begin(), listed.end(), emitsEarly);
 		keys.clear();
 		for(Node* n : listed)
 			keys.push_back(nodeBlock[n->getId()]);
@@ -638,7 +670,7 @@ namespace rat {
 		TopoScratch scratch;
 		scratch.localOf.assign(fn.idBound(), -1);
 		scratch.stHead.assign(fn.idBound(), -1);
-		AliasAnalysis aa(8);
+		AliasAnalysis aa(8, AliasAnalysis::restrictFacts(fn));
 		for(U32 b = 0; b < nb; ++b)
 			topoOrder(
 					nodeFlat.data() + nodeStart[b], (U32)(nodeStart[b + 1] - nodeStart[b]), aa, scratch);
@@ -670,6 +702,14 @@ namespace rat {
 		}
 
 		B32 earlierId(const Node* a, const Node* b) { return a->getId() < b->getId(); }
+
+		// the object a store writes, null for other writers
+		Node* storedObject(const AliasAnalysis& aa, Node* w) {
+			StoreNode* st = dyn_cast<StoreNode>(w);
+			if(!st)
+				return nullptr;
+			return aa.objectOf(st->getPointer());
+		}
 	} // namespace detail
 
 	I32 Schedule::TopoScratch::local(const Node* n) const { return n ? localOf[n->getId()] : -1; }
@@ -743,24 +783,91 @@ namespace rat {
 			std::copy(s.out.begin(), s.out.end(), nodes);
 	}
 
+	// a load runs before the first writer on its state's chain that may clobber it
 	void Schedule::addAntiDeps(NodeSpan nodes, const AliasAnalysis& aa, TopoScratch& s) {
-		U32 k = (U32)nodes.size();
-		for(U32 i = 0; i < k; ++i) {
-			LoadNode* ld = dyn_cast<LoadNode>(nodes[i]);
-			if(!ld)
+		s.chain.clear();
+		for(Node* n : nodes) {
+			LoadNode* ld = dyn_cast<LoadNode>(n);
+			if(!ld || !ld->getMemory())
 				continue;
-			Node* state = ld->getMemory();
-			U32 guard = 0; // chain length bound; conservatively pin if exceeded
-			for(I32 wi = state ? s.stHead[state->getId()] : -1; wi >= 0; ++guard) {
-				Node* w = nodes[wi];
-				StoreNode* st = dyn_cast<StoreNode>(w);
-				if(!st || detail::storeMayAliasLoad(aa, st, ld) || guard >= k) {
-					s.addEdge(ld, w); // call, aliasing store, or bound hit -> pin here
+			I32 start = s.stHead[ld->getMemory()->getId()];
+			if(start < 0)
+				continue;
+			if(I32 w = firstClobber(nodes, ld, start, aa, s); w >= 0)
+				s.addEdge(ld, nodes[w]);
+		}
+	}
+
+	void Schedule::rankWriters(NodeSpan nodes, TopoScratch& s) {
+		U32 k = (U32)nodes.size();
+		s.rank.assign(k, -1);
+		for(U32 i = 0; i < k; ++i) {
+			Node* mem = memoryInputOf(nodes[i]);
+			if(!mem || !isMemWriter(nodes[i]))
+				continue;
+			if(isa<StoreNode>(mem) && s.local(mem) >= 0 && s.stHead[mem->getId()] == (I32)i)
+				continue; // inside the chain of mem
+			for(I32 w = (I32)i; w >= 0; w = s.stHead[nodes[w]->getId()]) {
+				s.rank[w] = (I32)s.chain.size();
+				s.chain.push_back(w);
+				if(!isa<StoreNode>(nodes[w]))
 					break;
-				}
-				wi = s.stHead[w->getId()]; // skip disjoint store, walk to next writer
+			}
+			s.chain.push_back(-1);
+		}
+	}
+
+	void Schedule::indexObjects(NodeSpan nodes, const AliasAnalysis& aa, TopoScratch& s) {
+		s.nextWild.resize(s.chain.size());
+		s.byObject.clear();
+		for(U32 p = (U32)s.chain.size(); p-- > 0;) {
+			I32 w = s.chain[p];
+			Node* obj = nullptr;
+			if(w >= 0)
+				obj = detail::storedObject(aa, nodes[w]);
+			if(obj) {
+				s.nextWild[p] = s.nextWild[p + 1];
+				s.byObject.push_back({obj->getId(), (I32)p});
+			} else {
+				s.nextWild[p] = (I32)p;
 			}
 		}
+		std::sort(s.byObject.begin(), s.byObject.end());
+	}
+
+	// first writer from start on that is not a store or may alias ld, or -1
+	I32 Schedule::walkClobber(
+			NodeSpan nodes, LoadNode* ld, I32 start, const AliasAnalysis& aa, const TopoScratch& s) {
+		I32 w = start;
+		while(w >= 0) {
+			StoreNode* st = dyn_cast<StoreNode>(nodes[w]);
+			if(!st || detail::storeMayAliasLoad(aa, st, ld))
+				break;
+			w = s.stHead[st->getId()];
+		}
+		return w;
+	}
+
+	I32 Schedule::firstClobber(
+			NodeSpan nodes, LoadNode* ld, I32 start, const AliasAnalysis& aa, TopoScratch& s) {
+		Node* obj = aa.objectOf(ld->getPointer());
+		if(!obj)
+			return walkClobber(nodes, ld, start, aa, s); // a store to another base may alias
+		if(s.chain.empty()) {
+			rankWriters(nodes, s);
+			indexObjects(nodes, aa, s);
+		}
+		I32 r = s.rank[start];
+		assert(r >= 0 && "writer outside every chain");
+		I32 bound = s.nextWild[r];
+		Pair<U32, I32> key{obj->getId(), r};
+		auto it = std::lower_bound(s.byObject.begin(), s.byObject.end(), key);
+		for(; it != s.byObject.end() && it->first == key.first && it->second < bound; ++it) {
+			I32 w = s.chain[it->second];
+			if(detail::storeMayAliasLoad(aa, cast<StoreNode>(nodes[w]), ld))
+				return w;
+		}
+		return s.chain[bound];
 	}
 
 	void Schedule::addOrderEdges(NodeSpan nodes, TopoScratch& s) {

@@ -1,0 +1,101 @@
+@name slp: reduction terms pack in source order, a term of another opcode gathers with the loads beside it
+@passes slp
+
+@input
+func t(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v55
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = const : i64  4
+	v6 = const : i64  8
+	v7 = const : i64  12
+	v8 = const : i64  16
+	v9 = const : i64  20
+	v10 = const : i64  24
+	v11 = const : i64  28
+	v12 = const : i64  32
+	v13 = const : i64  36
+	v14 = const : i64  40
+	v15 = const : i64  44
+	v16 = const : i64  48
+	v17 = add : ptr v4, v5
+	v18 = add : ptr v4, v6
+	v19 = add : ptr v4, v7
+	v20 = add : ptr v4, v8
+	v21 = add : ptr v4, v9
+	v22 = add : ptr v4, v10
+	v23 = add : ptr v4, v11
+	v24 = add : ptr v4, v12
+	v25 = add : ptr v4, v13
+	v26 = add : ptr v4, v14
+	v27 = add : ptr v4, v15
+	v28 = add : ptr v4, v16
+	v29 = load : i32 v2, v3, v4
+	v30 = load : i32 v2, v3, v17
+	v31 = load : i32 v2, v3, v18
+	v32 = load : i32 v2, v3, v19
+	v33 = load : i32 v2, v3, v20
+	v34 = load : i32 v2, v3, v21
+	v35 = load : i32 v2, v3, v22
+	v36 = load : i32 v2, v3, v23
+	v37 = load : i32 v2, v3, v24
+	v38 = load : i32 v2, v3, v25
+	v39 = load : i32 v2, v3, v26
+	v40 = load : i32 v2, v3, v27
+	v41 = load : i32 v2, v3, v28
+	v42 = mul : i32 v29, v29
+	v43 = add : i32 v42, v30
+	v44 = add : i32 v43, v31
+	v45 = add : i32 v44, v32
+	v46 = add : i32 v45, v33
+	v47 = add : i32 v46, v34
+	v48 = add : i32 v47, v35
+	v49 = add : i32 v48, v36
+	v50 = add : i32 v49, v37
+	v51 = add : i32 v50, v38
+	v52 = add : i32 v51, v39
+	v53 = add : i32 v52, v40
+	v54 = add : i32 v53, v41
+	v55 = return : ctrl v2, v3, v54
+}
+
+@expect
+func t(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v34
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = const : i64  4
+	v6 = const : i64  8
+	v7 = const : i64  12
+	v8 = const : i64  48
+	v9 = add : ptr v4, v5
+	v10 = add : ptr v4, v6
+	v11 = add : ptr v4, v7
+	v12 = add : ptr v4, v8
+	v13 = load : i32 v2, v3, v4
+	v14 = load : i32 v2, v3, v9
+	v15 = load : i32 v2, v3, v10
+	v16 = load : i32 v2, v3, v11
+	v17 = load : i32 v2, v3, v12
+	v18 = mul : i32 v13, v13
+	v19 = pack : <4 x i32> v18, v14, v15, v16
+	v20 = const : i64  16
+	v21 = add : ptr v4, v20
+	v22 = load : <4 x i32> v2, v3, v21
+	v23 = const : i64  32
+	v24 = add : ptr v4, v23
+	v25 = load : <4 x i32> v2, v3, v24
+	v26 = add : <4 x i32> v19, v22
+	v27 = add : <4 x i32> v26, v25
+	v28 = shuffle : <4 x i32>  #4146 v27, v27
+	v29 = add : <4 x i32> v27, v28
+	v30 = shuffle : <4 x i32>  #8961 v29, v29
+	v31 = add : <4 x i32> v29, v30
+	v32 = extract : i32  #0 v31
+	v33 = add : i32 v32, v17
+	v34 = return : ctrl v2, v3, v33
+}

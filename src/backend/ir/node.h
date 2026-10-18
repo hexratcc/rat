@@ -48,6 +48,7 @@ namespace rat {
 		Node* getInput(U32 index) const { return inputs[index]; }
 
 		NodeSpan getUsers() const { return NodeSpan{users, userCount}; }
+		U32 getUserSlot(U32 index) const { return userSlots[index]; }
 		B32 hasUsers() const { return userCount != 0; }
 
 		// all edge mutation keeps the users index consistent
@@ -64,22 +65,27 @@ namespace rat {
 		B32 hasSideEffects() const;
 		B32 isCommutative() const;
 
+		// the users entry of input index points back at this node and slot
+		B32 inputEdgeIndexed(U32 index) const;
+
 		// the control anchor for anchored nodes
 		Node* getControlInput() const;
 
 		// find this node's projection or null
 		ProjNode* projection(U32 index) const;
 	protected:
-		void removeUser(Node* user);
-		void addUser(Node* user);
+		void detachInput(U32 index); // drop the users entry of a live slot
+		void addUser(Node* user, U32 slot);
 		void growInputs(U32 needed);
 
 		Opcode op;
 		Type* ty;
 		U32 id; // unique per function
 		Function* fn;
-		Node** inputs = nullptr; // ordered defs; may contain null placeholders
-		Node** users = nullptr;	 // reverse edges; one entry per using operand
+		Node** inputs = nullptr;	// ordered defs; may contain null placeholders
+		Node** users = nullptr;		// reverse edges; one entry per using operand
+		U32* inputPos = nullptr;	// index of this node's entry in inputs[i]->users
+		U32* userSlots = nullptr; // slot of users[k] that points here
 		U32 inputCount = 0;
 		U32 inputCap = 0;
 		U32 userCount = 0;
@@ -329,14 +335,20 @@ namespace rat {
 		Node* getFalse() const;
 	};
 
-	// permute 32-bit lanes by a pshufd-style selector
+	// lane i of the result is lane (sel >> 4i) & 15 of the lanes of first followed by those of second
 	struct ShuffleNode : Node {
-		ShuffleNode(Function& fn, Type* vecType, Node* vector, U8 sel);
+		static constexpr U32 kSourceBits = 4;
+		static constexpr U32 kSourceMask = (1u << kSourceBits) - 1;
+		static constexpr U32 kMaxLanes = 4; // a 16-bit selector holds four sources
 
-		Node* getVector() const;
-		U8 getSelector() const;
+		ShuffleNode(Function& fn, Type* vecType, Node* first, Node* second, U16 sel);
+
+		Node* getFirst() const;
+		Node* getSecond() const;
+		U16 getSelector() const;
+		U32 getSource(U32 lane) const;
 	private:
-		U8 sel;
+		U16 sel;
 	};
 
 	// address of a module-level symbol (global or function), as a pointer

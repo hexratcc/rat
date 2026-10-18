@@ -1,0 +1,58 @@
+@name slp: a + (d - a) is based on restrict d and d + (a - d) on a (C11 6.7.3.1p3), so their loads stay below the stores through d and a
+@passes slp
+
+@input
+func t(ptr restrict, ptr) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "d" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = sext : i64 v4
+	v7 = sext : i64 v5
+	v8 = sub : i64 v6, v7
+	v9 = add : ptr v5, v8
+	v10 = sub : i64 v7, v6
+	v11 = add : ptr v4, v10
+	v12 = const : i32  1
+	v13 = const : i64  4
+	v14 = const : i64  12
+	v15 = add : ptr v4, v13
+	v16 = add : ptr v4, v14
+	v20 = store : mem v2, v3, v4, v12
+	v21 = load : i32 v2, v20, v9
+	v22 = store : mem v2, v20, v5, v12
+	v23 = load : i32 v2, v22, v11
+	v24 = store : mem v2, v22, v15, v21
+	v25 = store : mem v2, v24, v16, v23
+	v40 = return : ctrl v2, v25
+}
+
+@expect
+func t(ptr restrict, ptr) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v23
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "d" of v0
+  v5 = proj : ptr  #3 "a" of v0
+  v6 = sext : i64 v4
+  v7 = sext : i64 v5
+  v8 = sub : i64 v6, v7
+  v9 = add : ptr v5, v8
+  v10 = sub : i64 v7, v6
+  v11 = add : ptr v4, v10
+  v12 = const : i32  1
+  v13 = const : i64  4
+  v14 = const : i64  12
+  v15 = add : ptr v4, v13
+  v16 = add : ptr v4, v14
+  v17 = store : mem v2, v3, v4, v12
+  v18 = load : i32 v2, v17, v9
+  v19 = store : mem v2, v17, v5, v12
+  v20 = load : i32 v2, v19, v11
+  v21 = store : mem v2, v19, v15, v18
+  v22 = store : mem v2, v21, v16, v20
+  v23 = return : ctrl v2, v22
+}

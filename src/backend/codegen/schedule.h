@@ -20,6 +20,7 @@ namespace rat {
 	namespace detail {
 		B32 storeMayAliasLoad(const AliasAnalysis& aa, const StoreNode* st, const LoadNode* ld);
 		B32 earlierId(const Node* a, const Node* b);
+		Node* storedObject(const AliasAnalysis& aa, Node* w);
 	} // namespace detail
 
 	struct Schedule {
@@ -95,6 +96,7 @@ namespace rat {
 		void placeLoads(const List<Node*>& loads, const List<I32>& early);
 		B32 place(Node* n, I32 late, const List<I32>& early);
 		void buildBlockLists();
+		static B32 emitsEarly(const Node* n);
 		static void bucket(const List<Node*>& items,
 											 const List<I32>& keys,
 											 U32 nb,
@@ -111,6 +113,7 @@ namespace rat {
 		I32 predBlockForRegionInput(I32 regionBlock, U32 i) const;
 		I32 hoistTarget(const Node* n, I32 late, I32 early) const;
 		I32 homeBlock(Node* n) const;
+		B32 loadsGlobal(const Node* n) const;
 		B32 isGuarded(const Node* n) const;
 
 		struct TopoScratch {
@@ -121,9 +124,13 @@ namespace rat {
 			List<I32> succHead;		// per local index: head of the extra-edge chain (-1)
 			List<I32> succNext;		// edge -> next edge in the chain
 			List<I32> succTo;			// edge -> target local index
-			List<I32> ready;			// binary heap of ready local indices, local order is id order
+			List<I32> ready;			// binary heap of ready local indices, local order is list order
 			List<Node*> out;			// topological order when some edge runs backward
 			B32 backward = false; // some edge runs against local order
+			List<I32> chain;			// writer local indices in memory order, each chain ends in -1
+			List<I32> rank;				// per local index: position of the writer in chain (-1)
+			List<I32> nextWild;
+			List<Pair<U32, I32>> byObject; // (object id, chain position) of stores to objects, sorted
 
 			I32 local(const Node* n) const;
 			void addEdge(Node* before, Node* after);
@@ -132,6 +139,12 @@ namespace rat {
 		};
 		void topoOrder(Node** nodes, U32 k, const AliasAnalysis& aa, TopoScratch& scratch) const;
 		static void addAntiDeps(NodeSpan nodes, const AliasAnalysis& aa, TopoScratch& s);
+		static void rankWriters(NodeSpan nodes, TopoScratch& s);
+		static void indexObjects(NodeSpan nodes, const AliasAnalysis& aa, TopoScratch& s);
+		static I32 walkClobber(
+				NodeSpan nodes, LoadNode* ld, I32 start, const AliasAnalysis& aa, const TopoScratch& s);
+		static I32
+		firstClobber(NodeSpan nodes, LoadNode* ld, I32 start, const AliasAnalysis& aa, TopoScratch& s);
 		static void addOrderEdges(NodeSpan nodes, TopoScratch& s);
 
 		I32 fixedDataBlock(Node* n, const List<I32>& early) const;

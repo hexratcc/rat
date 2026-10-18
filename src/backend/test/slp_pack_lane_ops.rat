@@ -1,0 +1,122 @@
+@name slp: a min select shifted by a constant and a sign extension converted to float pack as vector lane ops
+@passes slp verify
+
+@input
+var a : [4 x i32] = ""
+var b : [4 x i32] = ""
+var s : [4 x i16] = ""
+var d : [4 x i32] = ""
+var e : [4 x f32] = ""
+
+func t() -> void {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v200
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = global : ptr  "a"
+	v5 = global : ptr  "b"
+	v6 = global : ptr  "s"
+	v7 = global : ptr  "d"
+	v8 = global : ptr  "e"
+	v9 = const : i32  3
+	v20 = const : i64  0
+	v21 = const : i64  0
+	v22 = add : ptr v4, v20
+	v23 = add : ptr v5, v20
+	v24 = add : ptr v6, v21
+	v25 = add : ptr v7, v20
+	v26 = add : ptr v8, v20
+	v27 = load : i32 v2, v3, v22
+	v28 = load : i32 v2, v3, v23
+	v29 = load : i16 v2, v3, v24
+	v30 = slt : i1 v27, v28
+	v31 = select : i32 v30, v27, v28
+	v32 = shl : i32 v31, v9
+	v33 = sext : i32 v29
+	v34 = sitofp : f32 v33
+	v40 = const : i64  4
+	v41 = const : i64  2
+	v42 = add : ptr v4, v40
+	v43 = add : ptr v5, v40
+	v44 = add : ptr v6, v41
+	v45 = add : ptr v7, v40
+	v46 = add : ptr v8, v40
+	v47 = load : i32 v2, v3, v42
+	v48 = load : i32 v2, v3, v43
+	v49 = load : i16 v2, v3, v44
+	v50 = slt : i1 v47, v48
+	v51 = select : i32 v50, v47, v48
+	v52 = shl : i32 v51, v9
+	v53 = sext : i32 v49
+	v54 = sitofp : f32 v53
+	v60 = const : i64  8
+	v61 = const : i64  4
+	v62 = add : ptr v4, v60
+	v63 = add : ptr v5, v60
+	v64 = add : ptr v6, v61
+	v65 = add : ptr v7, v60
+	v66 = add : ptr v8, v60
+	v67 = load : i32 v2, v3, v62
+	v68 = load : i32 v2, v3, v63
+	v69 = load : i16 v2, v3, v64
+	v70 = slt : i1 v67, v68
+	v71 = select : i32 v70, v67, v68
+	v72 = shl : i32 v71, v9
+	v73 = sext : i32 v69
+	v74 = sitofp : f32 v73
+	v80 = const : i64  12
+	v81 = const : i64  6
+	v82 = add : ptr v4, v80
+	v83 = add : ptr v5, v80
+	v84 = add : ptr v6, v81
+	v85 = add : ptr v7, v80
+	v86 = add : ptr v8, v80
+	v87 = load : i32 v2, v3, v82
+	v88 = load : i32 v2, v3, v83
+	v89 = load : i16 v2, v3, v84
+	v90 = slt : i1 v87, v88
+	v91 = select : i32 v90, v87, v88
+	v92 = shl : i32 v91, v9
+	v93 = sext : i32 v89
+	v94 = sitofp : f32 v93
+	v35 = store : mem v2, v3, v25, v32
+	v55 = store : mem v2, v35, v45, v52
+	v75 = store : mem v2, v55, v65, v72
+	v95 = store : mem v2, v75, v85, v92
+	v36 = store : mem v2, v95, v26, v34
+	v56 = store : mem v2, v36, v46, v54
+	v76 = store : mem v2, v56, v66, v74
+	v96 = store : mem v2, v76, v86, v94
+	v200 = return : ctrl v2, v96
+}
+
+@expect
+var a : [4 x i32] = ""
+var b : [4 x i32] = ""
+var s : [4 x i16] = ""
+var d : [4 x i32] = ""
+var e : [4 x f32] = ""
+
+func t() -> void {
+  v0 = start : (ctrl, mem)
+  v1 = stop : ctrl v20
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = global : ptr  "a"
+  v5 = global : ptr  "b"
+  v6 = global : ptr  "s"
+  v7 = global : ptr  "d"
+  v8 = global : ptr  "e"
+  v9 = const : i32  3
+  v10 = load : <4 x i32> v2, v3, v4
+  v11 = load : <4 x i32> v2, v3, v5
+  v12 = slt : <4 x i32> v10, v11
+  v13 = select : <4 x i32> v12, v10, v11
+  v14 = shl : <4 x i32> v13, v9
+  v15 = store : mem v2, v3, v7, v14
+  v16 = load : <4 x i16> v2, v3, v6
+  v17 = sext : <4 x i32> v16
+  v18 = sitofp : <4 x f32> v17
+  v19 = store : mem v2, v15, v8, v18
+  v20 = return : ctrl v2, v19
+}

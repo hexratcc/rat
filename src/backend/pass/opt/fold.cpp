@@ -314,14 +314,20 @@ namespace rat {
 					B32 innerNeg = inner == Opcode::Sub;
 					U64 t1 = innerNeg ? (U64)0 - (U64)c1 : (U64)c1;
 					U64 t2 = outerNeg ? (U64)0 - (U64)c2 : (U64)c2;
-					I64 k = normalizeConst((I64)(t1 + t2), w);
+					I64 sum = (I64)(t1 + t2);
+					I64 k = normalizeConst(sum, w);
+					if(w > 1 && w < 64 && k != sum)
+						return nullptr;
 					if(k == 0)
 						return base;
 					return mkBin(fn, Opcode::Add, ty, base, k); // sub-by-const normalizes to add
 				}
 			}
 			if(op == Opcode::Mul && matchVarConst(lhs, Opcode::Mul, base, c1)) {
-				I64 k = normalizeConst((I64)((U64)c1 * (U64)cr->getValue()), w);
+				I64 product = (I64)((U64)c1 * (U64)cr->getValue());
+				I64 k = normalizeConst(product, w);
+				if(w > 1 && w < 64 && k != product)
+					return nullptr;
 				if(k == 0)
 					return constant(fn, ty, 0);
 				if(k == 1)

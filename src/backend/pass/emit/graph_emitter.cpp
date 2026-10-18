@@ -70,7 +70,6 @@ namespace rat {
 			case Opcode::Splat:
 				return "val";
 			case Opcode::Extract:
-			case Opcode::Shuffle:
 				return "vec";
 			default:
 				return std::to_string(i);

@@ -222,7 +222,7 @@ namespace rat {
 			return elem;
 		}
 
-		B32 Parser::parseTypeList(const String& s, List<Type*>& out) {
+		B32 Parser::parseTypeList(const String& s, List<Type*>& out, U64* restricts) {
 			U32 depth = 0;
 			String cur;
 			for(C8 c : s) {
@@ -231,20 +231,22 @@ namespace rat {
 				if(c == ')')
 					--depth;
 				if(c == ',' && depth == 0) {
-					if(!flushType(cur, out))
+					if(!flushType(cur, out, restricts))
 						return false;
 				} else {
 					cur.push_back(c);
 				}
 			}
-			return flushType(cur, out);
+			return flushType(cur, out, restricts);
 		}
 
-		B32 Parser::flushType(String& cur, List<Type*>& out) {
+		B32 Parser::flushType(String& cur, List<Type*>& out, U64* restricts) {
 			String e = trim(cur);
 			cur.clear();
 			if(e.empty())
 				return true;
+			if(restricts && takeSuffix(e, " restrict") && out.size() < kMaxRestrictParams)
+				*restricts |= (U64)1 << out.size();
 			Type* et = parseType(e);
 			if(!et)
 				return false;
@@ -294,7 +296,8 @@ namespace rat {
 			}
 
 			List<Type*> params;
-			if(!parseTypeList(paramsStr, params))
+			U64 restricts = 0;
+			if(!parseTypeList(paramsStr, params, &restricts))
 				return false;
 
 			Type* ret = nullptr;
@@ -306,6 +309,7 @@ namespace rat {
 
 			Function* fn = mod.createFunction(name, params, ret);
 			fn->getAttrs().noInline = noInline;
+			fn->getAttrs().restrictParams = restricts;
 
 			List<ParsedNode> parsed;
 			String line;
@@ -435,6 +439,15 @@ namespace rat {
 			return true;
 		}
 
+		// strip a trailing word that follows other text, then trim the rest
+		B32 Parser::takeSuffix(String& body, const C8* word) {
+			U32 n = (U32)std::strlen(word);
+			if(body.size() <= n || body.compare(body.size() - n, n, word) != 0)
+				return false;
+			body = trim(body.substr(0, body.size() - n));
+			return true;
+		}
+
 		B32 Parser::parseProj(const String& remainder, const String& line, ParsedNode& pn) {
 			std::istringstream ss(remainder);
 			String index;
@@ -458,6 +471,11 @@ namespace rat {
 			// reuse the proj payload slot for the selector
 			if(!parseIndex(laneTok.substr(1), pn.projIndex))
 				return fail("lane selector out of range: " + line);
+			if(pn.op == Opcode::Shuffle) {
+				pn.operands = parseVRefs(remainder);
+				B32 ok = pn.operands.size() == 2 && pn.projIndex <= UINT16_MAX;
+				return ok || fail("shuffle takes a 16-bit selector and two vectors: " + line);
+			}
 			return singleRef(remainder, "lane op must reference exactly one vector: " + line, pn);
 		}
 
@@ -583,7 +601,7 @@ namespace rat {
 			case Opcode::Extract:
 				return fn->create<ExtractNode>(pn.ty, in[0], pn.projIndex);
 			case Opcode::Shuffle:
-				return fn->create<ShuffleNode>(pn.ty, in[0], (U8)pn.projIndex);
+				return fn->create<ShuffleNode>(pn.ty, in[0], in[1], (U16)pn.projIndex);
 			case Opcode::Select:
 				return fn->create<SelectNode>(pn.ty, in[0], in[1], in[2]);
 			case Opcode::Pack:

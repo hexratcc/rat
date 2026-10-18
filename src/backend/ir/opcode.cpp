@@ -72,7 +72,7 @@ namespace rat {
 				{"splat", 0, 0, 0, -1, 1, 1, OpClass::None},
 				{"extract", 0, 0, 0, -1, 1, 1, OpClass::None},
 				{"pack", 0, 0, 0, -1, 1, -1, OpClass::None},
-				{"shuffle", 0, 0, 0, -1, 1, 1, OpClass::None},
+				{"shuffle", 0, 0, 0, -1, 2, 2, OpClass::None},
 				{"select", 0, 0, 0, -1, 3, 3, OpClass::None},
 		};
 		static_assert(sizeof(kOpcodeInfo) / sizeof(kOpcodeInfo[0]) == (U32)Opcode::Select + 1,

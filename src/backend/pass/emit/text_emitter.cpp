@@ -110,6 +110,8 @@ namespace rat {
 			if(i)
 				*os << ", ";
 			fn.getParamType(i)->print(*os);
+			if(i < kMaxRestrictParams && (fn.getAttrs().restrictParams >> i & 1))
+				*os << " restrict";
 		}
 		*os << ") -> ";
 		if(fn.returnsValue())

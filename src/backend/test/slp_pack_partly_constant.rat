@@ -1,0 +1,70 @@
+@name slp: a build vector of variable and constant lanes costs an insert per variable lane and a constant base, which a lane 0 into zeros does not need, so one variable among zero lanes stores as one vector
+@passes slp
+
+@input
+func t(ptr restrict, ptr restrict, ptr restrict, i32, f32) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, ptr, i32, f32)
+  v1 = stop : ctrl v76
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v6 = proj : ptr  #4 "arg2" of v0
+  v7 = proj : i32  #5 "arg3" of v0
+  v8 = proj : f32  #6 "arg4" of v0
+  v9 = store : mem v2, v3, v4, v7
+  v10 = const : i64  4
+  v11 = add : ptr v4, v10
+  v12 = const : i32  0
+  v13 = store : mem v2, v9, v11, v12
+  v14 = const : i64  8
+  v15 = add : ptr v4, v14
+  v17 = store : mem v2, v13, v15, v12
+  v18 = const : i64  12
+  v19 = add : ptr v4, v18
+  v21 = store : mem v2, v17, v19, v12
+  v32 = load : f32 v2, v21, v6
+  v33 = fmul : f32 v32, v8
+  v34 = store : mem v2, v21, v5, v33
+  v39 = add : ptr v5, v10
+  v44 = add : ptr v6, v10
+  v45 = load : f32 v2, v34, v44
+  v46 = const : f32  1073741824
+  v47 = fmul : f32 v45, v46
+  v48 = store : mem v2, v34, v39, v47
+  v53 = add : ptr v5, v14
+  v58 = add : ptr v6, v14
+  v59 = load : f32 v2, v48, v58
+  v60 = fmul : f32 v59, v8
+  v61 = store : mem v2, v48, v53, v60
+  v66 = add : ptr v5, v18
+  v71 = add : ptr v6, v18
+  v72 = load : f32 v2, v61, v71
+  v73 = const : f32  1077936128
+  v74 = fmul : f32 v72, v73
+  v75 = store : mem v2, v61, v66, v74
+  v76 = return : ctrl v2, v75
+}
+
+@expect
+func t(ptr restrict, ptr restrict, ptr restrict, i32, f32) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, ptr, i32, f32)
+  v1 = stop : ctrl v40
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v6 = proj : ptr  #4 "arg2" of v0
+  v7 = proj : i32  #5 "arg3" of v0
+  v8 = proj : f32  #6 "arg4" of v0
+  v12 = const : i32  0
+  v26 = const : f32  1073741824
+  v37 = const : f32  1077936128
+  v40 = return : ctrl v2, v46
+  v41 = pack : <4 x i32> v7, v12, v12, v12
+  v42 = store : mem v2, v3, v4, v41
+  v43 = load : <4 x f32> v2, v3, v6
+  v44 = pack : <4 x f32> v8, v26, v8, v37
+  v45 = fmul : <4 x f32> v43, v44
+  v46 = store : mem v2, v42, v5, v45
+}

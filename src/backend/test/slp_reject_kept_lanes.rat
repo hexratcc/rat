@@ -1,0 +1,46 @@
+@name slp: a lane another user keeps alive as a scalar keeps its operands too and is charged, so a pair that would save two ops but keeps two stays scalar
+@passes slp
+
+@input
+func t(ptr restrict, ptr restrict) -> i64 {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v36
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v11 = load : i64 v2, v3, v5
+  v14 = add : i64 v11, v39
+  v20 = store : mem v2, v3, v4, v14
+  v25 = add : ptr v4, v43
+  v30 = add : ptr v5, v43
+  v31 = load : i64 v2, v20, v30
+  v34 = add : i64 v31, v46
+  v35 = store : mem v2, v20, v25, v34
+  v36 = return : ctrl v2, v35, v14
+  v39 = const : i64  1
+  v43 = const : i64  8
+  v46 = const : i64  2
+}
+
+@expect
+func t(ptr restrict, ptr restrict) -> i64 {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v17
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v6 = load : i64 v2, v3, v5
+  v7 = const : i64  1
+  v8 = const : i64  8
+  v9 = const : i64  2
+  v10 = add : i64 v6, v7
+  v11 = store : mem v2, v3, v4, v10
+  v12 = add : ptr v4, v8
+  v13 = add : ptr v5, v8
+  v14 = load : i64 v2, v3, v13
+  v15 = add : i64 v14, v9
+  v16 = store : mem v2, v11, v12, v15
+  v17 = return : ctrl v2, v16, v10
+}

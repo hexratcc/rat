@@ -19,11 +19,14 @@ namespace rat {
 	// symbol linkage, shared by functions and globals
 	enum class Linkage { External, Internal };
 
+	constexpr U32 kMaxRestrictParams = 64;
+
 	struct FunctionAttrs {
 		Linkage linkage = Linkage::External;
 		U32 align = 0; // 0 = target default
 		B32 variadic = false;
 		B32 noInline = false;
+		U64 restrictParams = 0;
 
 		B32 isInternal() const { return linkage == Linkage::Internal; }
 	};
@@ -185,6 +188,7 @@ namespace rat {
 	private:
 		U32 allocateId();
 		Node** allocEdges(U32 count) { return arena.makeArray<Node*>(count); }
+		U32* allocSlots(U32 count) { return arena.makeArray<U32>(count); }
 		const C8* internString(const C8* s, U64 len) { return arena.internString(s, len); }
 		B32 isDeadNode(Node* n, B32 includeControl) const;
 		U32 eraseMarked(const List<U8>& mark);

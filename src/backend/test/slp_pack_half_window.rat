@@ -1,0 +1,45 @@
+@name slp: two adjacent 32-bit stores pack as an 8-byte window
+@passes slp
+
+@input
+var a : [4 x i32] = ""
+var b : [4 x i32] = ""
+
+func t() -> void {
+	v0 = start : (ctrl, mem)
+	v1 = stop : ctrl v20
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = global : ptr  "a"
+	v5 = global : ptr  "b"
+	v6 = const : i64  4
+	v7 = add : ptr v4, v6
+	v8 = add : ptr v5, v6
+	v9 = load : i32 v2, v3, v5
+	v10 = load : i32 v2, v3, v8
+	v11 = const : i32  3
+	v12 = mul : i32 v9, v11
+	v13 = mul : i32 v10, v11
+	v14 = store : mem v2, v3, v4, v12
+	v15 = store : mem v2, v14, v7, v13
+	v20 = return : ctrl v2, v15
+}
+
+@expect
+var a : [4 x i32] = ""
+var b : [4 x i32] = ""
+
+func t() -> void {
+  v0 = start : (ctrl, mem)
+  v1 = stop : ctrl v11
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = global : ptr  "a"
+  v5 = global : ptr  "b"
+  v6 = const : i32  3
+  v7 = load : <2 x i32> v2, v3, v5
+  v8 = pack : <2 x i32> v6, v6
+  v9 = mul : <2 x i32> v7, v8
+  v10 = store : mem v2, v3, v4, v9
+  v11 = return : ctrl v2, v10
+}

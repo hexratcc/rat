@@ -22,6 +22,7 @@ namespace rat {
 	struct PackNode;
 	struct ProjNode;
 	struct SelectNode;
+	struct ShuffleNode;
 	struct ReturnNode;
 	struct SplatNode;
 	struct StoreNode;
@@ -81,6 +82,10 @@ namespace rat {
 		static BinaryNode* asAdd(Node* n);
 		static B32 zextOnlyLoad(const LoadNode* l);
 		static B32 lowHalfOnlyLoad(const LoadNode* l);
+		static B32 splatOnlyLoad(const Node* n);
+		static B32 packOnlyConst(const Node* n);
+		static BinaryNode* addSubOf(const ShuffleNode* n);
+		static B32 addSubOnly(const Node* n);
 		static U32 opWidth(const Type* t);
 
 		I32 reserve(U32 bytes, U32 align = 8);
@@ -147,8 +152,8 @@ namespace rat {
 		void ldf(VReg d, U32 w, const String& s);
 		void ldf(VReg d, U32 w, const AddrParts& a);
 		void stf(const AddrParts& a, VReg s, U32 w);
-		void farith(X86Op op, VReg d, VReg a, VReg b, U32 w, I64 desc);
-		void fneg(VReg d, VReg s, U32 w);
+		MachineInstr& farith(X86Op op, VReg d, VReg a, VReg b, U32 w, I64 desc);
+		void fneg(VReg d, VReg s, U32 w, U32 lane);
 		void fsqrt(VReg d, VReg s, U32 w);
 		void fabs_(VReg d, VReg s, U32 w);
 		void ucomis(VReg d, VReg a, VReg b, U32 w, U8 cc, B32 swap);				 // FCmp
@@ -156,11 +161,19 @@ namespace rat {
 		void cvtf(VReg d, U32 dw, VReg s, U32 sw, U8 pfx, U8 opc, B32 wide); // Cvt, xmm dest
 		void cvti(VReg d, VReg s, U32 sw, U8 pfx, U8 opc, B32 wide);				 // Cvt, gp dest
 		// sse packed vector
+		static I64 vecDesc(U8 pfx, U8 opc, U8 esc);
 		void varith(VReg d, VReg a, VReg b, U8 pfx, U8 opc, B32 esc38);
+		void varithImm(VReg d, VReg a, VReg b, U8 pfx, U8 opc, U8 esc, U8 imm8);
+		void vmerge(VReg d, VReg s, U8 pfx, U8 opc, U8 esc, I32 imm8);
+		void vunary(VReg d, VReg s, U8 pfx, U8 opc, U8 esc);
+		void vshiftImm(VReg d, VReg s, U32 laneBits, U8 ext, U8 cnt);
+		void vcmpf(VReg d, VReg a, VReg b, U32 esz, U8 pred);
+		void vblend(VReg d, VReg f, VReg t, VReg mask, U32 esz);
 		void vsplat(VReg d, VReg s, U32 esz, B32 isInt);
 		void vextract(VReg d, VReg s, U32 lane, U32 esz, B32 isInt);
 		void vpackMem(VReg d, const List<MachineOperand>& lanes, U32 esz, B32 isInt);
-		void vpackReg(VReg d, const List<MachineOperand>& lanes, U32 esz);
+		void vmovd(VReg d, VReg gp, U32 esz);
+		void vinsert(VReg d, VReg gp, U32 esz, U32 lane);
 		void vshuf(VReg d, VReg s, U8 sel);
 		// x87
 		void fld(Slot d, VReg addr);
@@ -214,11 +227,23 @@ namespace rat {
 		void emitBinary(BinaryNode* n);
 		void emitFloatBinary(BinaryNode* n);
 		void emitVecBinary(BinaryNode* n);
+		void emitVecShift(BinaryNode* n);
 		void emitSplat(SplatNode* n);
 		void emitExtract(ExtractNode* n);
+		List<U8> constLanes(PackNode* n, U32 esz);
 		B32 emitConstPack(PackNode* n, U32 esz);
 		void emitPack(PackNode* n);
+		void emitPackMem(PackNode* n, U32 esz, B32 isInt);
+		void packLaneZero(PackNode* n, VReg d, U32 esz, B32 isInt);
+		void insertLane(VReg d, Node* lane, U32 i, U32 esz, B32 isInt);
+		void emitAddSub(ShuffleNode* n, BinaryNode* sub);
+		static void shuffleDwords(const ShuffleNode* n, U8& sel, U8& mask, B32& inPlace);
+		void emitShuffle(ShuffleNode* n);
 		void emitSelect(SelectNode* n);
+		VReg vecMask(CompareNode* c, B32& invert);
+		VReg vecIntMask(Opcode op, VReg l, VReg r, U32 esz);
+		B32 emitVecMinMax(SelectNode* n, CompareNode* c);
+		void emitVecSelect(SelectNode* n);
 		const String& vecPoolSym(const List<U8>& bytes);
 		VReg gpConst(I64 v);
 		void emitBitScan(UnaryNode* n, B32 reverse);
@@ -229,6 +254,8 @@ namespace rat {
 		void emitCompare(CompareNode* n);
 		static I64 cvtDesc(U8 pfx, U8 opc, B32 w);
 		void emitConvert(ConvertNode* n);
+		void emitVecConvert(ConvertNode* n);
+		static U8 pmovOpc(U32 sw, U32 dw, B32 zext);
 		void emitIntResize(ConvertNode* n, Node* src);
 		void emitIntToFP(ConvertNode* n, Node* src);
 		void emitFPToInt(ConvertNode* n, Node* src);

@@ -206,14 +206,17 @@ namespace rat {
 		put(X86Op::FStore, {}, std::move(uses), a.disp, sibBits(0, a));
 	}
 
-	void X86LowerPass::farith(X86Op op, VReg d, VReg a, VReg b, U32 w, I64 desc) {
+	MachineInstr& X86LowerPass::farith(X86Op op, VReg d, VReg a, VReg b, U32 w, I64 desc) {
 		movaps(d, a, w);
-		put(op, {vr(d, w)}, {vr(d, w), vr(b, w)}, desc);
+		VReg rhs = b;
+		if(b == a)
+			rhs = d; // x op x reads the copy, so a can die at the movaps
+		return put(op, {vr(d, w)}, {vr(d, w), vr(rhs, w)}, desc);
 	}
 
-	void X86LowerPass::fneg(VReg d, VReg s, U32 w) {
-		// the encoder builds 0-x through the top volatile xmm
-		put(X86Op::FNeg, {vr(d, w)}, {vr(s, w)}, (I64)w).clobbers =
+	void X86LowerPass::fneg(VReg d, VReg s, U32 w, U32 lane) {
+		// the encoder builds the sign mask of each lane through the top volatile xmm
+		put(X86Op::FNeg, {vr(d, w)}, {vr(s, w)}, (I64)lane).clobbers =
 				physBit(xmmReg(conv->sseVolatileCount - 1));
 	}
 
@@ -244,9 +247,56 @@ namespace rat {
 
 	// sse packed vector
 
+	// the VArith/VUnary imm of the instruction pfx 0f esc opc, a pfx or esc of 0 is left out
+	I64 X86LowerPass::vecDesc(U8 pfx, U8 opc, U8 esc) {
+		return ((I64)esc << 16) | ((I64)pfx << 8) | opc;
+	}
+
 	void X86LowerPass::varith(VReg d, VReg a, VReg b, U8 pfx, U8 opc, B32 esc38) {
-		I64 desc = ((I64)(esc38 ? 1 : 0) << 16) | ((I64)pfx << 8) | opc;
-		farith(X86Op::VArith, d, a, b, 16, desc);
+		U8 esc = 0;
+		if(esc38)
+			esc = 0x38;
+		farith(X86Op::VArith, d, a, b, 16, vecDesc(pfx, opc, esc));
+	}
+
+	// d = a op b with an immediate operand, esc is the 0f38/0f3a escape byte or 0
+	void X86LowerPass::varithImm(VReg d, VReg a, VReg b, U8 pfx, U8 opc, U8 esc, U8 imm8) {
+		I64 desc = vecDesc(pfx, opc, esc) | detail::kVecImm8;
+		farith(X86Op::VArith, d, a, b, 16, desc).imm2 = imm8;
+	}
+
+	// d = d op s in place (insertps, movsd, movlhps), with an imm8 unless imm8 < 0
+	void X86LowerPass::vmerge(VReg d, VReg s, U8 pfx, U8 opc, U8 esc, I32 imm8) {
+		I64 desc = vecDesc(pfx, opc, esc);
+		if(imm8 >= 0)
+			desc |= detail::kVecImm8;
+		put(X86Op::VArith, {vr(d, 16)}, {vr(d, 16), vr(s, 16)}, desc, imm8);
+	}
+
+	void X86LowerPass::vunary(VReg d, VReg s, U8 pfx, U8 opc, U8 esc) {
+		put(X86Op::VUnary, {vr(d, 16)}, {vr(s, 16)}, vecDesc(pfx, opc, esc));
+	}
+
+	void X86LowerPass::vshiftImm(VReg d, VReg s, U32 laneBits, U8 ext, U8 cnt) {
+		movaps(d, s, 16);
+		put(X86Op::VShiftImm, {vr(d, 16)}, {vr(d, 16)}, (I64)laneBits, ((I64)ext << 8) | cnt);
+	}
+
+	void X86LowerPass::vcmpf(VReg d, VReg a, VReg b, U32 esz, U8 pred) {
+		U8 pfx = 0; // cmpps
+		if(esz == 8)
+			pfx = 0x66; // cmppd
+		varithImm(d, a, b, pfx, 0xc2, 0, pred);
+	}
+
+	// d = mask ? t : f per lane, blendvps/blendvpd read the mask from xmm0
+	void X86LowerPass::vblend(VReg d, VReg f, VReg t, VReg mask, U32 esz) {
+		U8 opc = 0x14; // blendvps
+		if(esz == 8)
+			opc = 0x15; // blendvpd
+		I64 desc = vecDesc(0x66, opc, 0x38);
+		movaps(xmm(0, 16), mask);
+		farith(X86Op::VArith, d, f, t, 16, desc).uses.push_back(xm(xmm(0, 16)));
 	}
 
 	void X86LowerPass::vsplat(VReg d, VReg s, U32 esz, B32 isInt) {
@@ -268,12 +318,14 @@ namespace rat {
 		put(X86Op::VPack, {vr(d, 16)}, {}, (I64)esz, isInt ? 1 : 0);
 	}
 
-	void X86LowerPass::vpackReg(VReg d, const List<MachineOperand>& lanes, U32 esz) {
-		put(X86Op::VPackReg, {vr(d, 16)}, {lanes[0]}, (I64)esz, 1);
-		for(U32 i = 1; i < (U32)lanes.size(); ++i) {
-			Ops uses = {vr(d, 16), lanes[i]};
-			put(X86Op::VInsertReg, {vr(d, 16)}, std::move(uses), (I64)esz, (I64)i);
-		}
+	// movd/movq of an int lane, the upper lanes zero
+	void X86LowerPass::vmovd(VReg d, VReg gp, U32 esz) {
+		put(X86Op::VPackReg, {vr(d, 16)}, {vr(gp)}, (I64)esz, 1);
+	}
+
+	// pinsrd/pinsrq of an int into lane of d
+	void X86LowerPass::vinsert(VReg d, VReg gp, U32 esz, U32 lane) {
+		put(X86Op::VInsertReg, {vr(d, 16)}, {vr(d, 16), vr(gp)}, (I64)esz, (I64)lane);
 	}
 
 	void X86LowerPass::vshuf(VReg d, VReg s, U8 sel) {

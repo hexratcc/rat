@@ -1,0 +1,43 @@
+@name slp: parameter loads between stores through a restrict parameter are re-read from the entry state, so the copy packs statically
+@passes slp
+
+@input
+func t(ptr restrict, ptr) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "d" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v9 = add : ptr v4, v6
+	v10 = add : ptr v4, v7
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v5, v6
+	v13 = add : ptr v5, v7
+	v14 = add : ptr v5, v8
+	v20 = load : i32 v2, v3, v5
+	v21 = store : mem v2, v3, v4, v20
+	v22 = load : i32 v2, v21, v12
+	v23 = store : mem v2, v21, v9, v22
+	v24 = load : i32 v2, v23, v13
+	v25 = store : mem v2, v23, v10, v24
+	v26 = load : i32 v2, v25, v14
+	v27 = store : mem v2, v25, v11, v26
+	v40 = return : ctrl v2, v27
+}
+
+@expect
+func t(ptr restrict, ptr) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v8
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "d" of v0
+  v5 = proj : ptr  #3 "a" of v0
+  v6 = load : <4 x i32> v2, v3, v5
+  v7 = store : mem v2, v3, v4, v6
+  v8 = return : ctrl v2, v7
+}

@@ -47,6 +47,7 @@ namespace rat::cc {
 		sp = nullptr;
 		sawAlloca = false;
 		addrTaken.clear();
+		restrictVars.clear();
 		labels.clear();
 		loops.clear();
 		switches.clear();

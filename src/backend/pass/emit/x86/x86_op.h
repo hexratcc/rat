@@ -33,6 +33,15 @@ namespace rat {
 		constexpr U8 kFpSwap[] = {0, 0, 1, 1, 0, 0};
 
 		constexpr U8 kSseOp[] = {0x58, 0x5c, 0x59, 0x5e};
+
+		// VArith desc bit, set when imm2 holds an imm8 that follows the modrm
+		constexpr I64 kVecImm8 = (I64)1 << 24;
+		// FEq..FGe -> cmpps/cmppd predicate, gt and ge are lt and le with swapped operands
+		constexpr U8 kVecFpPred[] = {0, 4, 1, 2, 1, 2};
+		// Shl, LShr, AShr -> /ext of pslld, psrld, psrad by an imm8
+		constexpr U8 kVecShiftExt[] = {6, 2, 4};
+		// Shl, LShr, AShr -> pslld, psrld, psrad by an xmm count, +1 for the qword form
+		constexpr U8 kVecShiftOpc[] = {0xf2, 0xd2, 0xe2};
 	} // namespace detail
 
 	enum class X86Op : U32 {
@@ -86,16 +95,20 @@ namespace rat {
 		FSub,
 		FMul,
 		FDiv,			 // two-address on the def xmm
-		FNeg,			 // pxor-based scalar negate
+		FNeg,			 // pxor-based negate, lane width in imm
 		FSqrt,		 // dst = sqrt(use[0]); width in imm
 		FAbs,			 // dst = |use[0]| via lane shifts; width in imm
 		FCmp,			 // ucomis use[0],use[1] + setcc; cc in imm, swap in imm2
 		FCmpFlags, // flags-only ucomis use[0],use[1]; swap in imm2 (cc consumed by a fused Br)
 		Cvt,			 // SSE convert; pfx/opc/w packed in imm
 		// SSE packed vector (128-bit)
-		VArith,		// dst = dst OP use[1] packed; imm = (0f38 escape << 16) | (prefix << 8) | opcode byte
-		VSplat,		// dst = broadcast use[0] to all lanes; imm = elem bytes, imm2 = int?
-		VExtract, // dst = lane imm of use[0]; imm2 = (elem bytes << 1) | int?
+		// dst = dst OP use[1] packed, imm = (escape << 16) | (prefix << 8) | opcode, plus kVecImm8 when
+		// imm2 holds an imm8. A use[2] of xmm0 is the implicit blendv mask
+		VArith,
+		VUnary,			// dst = OP use[0] packed, imm as VArith
+		VShiftImm,	// dst = dst shifted by an immediate, imm = lane bits, imm2 = (/ext << 8) | count
+		VSplat,			// dst = broadcast use[0] to all lanes; imm = elem bytes, imm2 = int?
+		VExtract,		// dst = lane imm of use[0]; imm2 = (elem bytes << 1) | int?
 		VPackLane,	// [vec scratch + imm2>>1 * imm] = use[0]
 		VPack,			// dst = the vec scratch slot
 		VPackReg,		// dst = movd/movq of int lane use[0]

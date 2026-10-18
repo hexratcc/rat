@@ -83,9 +83,9 @@ func dot(ptr, ptr) -> i32 {
 	v14 = load : <4 x i32> v2, v3, v13
 	v15 = mul : <4 x i32> v11, v14
 	v16 = add : <4 x i32> v8, v15
-	v17 = shuffle : <4 x i32>  #78 v16
+	v17 = shuffle : <4 x i32>  #4146 v16, v16
 	v18 = add : <4 x i32> v16, v17
-	v19 = shuffle : <4 x i32>  #177 v18
+	v19 = shuffle : <4 x i32>  #8961 v18, v18
 	v20 = add : <4 x i32> v18, v19
 	v21 = extract : i32  #0 v20
 	v22 = return : ctrl v2, v3, v21

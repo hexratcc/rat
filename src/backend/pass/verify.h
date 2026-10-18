@@ -2,6 +2,7 @@
 #define RAT_PASS_VERIFY_H
 
 #include "core.h"
+#include "ir/opcode.h"
 #include "pass/pass.h"
 
 #include <iosfwd>
@@ -52,7 +53,9 @@ namespace rat {
 			void checkCall(const Node* n);
 			void checkAsm(const Node* n);
 			void checkArithmetic(const Node* n);
+			void checkCompare(const Node* n);
 			void checkBinary(const Node* n);
+			static B32 hasVectorLowering(Opcode op, const Type* et);
 			void checkUnary(const Node* n);
 			void checkConvert(const Node* n);
 			void checkStopReturns();

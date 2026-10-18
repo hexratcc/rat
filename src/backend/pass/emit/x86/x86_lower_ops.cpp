@@ -39,6 +39,52 @@ namespace rat {
 		return true;
 	}
 
+	B32 X86LowerPass::splatOnlyLoad(const Node* n) {
+		if(!isa<LoadNode>(n) || !n->getType()->isInt() || intBits(n->getType()) < 32)
+			return false;
+		for(Node* u : n->getUsers())
+			if(!isa<SplatNode>(u))
+				return false;
+		return n->hasUsers();
+	}
+
+	B32 X86LowerPass::packOnlyConst(const Node* n) {
+		for(Node* u : n->getUsers())
+			if(!isa<PackNode>(u))
+				return false;
+		return n->hasUsers();
+	}
+
+	BinaryNode* X86LowerPass::addSubOf(const ShuffleNode* n) {
+		U32 lanes = n->getType()->getVecLanes();
+		Node* from[2] = {n->getFirst(), n->getSecond()};
+		Node* parity[2] = {nullptr, nullptr}; // source of the even and the odd lanes
+		for(U32 i = 0; i < lanes; ++i) {
+			U32 s = n->getSource(i);
+			Node*& want = parity[i % 2];
+			if(s % lanes != i || (want && want != from[s / lanes]))
+				return nullptr;
+			want = from[s / lanes];
+		}
+		BinaryNode* sub = dyn_cast<BinaryNode>(parity[0]);
+		BinaryNode* add = dyn_cast<BinaryNode>(parity[1]);
+		if(!sub || !add || sub->getOpcode() != Opcode::FSub || add->getOpcode() != Opcode::FAdd)
+			return nullptr;
+		if(sub->getLHS() != add->getLHS() || sub->getRHS() != add->getRHS())
+			return nullptr;
+		return sub;
+	}
+
+	B32 X86LowerPass::addSubOnly(const Node* n) {
+		Opcode op = n->getOpcode();
+		if(!n->getType()->isVec() || (op != Opcode::FAdd && op != Opcode::FSub))
+			return false;
+		for(Node* u : n->getUsers())
+			if(!isa<ShuffleNode>(u) || !addSubOf(cast<ShuffleNode>(u)))
+				return false;
+		return n->hasUsers();
+	}
+
 	void X86LowerPass::emitStore(StoreNode* s) {
 		Node* val = s->getValue();
 		U32 w = opWidth(val->getType());
@@ -83,6 +129,9 @@ namespace rat {
 		AddrParts a = matchAddr(l->getPointer());
 		if(isSseTy(l->getType())) {
 			ldf(vregFor(l), w, a);
+		} else if(splatOnlyLoad(l)) {
+			vregOf[l->getId()] = fresh(detail::kFp); // movss/movsd, no gp round trip
+			ldf(vregOf[l->getId()], w, a);
 		} else {
 			B32 sign = l->getType() && l->getType()->isInt() && !zextOnlyLoad(l) && !lowHalfOnlyLoad(l);
 			ld(vregFor(l), w, a, sign);
@@ -254,6 +303,10 @@ namespace rat {
 		Type* et = n->getType()->getVecElement();
 		U32 esz = et->byteSize(ptrBytes);
 		Opcode op = n->getOpcode();
+		if(op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr) {
+			emitVecShift(n);
+			return;
+		}
 		U8 pfx = 0, opc = 0;
 		B32 esc38 = false;
 		// clang-format off
@@ -290,12 +343,35 @@ namespace rat {
 		varith(d, lhs, rhs, pfx, opc, esc38);
 	}
 
+	void X86LowerPass::emitVecShift(BinaryNode* n) {
+		U32 bits = opWidth(n->getType()->getVecElement()) * 8;
+		U32 idx = (U32)n->getOpcode() - (U32)Opcode::Shl;
+		U8 ext = detail::kVecShiftExt[idx];
+		U8 opc = detail::kVecShiftOpc[idx];
+		if(bits == 64)
+			++opc;
+		VReg s = sseValue(n->getLHS());
+		VReg d = vregFor(n);
+		I64 cnt = 0;
+		if(immOf(n->getRHS(), cnt)) {
+			vshiftImm(d, s, bits, ext, (U8)cnt);
+			return;
+		}
+		VReg c = fresh(detail::kFp);
+		vmovd(c, gpValue(n->getRHS()), 4);
+		varith(d, s, c, 0x66, opc, false);
+	}
+
 	void X86LowerPass::emitSplat(SplatNode* n) {
 		Type* et = n->getType()->getVecElement();
 		U32 esz = et->byteSize(ptrBytes);
-		B32 isInt = !et->isFloat();
-		VReg s = isInt ? gpValue(n->getScalar()) : sseValue(n->getScalar());
-		vsplat(vregFor(n), s, esz, isInt);
+		B32 inGp = !et->isFloat() && !splatOnlyLoad(n->getScalar());
+		VReg s = kNoVReg;
+		if(inGp)
+			s = gpValue(n->getScalar());
+		else
+			s = sseValue(n->getScalar());
+		vsplat(vregFor(n), s, esz, inGp);
 	}
 
 	void X86LowerPass::emitExtract(ExtractNode* n) {
@@ -308,19 +384,26 @@ namespace rat {
 		vextract(vregFor(n), v, n->getLane(), esz, isInt);
 	}
 
-	// all-constant packs come from the constant pool as one movups
-	B32 X86LowerPass::emitConstPack(PackNode* n, U32 esz) {
-		U32 w = n->getLaneCount();
-		for(U32 i = 0; i < w; ++i)
-			if(!isa<ConstantNode>(n->getLane(i)))
-				return false;
+	// the constant lanes of n as 16 pool bytes, zero in the other lanes
+	List<U8> X86LowerPass::constLanes(PackNode* n, U32 esz) {
 		List<U8> bytes(16, 0);
-		for(U32 i = 0; i < w; ++i) {
-			U64 v = (U64)cast<ConstantNode>(n->getLane(i))->getValue();
+		for(U32 i = 0; i < n->getLaneCount(); ++i) {
+			ConstantNode* c = dyn_cast<ConstantNode>(n->getLane(i));
+			if(!c)
+				continue;
+			U64 v = (U64)c->getValue();
 			for(U32 b = 0; b < esz; ++b)
 				bytes[i * esz + b] = (U8)(v >> (8 * b));
 		}
-		ldf(vregFor(n), 16, vecPoolSym(bytes));
+		return bytes;
+	}
+
+	// all-constant packs come from the constant pool as one movups
+	B32 X86LowerPass::emitConstPack(PackNode* n, U32 esz) {
+		for(U32 i = 0; i < n->getLaneCount(); ++i)
+			if(!isa<ConstantNode>(n->getLane(i)))
+				return false;
+		ldf(vregFor(n), 16, vecPoolSym(constLanes(n, esz)));
 		return true;
 	}
 
@@ -331,23 +414,129 @@ namespace rat {
 		B32 isInt = !et->isFloat();
 		if(emitConstPack(n, esz))
 			return;
-		// int lanes with sse4.1 build the vector in-register (VPackReg); float and pre-sse4.1
-		// fall back to gathering through the vec scratch slot (VPack)
-		B32 useReg = isInt && sse41;
-		if(!useReg && fl->vecScratch == 0)
+		if(!sse41) {
+			emitPackMem(n, esz, isInt);
+			return;
+		}
+		List<U8> bytes = constLanes(n, esz);
+		B32 nonZero = std::count(bytes.begin(), bytes.end(), 0) < 16;
+		B32 fromPool = nonZero || isa<ConstantNode>(n->getLane(0));
+		VReg d = vregFor(n);
+		if(fromPool)
+			ldf(d, 16, vecPoolSym(bytes));
+		else
+			packLaneZero(n, d, esz, isInt);
+		for(U32 i = 0; i < w; ++i)
+			if(!isa<ConstantNode>(n->getLane(i)) && (i || fromPool))
+				insertLane(d, n->getLane(i), i, esz, isInt);
+	}
+
+	// without sse4.1 the lanes go through the vec scratch slot
+	void X86LowerPass::emitPackMem(PackNode* n, U32 esz, B32 isInt) {
+		if(fl->vecScratch == 0)
 			fl->vecScratch = reserve(16);
 		List<MachineOperand> lanes;
-		for(U32 i = 0; i < w; ++i) {
+		for(U32 i = 0; i < n->getLaneCount(); ++i) {
 			Node* lane = n->getLane(i);
 			if(isInt)
 				lanes.push_back(MachineOperand::vr(gpValue(lane)));
 			else
 				lanes.push_back(MachineOperand::vr(sseValue(lane), esz));
 		}
-		if(useReg)
-			vpackReg(vregFor(n), lanes, esz);
+		vpackMem(vregFor(n), lanes, esz, isInt);
+	}
+
+	void X86LowerPass::packLaneZero(PackNode* n, VReg d, U32 esz, B32 isInt) {
+		Node* lane = n->getLane(0);
+		if(isInt) {
+			vmovd(d, gpValue(lane), esz);
+			return;
+		}
+		U8 zero = 0; // insertps zero mask
+		for(U32 i = 1; i < n->getLaneCount(); ++i)
+			if(isa<ConstantNode>(n->getLane(i)))
+				zero |= (U8)(1 << i);
+		VReg s = sseValue(lane);
+		if(zero && esz == 8) {
+			vunary(d, s, 0xf3, 0x7e, 0); // movq
+			return;
+		}
+		movaps(d, s, esz);
+		if(zero)
+			vmerge(d, d, 0x66, 0x21, 0x3a, zero); // insertps, zeroing the constant lanes
+	}
+
+	void X86LowerPass::insertLane(VReg d, Node* lane, U32 i, U32 esz, B32 isInt) {
+		if(isInt) {
+			vinsert(d, gpValue(lane), esz, i);
+			return;
+		}
+		VReg s = sseValue(lane);
+		if(esz == 4)
+			vmerge(d, s, 0x66, 0x21, 0x3a, (I32)(i << 4));
+		else if(i == 0)
+			vmerge(d, s, 0xf2, 0x10, 0, -1);
 		else
-			vpackMem(vregFor(n), lanes, esz, isInt);
+			vmerge(d, s, 0, 0x16, 0, -1);
+	}
+
+	void X86LowerPass::emitAddSub(ShuffleNode* n, BinaryNode* sub) {
+		U8 pfx = 0xf2; // addsubps
+		if(opWidth(n->getType()->getVecElement()) == 8)
+			pfx = 0x66; // addsubpd
+		varith(vregFor(n), sseValue(sub->getLHS()), sseValue(sub->getRHS()), pfx, 0xd0, false);
+	}
+
+	void X86LowerPass::shuffleDwords(const ShuffleNode* n, U8& sel, U8& mask, B32& inPlace) {
+		Type* vt = n->getType();
+		U32 lanes = vt->getVecLanes();
+		U32 per = opWidth(vt->getVecElement()) / 4;
+		U32 src[4] = {0, 1, 2, 3};
+		for(U32 i = 0; i < lanes; ++i) {
+			U32 s = n->getSource(i);
+			for(U32 k = 0; k < per; ++k)
+				src[i * per + k] = s / lanes * 4 + s % lanes * per + k;
+		}
+		sel = 0;
+		mask = 0;
+		inPlace = true;
+		for(U32 i = 0; i < 4; ++i) {
+			if(n->getFirst() == n->getSecond())
+				src[i] &= 3;
+			sel |= (U8)((src[i] & 3) << (2 * i));
+			mask |= (U8)((src[i] >> 2) << i);
+			inPlace &= (src[i] & 3) == i;
+		}
+	}
+
+	void X86LowerPass::emitShuffle(ShuffleNode* n) {
+		if(BinaryNode* sub = addSubOf(n)) {
+			emitAddSub(n, sub);
+			return;
+		}
+		U8 sel = 0, mask = 0;
+		B32 inPlace = true;
+		shuffleDwords(n, sel, mask, inPlace);
+		VReg a = sseValue(n->getFirst());
+		VReg b = sseValue(n->getSecond());
+		VReg d = vregFor(n);
+		if(inPlace && mask != 0 && mask != 15) {
+			varithImm(d, a, b, 0x66, 0x0c, 0x3a, mask); // blendps
+			return;
+		}
+		if(mask == 15 || mask == 3)
+			std::swap(a, b); // the low half comes from second
+		if(mask == 0 || mask == 15) {
+			vshuf(d, a, sel);
+		} else if(mask == 12 || mask == 3) {
+			varithImm(d, a, b, 0, 0xc6, 0, sel); // shufps
+		} else {
+			VReg ta = fresh(detail::kFp);
+			VReg tb = fresh(detail::kFp);
+			vshuf(ta, a, sel);
+			vshuf(tb, b, sel);
+			varithImm(d, ta, tb, 0x66, 0x0c, 0x3a, mask);
+		}
 	}
 
 	// a fresh register holding a constant too wide for an ALU immediate
@@ -412,9 +601,12 @@ namespace rat {
 			return;
 		}
 		U32 w = opWidth(n->getType());
+		U32 lane = w;
+		if(n->getType()->isVec())
+			lane = opWidth(n->getType()->getVecElement());
 		VReg s = sseValue(n->getOperand());
 		needScratch();
-		fneg(vregFor(n), s, w);
+		fneg(vregFor(n), s, w, lane);
 	}
 
 	void X86LowerPass::emitUnary(UnaryNode* n) {
@@ -472,6 +664,10 @@ namespace rat {
 	// dst starts as the else-value, then cmov overwrites it when the flags say so
 	// the condition folds into the cmp when it is an integer compare used only here
 	void X86LowerPass::emitSelect(SelectNode* n) {
+		if(n->getType()->isVec()) {
+			emitVecSelect(n);
+			return;
+		}
 		Node* cond = n->getCondition();
 		VReg d = vregFor(n);
 		// materialize both arms before the compare
@@ -486,6 +682,75 @@ namespace rat {
 			cmp(cv, imm(0));
 		}
 		cmov(d, t, cc);
+	}
+
+	VReg X86LowerPass::vecMask(CompareNode* c, B32& invert) {
+		Type* et = c->getLHS()->getType()->getVecElement();
+		U32 esz = opWidth(et);
+		Opcode op = c->getOpcode();
+		VReg l = sseValue(c->getLHS());
+		VReg r = sseValue(c->getRHS());
+		invert = op == Opcode::Ne || op == Opcode::Sle || op == Opcode::Ult;
+		if(!et->isFloat())
+			return vecIntMask(op, l, r, esz);
+		VReg m = fresh(detail::kFp);
+		if(op == Opcode::FGt || op == Opcode::FGe)
+			std::swap(l, r);
+		vcmpf(m, l, r, esz, detail::kVecFpPred[(U32)op - (U32)Opcode::FEq]);
+		return m;
+	}
+
+	VReg X86LowerPass::vecIntMask(Opcode op, VReg l, VReg r, U32 esz) {
+		VReg m = fresh(detail::kFp);
+		if(op == Opcode::Eq || op == Opcode::Ne) {
+			if(esz == 8)
+				varith(m, l, r, 0x66, 0x29, true); // pcmpeqq
+			else
+				varith(m, l, r, 0x66, 0x76, false); // pcmpeqd
+			return m;
+		}
+		if(op == Opcode::Slt || op == Opcode::Sle) {
+			if(op == Opcode::Slt)
+				std::swap(l, r);
+			varith(m, l, r, 0x66, 0x66, false); // pcmpgtd
+			return m;
+		}
+		if(op == Opcode::Ult)
+			std::swap(l, r);
+		VReg t = fresh(detail::kFp);
+		varith(t, l, r, 0x66, 0x3b, true);	// pminud
+		varith(m, t, l, 0x66, 0x76, false); // pcmpeqd
+		return m;
+	}
+
+	B32 X86LowerPass::emitVecMinMax(SelectNode* n, CompareNode* c) {
+		Opcode op = c->getOpcode();
+		B32 isSigned = op == Opcode::Slt || op == Opcode::Sle;
+		B32 isUnsigned = op == Opcode::Ult || op == Opcode::Ule;
+		B32 min = n->getTrue() == c->getLHS() && n->getFalse() == c->getRHS();
+		B32 max = n->getTrue() == c->getRHS() && n->getFalse() == c->getLHS();
+		if(opWidth(n->getType()->getVecElement()) != 4 || !(isSigned || isUnsigned) || !(min || max))
+			return false;
+		U8 opc = 0x39; // pminsd, pminud 0x3b, pmaxsd 0x3d, pmaxud 0x3f
+		if(isUnsigned)
+			opc += 2;
+		if(max)
+			opc += 4;
+		varith(vregFor(n), sseValue(c->getLHS()), sseValue(c->getRHS()), 0x66, opc, true);
+		return true;
+	}
+
+	void X86LowerPass::emitVecSelect(SelectNode* n) {
+		CompareNode* c = cast<CompareNode>(n->getCondition());
+		if(emitVecMinMax(n, c))
+			return;
+		B32 invert = false;
+		VReg m = vecMask(c, invert);
+		Node* t = n->getTrue();
+		Node* f = n->getFalse();
+		if(invert)
+			std::swap(t, f);
+		vblend(vregFor(n), sseValue(f), sseValue(t), m, opWidth(n->getType()->getVecElement()));
 	}
 
 	void X86LowerPass::emitCompare(CompareNode* n) {
@@ -524,6 +789,10 @@ namespace rat {
 	void X86LowerPass::emitConvert(ConvertNode* n) {
 		Node* src = n->getOperand();
 		Opcode op = n->getOpcode();
+		if(n->getType()->isVec()) {
+			emitVecConvert(n);
+			return;
+		}
 		if(isX87Ty(n->getType()) || isX87Ty(src->getType())) {
 			emitConvertX87(n, src, op);
 			return;
@@ -552,6 +821,49 @@ namespace rat {
 		default:
 			return;
 		}
+	}
+
+	void X86LowerPass::emitVecConvert(ConvertNode* n) {
+		Node* src = n->getOperand();
+		U32 sw = opWidth(src->getType()->getVecElement());
+		U32 dw = opWidth(n->getType()->getVecElement());
+		Opcode op = n->getOpcode();
+		U8 pfx = 0, opc = 0x5a; // cvtps2pd
+		U8 esc = 0;
+		if(op == Opcode::SIToFP) {
+			opc = 0x5b;
+			if(dw == 8) {
+				pfx = 0xf3;
+				opc = 0xe6;
+			}
+		} else if(op == Opcode::FPToSI) {
+			pfx = 0xf3;
+			opc = 0x5b;
+			if(sw == 8) {
+				pfx = 0x66;
+				opc = 0xe6;
+			}
+		} else if(op == Opcode::FPTrunc) {
+			pfx = 0x66;
+		} else if(op == Opcode::SExt || op == Opcode::ZExt) {
+			pfx = 0x66;
+			esc = 0x38;
+			opc = pmovOpc(sw, dw, op == Opcode::ZExt);
+		}
+		vunary(vregFor(n), sseValue(src), pfx, opc, esc);
+	}
+
+	U8 X86LowerPass::pmovOpc(U32 sw, U32 dw, B32 zext) {
+		U8 opc = 0x23;
+		if(sw == 1)
+			opc = 0x21;
+		else if(sw == 4)
+			opc = 0x25;
+		else if(dw == 8)
+			opc = 0x24;
+		if(zext)
+			opc += 0x10;
+		return opc;
 	}
 
 	// values live sign-extended in 64-bit registers

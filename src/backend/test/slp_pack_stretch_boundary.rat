@@ -1,0 +1,64 @@
+@name slp: a stretch sorts when the next store is in its group but joins no window
+@passes slp
+
+@input
+var a : [32 x i32] = ""
+var b : [1 x i32] = ""
+
+func t(ptr) -> void {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v27
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "p" of v0
+	v5 = global : ptr  "a"
+	v6 = global : ptr  "b"
+	v7 = const : i64  4
+	v8 = const : i64  8
+	v9 = const : i64  12
+	v10 = const : i64  64
+	v11 = const : i32  1
+	v12 = const : i32  2
+	v13 = const : i32  3
+	v14 = const : i32  4
+	v15 = const : i32  9
+	v16 = add : ptr v5, v7
+	v17 = add : ptr v5, v8
+	v18 = add : ptr v5, v9
+	v19 = add : ptr v5, v10
+	v20 = store : mem v2, v3, v5, v11
+	v21 = store : mem v2, v20, v6, v15
+	v22 = store : mem v2, v21, v16, v12
+	v23 = store : mem v2, v22, v17, v13
+	v24 = store : mem v2, v23, v18, v14
+	v25 = load : i32 v2, v24, v4
+	v26 = store : mem v2, v24, v19, v25
+	v27 = return : ctrl v2, v26
+}
+
+@expect
+var a : [32 x i32] = ""
+var b : [1 x i32] = ""
+
+func t(ptr) -> void {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v19
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "p" of v0
+	v5 = global : ptr  "a"
+	v6 = global : ptr  "b"
+	v7 = const : i64  64
+	v8 = const : i32  1
+	v9 = const : i32  2
+	v10 = const : i32  3
+	v11 = const : i32  4
+	v12 = const : i32  9
+	v13 = add : ptr v5, v7
+	v14 = pack : <4 x i32> v8, v9, v10, v11
+	v15 = store : mem v2, v3, v5, v14
+	v16 = store : mem v2, v15, v6, v12
+	v17 = load : i32 v2, v16, v4
+	v18 = store : mem v2, v16, v13, v17
+	v19 = return : ctrl v2, v18
+}

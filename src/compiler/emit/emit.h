@@ -129,6 +129,8 @@ namespace rat::cc {
 		// functions
 		B32 emitFunctionBody(const FuncDef* def);
 		void bindFunctionParams(Function& fn, const FuncDef* def, U32 paramBase);
+		void markRestrictParam(Function& fn, Function::Var v, U32 index);
+		void dropRestrictParam(Function& fn, Function::Var v);
 		B32 checkAliases();
 
 		// types and sizes

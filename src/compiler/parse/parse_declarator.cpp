@@ -4,22 +4,27 @@
 
 namespace rat::cc {
 	// [ [qualifier]... * ]... [qualifier]...
-	// const and volatile are kept, one bit per pointer level
+	// const, volatile and restrict are kept, one bit per pointer level
 	void Parser::parsePointers(CType& t) {
 		for(;;) {
 			B32 sawConst = false;
 			B32 sawVolatile = false;
+			B32 sawRestrict = false;
 			while(detail::isTypeQualifier(peek().kind)) {
 				if(check(TokKind::KwConst))
 					sawConst = true;
 				if(check(TokKind::KwVolatile))
 					sawVolatile = true;
+				if(check(TokKind::KwRestrict))
+					sawRestrict = true;
 				advance();
 			}
 			if(sawConst && t.ptr < 32)
 				setTopConst(t);
 			if(sawVolatile && t.ptr < 32)
 				setTopVolatile(t);
+			if(sawRestrict && t.ptr < 32)
+				setTopRestrict(t);
 			if(!accept(TokKind::Star))
 				break;
 			++t.ptr;

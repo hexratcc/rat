@@ -17,8 +17,8 @@ namespace rat {
 	U32 X86LowerPass::opWidth(const Type* t) {
 		if(!t)
 			return 8;
-		if(t->isVec())
-			return 16;
+		if(t->isVec()) // 16, or 8 or 4 bytes for a vector in the low lanes
+			return t->getVecLanes() * opWidth(t->getVecElement());
 		if(t->isPtr())
 			return 8;
 		if(t->isFloat())
@@ -362,7 +362,7 @@ namespace rat {
 			lea(vregFor(n), cast<GlobalNode>(n)->getSymbol());
 			return;
 		case Opcode::Constant:
-			if(isSseTy(n->getType()))
+			if(isSseTy(n->getType()) && !packOnlyConst(n))
 				fpConstLoad(cast<ConstantNode>(n), vregFor(n));
 			return;
 		case Opcode::Store:
@@ -399,11 +399,9 @@ namespace rat {
 		case Opcode::Pack:
 			emitPack(cast<PackNode>(n));
 			return;
-		case Opcode::Shuffle: {
-			VReg v = sseValue(cast<ShuffleNode>(n)->getVector());
-			vshuf(vregFor(n), v, cast<ShuffleNode>(n)->getSelector());
+		case Opcode::Shuffle:
+			emitShuffle(cast<ShuffleNode>(n));
 			return;
-		}
 		case Opcode::Select:
 			emitSelect(cast<SelectNode>(n));
 			return;
@@ -411,6 +409,8 @@ namespace rat {
 			break;
 		}
 		if(isCompareOpcode(op)) {
+			if(n->getType()->isVec())
+				return; // a lane mask, each vector select re-emits it
 			if(branchOnlyCompare(n))
 				return; // no value users; each If re-emits the compare fused with its jcc
 			if(selectOnlyCompare(n))
@@ -425,6 +425,8 @@ namespace rat {
 				return; // folded into base+index*scale+disp of every using load/store
 			if(addressOnlyScale(n))
 				return; // folded into the SIB scale of every using address
+			if(addSubOnly(n))
+				return; // each addsub shuffle computes it
 			emitBinary(cast<BinaryNode>(n));
 		}
 	}

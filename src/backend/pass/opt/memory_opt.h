@@ -50,6 +50,7 @@ namespace rat {
 			B32 loops;				// the chain returns to the phi
 		};
 		static ChainScan scanPhiSide(const AliasAnalysis& aa, PhiNode* m, U32 side, LoadNode* l);
+		static B32 loopInvariant(const AliasAnalysis& aa, PhiNode* m, U32 back, LoadNode* l);
 	private:
 		struct BucketKey {
 			Node* def;

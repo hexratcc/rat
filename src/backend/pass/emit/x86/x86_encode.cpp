@@ -328,8 +328,18 @@ namespace rat {
 		case X86Op::VArith: {
 			U64 imm = (U64)in.imm;
 			U32 d = xmmOf(in.defs[0]), s = xmmOf(in.uses[1]);
-			return a->ssePacked((U8)(imm >> 8), (U8)imm, d, s, (imm >> 16) != 0);
+			a->ssePacked((U8)(imm >> 8), (U8)imm, d, s, (U8)(imm >> 16));
+			if(imm & detail::kVecImm8)
+				a->b((U8)in.imm2);
+			return;
 		}
+		case X86Op::VUnary: {
+			U64 imm = (U64)in.imm;
+			U32 d = xmmOf(in.defs[0]), s = xmmOf(in.uses[0]);
+			return a->ssePacked((U8)(imm >> 8), (U8)imm, d, s, (U8)(imm >> 16));
+		}
+		case X86Op::VShiftImm:
+			return a->sseShiftImm((U32)in.imm, (U8)(in.imm2 >> 8), xmmOf(in.defs[0]), (U8)in.imm2);
 		case X86Op::VSplat:
 			return emitVSplat(in);
 		case X86Op::VExtract:

@@ -1,0 +1,69 @@
+@name slp: a 9-term i32 sum packs 8 terms into two vectors and adds the ninth to the extracted sum
+@passes slp
+
+@input
+func t(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = const : i64  4
+	v6 = const : i64  8
+	v7 = const : i64  12
+	v8 = const : i64  16
+	v9 = const : i64  20
+	v10 = const : i64  24
+	v11 = const : i64  28
+	v12 = const : i64  32
+	v13 = add : ptr v4, v5
+	v14 = add : ptr v4, v6
+	v15 = add : ptr v4, v7
+	v16 = add : ptr v4, v8
+	v17 = add : ptr v4, v9
+	v18 = add : ptr v4, v10
+	v19 = add : ptr v4, v11
+	v20 = add : ptr v4, v12
+	v21 = load : i32 v2, v3, v4
+	v22 = load : i32 v2, v3, v13
+	v23 = load : i32 v2, v3, v14
+	v24 = load : i32 v2, v3, v15
+	v25 = load : i32 v2, v3, v16
+	v26 = load : i32 v2, v3, v17
+	v27 = load : i32 v2, v3, v18
+	v28 = load : i32 v2, v3, v19
+	v29 = load : i32 v2, v3, v20
+	v31 = add : i32 v21, v22
+	v32 = add : i32 v31, v23
+	v33 = add : i32 v32, v24
+	v34 = add : i32 v33, v25
+	v35 = add : i32 v34, v26
+	v36 = add : i32 v35, v27
+	v37 = add : i32 v36, v28
+	v38 = add : i32 v37, v29
+	v40 = return : ctrl v2, v3, v38
+}
+
+@expect
+func t(ptr) -> i32 {
+  v0 = start : (ctrl, mem, ptr)
+  v1 = stop : ctrl v38
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "a" of v0
+  v12 = const : i64  32
+  v20 = add : ptr v4, v12
+  v29 = load : i32 v2, v3, v20
+  v38 = return : ctrl v2, v3, v49
+  v39 = load : <4 x i32> v2, v3, v4
+  v40 = const : i64  16
+  v41 = add : ptr v4, v40
+  v42 = load : <4 x i32> v2, v3, v41
+  v43 = add : <4 x i32> v39, v42
+  v44 = shuffle : <4 x i32>  #4146 v43, v43
+  v45 = add : <4 x i32> v43, v44
+  v46 = shuffle : <4 x i32>  #8961 v45, v45
+  v47 = add : <4 x i32> v45, v46
+  v48 = extract : i32  #0 v47
+  v49 = add : i32 v48, v29
+}
