@@ -72,13 +72,16 @@ namespace rat {
 			return ld;
 		}
 
-		// op over the operand vectors
+		// op over the operand vectors, or op and op2 blended by sel
 		Node* Slp::emitOp(const Record& r, Type* vecTy, const Made& made) {
 			Node* in[kMaxInputs] = {};
 			for(U32 i = 0; i < kMaxInputs; ++i)
 				if(r.in[i] != kNone)
 					in[i] = made.nodes[r.in[i]];
-			return makeOp(r.op, vecTy, in);
+			Node* a = makeOp(r.op, vecTy, in);
+			if(r.op2 == kNoOp)
+				return a;
+			return fn.create<ShuffleNode>(vecTy, a, makeOp(r.op2, vecTy, in), r.sel);
 		}
 
 		Node* Slp::makeOp(Opcode op, Type* vecTy, Node* const* in) {

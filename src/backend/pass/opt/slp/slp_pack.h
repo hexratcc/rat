@@ -155,7 +155,7 @@ namespace rat {
 			Lanes lanes;
 			Kind kind = Kind::Gather;
 			I32 profit = 0;
-			Opcode op = kNoOp;
+			Opcode op = kNoOp, op2 = kNoOp;
 			U32 in[kMaxInputs] = {kNone, kNone, kNone};
 			Node* mem = nullptr;
 			LoadNode* lowest = nullptr;
@@ -186,7 +186,7 @@ namespace rat {
 		struct Forms {
 			Opcode op[kMaxLanes] = {};
 			Node* in[kMaxLanes][kMaxInputs] = {};
-			Opcode first = kNoOp;
+			Opcode first = kNoOp, second = kNoOp;
 		};
 
 		// whether a lane load may read memIn instead of its state
@@ -296,10 +296,13 @@ namespace rat {
 			// Op
 			U32 op(const Lanes& lanes);
 			B32 laneForms(const Lanes& lanes, Forms& f);
+			void subAsAdd(const Lanes& lanes, Forms& f);
+			const OpRule* formRule(const Forms& f, Node* n0);
 			const OpRule* ruleOf(Opcode op, Node* n);
 			U32 operandTuples(const Lanes& lanes, const Forms& f, Lanes* ops);
 			std::tuple<Opcode, const Type*, U32> operandKey(Node* n);
 			void orient(const Forms& f, Lanes* ops);
+			I32 blendProfit(const Forms& f, U32 w, U16& sel);
 			void addGuard(const Record& r);
 
 			Slp& s;

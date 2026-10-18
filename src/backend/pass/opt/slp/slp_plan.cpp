@@ -183,7 +183,7 @@ namespace rat {
 			Forms f;
 			if(!budget || !laneForms(lanes, f))
 				return kNone;
-			const OpRule* rule = ruleOf(f.first, lanes[0]);
+			const OpRule* rule = formRule(f, lanes[0]);
 			if(!rule)
 				return kNone;
 			Lanes ops[kMaxInputs];
@@ -203,12 +203,16 @@ namespace rat {
 			r.lanes = lanes;
 			r.kind = Kind::Op;
 			r.op = f.first;
+			r.op2 = f.second;
 			r.profit = (I32)lanes.size() - 1;
+			if(f.second != kNoOp)
+				r.profit = blendProfit(f, lanes.size(), r.sel);
 			plan.records.push_back(r);
 			return (U32)plan.records.size() - 1;
 		}
 
 		B32 Planner::laneForms(const Lanes& lanes, Forms& f) {
+			Node *zero = nullptr, *ones = nullptr;
 			for(U32 i = 0; i < lanes.size(); ++i) {
 				Node* n = lanes[i];
 				f.op[i] = n->getOpcode();
@@ -216,9 +220,55 @@ namespace rat {
 					return false;
 				for(U32 k = 0; k < n->getInputCount(); ++k)
 					f.in[i][k] = n->getInput(k);
+				if(f.op[i] == Opcode::Neg) {
+					if(!zero)
+						zero = s.fn.create<ConstantNode>(n->getType(), 0);
+					f.op[i] = Opcode::Sub;
+					f.in[i][1] = f.in[i][0];
+					f.in[i][0] = zero;
+				} else if(f.op[i] == Opcode::Not) {
+					if(!ones)
+						ones = s.fn.create<ConstantNode>(n->getType(), -1);
+					f.op[i] = Opcode::Xor;
+					f.in[i][1] = ones;
+				}
 			}
+			if(std::count(f.op, f.op + lanes.size(), f.op[0]) != (I64)lanes.size())
+				subAsAdd(lanes, f);
 			f.first = f.op[0];
-			return std::count(f.op, f.op + lanes.size(), f.first) == (I64)lanes.size();
+			for(U32 i = 0; i < lanes.size(); ++i)
+				if(f.op[i] != f.first && f.op[i] != f.second) {
+					if(f.second != kNoOp)
+						return false; // a third opcode
+					f.second = f.op[i];
+				}
+			return true;
+		}
+
+		// an integer x - c as x + -c mod 2^n, so that such lanes beside adds pack as one op
+		void Planner::subAsAdd(const Lanes& lanes, Forms& f) {
+			for(U32 i = 0; i < lanes.size(); ++i) {
+				const ConstantNode* c = dyn_cast<ConstantNode>(f.in[i][1]);
+				Type* t = lanes[i]->getType();
+				if(f.op[i] != Opcode::Sub || !c || !t->isInt())
+					continue;
+				I64 neg = (I64)(0 - (U64)c->getValue());
+				f.op[i] = Opcode::Add;
+				f.in[i][1] = s.fn.create<ConstantNode>(t, signExtend(neg, t->getIntWidth()));
+			}
+		}
+
+		const OpRule* Planner::formRule(const Forms& f, Node* n0) {
+			const OpRule* rule = ruleOf(f.first, n0);
+			if(!rule || f.second == kNoOp)
+				return rule;
+			const OpRule* rule2 = ruleOf(f.second, n0);
+			B32 binary =
+					getOpClass(f.first) == OpClass::Binary && getOpClass(f.second) == OpClass::Binary;
+			B32 lanewise = rule->form == Form::Lanewise && rule2 && rule2->form == Form::Lanewise;
+			if(!s.sse41 || !lanewise || !binary)
+				return nullptr;
+			return rule;
 		}
 
 		// the row of opcode op over lanes like n, null when n's input type or the target does not fit
@@ -270,6 +320,19 @@ namespace rat {
 				if(kl != k0 && kr == k0 && kl == k1)
 					std::swap(ops[0][i], ops[1][i]);
 			}
+		}
+
+		I32 Planner::blendProfit(const Forms& f, U32 w, U16& sel) {
+			B32 addSub = true;
+			sel = 0;
+			for(U32 i = 0; i < w; ++i) {
+				sel |= (U16)((i + w * (f.op[i] == f.second)) << (ShuffleNode::kSourceBits * i));
+				Opcode addSubOp = Opcode::FSub;
+				if(i % 2)
+					addSubOp = Opcode::FAdd;
+				addSub &= f.op[i] == addSubOp;
+			}
+			return (I32)w - 3 + 2 * (I32)addSub;
 		}
 
 		// add the bytes of r's lanes to the runtime check of their group
