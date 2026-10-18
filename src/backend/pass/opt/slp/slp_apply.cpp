@@ -41,7 +41,7 @@ namespace rat {
 			return fn.create<PackNode>(vecTy, scalars);
 		}
 
-		// one load at off and a broadcast, or a wide load
+		// one load at off and a broadcast, or the wide loads, shuffled when the lanes are permuted
 		Node* Slp::emitLoad(const Record& r, Type* vecTy, Made& made) {
 			if(!r.wideLoads) {
 				Node* ptr = anchorPtr(r.lowest->getPointer(), r.off);
@@ -49,7 +49,13 @@ namespace rat {
 				made.loads.push_back({ld, addrs.get(r.lowest->getPointer())});
 				return fn.create<SplatNode>(vecTy, ld);
 			}
-			return wideLoad(r, vecTy, r.off, made);
+			Node* a = wideLoad(r, vecTy, r.off, made);
+			if(!r.shuffle)
+				return a;
+			Node* b = a;
+			if(r.wideLoads == 2)
+				b = wideLoad(r, vecTy, r.off + (I64)kVecBytes, made);
+			return fn.create<ShuffleNode>(vecTy, a, b, r.sel);
 		}
 
 		// a vector load of r's state at offset off of its group, or the load an earlier record made

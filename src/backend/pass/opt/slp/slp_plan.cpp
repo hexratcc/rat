@@ -64,7 +64,7 @@ namespace rat {
 			I32 w = (I32)lanes.size();
 			r.profit = w - 2; // one load and a broadcast
 			if(r.wideLoads)
-				r.profit = w - (I32)r.wideLoads;
+				r.profit = w - (I32)r.wideLoads - r.shuffle;
 			plan.records.push_back(r);
 			return (U32)plan.records.size() - 1;
 		}
@@ -76,6 +76,7 @@ namespace rat {
 			U32 w = lanes.size(), lsz = l0->getType()->byteSize(s.ptrBytes);
 			Addr a0 = s.addrs.get(l0->getPointer());
 			B32 adjacent = true, equal = true;
+			I64 hi = a0.offset + (I64)lsz;
 			r.lowest = l0;
 			r.off = a0.offset;
 			for(U32 i = 0; i < w; ++i) {
@@ -88,11 +89,44 @@ namespace rat {
 					return false;
 				adjacent &= a.offset == a0.offset + (I64)(i * lsz);
 				equal &= a.offset == a0.offset;
+				if(a.offset < r.off)
+					r.lowest = l;
+				r.off = std::min(r.off, a.offset);
+				hi = std::max(hi, a.offset + (I64)lsz);
 			}
 			r.wideLoads = 0; // one load and a broadcast
 			if(!equal)
-				r.wideLoads = 1;
-			return adjacent || equal;
+				r.wideLoads = 1 + (hi - r.off > (I64)(w * lsz));
+			r.shuffle = !adjacent && !equal;
+			return adjacent || equal || permuteSpan(lanes, r, hi);
+		}
+
+		B32 Planner::permuteSpan(const Lanes& lanes, Record& r, I64 hi) {
+			U32 w = lanes.size(), lsz = r.lowest->getType()->byteSize(s.ptrBytes);
+			U32 group = s.addrs.get(r.lowest->getPointer()).group;
+			I64 bytes = (I64)(r.wideLoads * w * lsz);
+			if(hi - r.off > bytes || (r.wideLoads == 2 && w * lsz != kVecBytes))
+				return false;
+			for(I64 b : {r.off, hi - bytes}) {
+				U32 read = 0; // bit per element
+				r.sel = 0;
+				for(U32 i = 0; i < w; ++i) {
+					I64 d = s.addrs.get(cast<LoadNode>(lanes[i])->getPointer()).offset - b;
+					if(d % lsz)
+						return false;
+					read |= 1u << (d / lsz);
+					r.sel |= (U16)(d / lsz << (ShuffleNode::kSourceBits * i));
+				}
+				B32 covered = true;
+				for(U32 j = 0; j < r.wideLoads * w; ++j)
+					if(!(read >> j & 1))
+						covered &= s.bytesRead(group, b + (I64)(j * lsz), lsz, r.lowest->getControl());
+				if(covered) {
+					r.off = b;
+					return true;
+				}
+			}
+			return false;
 		}
 
 		B32 Planner::loadState(const Lanes& lanes, Record& r) {
@@ -272,6 +306,33 @@ namespace rat {
 					it->second = u->getInput(1);
 			}
 			return !it->second || it->second == m;
+		}
+
+		// some load at ctrl reads each 4-byte piece of [off, off + size) of group
+		B32 Slp::bytesRead(U32 group, I64 off, U32 size, const Node* ctrl) {
+			if(!readsIndexed)
+				indexReads();
+			auto it = reads.find(readsKey(ctrl, group));
+			for(U32 b = 0; b < size; b += kReadPiece)
+				if(it == reads.end() || !it->second.count(off + (I64)b))
+					return false;
+			return true;
+		}
+
+		U64 Slp::readsKey(const Node* ctrl, U32 group) { return (U64)ctrl->getId() << 32 | group; }
+
+		void Slp::indexReads() {
+			readsIndexed = true;
+			for(Node* n : fn) {
+				LoadNode* l = dyn_cast<LoadNode>(n);
+				U32 size = 0;
+				if(l && !l->isVolatile())
+					size = l->getType()->byteSize(ptrBytes);
+				for(U32 b = 0; size % kReadPiece == 0 && b < size; b += kReadPiece) {
+					const Addr& a = addrs.get(l->getPointer());
+					reads[readsKey(l->getControl(), a.group)].insert(a.offset + (I64)b);
+				}
+			}
 		}
 	} // namespace slp
 } // namespace rat

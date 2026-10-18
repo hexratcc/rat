@@ -42,6 +42,7 @@ namespace rat {
 		constexpr I32 kGuardBranchCost = 6;			// branch + else-arm bloat per guarded run
 		constexpr U32 kMinTerms = 4;						// fewest terms of a reduction
 		constexpr U32 kMaxTerms = 64;						// most terms of one reduction
+		constexpr U32 kReadPiece = 4;						// bytes of one entry of the reads index
 		static_assert(1u << kVecShift == kVecBytes, "kVecShift is log2 kVecBytes");
 		// offset bound of a known access, so its 16-byte blocks fit a block key
 		constexpr I64 kMaxOffset = INT32_MAX - (I64)kVecBytes;
@@ -160,7 +161,9 @@ namespace rat {
 			LoadNode* lowest = nullptr;
 			I64 off = 0;
 			U32 wideLoads = 0;
+			B32 shuffle = false;
 			B32 guard = false;
+			U16 sel = 0;
 		};
 
 		struct GuardGroup {
@@ -236,6 +239,9 @@ namespace rat {
 			U32 tryReduction(Node* root);
 			// planner queries
 			B32 pinned(Node* m, Node* ctrl);
+			B32 bytesRead(U32 group, I64 off, U32 size, const Node* ctrl);
+			static U64 readsKey(const Node* ctrl, U32 group);
+			void indexReads();
 			// check
 			void setRoles(const Seed& seed, const Plan& plan, B32 on);
 			U8 roleOf(const Node* n) const;
@@ -269,9 +275,11 @@ namespace rat {
 			AddrCache addrs;
 			Map<U32, Pair<Node*, I64>> anchors;				// group -> (anchor ptr, its offset)
 			Map<const Node*, Node*> firstWriterState; // control -> state its first writer reads, or null
-			List<GuardSplit> splits;									// the guarded runs, for splitBlocks
-			Set<const Node*> guardedBlocks;						// blocks with a guarded run, for loadState
-			List<U8> roles; // node id -> Role bits of the plan being checked, else 0
+			Map<U64, Set<I64>> reads; // (control id, group) -> offsets of 4-byte pieces loads read
+			B32 readsIndexed = false;
+			List<GuardSplit> splits;				// the guarded runs, for splitBlocks
+			Set<const Node*> guardedBlocks; // blocks with a guarded run, for loadState
+			List<U8> roles;									// node id -> Role bits of the plan being checked, else 0
 		};
 
 		struct Planner {
@@ -282,6 +290,7 @@ namespace rat {
 			// Load
 			U32 loads(const Lanes& lanes);
 			B32 loadShape(const Lanes& lanes, Record& r);
+			B32 permuteSpan(const Lanes& lanes, Record& r, I64 hi);
 			B32 loadState(const Lanes& lanes, Record& r);
 			Edge readsAtMemIn(LoadNode* l, const Addr& run);
 			// Op
