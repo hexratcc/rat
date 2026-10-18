@@ -320,7 +320,8 @@ namespace rat {
 		B32 Slp::reduces(const Node* n) {
 			Opcode op = n->getOpcode();
 			U8 t = typeBits(n->getType());
-			return op == Opcode::Add && (t & kI32I64);
+			return ((op == Opcode::Add || (op >= Opcode::And && op <= Opcode::Xor)) && (t & kI32I64)) ||
+						 (op == Opcode::Mul && t == kI32 && sse41);
 		}
 
 		U32 Slp::packReductions() {
