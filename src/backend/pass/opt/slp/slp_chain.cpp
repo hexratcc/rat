@@ -114,7 +114,7 @@ namespace rat {
 			List<LoadNode*> readers;
 			for(U32 k = 1; k <= chain.size(); ++k)
 				index[chain[k - 1]->getId()] = k;
-			for(U32 k = 1; k <= chain.size(); ++k) {
+			for(U32 k = 1; k < chain.size(); ++k) { // a hoist of a final state reader only adds an order
 				seen.add(k, acc[k - 1]);
 				readers.clear(); // copy first, a hoist changes the store's users
 				for(Node* u : chain[k - 1]->getUsers())
