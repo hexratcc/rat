@@ -4,6 +4,9 @@
 //   header: cmp; jcc exit          header: cmp; jcc exit
 //   body:   ...              ->    body:   ...
 //   latch:  jmp header             latch:  cmp; jcc exit / fall into body
+//
+// then aligns each loop header, the target of a back edge, to 64 bytes so
+// that a loop of up to 64 bytes sits in one 64-byte fetch block
 
 #ifndef RAT_PASS_EMIT_X86LAYOUT_H
 #define RAT_PASS_EMIT_X86LAYOUT_H
@@ -19,6 +22,8 @@ namespace rat {
 	struct MachineOperand;
 
 	namespace detail {
+		constexpr U32 kLoopAlign = 64;
+
 		B32 isPureTestBlock(const MachineBlock& b);
 		U32 duplicateTestBlocks(MachineFunc& mf);
 		B32 endsInBranch(const MachineBlock& b);
@@ -26,6 +31,7 @@ namespace rat {
 		U32 forwardJumpChains(MachineFunc& mf);
 		List<B32> reachableFrom(const List<U32>& first, const List<I32>& succ, I32 entry);
 		void chainLayout(MachineFunc& mf);
+		void alignLoopHeaders(MachineFunc& mf);
 	} // namespace detail
 
 	struct X86LayoutPass : MachinePass {

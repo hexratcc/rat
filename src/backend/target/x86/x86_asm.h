@@ -172,6 +172,8 @@ namespace rat {
 		void d32(U32 v);
 		void d64(U64 v);
 		U32 reserve32();
+		// multi-byte nops up to the next multiple of a
+		void alignNop(U32 a);
 
 		// prefixes and modrm
 		static U8 rexByte(B32 w, U32 r, U32 x, U32 rm);

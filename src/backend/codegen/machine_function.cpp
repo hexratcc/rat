@@ -33,6 +33,7 @@ namespace rat {
 		for(MachineBlock& b : blocks) {
 			b.id = -1;
 			b.loopDepth = 0;
+			b.align = 0;
 			b.preds.clear();
 			b.succs.clear();
 			b.insts.clear();
