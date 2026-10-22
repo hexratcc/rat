@@ -140,7 +140,7 @@ namespace rat {
 			// in a block with a guarded run, a run reads memIn, as loads of an earlier state would stay
 			// live across that guard. A reduction adds no guard
 			B32 open = seed.root || !s.guardedBlocks.count(ctrl);
-			if(shared && open && !isInner(seed, m) && s.pinned(m, ctrl))
+			if(shared && open && !isInner(seed, m))
 				return true;
 			if(seed.root)
 				return false; // a reduction has no memIn
@@ -377,23 +377,6 @@ namespace rat {
 					return;
 				}
 			plan.guards.push_back({a.group, r.lowest->getPointer(), a.offset, hi});
-		}
-
-		B32 Slp::pinned(Node* m, Node* ctrl) {
-			Node* w = stateWriter(m);
-			if(w && w->getInput(0) == ctrl)
-				return true;
-			// the memo stays safe: a block keeps the state its first writer reads, or loses all writers
-			auto [it, fresh] = firstWriterState.try_emplace(ctrl, nullptr);
-			for(U32 k = 0; fresh && k < ctrl->getUsers().size(); ++k) {
-				Node* u = ctrl->getUsers()[k];
-				if(!writesMemory(u) || ctrl->getUserSlot(k) != 0)
-					continue;
-				Node* p = stateWriter(u->getInput(1)); // the writer before u
-				if(!p || p->getInput(0) != ctrl)
-					it->second = u->getInput(1);
-			}
-			return !it->second || it->second == m;
 		}
 
 		// some load at ctrl reads each 4-byte piece of [off, off + size) of group

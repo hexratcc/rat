@@ -1,7 +1,7 @@
 // expect: 0
 // the loop leaves B alone, so the B loads after it read the entry state, while the store to B
-// after them consumes the loop's state: node order alone keeps them above the store, so the add
-// reduction over them keeps its lanes instead of one wide load the scheduler may place below it
+// after them consumes the loop's state: the wide loads of the add reduction over them read the
+// entry state too, and the scheduler must keep them above the store
 unsigned B[64], G[64];
 
 __attribute__((noinline)) unsigned k(unsigned *q, int i) {

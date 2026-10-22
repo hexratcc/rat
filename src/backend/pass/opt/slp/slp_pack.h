@@ -224,8 +224,6 @@ namespace rat {
 
 		// helpers without pass state
 		U8 typeBits(const Type* t);
-		B32 writesMemory(const Node* n);
-		Node* stateWriter(Node* m);
 		Node* memoryOperand(const Node* n);
 		void replaceUses(Node* from, Node* to);
 		I32 gatherCost(const Lanes& lanes);
@@ -259,7 +257,6 @@ namespace rat {
 			B32 reduces(const Node* n);
 			U32 tryReduction(Node* root);
 			// planner queries
-			B32 pinned(Node* m, Node* ctrl);
 			B32 bytesRead(U32 group, I64 off, U32 size, const Node* ctrl);
 			static U64 readsKey(const Node* ctrl, U32 group);
 			void indexReads();
@@ -294,8 +291,7 @@ namespace rat {
 			B32 sse41;
 			SlpStats& stats;
 			AddrCache addrs;
-			Map<U32, Pair<Node*, I64>> anchors;				// group -> (anchor ptr, its offset)
-			Map<const Node*, Node*> firstWriterState; // control -> state its first writer reads, or null
+			Map<U32, Pair<Node*, I64>> anchors; // group -> (anchor ptr, its offset)
 			Map<U64, Set<I64>> reads; // (control id, group) -> offsets of 4-byte pieces loads read
 			B32 readsIndexed = false;
 			List<GuardSplit> splits;				// the guarded runs, for splitBlocks
