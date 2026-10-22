@@ -107,6 +107,15 @@ namespace rat {
 		using Lanes = SmallList<Node*, kMaxLanes>;
 		using Chain = List<StoreNode*>;
 
+		// what loadcanon leaves for slp on the same function, used while the function is unchanged: its
+		// chains, and its address cache when it hoisted. Per thread, as the IR test runner is threaded
+		struct Handoff {
+			const Function* fn = nullptr;
+			U64 version = 0; // of fn when loadcanon finished
+			List<Chain> chains;
+			UniquePtr<AddrCache> addrs;
+		};
+
 		struct Access {
 			Addr addr;
 			U32 size = 0;
@@ -206,9 +215,12 @@ namespace rat {
 		void replaceUses(Node* from, Node* to);
 		I32 gatherCost(const Lanes& lanes);
 		B32 oneScalar(const Lanes& lanes);
-		StoreNode* chainSuccessor(StoreNode* prev);
+		StoreNode* chainSuccessor(const StoreNode* prev);
 		Access accessOf(AddrCache& addrs, U32 ptrBytes, Node* n);
 		List<Chain> collectChains(Function& fn);
+		Handoff& handoff();
+		AddrCache takeAddrs(const Function& fn);
+		List<Chain> takeChains(Function& fn);
 		B32 setDisjoint(const List<Access>& acc, U32 lo, U32 hi, Map<U64, U16>& written);
 		Node* lowerMerge(MemMergeNode* m);
 		Seed runSeed(const Chain& chain, const Run& run);

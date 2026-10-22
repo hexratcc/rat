@@ -19,7 +19,7 @@ namespace rat {
 			return a;
 		}
 
-		StoreNode* chainSuccessor(StoreNode* prev) {
+		StoreNode* chainSuccessor(const StoreNode* prev) {
 			StoreNode* succ = nullptr;
 			for(Node* u : prev->getUsers()) {
 				StoreNode* st = dyn_cast<StoreNode>(u);
@@ -101,7 +101,7 @@ namespace rat {
 			List<Piece> pieces;
 			List<Access> acc;
 			Map<U64, U16> written;
-			for(const Chain& chain : collectChains(fn)) {
+			for(const Chain& chain : takeChains(fn)) {
 				acc.clear();
 				for(StoreNode* st : chain)
 					acc.push_back(accessOf(addrs, ptrBytes, st));
@@ -247,6 +247,11 @@ namespace rat {
 
 		// the windows of the lowered chains that a seam splits, as no piece held them whole
 		U32 Slp::processSeams() {
+			B32 inner = false; // a seam is not the last store of its chain, else no window holds one
+			for(const Node* s : seams)
+				inner |= chainSuccessor(cast<StoreNode>(s)) != nullptr;
+			if(!inner)
+				return 0;
 			U32 changed = 0;
 			for(const Chain& chain : collectChains(fn))
 				for(U32 i = 0; i < chain.size();) {

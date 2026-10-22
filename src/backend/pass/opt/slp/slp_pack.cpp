@@ -28,12 +28,36 @@ namespace rat {
 			return v;
 		}
 
+		Handoff& handoff() {
+			thread_local Handoff h;
+			return h;
+		}
+
+		// loadcanon's cache when fn is unchanged since, else a new one
+		AddrCache takeAddrs(const Function& fn) {
+			Handoff& h = handoff();
+			if(h.fn == &fn && h.version == fn.getVersion() && h.addrs)
+				return std::move(*h.addrs);
+			return AddrCache(AliasAnalysis::restrictFacts(fn), fn.idBound());
+		}
+
+		// loadcanon's chains when fn is unchanged since, else new ones. Empties the handoff
+		List<Chain> takeChains(Function& fn) {
+			Handoff& h = handoff();
+			B32 fresh = h.fn == &fn && h.version == fn.getVersion();
+			h.fn = nullptr;
+			h.addrs.reset();
+			if(fresh)
+				return std::move(h.chains);
+			return collectChains(fn);
+		}
+
 		Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
 		: fn(fn),
 			ptrBytes(target.getPointerSizeInBytes()),
 			sse41(target.hasSse41()),
 			stats(stats),
-			addrs(AliasAnalysis::restrictFacts(fn), fn.idBound()) {}
+			addrs(takeAddrs(fn)) {}
 
 		// the disjoint stretches become sets, which processSet searches by lookup, then the sets become
 		// chains again
@@ -226,7 +250,10 @@ namespace rat {
 
 	const C8* SlpPackPass::name() const { return "slp"; }
 
-	void SlpPackPass::beginModule(Module&, const CallGraph&) { stats = SlpStats{}; }
+	void SlpPackPass::beginModule(Module&, const CallGraph&) {
+		stats = SlpStats{};
+		slp::handoff() = {}; // a handoff from an earlier pipeline stage is stale
+	}
 
 	void SlpPackPass::endModule(Module& module) {
 		const SlpStats& s = stats;

@@ -31,8 +31,13 @@ namespace rat {
 				lastWild = at;
 			else
 				objects[a.addr.object].add(at, a.addr.group);
-			for(I64 o = a.addr.offset; a.addr.group && o < a.addr.offset + (I64)a.size; ++o)
-				blocks[blockKey(a.addr.group, o)][o & (kVecBytes - 1)] = at;
+			I64 end = a.addr.offset + (I64)a.size;
+			for(I64 o = a.addr.offset, stop = 0; a.addr.group && o < end; o = stop) { // each block
+				stop = std::min(end, (o | (I64)(kVecBytes - 1)) + 1);
+				std::array<U32, kVecBytes>& last = blocks[blockKey(a.addr.group, o)];
+				for(I64 b = o; b < stop; ++b)
+					last[b & (kVecBytes - 1)] = at;
+			}
 		}
 
 		U32 Conflicts::lastConflict(const Access& a) const {
@@ -43,9 +48,13 @@ namespace rat {
 				t = std::max(lastWild, it->second.outside(a.addr.group));
 			else
 				t = lastWild;
-			for(I64 o = a.addr.offset; o < a.addr.offset + (I64)a.size; ++o)
-				if(auto it = blocks.find(blockKey(a.addr.group, o)); it != blocks.end())
-					t = std::max(t, it->second[o & (kVecBytes - 1)]);
+			I64 end = a.addr.offset + (I64)a.size;
+			for(I64 o = a.addr.offset, stop = 0; o < end; o = stop) { // each block
+				stop = std::min(end, (o | (I64)(kVecBytes - 1)) + 1);
+				auto it = blocks.find(blockKey(a.addr.group, o));
+				for(I64 b = o; it != blocks.end() && b < stop; ++b)
+					t = std::max(t, it->second[b & (kVecBytes - 1)]);
+			}
 			return t;
 		}
 
@@ -72,12 +81,22 @@ namespace rat {
 			return top;
 		}
 
+		// some load reads an inner state of a chain, so hoistLoads may move it
+		B32 readsInner(const List<Chain>& chains) {
+			for(const Chain& chain : chains)
+				for(U32 k = 0; k + 1 < chain.size(); ++k)
+					for(Node* u : chain[k]->getUsers())
+						if(isa<LoadNode>(u))
+							return true;
+			return false;
+		}
+
 		// move each load of the block that reads a chain state to the earliest chain state that holds
 		// its bytes, the number of moved loads
 		U32 hoistLoads(AddrCache& addrs, U32 ptrBytes, const Chain& chain, List<U32>& index) {
 			Node* block = chain[0]->getControl();
 			Conflicts seen;
-			List<LoadNode*> readers;
+			SmallList<LoadNode*, 8> readers;
 			U32 moved = 0;
 			for(U32 k = 1; k <= chain.size(); ++k)
 				index[chain[k - 1]->getId()] = k;
@@ -110,14 +129,18 @@ namespace rat {
 	const C8* LoadCanonPass::name() const { return "loadcanon"; }
 
 	U32 LoadCanonPass::runOnFunction(Function& fn, const TargetInfo& target) {
-		List<canon::Chain> chains = slp::collectChains(fn);
-		if(chains.empty())
-			return 0;
-		AddrCache addrs(AliasAnalysis::restrictFacts(fn), fn.idBound());
-		List<U32> index(fn.idBound(), 0); // node id -> index from 1 in the chain being walked
+		slp::Handoff& h = slp::handoff();
+		h.chains = slp::collectChains(fn);
+		h.addrs.reset();
 		U32 moved = 0;
-		for(const canon::Chain& chain : chains)
-			moved += canon::hoistLoads(addrs, target.getPointerSizeInBytes(), chain, index);
+		if(canon::readsInner(h.chains)) {
+			h.addrs = std::make_unique<AddrCache>(AliasAnalysis::restrictFacts(fn), fn.idBound());
+			List<U32> index(fn.idBound(), 0); // node id -> index from 1 in the chain being walked
+			for(const canon::Chain& chain : h.chains)
+				moved += canon::hoistLoads(*h.addrs, target.getPointerSizeInBytes(), chain, index);
+		}
+		h.fn = &fn;
+		h.version = fn.getVersion();
 		return moved;
 	}
 } // namespace rat

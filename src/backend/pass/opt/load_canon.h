@@ -40,6 +40,7 @@ namespace rat {
 			Map<U64, std::array<U32, kVecBytes>> blocks; // (group, 16-byte block) -> last store per byte
 		};
 
+		B32 readsInner(const List<Chain>& chains);
 		U32 coneState(LoadNode* l, const List<U32>& index);
 		U32 hoistLoads(AddrCache& addrs, U32 ptrBytes, const Chain& chain, List<U32>& index);
 	} // namespace canon
