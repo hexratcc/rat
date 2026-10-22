@@ -107,6 +107,9 @@ namespace rat {
 
 		// branch-free choice
 		Select,
+
+		// join of the states of unordered disjoint stores, only inside the slp pass
+		MemMerge,
 	};
 
 	enum class OpClass : U8 {
