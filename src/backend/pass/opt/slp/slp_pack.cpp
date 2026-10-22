@@ -35,14 +35,19 @@ namespace rat {
 			stats(stats),
 			addrs(AliasAnalysis::restrictFacts(fn)) {}
 
-		// sort all chains before packing any
+		// the disjoint stretches become sets, which processSet searches by lookup, then the sets become
+		// chains again
 		U32 Slp::run() {
-			List<Chain> chains = collectChains(fn);
-			for(Chain& chain : chains)
-				orderChain(chain);
+			List<Piece> pieces = mergeStretches();
 			U32 changed = 0;
-			for(const Chain& chain : chains)
-				changed += processChain(chain);
+			for(const Piece& p : pieces) {
+				if(p.set)
+					changed += processSet(p.set);
+				else
+					changed += processChain(p.chain);
+			}
+			lowerSets(pieces);
+			changed += processSeams();
 			splitBlocks();
 			fn.eliminateDeadNodes(); // so every reduction root found is live
 			changed += packReductions();

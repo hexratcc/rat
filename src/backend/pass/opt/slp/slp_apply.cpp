@@ -11,7 +11,10 @@ namespace rat {
 			Made made = emit(plan);
 			if(seed.root)
 				commitReduction(seed, made);
-			else if(plan.guards.empty())
+			else if(seed.set) {
+				assert(plan.guards.empty() && "no load reads a set member, so no lane edge is weak");
+				commitSet(seed, made);
+			} else if(plan.guards.empty())
 				commitRun(seed, made);
 			else
 				commitGuarded(seed, plan, made);
@@ -140,10 +143,46 @@ namespace rat {
 
 		void Slp::commitRun(const Seed& seed, const Made& made) {
 			StoreNode* last = seed.stores.back();
-			replaceUses(last, chainWideStores(seed, made, last->getControl()));
+			Node* wide = chainWideStores(seed, made, last->getControl());
+			replaceUses(last, wide);
+			renameMemIn(last, wide);
 			for(StoreNode* st : seed.stores)
 				st->clearInputs(); // dead without inputs, the sweep in run erases it
 			stats.packedUnguarded += seed.windows;
+		}
+
+		// the wide store takes the slot of the window's first member in program order
+		void Slp::commitSet(const Seed& seed, const Made& made) {
+			U32 first = ~0u;
+			for(StoreNode* st : seed.stores)
+				first = std::min(first, setSlot[st]);
+			Node* wide = chainWideStores(seed, made, seed.stores[0]->getControl());
+			for(StoreNode* st : seed.stores) {
+				seed.set->setInput(setSlot[st], nullptr);
+				st->clearInputs(); // dead without inputs, the sweep in run erases it
+			}
+			seed.set->setInput(first, wide);
+			stats.packedUnguarded += seed.windows;
+		}
+
+		// a guarded run committed earlier read from as its state before the run, now it reads to
+		void Slp::renameMemIn(Node* from, Node* to) {
+			for(GuardSplit& g : splits)
+				if(g.memIn == from)
+					g.memIn = to;
+		}
+
+		// each set becomes a chain in its input order, a guarded run that read its merge reads the last
+		void Slp::lowerSets(const List<Piece>& pieces) {
+			for(const Piece& p : pieces) {
+				if(!p.set) {
+					seams.insert(p.chain.back());
+					continue;
+				}
+				Node* last = lowerMerge(p.set);
+				seams.insert(last);
+				renameMemIn(p.set, last);
+			}
 		}
 
 		void Slp::commitGuarded(const Seed& seed, const Plan& plan, const Made& made) {
@@ -159,6 +198,7 @@ namespace rat {
 			PhiNode* phi = fn.create<PhiNode>(fn.memTy(), List<Node*>{region, wide, last});
 			replaceUses(last, phi);
 			phi->setInput(2, last); // replaceUses also rewired the phi's own else input
+			renameMemIn(last, phi);
 			moveToElse(seed, plan, block, elseP);
 			splits.push_back({block, seed.memIn, phi, iff, region});
 			guardedBlocks.insert(block);

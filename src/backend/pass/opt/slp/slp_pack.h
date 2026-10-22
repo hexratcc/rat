@@ -15,6 +15,7 @@ namespace rat {
 	struct Node;
 	struct StoreNode;
 	struct LoadNode;
+	struct MemMergeNode;
 	struct Type;
 
 	struct SlpStats {
@@ -46,9 +47,9 @@ namespace rat {
 		// offset bound of a known access, so its 16-byte blocks fit a block key
 		constexpr I64 kMaxOffset = INT32_MAX - (I64)kVecBytes;
 		// work bounds, so each search stays linear in the function
-		constexpr U32 kMaxOps = 64;				 // Op records tried per seed tuple
-		constexpr U32 kMaxSortGroups = 16; // groups of a stretch, the sort compares them pairwise
-		constexpr U32 kMaxHops = 16;			 // stores walked between a lane load's state and memIn
+		constexpr U32 kMaxOps = 64;				// Op records tried per seed tuple
+		constexpr U32 kMaxSetGroups = 16; // groups of a set, setDisjoint compares their bases pairwise
+		constexpr U32 kMaxHops = 16;			// stores walked between a lane load's state and memIn
 
 		// reduction finish shuffles by [w / 4][round], nibble i is the source of lane i
 		constexpr U16 kFinishSel[2][2] = {{0x01}, {0x1032, 0x2301}};
@@ -111,13 +112,10 @@ namespace rat {
 			U32 size = 0;
 		};
 
-		// sort key of a store in a stretch
-		struct SortKey {
-			B32 operator<(const SortKey& o) const;
-
-			U32 groupAt = 0;
-			I64 offset = 0;
-			U32 at = 0;
+		// a set of one stretch, or the chain stores between sets, in chain order
+		struct Piece {
+			MemMergeNode* set = nullptr;
+			Chain chain;
 		};
 
 		struct Window {
@@ -139,6 +137,7 @@ namespace rat {
 			SmallList<StoreNode*, kMaxRunWindows> heads;
 			Node* root = nullptr;
 			List<Node*> steps, rest;
+			MemMergeNode* set = nullptr; // the set of a window found by processSet
 		};
 
 		// how a record builds its vector
@@ -210,9 +209,11 @@ namespace rat {
 		StoreNode* chainSuccessor(StoreNode* prev);
 		Access accessOf(AddrCache& addrs, U32 ptrBytes, Node* n);
 		List<Chain> collectChains(Function& fn);
-		void sortStretch(Chain& chain, const List<Access>& acc, U32 lo, U32 hi);
-		B32 sortDisjoint(const List<Access>& acc, const List<SortKey>& keys);
+		B32 setDisjoint(const List<Access>& acc, U32 lo, U32 hi, Map<U64, U16>& written);
+		Node* lowerMerge(MemMergeNode* m);
 		Seed runSeed(const Chain& chain, const Run& run);
+		Seed setSeed(MemMergeNode* m, const Window& w);
+		U64 setKey(U32 group, I64 offset);
 		List<Node*> flattenReduction(Node* root, List<Node*>& steps);
 		I32 profitMargin(const Seed& seed, const Plan& plan);
 		B32 isInner(const Seed& seed, const Node* m);
@@ -222,11 +223,17 @@ namespace rat {
 			U32 run();
 			B32 pack(const Seed& seed);
 			Type* laneType(const Node* n);
-			// order
-			void orderChain(Chain& chain);
+			// sets
+			List<Piece> mergeStretches();
+			MemMergeNode* mergeStretch(const Chain& chain, U32 lo, U32 hi);
 			// seed
 			B32 windowAt(const Chain& chain, U32 at, U32 bytes, Window& out);
 			U32 processChain(const Chain& chain);
+			U32 processSet(MemMergeNode* m);
+			U32 processRun(MemMergeNode* m, const Chain& run);
+			U32 trySetWindow(MemMergeNode* m, const Chain& run, U32 p, U32 bytes);
+			U32 processSeams();
+			B32 splitBySeam(const Chain& chain, U32 i, U32 bytes);
 			U32 tryRun(const Chain& chain, U32 i, U32 bytes);
 			void extendRun(const Chain& chain, Run& run);
 			I32 leafProfit(const Window& w);
@@ -256,6 +263,9 @@ namespace rat {
 			Pair<Node*, I64> anchorOf(Node* ptr);
 			Node* chainWideStores(const Seed& seed, const Made& made, Node* ctrl);
 			void commitRun(const Seed& seed, const Made& made);
+			void commitSet(const Seed& seed, const Made& made);
+			void lowerSets(const List<Piece>& pieces);
+			void renameMemIn(Node* from, Node* to);
 			void commitGuarded(const Seed& seed, const Plan& plan, const Made& made);
 			void moveToElse(const Seed& seed, const Plan& plan, Node* block, Node* elseP);
 			Node* emitGuardCascade(const Seed& seed, const Plan& plan, Node*& iff, Node*& elseP);
@@ -274,6 +284,8 @@ namespace rat {
 			List<GuardSplit> splits;				// the guarded runs, for splitBlocks
 			Set<const Node*> guardedBlocks; // blocks with a guarded run, for loadState
 			List<U8> roles;									// node id -> Role bits of the plan being checked, else 0
+			Map<const Node*, U32> setSlot;	// member of a set -> its input slot
+			Set<const Node*> seams;					// the last store of each piece, where a stretch ends
 		};
 
 		struct Planner {
@@ -287,6 +299,7 @@ namespace rat {
 			B32 permuteSpan(const Lanes& lanes, Record& r, I64 hi);
 			B32 loadState(const Lanes& lanes, Record& r);
 			Edge readsAtMemIn(LoadNode* l, const Addr& run);
+			Node* stepOverSet(MemMergeNode* m, LoadNode* l, U32& hops);
 			// Op
 			U32 op(const Lanes& lanes);
 			B32 laneForms(const Lanes& lanes, Forms& f);

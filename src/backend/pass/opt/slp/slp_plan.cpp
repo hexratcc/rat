@@ -169,6 +169,12 @@ namespace rat {
 				std::swap(later, earlier);
 			U32 size = l->getType()->byteSize(s.ptrBytes);
 			for(U32 hops = 0; later != earlier; ++hops) {
+				if(MemMergeNode* m = dyn_cast<MemMergeNode>(later)) {
+					later = stepOverSet(m, l, hops);
+					if(!later)
+						return Edge::Strong;
+					continue;
+				}
 				StoreNode* st = dyn_cast<StoreNode>(later);
 				if(!st || hops == kMaxHops || st->isVolatile() || st->getControl() != l->getControl())
 					return Edge::Strong;
@@ -178,6 +184,24 @@ namespace rat {
 				later = st->getMemory();
 			}
 			return Edge::None;
+		}
+
+		// the state before set m when no member may overlap l, each member counts as a hop, else null
+		Node* Planner::stepOverSet(MemMergeNode* m, LoadNode* l, U32& hops) {
+			const Addr& a = s.addrs.get(l->getPointer());
+			U32 size = l->getType()->byteSize(s.ptrBytes);
+			Node* before = nullptr;
+			for(U32 i = 1; i < m->getInputCount(); ++i) {
+				StoreNode* st = dyn_cast<StoreNode>(m->getInput(i));
+				if(!st)
+					continue;
+				U32 stSize = st->getValue()->getType()->byteSize(s.ptrBytes);
+				if(++hops > kMaxHops || st->getControl() != l->getControl() ||
+					 !disjoint(a, size, s.addrs.get(st->getPointer()), stSize))
+					return nullptr;
+				before = st->getMemory();
+			}
+			return before;
 		}
 
 		U32 Planner::op(const Lanes& lanes) {
