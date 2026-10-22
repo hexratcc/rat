@@ -271,6 +271,7 @@ namespace rat {
 			Node* wideLoad(const Record& r, Type* vecTy, I64 off, Made& made);
 			Node* emitOp(const Record& r, Type* vecTy, const Made& made);
 			Node* makeOp(Opcode op, Type* vecTy, Node* const* in);
+			void seedAnchors(const Seed& seed, const Plan& plan);
 			Node* anchorPtr(Node* ptr, I64 off);
 			Pair<Node*, I64> anchorOf(Node* ptr);
 			Node* chainWideStores(const Seed& seed, const Made& made, Node* ctrl);
