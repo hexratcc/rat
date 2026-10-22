@@ -7,53 +7,11 @@
 namespace rat {
 	namespace slp {
 
-		void LastOutside::add(U32 at, U32 group) {
-			if(group != lastGroup)
-				lastOther = last;
-			lastGroup = group;
-			last = at;
-		}
-
-		U32 LastOutside::outside(U32 group) const {
-			if(group != lastGroup)
-				return last;
-			return lastOther;
-		}
-
-		// offset >> kVecShift is the 16-byte block, rounded down also for a negative offset
-		U64 Conflicts::blockKey(U32 group, I64 offset) {
-			return (U64)group << 32 | (U32)(offset >> kVecShift);
-		}
-
-		void Conflicts::add(U32 at, const Access& a) {
-			all.add(at, a.addr.group);
-			if(!a.addr.object)
-				lastWild = at;
-			else
-				objects[a.addr.object].add(at, a.addr.group);
-			for(I64 o = a.addr.offset; a.addr.group && o < a.addr.offset + (I64)a.size; ++o)
-				blocks[blockKey(a.addr.group, o)][o & (kVecBytes - 1)] = at;
-		}
-
-		U32 Conflicts::lastConflict(const Access& a) const {
-			U32 t = 0;
-			if(!a.addr.object)
-				t = all.outside(a.addr.group);
-			else if(auto it = objects.find(a.addr.object); it != objects.end())
-				t = std::max(lastWild, it->second.outside(a.addr.group));
-			else
-				t = lastWild;
-			for(I64 o = a.addr.offset; o < a.addr.offset + (I64)a.size; ++o)
-				if(auto it = blocks.find(blockKey(a.addr.group, o)); it != blocks.end())
-					t = std::max(t, it->second[o & (kVecBytes - 1)]);
-			return t;
-		}
-
 		B32 SortKey::operator<(const SortKey& o) const {
 			return std::tie(groupAt, offset, at) < std::tie(o.groupAt, o.offset, o.at);
 		}
 
-		Access Slp::accessOf(Node* n) {
+		Access accessOf(AddrCache& addrs, U32 ptrBytes, Node* n) {
 			StoreNode* st = dyn_cast<StoreNode>(n);
 			Type* t = n->getType();
 			Node* ptr = n->getInput(2); // the pointer of a load or store
@@ -78,7 +36,7 @@ namespace rat {
 			return succ;
 		}
 
-		List<Chain> Slp::collectChains() {
+		List<Chain> collectChains(Function& fn) {
 			List<Chain> chains;
 			for(Node* n : fn) {
 				StoreNode* st = dyn_cast<StoreNode>(n);
@@ -94,70 +52,17 @@ namespace rat {
 			return chains;
 		}
 
-		// hoist the loads, then sort each stretch of stores whose inner states no load reads
-		void Slp::orderChain(Chain& chain, List<U32>& index) {
+		// sort each stretch of stores whose inner states no load reads
+		void Slp::orderChain(Chain& chain) {
 			List<Access> acc;
 			for(StoreNode* st : chain)
-				acc.push_back(accessOf(st));
-			hoistLoads(chain, acc, index);
+				acc.push_back(accessOf(addrs, ptrBytes, st));
 			for(U32 a = 0, b = 0; a < chain.size(); a = b + 1) {
 				for(b = a; b + 1 < chain.size() && chain[b]->getUsers().size() == 1;)
 					++b;
 				if(b > a)
 					sortStretch(chain, acc, a, b);
 			}
-		}
-
-		void Slp::hoistLoads(const Chain& chain, const List<Access>& acc, List<U32>& index) {
-			Node* block = chain[0]->getControl();
-			Conflicts seen;
-			List<LoadNode*> readers;
-			for(U32 k = 1; k <= chain.size(); ++k)
-				index[chain[k - 1]->getId()] = k;
-			for(U32 k = 1; k < chain.size(); ++k) { // a hoist of a final state reader only adds an order
-				seen.add(k, acc[k - 1]);
-				readers.clear(); // copy first, a hoist changes the store's users
-				for(Node* u : chain[k - 1]->getUsers())
-					if(LoadNode* l = dyn_cast<LoadNode>(u); l && l->getControl() == block && !l->isVolatile())
-						readers.push_back(l);
-				for(LoadNode* l : readers) {
-					Access la = accessOf(l);
-					if(!la.addr.group)
-						continue;
-					U32 t = std::max(seen.lastConflict(la), coneState(l, index));
-					if(t >= k)
-						continue;
-					Node* state = chain[0]->getMemory(); // the state before the chain
-					if(t)
-						state = chain[t - 1];
-					l->setInput(1, state); // input 1 is the memory
-				}
-			}
-			for(StoreNode* st : chain)
-				index[st->getId()] = 0;
-		}
-
-		// the latest chain state l's address depends on, as an index, ~0 past kMaxCone nodes
-		U32 coneState(LoadNode* l, const List<U32>& index) {
-			U32 top = 0, visits = 0;
-			SmallList<const Node*, 16> work;
-			work.push_back(l->getPointer());
-			while(!work.empty()) {
-				const Node* c = work.back();
-				work.pop_back();
-				if(++visits > kMaxCone)
-					return ~0u;
-				U32 at = 0; // the chain index of the state c reads, 0 outside the chain
-				if(Node* m = memoryOperand(c))
-					at = index[m->getId()];
-				top = std::max(top, at);
-				if(at || isa<PhiNode>(c))
-					continue;
-				for(U32 i = 0; i < c->getInputCount(); ++i)
-					if(const Node* in = c->getInput(i); in && in->getType() && in->getType()->isData())
-						work.push_back(in);
-			}
-			return top;
 		}
 
 		// sort chain[lo..hi] by group (first seen first) and offset when the stores that swap are disjoint

@@ -35,14 +35,11 @@ namespace rat {
 			stats(stats),
 			addrs(AliasAnalysis::restrictFacts(fn)) {}
 
-		// order all chains before packing any, so a lane load reading another chain's state is hoisted
+		// sort all chains before packing any
 		U32 Slp::run() {
-			List<Chain> chains = collectChains();
-			List<U32> index; // node id -> index from 1 in the chain being ordered
-			if(!chains.empty())
-				index.assign(fn.idBound(), 0);
+			List<Chain> chains = collectChains(fn);
 			for(Chain& chain : chains)
-				orderChain(chain, index);
+				orderChain(chain);
 			U32 changed = 0;
 			for(const Chain& chain : chains)
 				changed += processChain(chain);

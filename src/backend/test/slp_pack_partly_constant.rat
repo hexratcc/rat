@@ -1,5 +1,5 @@
 @name slp: a build vector of variable and constant lanes costs an insert per variable lane and a constant base, which a lane 0 into zeros does not need, so one variable among zero lanes stores as one vector
-@passes slp
+@passes loadcanon slp
 
 @input
 func t(ptr restrict, ptr restrict, ptr restrict, i32, f32) -> void {

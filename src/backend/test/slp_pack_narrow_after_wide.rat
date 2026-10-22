@@ -1,5 +1,5 @@
 @name slp: a load hoists past a narrow store that follows a wider one at its offset, so the window has no observer
-@passes slp
+@passes loadcanon slp
 
 @input
 var a : [4 x i32] = ""

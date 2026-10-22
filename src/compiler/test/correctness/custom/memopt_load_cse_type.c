@@ -1,5 +1,5 @@
 // expect: 0
-// passes: gvn,slp,memoryopt
+// passes: gvn,loadcanon,slp,memoryopt
 
 struct S {
 	long double l;

@@ -9,7 +9,6 @@
 #include "ir/opcode.h"
 #include "pass/pass.h"
 
-#include <array>
 #include <tuple>
 
 namespace rat {
@@ -49,7 +48,6 @@ namespace rat {
 		// work bounds, so each search stays linear in the function
 		constexpr U32 kMaxOps = 64;				 // Op records tried per seed tuple
 		constexpr U32 kMaxSortGroups = 16; // groups of a stretch, the sort compares them pairwise
-		constexpr U32 kMaxCone = 64;			 // address cone nodes visited per hoisted load
 		constexpr U32 kMaxHops = 16;			 // stores walked between a lane load's state and memIn
 
 		// reduction finish shuffles by [w / 4][round], nibble i is the source of lane i
@@ -111,25 +109,6 @@ namespace rat {
 		struct Access {
 			Addr addr;
 			U32 size = 0;
-		};
-
-		struct LastOutside {
-			void add(U32 at, U32 group);
-			U32 outside(U32 group) const; // the last store outside group, 0 for none
-
-			U32 last = 0, lastGroup = 0, lastOther = 0;
-		};
-
-		// the stores of a chain seen so far (indexed from 1), to find the last that may overlap a load
-		struct Conflicts {
-			static U64 blockKey(U32 group, I64 offset);
-			void add(U32 at, const Access& a);
-			U32 lastConflict(const Access& a) const;
-
-			LastOutside all;														 // every store
-			U32 lastWild = 0;														 // the last store without an object
-			Map<U32, LastOutside> objects;							 // object -> its stores
-			Map<U64, std::array<U32, kVecBytes>> blocks; // (group, 16-byte block) -> last store per byte
 		};
 
 		// sort key of a store in a stretch
@@ -229,7 +208,8 @@ namespace rat {
 		I32 gatherCost(const Lanes& lanes);
 		B32 oneScalar(const Lanes& lanes);
 		StoreNode* chainSuccessor(StoreNode* prev);
-		U32 coneState(LoadNode* l, const List<U32>& index);
+		Access accessOf(AddrCache& addrs, U32 ptrBytes, Node* n);
+		List<Chain> collectChains(Function& fn);
 		void sortStretch(Chain& chain, const List<Access>& acc, U32 lo, U32 hi);
 		B32 sortDisjoint(const List<Access>& acc, const List<SortKey>& keys);
 		Seed runSeed(const Chain& chain, const Run& run);
@@ -243,10 +223,7 @@ namespace rat {
 			B32 pack(const Seed& seed);
 			Type* laneType(const Node* n);
 			// order
-			Access accessOf(Node* n);
-			List<Chain> collectChains();
-			void orderChain(Chain& chain, List<U32>& index);
-			void hoistLoads(const Chain& chain, const List<Access>& acc, List<U32>& index);
+			void orderChain(Chain& chain);
 			// seed
 			B32 windowAt(const Chain& chain, U32 at, U32 bytes, Window& out);
 			U32 processChain(const Chain& chain);

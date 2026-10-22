@@ -1,5 +1,5 @@
 @name slp: a lane another user keeps alive as a scalar keeps its operands too and is charged, so a pair that would save two ops but keeps two stays scalar
-@passes slp
+@passes loadcanon slp
 
 @input
 func t(ptr restrict, ptr restrict) -> i64 {

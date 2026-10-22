@@ -1,5 +1,5 @@
 @name slp: lanes reversed in one block load it once and shuffle, every other element of two blocks loads both and shuffles each half, and every other element without a load of the elements between stays scalar
-@passes slp
+@passes loadcanon slp
 
 @input
 func t(ptr restrict, ptr restrict, ptr restrict, ptr restrict, ptr restrict, ptr restrict) -> void {

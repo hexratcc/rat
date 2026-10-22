@@ -20,6 +20,7 @@
 #include "pass/opt/fold.h"
 #include "pass/opt/gvn.h"
 #include "pass/opt/inline.h"
+#include "pass/opt/load_canon.h"
 #include "pass/opt/memory_opt.h"
 #include "pass/opt/sccp.h"
 #include "pass/opt/simplify_cfg.h"
@@ -61,6 +62,7 @@ namespace rat {
 				{"memoryopt", "load/store forwarding", &mk<Pass, MemoryOptPass>},
 				{"inline", "function inlining", &mk<Pass, InlinePass>},
 				{"strengthreduce", "induction-variable strength reduction", &mk<Pass, StrengthReducePass>},
+				{"loadcanon", "move loads to their canonical memory state", &mk<Pass, LoadCanonPass>},
 				{"slp", "scheduling-free superword (SLP) vectorization", &mk<Pass, SlpPackPass>},
 				{"dfe", "dead (unreferenced internal) function elimination", &mk<Pass, DeadFuncElimPass>},
 				{"verify", "edge consistency + structural invariants", &mk<Pass, VerifyPass>},
@@ -80,7 +82,7 @@ namespace rat {
 		// the -O1 pipeline, run function by function, callees first; a repeat skips functions
 		// unchanged since its last run
 		static const C8* kDefaultOpt = "sccp fold simplifycfg gvn memoryopt inline fold gvn simplifycfg"
-																	 " memoryopt strengthreduce fold gvn slp fold gvn dfe";
+																	 " memoryopt strengthreduce fold gvn loadcanon slp fold gvn dfe";
 	} // namespace detail
 
 	UniquePtr<Pass> createPass(const String& name, std::ostream& out) {
