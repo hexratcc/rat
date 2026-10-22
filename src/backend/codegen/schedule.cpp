@@ -714,6 +714,13 @@ namespace rat {
 
 	I32 Schedule::TopoScratch::local(const Node* n) const { return n ? localOf[n->getId()] : -1; }
 
+	// a writer of the current block made state m
+	B32 Schedule::TopoScratch::writtenHere(const Node* m) const {
+		if(const ProjNode* p = dyn_cast<ProjNode>(m))
+			m = p->getProducer();
+		return isMemWriter(m) && local(m) >= 0;
+	}
+
 	// extra ordering edges
 	void Schedule::TopoScratch::addEdge(Node* before, Node* after) {
 		if(before == after)
@@ -750,6 +757,7 @@ namespace rat {
 		s.succHead.assign(k, -1);
 		s.succNext.clear();
 		s.succTo.clear();
+		s.entry = -1;
 		s.backward = false;
 		addOrderEdges(NodeSpan{nodes, k}, s);
 		addAntiDeps(NodeSpan{nodes, k}, aa, s);
@@ -791,6 +799,8 @@ namespace rat {
 			if(!ld || !ld->getMemory())
 				continue;
 			I32 start = s.stHead[ld->getMemory()->getId()];
+			if(start < 0 && !s.writtenHere(ld->getMemory()))
+				start = s.entry; // a state from another block comes before the entry writer
 			if(start < 0)
 				continue;
 			if(I32 w = firstClobber(nodes, ld, start, aa, s); w >= 0)
@@ -884,6 +894,8 @@ namespace rat {
 				if(s.stHead[mem->getId()] < 0)
 					s.touchedSt.push_back((I32)mem->getId());
 				s.stHead[mem->getId()] = (I32)i;
+				if(s.entry < 0 && !s.writtenHere(mem))
+					s.entry = (I32)i;
 			}
 			if(isStackOpcode(n->getOpcode())) {
 				if(prevStack)

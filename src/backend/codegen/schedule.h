@@ -131,8 +131,10 @@ namespace rat {
 			List<I32> rank;				// per local index: position of the writer in chain (-1)
 			List<I32> nextWild;
 			List<Pair<U32, I32>> byObject; // (object id, chain position) of stores to objects, sorted
+			I32 entry = -1;								 // the first writer that reads a state from another block
 
 			I32 local(const Node* n) const;
+			B32 writtenHere(const Node* m) const;
 			void addEdge(Node* before, Node* after);
 			void push(I32 i);
 			I32 pop();
