@@ -42,13 +42,14 @@ namespace rat {
 	} // namespace detail
 
 	struct AddrCache {
-		explicit AddrCache(U64 restrictParams);
-		const Addr& get(Node* ptr);
+		AddrCache(U64 restrictParams, U32 ids); // ids: the node id bound
+		Addr get(Node* ptr);
 	private:
 		Addr classify(const detail::Terms& terms);
 	private:
 		U64 restrictParams;
-		Map<const Node*, Addr> addrs;
+		List<U32> slots; // node id -> 1 + its index in addrs, 0 until computed
+		List<Addr> addrs;
 		std::map<detail::Terms, Addr> groups; // at offset 0
 		Map<U32, Addr> bases;									// base id -> group of a pointer without terms
 		detail::Terms key;										// scratch of get

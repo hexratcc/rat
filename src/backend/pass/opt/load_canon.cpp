@@ -113,7 +113,7 @@ namespace rat {
 		List<canon::Chain> chains = slp::collectChains(fn);
 		if(chains.empty())
 			return 0;
-		AddrCache addrs(AliasAnalysis::restrictFacts(fn));
+		AddrCache addrs(AliasAnalysis::restrictFacts(fn), fn.idBound());
 		List<U32> index(fn.idBound(), 0); // node id -> index from 1 in the chain being walked
 		U32 moved = 0;
 		for(const canon::Chain& chain : chains)

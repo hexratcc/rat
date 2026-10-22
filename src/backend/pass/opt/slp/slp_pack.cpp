@@ -33,7 +33,7 @@ namespace rat {
 			ptrBytes(target.getPointerSizeInBytes()),
 			sse41(target.hasSse41()),
 			stats(stats),
-			addrs(AliasAnalysis::restrictFacts(fn)) {}
+			addrs(AliasAnalysis::restrictFacts(fn), fn.idBound()) {}
 
 		// the disjoint stretches become sets, which processSet searches by lookup, then the sets become
 		// chains again
