@@ -761,6 +761,7 @@ namespace rat {
 		s.backward = false;
 		addOrderEdges(NodeSpan{nodes, k}, s);
 		addAntiDeps(NodeSpan{nodes, k}, aa, s);
+		addTrapEdges(NodeSpan{nodes, k}, s);
 
 		s.out.clear();
 		s.ready.clear();
@@ -806,6 +807,88 @@ namespace rat {
 			if(I32 w = firstClobber(nodes, ld, start, aa, s); w >= 0)
 				s.addEdge(ld, nodes[w]);
 		}
+	}
+
+	// a call or an asm with text may not return, the empty asm of a volatile access returns
+	B32 Schedule::mayNotReturn(const Node* n) {
+		if(const AsmNode* a = dyn_cast<AsmNode>(n))
+			return !a->getText().empty();
+		return isa<CallNode>(n);
+	}
+
+	// a call may not return, so a div or rem that may trap stays below the calls before its first use
+	// in the block, where the program computes it at the latest
+	void Schedule::addTrapEdges(NodeSpan nodes, TopoScratch& s) {
+		s.calls.clear();
+		for(U32 i = 0; i < nodes.size(); ++i) {
+			if(isa<LoadNode>(nodes[i]) || !mayTrap(nodes[i]))
+				continue;
+			if(s.calls.empty() && !numberCalls(nodes, s))
+				return;
+			if(I32 c = needOf(nodes, i, s); c > 0)
+				s.addEdge(nodes[s.calls[c - 1]], nodes[i]);
+		}
+	}
+
+	// the calls that may not return along the chain from the entry writer and the calls before each
+	// writer, false when there are none
+	B32 Schedule::numberCalls(NodeSpan nodes, TopoScratch& s) {
+		s.callPos.assign(nodes.size(), -1);
+		s.need.assign(nodes.size(), -1);
+		for(I32 w = s.entry; w >= 0;) {
+			Node* out = nodes[w];
+			s.callPos[w] = (I32)s.calls.size();
+			if(mayNotReturn(out))
+				s.calls.push_back(w);
+			if(isa<CallNode>(out) || isa<AsmNode>(out))
+				out = out->projection(CallNode::memoryProjIndex());
+			w = -1;
+			if(out)
+				w = s.stHead[out->getId()];
+		}
+		return !s.calls.empty();
+	}
+
+	// the calls before n along memory, a load or writer runs after the calls of its state
+	I32 Schedule::callsBefore(const Node* n, const TopoScratch& s) {
+		Node* w = memoryInputOf(n);
+		if(!w)
+			return 0;
+		if(ProjNode* p = dyn_cast<ProjNode>(w))
+			w = p->getProducer();
+		I32 wi = s.local(w);
+		if(wi < 0 || s.callPos[wi] < 0)
+			return 0;
+		return s.callPos[wi] + mayNotReturn(w);
+	}
+
+	// the fewest calls before a use of node i in the block, through its arithmetic users. A use in
+	// another block comes after every call
+	I32 Schedule::needOf(NodeSpan nodes, U32 i, TopoScratch& s) {
+		s.needStack.clear();
+		s.needStack.push_back({(I32)i, 0});
+		while(!s.needStack.empty()) {
+			auto [j, next] = s.needStack.back();
+			NodeSpan users = nodes[j]->getUsers();
+			if(next < users.size()) {
+				++s.needStack.back().second;
+				I32 ui = s.local(users[next]);
+				if(ui >= 0 && isFloating(users[next]) && !isa<LoadNode>(users[next]) && s.need[ui] < 0)
+					s.needStack.push_back({ui, 0});
+				continue;
+			}
+			I32 need = (I32)s.calls.size();
+			for(Node* u : users) {
+				I32 ui = s.local(u);
+				if(ui >= 0 && isFloating(u) && !isa<LoadNode>(u))
+					need = std::min(need, s.need[ui]);
+				else if(ui >= 0)
+					need = std::min(need, callsBefore(u, s));
+			}
+			s.need[j] = need;
+			s.needStack.pop_back();
+		}
+		return s.need[i];
 	}
 
 	void Schedule::rankWriters(NodeSpan nodes, TopoScratch& s) {
