@@ -267,7 +267,7 @@ namespace rat {
 			Node* emitOp(const Vector& vec, Type* vecTy, const Emitted& emitted);
 			Node* makeOp(Opcode op, Type* vecTy, Node* const* inputs);
 			void seedAnchors(const Seed& seed, const Plan& plan);
-			Node* anchorPtr(Node* ptr, I64 offset);
+			Node* anchorPtr(Node* ptr, I64 offset, const Node* ctrl);
 			Pair<Node*, I64> anchorOf(Node* ptr);
 			Node* emitWideStores(const Seed& seed, const Emitted& emitted, Node* ctrl);
 			void commitRun(const Seed& seed, const Emitted& emitted);
@@ -285,7 +285,7 @@ namespace rat {
 			SlpStats& stats;
 			// address facts
 			AddrCache addrs;
-			Map<U32, Pair<Node*, I64>> anchors; // group -> (anchor ptr, its offset)
+			Map<U64, Pair<Node*, I64>> anchors; // (control, group) -> (anchor ptr, its offset)
 			Map<U64, Set<I64>> reads; // (control id, group) -> offsets of 4-byte pieces loads read
 			B32 readsIndexed = false;
 			Set<U32> storedObjects; // objects the stores of fn write

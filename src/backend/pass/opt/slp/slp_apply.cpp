@@ -62,7 +62,7 @@ namespace rat {
 				if(ld->getType() == ty && ld->getMemory() == vec.mem && ldAddr.group == addr.group &&
 					 ldAddr.offset == offset && ld->getControl() == vec.lowestLoad->getControl())
 					return ld;
-			Node* ptr = anchorPtr(vec.lowestLoad->getPointer(), offset);
+			Node* ptr = anchorPtr(vec.lowestLoad->getPointer(), offset, vec.lowestLoad->getControl());
 			LoadNode* ld = fn.create<LoadNode>(ty, vec.lowestLoad->getControl(), vec.mem, ptr);
 			emitted.loads.push_back({ld, addr});
 			return ld;
@@ -97,29 +97,32 @@ namespace rat {
 			}
 		}
 
-		// a group the plan is the first to use takes the anchorOf base of the lowest offset among the
-		// plan's pointers of the group, the first in plan order on a tie
+		// a (control, group) the plan is the first to use takes the anchorOf base of the lowest offset
+		// among the plan's pointers of it, the first in plan order on a tie. A group's equal addresses
+		// can rest on nsw facts that hold only where its accesses run, so an anchor stays in its control
 		void Slp::seedAnchors(const Seed& seed, const Plan& plan) {
-			List<Node*> ptrs;
+			List<Pair<Node*, const Node*>> ptrs;
 			for(const Vector& vec : plan.vectors)
 				if(vec.kind == VectorKind::Load)
-					ptrs.push_back(vec.lowestLoad->getPointer());
+					ptrs.push_back({vec.lowestLoad->getPointer(), vec.lowestLoad->getControl()});
 			for(StoreNode* st : seed.lowestStores)
-				ptrs.push_back(st->getPointer());
-			Map<U32, Pair<Node*, I64>> best;
-			for(Node* ptr : ptrs) {
+				ptrs.push_back({st->getPointer(), st->getControl()});
+			Map<U64, Pair<Node*, I64>> best;
+			for(const auto& [ptr, ctrl] : ptrs) {
 				Pair<Node*, I64> anchor = anchorOf(ptr);
-				auto it = best.try_emplace(addrs.get(ptr).group, anchor).first;
+				U64 key = pairKey(ctrl->getId(), addrs.get(ptr).group);
+				auto it = best.try_emplace(key, anchor).first;
 				if(anchor.second < it->second.second)
 					it->second = anchor;
 			}
-			for(const auto& [group, anchor] : best)
-				anchors.try_emplace(group, anchor);
+			for(const auto& [key, anchor] : best)
+				anchors.try_emplace(key, anchor);
 		}
 
 		// the address at offset in ptr's group, as its anchor plus a constant, so lowering folds it
-		Node* Slp::anchorPtr(Node* ptr, I64 offset) {
-			auto it = anchors.find(addrs.get(ptr).group);
+		Node* Slp::anchorPtr(Node* ptr, I64 offset, const Node* ctrl) {
+			U64 key = pairKey(ctrl->getId(), addrs.get(ptr).group);
+			auto it = anchors.find(key);
 			assert(it != anchors.end() && "seedAnchors covers every pointer of the plan");
 			auto [anchor, anchorOffset] = it->second;
 			if(offset == anchorOffset)
@@ -147,8 +150,9 @@ namespace rat {
 		Node* Slp::emitWideStores(const Seed& seed, const Emitted& emitted, Node* ctrl) {
 			Node* state = seed.memIn;
 			for(U32 window = 0; window < seed.lowestStores.size(); ++window) {
-				Node* ptr = seed.lowestStores[window]->getPointer();
-				ptr = anchorPtr(ptr, addrs.get(ptr).offset);
+				StoreNode* lowest = seed.lowestStores[window];
+				I64 offset = addrs.get(lowest->getPointer()).offset;
+				Node* ptr = anchorPtr(lowest->getPointer(), offset, lowest->getControl());
 				state = fn.create<StoreNode>(fn.memTy(), ctrl, state, ptr, emitted.tupleNodes[window]);
 			}
 			return state;
