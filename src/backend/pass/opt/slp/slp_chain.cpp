@@ -122,14 +122,6 @@ namespace rat {
 			return changed;
 		}
 
-		// a chain without a pack gets its loads back on their old states, as an earlier state only
-		// lets the scheduler load a value long before its use
-		void unhoistLoads(const List<Hoist>& hoists, const List<B32>& packed) {
-			for(const Hoist& hoist : hoists)
-				if(!packed[hoist.chain])
-					hoist.load->setInput(1, hoist.state); // input 1 is the memory
-		}
-
 		void lowerSet(MemMergeNode* set) {
 			Node* prev = nullptr;
 			for(U32 i = 1; i < set->getInputCount(); ++i)

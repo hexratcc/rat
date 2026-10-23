@@ -1,11 +1,39 @@
 #include "pass/opt/load_canon.h"
 
+#include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/node.h"
 #include "target/target.h"
 
 namespace rat {
 	namespace slp {
+		Handoff::Handoff(Function& fn)
+		: fn(&fn),
+			chains(collectChains(fn)),
+			addrs(AliasAnalysis::restrictFacts(fn), fn.idBound()) {}
+
+		Handoff& handoff() {
+			thread_local Handoff h;
+			return h;
+		}
+
+		Handoff takeHandoff(Function& fn) {
+			Handoff& h = handoff();
+			if(h.fn == &fn && h.version == fn.getVersion()) {
+				h.fn = nullptr; // taken
+				return std::move(h);
+			}
+			return Handoff(fn);
+		}
+
+		// a chain without a pack gets its loads back on their old states, as an earlier state only
+		// lets the scheduler load a value long before its use
+		void unhoistLoads(const List<Hoist>& hoists, const List<B32>& packed) {
+			for(const Hoist& hoist : hoists)
+				if(!packed[hoist.chain])
+					hoist.load->setInput(1, hoist.state); // input 1 is the memory
+		}
+
 		void LastOutside::add(U32 store, U32 group) {
 			if(group != lastGroup)
 				lastOther = last;
@@ -117,7 +145,7 @@ namespace rat {
 
 	U32 LoadCanonPass::runOnFunction(Function& fn, const TargetInfo& target) {
 		slp::Handoff& h = slp::handoff();
-		h = slp::freshHandoff(fn);
+		h = slp::Handoff(fn);
 		List<U32> stateOf; // node id -> store number in the walked chain, sized on first use
 		for(U32 c = 0; c < h.chains.size(); ++c)
 			if(slp::hasInnerReader(h.chains[c])) {

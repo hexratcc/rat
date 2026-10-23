@@ -17,6 +17,25 @@ namespace rat {
 	namespace slp {
 		constexpr U32 kMaxCone = 64; // address cone nodes visited per load
 
+		// a load loadcanon moved off an inner state of a chain
+		struct Hoist {
+			U32 chain = 0; // index in Handoff::chains
+			LoadNode* load = nullptr;
+			StoreNode* state = nullptr; // the state it read before
+		};
+
+		// what loadcanon leaves for slp on the same function, to save compile time
+		struct Handoff {
+			Handoff() = default;
+			explicit Handoff(Function& fn); // chains and an empty cache, nothing hoisted
+
+			const Function* fn = nullptr;
+			U64 version = 0; // of fn when loadcanon finished
+			List<Chain> chains;
+			AddrCache addrs;
+			List<Hoist> hoists;
+		};
+
 		// stores are numbered from 1 in chain order, 0 is none
 		struct LastOutside {
 			void add(U32 store, U32 group);
@@ -37,6 +56,9 @@ namespace rat {
 			Map<U64, std::array<U32, kVecBytes>> blocks; // (group, 16-byte block) -> last store per byte
 		};
 
+		Handoff& handoff();
+		Handoff takeHandoff(Function& fn);
+		void unhoistLoads(const List<Hoist>& hoists, const List<B32>& packed);
 		B32 hasInnerReader(const Chain& chain);
 		U32 coneState(LoadNode* l, const List<U32>& stateOf);
 		void hoistLoads(Handoff& h, U32 ptrBytes, U32 chainIndex, List<U32>& stateOf);

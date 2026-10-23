@@ -1,10 +1,10 @@
 #include "pass/opt/slp/slp_pack.h"
 
-#include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/module.h"
 #include "ir/node.h"
 #include "ir/type.h"
+#include "pass/opt/load_canon.h"
 #include "target/target.h"
 
 #include <cstdlib>
@@ -16,25 +16,6 @@ namespace rat {
 			// kLane a Load or Op lane, kSink a run store or reduction step, 0 any other node or a kept lane
 			enum Role : U8 { kLane = 1, kSink = 2 };
 		} // namespace detail
-
-		Handoff& handoff() {
-			thread_local Handoff h;
-			return h;
-		}
-
-		Handoff takeHandoff(Function& fn) {
-			Handoff& h = handoff();
-			if(h.fn == &fn && h.version == fn.getVersion()) {
-				h.fn = nullptr; // taken
-				return std::move(h);
-			}
-			return freshHandoff(fn);
-		}
-
-		Handoff freshHandoff(Function& fn) {
-			U64 restrictParams = AliasAnalysis::restrictFacts(fn);
-			return {&fn, 0, collectChains(fn), AddrCache(restrictParams, fn.idBound()), {}};
-		}
 
 		Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
 		: fn(fn),
