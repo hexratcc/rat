@@ -74,8 +74,9 @@ namespace rat {
 				{"pack", 0, 0, 0, -1, 1, -1, OpClass::None},
 				{"shuffle", 0, 0, 0, -1, 2, 2, OpClass::None},
 				{"select", 0, 0, 0, -1, 3, 3, OpClass::None},
+				{"memmerge", 0, 0, 0, 0, 2, -1, OpClass::None},
 		};
-		static_assert(sizeof(kOpcodeInfo) / sizeof(kOpcodeInfo[0]) == (U32)Opcode::Select + 1,
+		static_assert(sizeof(kOpcodeInfo) / sizeof(kOpcodeInfo[0]) == (U32)Opcode::MemMerge + 1,
 									"kOpcodeInfo must cover every Opcode");
 	} // namespace detail
 

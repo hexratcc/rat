@@ -54,12 +54,16 @@ namespace rat {
 		}
 	} // namespace detail
 
-	AddrCache::AddrCache(U64 restrictParams)
-	: restrictParams(restrictParams) {}
+	AddrCache::AddrCache(U64 restrictParams, U32 ids)
+	: restrictParams(restrictParams),
+		slots(ids) {
+		addrs.reserve(16); // most functions access few addresses
+	}
 
-	const Addr& AddrCache::get(Node* ptr) {
-		if(auto it = addrs.find(ptr); it != addrs.end())
-			return it->second;
+	Addr AddrCache::get(Node* ptr) {
+		U32 id = ptr->getId();
+		if(id < slots.size() && slots[id])
+			return addrs[slots[id] - 1];
 		I64 offset = 0;
 		key.clear();
 		Node* base = ptr;
@@ -88,7 +92,11 @@ namespace rat {
 		}
 		Addr a = *g;
 		a.offset = offset;
-		return addrs.emplace(ptr, a).first->second;
+		if(id >= slots.size())
+			slots.resize(2 * id + 2);
+		addrs.push_back(a);
+		slots[id] = (U32)addrs.size();
+		return a;
 	}
 
 	// kind and object id of a group's base

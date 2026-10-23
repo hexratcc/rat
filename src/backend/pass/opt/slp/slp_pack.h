@@ -9,13 +9,13 @@
 #include "ir/opcode.h"
 #include "pass/pass.h"
 
-#include <array>
 #include <tuple>
 
 namespace rat {
 	struct Node;
 	struct StoreNode;
 	struct LoadNode;
+	struct MemMergeNode;
 	struct Type;
 
 	struct SlpStats {
@@ -47,10 +47,9 @@ namespace rat {
 		// offset bound of a known access, so its 16-byte blocks fit a block key
 		constexpr I64 kMaxOffset = INT32_MAX - (I64)kVecBytes;
 		// work bounds, so each search stays linear in the function
-		constexpr U32 kMaxOps = 64;				 // Op records tried per seed tuple
-		constexpr U32 kMaxSortGroups = 16; // groups of a stretch, the sort compares them pairwise
-		constexpr U32 kMaxCone = 64;			 // address cone nodes visited per hoisted load
-		constexpr U32 kMaxHops = 16;			 // stores walked between a lane load's state and memIn
+		constexpr U32 kMaxOps = 64;				// Op records tried per seed tuple
+		constexpr U32 kMaxSetGroups = 16; // groups of a set, setDisjoint compares their bases pairwise
+		constexpr U32 kMaxHops = 16;			// stores walked between a lane load's state and memIn
 
 		// reduction finish shuffles by [w / 4][round], nibble i is the source of lane i
 		constexpr U16 kFinishSel[2][2] = {{0x01}, {0x1032, 0x2301}};
@@ -108,37 +107,24 @@ namespace rat {
 		using Lanes = SmallList<Node*, kMaxLanes>;
 		using Chain = List<StoreNode*>;
 
+		// what loadcanon leaves for slp on the same function, used while the function is unchanged: its
+		// chains, and its address cache when it hoisted. Per thread, as the IR test runner is threaded
+		struct Handoff {
+			const Function* fn = nullptr;
+			U64 version = 0; // of fn when loadcanon finished
+			List<Chain> chains;
+			UniquePtr<AddrCache> addrs;
+		};
+
 		struct Access {
 			Addr addr;
 			U32 size = 0;
 		};
 
-		struct LastOutside {
-			void add(U32 at, U32 group);
-			U32 outside(U32 group) const; // the last store outside group, 0 for none
-
-			U32 last = 0, lastGroup = 0, lastOther = 0;
-		};
-
-		// the stores of a chain seen so far (indexed from 1), to find the last that may overlap a load
-		struct Conflicts {
-			static U64 blockKey(U32 group, I64 offset);
-			void add(U32 at, const Access& a);
-			U32 lastConflict(const Access& a) const;
-
-			LastOutside all;														 // every store
-			U32 lastWild = 0;														 // the last store without an object
-			Map<U32, LastOutside> objects;							 // object -> its stores
-			Map<U64, std::array<U32, kVecBytes>> blocks; // (group, 16-byte block) -> last store per byte
-		};
-
-		// sort key of a store in a stretch
-		struct SortKey {
-			B32 operator<(const SortKey& o) const;
-
-			U32 groupAt = 0;
-			I64 offset = 0;
-			U32 at = 0;
+		// a set of one stretch, or the chain stores between sets, in chain order
+		struct Piece {
+			MemMergeNode* set = nullptr;
+			Chain chain;
 		};
 
 		struct Window {
@@ -160,6 +146,7 @@ namespace rat {
 			SmallList<StoreNode*, kMaxRunWindows> heads;
 			Node* root = nullptr;
 			List<Node*> steps, rest;
+			MemMergeNode* set = nullptr; // the set of a window found by processSet
 		};
 
 		// how a record builds its vector
@@ -224,17 +211,21 @@ namespace rat {
 
 		// helpers without pass state
 		U8 typeBits(const Type* t);
-		B32 writesMemory(const Node* n);
-		Node* stateWriter(Node* m);
 		Node* memoryOperand(const Node* n);
 		void replaceUses(Node* from, Node* to);
 		I32 gatherCost(const Lanes& lanes);
 		B32 oneScalar(const Lanes& lanes);
-		StoreNode* chainSuccessor(StoreNode* prev);
-		U32 coneState(LoadNode* l, const List<U32>& index);
-		void sortStretch(Chain& chain, const List<Access>& acc, U32 lo, U32 hi);
-		B32 sortDisjoint(const List<Access>& acc, const List<SortKey>& keys);
+		StoreNode* chainSuccessor(const StoreNode* prev);
+		Access accessOf(AddrCache& addrs, U32 ptrBytes, Node* n);
+		List<Chain> collectChains(Function& fn);
+		Handoff& handoff();
+		AddrCache takeAddrs(const Function& fn);
+		List<Chain> takeChains(Function& fn);
+		B32 setDisjoint(const List<Access>& acc, U32 lo, U32 hi, Map<U64, U16>& written);
+		Node* lowerMerge(MemMergeNode* m);
 		Seed runSeed(const Chain& chain, const Run& run);
+		Seed setSeed(MemMergeNode* m, const Window& w);
+		U64 setKey(U32 group, I64 offset);
 		List<Node*> flattenReduction(Node* root, List<Node*>& steps);
 		I32 profitMargin(const Seed& seed, const Plan& plan);
 		B32 isInner(const Seed& seed, const Node* m);
@@ -244,14 +235,17 @@ namespace rat {
 			U32 run();
 			B32 pack(const Seed& seed);
 			Type* laneType(const Node* n);
-			// order
-			Access accessOf(Node* n);
-			List<Chain> collectChains();
-			void orderChain(Chain& chain, List<U32>& index);
-			void hoistLoads(const Chain& chain, const List<Access>& acc, List<U32>& index);
+			// sets
+			List<Piece> mergeStretches();
+			MemMergeNode* mergeStretch(const Chain& chain, U32 lo, U32 hi);
 			// seed
 			B32 windowAt(const Chain& chain, U32 at, U32 bytes, Window& out);
 			U32 processChain(const Chain& chain);
+			U32 processSet(MemMergeNode* m);
+			U32 processRun(MemMergeNode* m, const Chain& run);
+			U32 trySetWindow(MemMergeNode* m, const Chain& run, U32 p, U32 bytes);
+			U32 processSeams();
+			B32 splitBySeam(const Chain& chain, U32 i, U32 bytes);
 			U32 tryRun(const Chain& chain, U32 i, U32 bytes);
 			void extendRun(const Chain& chain, Run& run);
 			I32 leafProfit(const Window& w);
@@ -259,7 +253,6 @@ namespace rat {
 			B32 reduces(const Node* n);
 			U32 tryReduction(Node* root);
 			// planner queries
-			B32 pinned(Node* m, Node* ctrl);
 			B32 bytesRead(U32 group, I64 off, U32 size, const Node* ctrl);
 			static U64 readsKey(const Node* ctrl, U32 group);
 			void indexReads();
@@ -278,10 +271,14 @@ namespace rat {
 			Node* wideLoad(const Record& r, Type* vecTy, I64 off, Made& made);
 			Node* emitOp(const Record& r, Type* vecTy, const Made& made);
 			Node* makeOp(Opcode op, Type* vecTy, Node* const* in);
+			void seedAnchors(const Seed& seed, const Plan& plan);
 			Node* anchorPtr(Node* ptr, I64 off);
 			Pair<Node*, I64> anchorOf(Node* ptr);
 			Node* chainWideStores(const Seed& seed, const Made& made, Node* ctrl);
 			void commitRun(const Seed& seed, const Made& made);
+			void commitSet(const Seed& seed, const Made& made);
+			void lowerSets(const List<Piece>& pieces);
+			void renameMemIn(Node* from, Node* to);
 			void commitGuarded(const Seed& seed, const Plan& plan, const Made& made);
 			void moveToElse(const Seed& seed, const Plan& plan, Node* block, Node* elseP);
 			Node* emitGuardCascade(const Seed& seed, const Plan& plan, Node*& iff, Node*& elseP);
@@ -294,13 +291,14 @@ namespace rat {
 			B32 sse41;
 			SlpStats& stats;
 			AddrCache addrs;
-			Map<U32, Pair<Node*, I64>> anchors;				// group -> (anchor ptr, its offset)
-			Map<const Node*, Node*> firstWriterState; // control -> state its first writer reads, or null
+			Map<U32, Pair<Node*, I64>> anchors; // group -> (anchor ptr, its offset)
 			Map<U64, Set<I64>> reads; // (control id, group) -> offsets of 4-byte pieces loads read
 			B32 readsIndexed = false;
 			List<GuardSplit> splits;				// the guarded runs, for splitBlocks
 			Set<const Node*> guardedBlocks; // blocks with a guarded run, for loadState
 			List<U8> roles;									// node id -> Role bits of the plan being checked, else 0
+			Map<const Node*, U32> setSlot;	// member of a set -> its input slot
+			Set<const Node*> seams;					// the last store of each piece, where a stretch ends
 		};
 
 		struct Planner {
@@ -314,6 +312,7 @@ namespace rat {
 			B32 permuteSpan(const Lanes& lanes, Record& r, I64 hi);
 			B32 loadState(const Lanes& lanes, Record& r);
 			Edge readsAtMemIn(LoadNode* l, const Addr& run);
+			Node* stepOverSet(MemMergeNode* m, LoadNode* l, U32& hops);
 			// Op
 			U32 op(const Lanes& lanes);
 			B32 laneForms(const Lanes& lanes, Forms& f);

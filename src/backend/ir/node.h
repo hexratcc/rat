@@ -397,6 +397,14 @@ namespace rat {
 		Node* getSaved() const;
 	};
 
+	// the state after a set of disjoint stores that all read one state, in no order, input 0 is the
+	// control and inputs 1.. the stores in program order, a null input is a store a pack removed
+	struct MemMergeNode : Node {
+		MemMergeNode(Function& fn, Type* memoryType, const List<Node*>& controlStores);
+
+		Node* getControl() const;
+	};
+
 	namespace detail {
 		template <typename T> B32 nodeIsa(const Node* n);
 		// clang-format off
@@ -427,6 +435,7 @@ namespace rat {
 		template <> inline B32 nodeIsa<PackNode>(const Node* n)     { return n->getOpcode() == Opcode::Pack; }
 		template <> inline B32 nodeIsa<ShuffleNode>(const Node* n)  { return n->getOpcode() == Opcode::Shuffle; }
 		template <> inline B32 nodeIsa<SelectNode>(const Node* n)   { return n->getOpcode() == Opcode::Select; }
+		template <> inline B32 nodeIsa<MemMergeNode>(const Node* n) { return n->getOpcode() == Opcode::MemMerge; }
 	} // namespace detail
 
 	// isa/dyn_cast are null-safe

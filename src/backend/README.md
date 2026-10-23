@@ -100,7 +100,7 @@ Visualization passes (`text-emitter`, `graph-emitter`) are covered in [x86-64 ba
 ## default pipeline
 `-O1` runs, in order:
 ```rs
-sccp, fold, simplifycfg, gvn, memoryopt, inline, fold, gvn, simplifycfg, memoryopt, strengthreduce, fold, gvn, slp, fold, gvn, dfe
+sccp, fold, simplifycfg, gvn, memoryopt, inline, fold, gvn, simplifycfg, memoryopt, strengthreduce, fold, gvn, loadcanon, slp, fold, gvn, dfe
 ```
 
 # codegen

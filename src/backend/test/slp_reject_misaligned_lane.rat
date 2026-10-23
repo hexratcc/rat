@@ -1,5 +1,5 @@
 @name slp: a lane load that straddles a freshly stored lane must veto the window
-@passes slp
+@passes loadcanon slp
 
 @input
 func t(ptr) -> void {

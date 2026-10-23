@@ -1,4 +1,4 @@
-@name slp: a stretch sorts when the next store is in its group but joins no window
+@name slp: a stretch packs when the next store is in its group but joins no window
 @passes slp
 
 @input

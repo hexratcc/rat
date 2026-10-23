@@ -1,5 +1,5 @@
 @name slp: lanes of two opcodes build both vector ops and blend them, a difference in the even lanes and a sum in the odd ones of the same operands for addsubps, duplicated lanes shuffle one wide load, and a window with a lane that is just x stays scalar
-@passes slp
+@passes loadcanon slp
 
 @input
 func t(ptr restrict, ptr restrict, ptr restrict, ptr restrict, ptr restrict, i32) -> void {

@@ -140,7 +140,7 @@ namespace rat {
 			// in a block with a guarded run, a run reads memIn, as loads of an earlier state would stay
 			// live across that guard. A reduction adds no guard
 			B32 open = seed.root || !s.guardedBlocks.count(ctrl);
-			if(shared && open && !isInner(seed, m) && s.pinned(m, ctrl))
+			if(shared && open && !isInner(seed, m))
 				return true;
 			if(seed.root)
 				return false; // a reduction has no memIn
@@ -169,6 +169,12 @@ namespace rat {
 				std::swap(later, earlier);
 			U32 size = l->getType()->byteSize(s.ptrBytes);
 			for(U32 hops = 0; later != earlier; ++hops) {
+				if(MemMergeNode* m = dyn_cast<MemMergeNode>(later)) {
+					later = stepOverSet(m, l, hops);
+					if(!later)
+						return Edge::Strong;
+					continue;
+				}
 				StoreNode* st = dyn_cast<StoreNode>(later);
 				if(!st || hops == kMaxHops || st->isVolatile() || st->getControl() != l->getControl())
 					return Edge::Strong;
@@ -178,6 +184,24 @@ namespace rat {
 				later = st->getMemory();
 			}
 			return Edge::None;
+		}
+
+		// the state before set m when no member may overlap l, each member counts as a hop, else null
+		Node* Planner::stepOverSet(MemMergeNode* m, LoadNode* l, U32& hops) {
+			const Addr& a = s.addrs.get(l->getPointer());
+			U32 size = l->getType()->byteSize(s.ptrBytes);
+			Node* before = nullptr;
+			for(U32 i = 1; i < m->getInputCount(); ++i) {
+				StoreNode* st = dyn_cast<StoreNode>(m->getInput(i));
+				if(!st)
+					continue;
+				U32 stSize = st->getValue()->getType()->byteSize(s.ptrBytes);
+				if(++hops > kMaxHops || st->getControl() != l->getControl() ||
+					 !disjoint(a, size, s.addrs.get(st->getPointer()), stSize))
+					return nullptr;
+				before = st->getMemory();
+			}
+			return before;
 		}
 
 		U32 Planner::op(const Lanes& lanes) {
@@ -377,23 +401,6 @@ namespace rat {
 					return;
 				}
 			plan.guards.push_back({a.group, r.lowest->getPointer(), a.offset, hi});
-		}
-
-		B32 Slp::pinned(Node* m, Node* ctrl) {
-			Node* w = stateWriter(m);
-			if(w && w->getInput(0) == ctrl)
-				return true;
-			// the memo stays safe: a block keeps the state its first writer reads, or loses all writers
-			auto [it, fresh] = firstWriterState.try_emplace(ctrl, nullptr);
-			for(U32 k = 0; fresh && k < ctrl->getUsers().size(); ++k) {
-				Node* u = ctrl->getUsers()[k];
-				if(!writesMemory(u) || ctrl->getUserSlot(k) != 0)
-					continue;
-				Node* p = stateWriter(u->getInput(1)); // the writer before u
-				if(!p || p->getInput(0) != ctrl)
-					it->second = u->getInput(1);
-			}
-			return !it->second || it->second == m;
 		}
 
 		// some load at ctrl reads each 4-byte piece of [off, off + size) of group

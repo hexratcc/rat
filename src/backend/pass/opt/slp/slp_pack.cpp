@@ -28,24 +28,50 @@ namespace rat {
 			return v;
 		}
 
+		Handoff& handoff() {
+			thread_local Handoff h;
+			return h;
+		}
+
+		// loadcanon's cache when fn is unchanged since, else a new one
+		AddrCache takeAddrs(const Function& fn) {
+			Handoff& h = handoff();
+			if(h.fn == &fn && h.version == fn.getVersion() && h.addrs)
+				return std::move(*h.addrs);
+			return AddrCache(AliasAnalysis::restrictFacts(fn), fn.idBound());
+		}
+
+		// loadcanon's chains when fn is unchanged since, else new ones. Empties the handoff
+		List<Chain> takeChains(Function& fn) {
+			Handoff& h = handoff();
+			B32 fresh = h.fn == &fn && h.version == fn.getVersion();
+			h.fn = nullptr;
+			h.addrs.reset();
+			if(fresh)
+				return std::move(h.chains);
+			return collectChains(fn);
+		}
+
 		Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
 		: fn(fn),
 			ptrBytes(target.getPointerSizeInBytes()),
 			sse41(target.hasSse41()),
 			stats(stats),
-			addrs(AliasAnalysis::restrictFacts(fn)) {}
+			addrs(takeAddrs(fn)) {}
 
-		// order all chains before packing any, so a lane load reading another chain's state is hoisted
+		// the disjoint stretches become sets, which processSet searches by lookup, then the sets become
+		// chains again
 		U32 Slp::run() {
-			List<Chain> chains = collectChains();
-			List<U32> index; // node id -> index from 1 in the chain being ordered
-			if(!chains.empty())
-				index.assign(fn.idBound(), 0);
-			for(Chain& chain : chains)
-				orderChain(chain, index);
+			List<Piece> pieces = mergeStretches();
 			U32 changed = 0;
-			for(const Chain& chain : chains)
-				changed += processChain(chain);
+			for(const Piece& p : pieces) {
+				if(p.set)
+					changed += processSet(p.set);
+				else
+					changed += processChain(p.chain);
+			}
+			lowerSets(pieces);
+			changed += processSeams();
 			splitBlocks();
 			fn.eliminateDeadNodes(); // so every reduction root found is live
 			changed += packReductions();
@@ -87,19 +113,6 @@ namespace rat {
 				return (t->getFloatWidth() == 32) * kF32 | (t->getFloatWidth() == 64) * kF64;
 			U32 bits = t->getIntWidth();
 			return (bits == 8) * kI8 | (bits == 16) * kI16 | (bits == 32) * kI32 | (bits == 64) * kI64;
-		}
-
-		B32 writesMemory(const Node* n) {
-			return isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n) || isa<StackRestoreNode>(n);
-		}
-
-		Node* stateWriter(Node* m) {
-			Node* w = m;
-			if(ProjNode* p = dyn_cast<ProjNode>(m))
-				w = p->getProducer();
-			if(!m->getType()->isMemory() || !writesMemory(w))
-				return nullptr;
-			return w;
 		}
 
 		Node* memoryOperand(const Node* n) {
@@ -237,7 +250,10 @@ namespace rat {
 
 	const C8* SlpPackPass::name() const { return "slp"; }
 
-	void SlpPackPass::beginModule(Module&, const CallGraph&) { stats = SlpStats{}; }
+	void SlpPackPass::beginModule(Module&, const CallGraph&) {
+		stats = SlpStats{};
+		slp::handoff() = {}; // a handoff from an earlier pipeline stage is stale
+	}
 
 	void SlpPackPass::endModule(Module& module) {
 		const SlpStats& s = stats;
