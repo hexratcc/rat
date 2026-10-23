@@ -55,8 +55,10 @@ namespace rat {
 			return false;
 		}
 
-		Node* mkBin(Function& fn, Opcode op, Type* ty, Node* x, I64 c) {
-			return fn.create<BinaryNode>(op, ty, x, constant(fn, ty, c));
+		Node* mkBin(Function& fn, Opcode op, Type* ty, Node* x, I64 c, B32 nsw) {
+			BinaryNode* b = fn.create<BinaryNode>(op, ty, x, constant(fn, ty, c));
+			b->setNsw(nsw);
+			return b;
 		}
 	} // namespace detail
 
@@ -300,7 +302,10 @@ namespace rat {
 			return fn.create<BinaryNode>(Opcode::Rotr, ty, br->getLHS(), br->getRHS());
 		}
 
-		Node* foldBinaryReassoc(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, ConstantNode* cr) {
+		// nsw holds when both ops have it and the folded constant is exact, the k != sum test
+		// proves that below 64 bits
+		Node* foldBinaryReassoc(
+				Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, ConstantNode* cr, B32 nsw) {
 			if(!cr)
 				return nullptr;
 			Node* base;
@@ -320,7 +325,8 @@ namespace rat {
 						return nullptr;
 					if(k == 0)
 						return base;
-					return mkBin(fn, Opcode::Add, ty, base, k); // sub-by-const normalizes to add
+					B32 keep = nsw && w < 64 && cast<BinaryNode>(lhs)->isNsw();
+					return mkBin(fn, Opcode::Add, ty, base, k, keep); // sub-by-const normalizes to add
 				}
 			}
 			if(op == Opcode::Mul && matchVarConst(lhs, Opcode::Mul, base, c1)) {
@@ -332,7 +338,8 @@ namespace rat {
 					return constant(fn, ty, 0);
 				if(k == 1)
 					return base;
-				return mkBin(fn, Opcode::Mul, ty, base, k);
+				B32 keep = nsw && w < 64 && cast<BinaryNode>(lhs)->isNsw();
+				return mkBin(fn, Opcode::Mul, ty, base, k, keep);
 			}
 			return nullptr;
 		}
@@ -479,11 +486,12 @@ namespace rat {
 			return buildSDivByConst(fn, ty, x, (I32)d);
 		}
 
-		Node* foldBinaryStrength(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs) {
+		Node*
+		foldBinaryStrength(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs, B32 nsw) {
 			switch(op) {
 			case Opcode::Mul:
-				if(I32 k = pow2Log(rhs, w); k > 0)
-					return mkBin(fn, Opcode::Shl, ty, lhs, k);
+				if(I32 k = pow2Log(rhs, w); k > 0) // x * -2^(w-1) is no nsw shl by w - 1
+					return mkBin(fn, Opcode::Shl, ty, lhs, k, nsw && k < (I32)w - 1);
 				break;
 			case Opcode::UDiv:
 				if(I32 k = pow2Log(rhs, w); k > 0)
@@ -509,7 +517,8 @@ namespace rat {
 			return nullptr;
 		}
 
-		Node* foldShiftOfShift(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs) {
+		Node*
+		foldShiftOfShift(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs, B32 nsw) {
 			if(op != Opcode::Shl && op != Opcode::LShr && op != Opcode::AShr)
 				return nullptr;
 			BinaryNode* in = dyn_cast<BinaryNode>(lhs);
@@ -524,13 +533,13 @@ namespace rat {
 				return nullptr;
 			Node* x = in->getLHS();
 			if(a + b < (I64)w)
-				return mkBin(fn, op, ty, x, a + b);
+				return mkBin(fn, op, ty, x, a + b, nsw && in->isNsw());
 			if(op == Opcode::AShr)
 				return mkBin(fn, Opcode::AShr, ty, x, w - 1);
 			return constant(fn, ty, 0);
 		}
 
-		Node* foldBinary(Function& fn, Opcode op, Node* lhs, Node* rhs) {
+		Node* foldBinary(Function& fn, Opcode op, Node* lhs, Node* rhs, B32 nsw) {
 			Type* ty = lhs->getType();
 			if(ty->isPtr()) {
 				// ptr arithmetic never reaches the int rules; peel the zero-offset identity
@@ -563,11 +572,11 @@ namespace rat {
 
 			if(Node* r = foldBinaryIdentity(fn, op, ty, w, lhs, rhs))
 				return r;
-			if(Node* r = foldBinaryReassoc(fn, op, ty, w, lhs, cr))
+			if(Node* r = foldBinaryReassoc(fn, op, ty, w, lhs, cr, nsw))
 				return r;
-			if(Node* r = foldBinaryStrength(fn, op, ty, w, lhs, rhs))
+			if(Node* r = foldBinaryStrength(fn, op, ty, w, lhs, rhs, nsw))
 				return r;
-			return foldShiftOfShift(fn, op, ty, w, lhs, rhs);
+			return foldShiftOfShift(fn, op, ty, w, lhs, rhs, nsw);
 		}
 
 		Node* foldUnary(Function& fn, Opcode op, Node* operand) {
@@ -660,7 +669,7 @@ namespace rat {
 					return c->getValue() != 0 ? s->getTrue() : s->getFalse();
 			} else if(isBinaryOpcode(op)) {
 				BinaryNode* b = cast<BinaryNode>(n);
-				r = foldBinary(fn, op, b->getLHS(), b->getRHS());
+				r = foldBinary(fn, op, b->getLHS(), b->getRHS(), b->isNsw());
 			} else if(isUnaryOpcode(op)) {
 				r = foldUnary(fn, op, cast<UnaryNode>(n)->getOperand());
 			} else if(isCompareOpcode(op)) {

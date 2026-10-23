@@ -36,6 +36,12 @@ namespace rat {
 				std::swap(k.in0, k.in1);
 			return true;
 		}
+
+		void meetNsw(Node* keep, const Node* dup) {
+			BinaryNode* b = dyn_cast<BinaryNode>(keep);
+			if(b && !cast<BinaryNode>(dup)->isNsw())
+				b->setNsw(false);
+		}
 	} // namespace detail
 
 	B32 GVNPass::isPureValue(Node* n) {
@@ -94,6 +100,7 @@ namespace rat {
 				} else {
 					// n is a duplicate of the earlier representative; redirect its uses
 					changed = changed || hasKeyedUser(n);
+					detail::meetNsw(slots[i].val, n);
 					n->replaceAllUsesWith(slots[i].val);
 					++removed;
 				}
