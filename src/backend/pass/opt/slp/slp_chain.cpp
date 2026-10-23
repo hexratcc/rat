@@ -309,7 +309,8 @@ namespace rat {
 				todo.pop_back();
 				B32 isStep = n->getOpcode() == root->getOpcode() && n->getType() == root->getType() &&
 										 (n == root || n->getUsers().size() == 1);
-				if(!isStep || terms.size() + todo.size() >= kMaxTerms) {
+				// a step replaces n by its two inputs, which can each end as a term
+				if(!isStep || terms.size() + todo.size() + 2 > kMaxTerms) {
 					terms.push_back(n);
 					continue;
 				}

@@ -1,0 +1,111 @@
+@name slp: a reduction takes at most 64 terms, so of a 66-term chain x + x + x stays one term in lane 0, the other 63 terms fill the 16 vectors and no term is left as a scalar
+@passes slp
+
+@input
+func t(i32) -> i32 {
+  v0 = start : (ctrl, mem, i32)
+  v1 = stop : ctrl v70
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : i32  #2 "arg0" of v0
+  v5 = add : i32 v4, v4
+  v6 = add : i32 v5, v4
+  v7 = add : i32 v6, v4
+  v8 = add : i32 v7, v4
+  v9 = add : i32 v8, v4
+  v10 = add : i32 v9, v4
+  v11 = add : i32 v10, v4
+  v12 = add : i32 v11, v4
+  v13 = add : i32 v12, v4
+  v14 = add : i32 v13, v4
+  v15 = add : i32 v14, v4
+  v16 = add : i32 v15, v4
+  v17 = add : i32 v16, v4
+  v18 = add : i32 v17, v4
+  v19 = add : i32 v18, v4
+  v20 = add : i32 v19, v4
+  v21 = add : i32 v20, v4
+  v22 = add : i32 v21, v4
+  v23 = add : i32 v22, v4
+  v24 = add : i32 v23, v4
+  v25 = add : i32 v24, v4
+  v26 = add : i32 v25, v4
+  v27 = add : i32 v26, v4
+  v28 = add : i32 v27, v4
+  v29 = add : i32 v28, v4
+  v30 = add : i32 v29, v4
+  v31 = add : i32 v30, v4
+  v32 = add : i32 v31, v4
+  v33 = add : i32 v32, v4
+  v34 = add : i32 v33, v4
+  v35 = add : i32 v34, v4
+  v36 = add : i32 v35, v4
+  v37 = add : i32 v36, v4
+  v38 = add : i32 v37, v4
+  v39 = add : i32 v38, v4
+  v40 = add : i32 v39, v4
+  v41 = add : i32 v40, v4
+  v42 = add : i32 v41, v4
+  v43 = add : i32 v42, v4
+  v44 = add : i32 v43, v4
+  v45 = add : i32 v44, v4
+  v46 = add : i32 v45, v4
+  v47 = add : i32 v46, v4
+  v48 = add : i32 v47, v4
+  v49 = add : i32 v48, v4
+  v50 = add : i32 v49, v4
+  v51 = add : i32 v50, v4
+  v52 = add : i32 v51, v4
+  v53 = add : i32 v52, v4
+  v54 = add : i32 v53, v4
+  v55 = add : i32 v54, v4
+  v56 = add : i32 v55, v4
+  v57 = add : i32 v56, v4
+  v58 = add : i32 v57, v4
+  v59 = add : i32 v58, v4
+  v60 = add : i32 v59, v4
+  v61 = add : i32 v60, v4
+  v62 = add : i32 v61, v4
+  v63 = add : i32 v62, v4
+  v64 = add : i32 v63, v4
+  v65 = add : i32 v64, v4
+  v66 = add : i32 v65, v4
+  v67 = add : i32 v66, v4
+  v68 = add : i32 v67, v4
+  v69 = add : i32 v68, v4
+  v70 = return : ctrl v2, v3, v69
+}
+
+@expect
+func t(i32) -> i32 {
+  v0 = start : (ctrl, mem, i32)
+  v1 = stop : ctrl v29
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : i32  #2 "arg0" of v0
+  v5 = add : i32 v4, v4
+  v6 = add : i32 v5, v4
+  v7 = pack : <4 x i32> v6, v4, v4, v4
+  v8 = splat : <4 x i32> v4
+  v9 = add : <4 x i32> v7, v8
+  v10 = add : <4 x i32> v9, v8
+  v11 = add : <4 x i32> v10, v8
+  v12 = add : <4 x i32> v11, v8
+  v13 = add : <4 x i32> v12, v8
+  v14 = add : <4 x i32> v13, v8
+  v15 = add : <4 x i32> v14, v8
+  v16 = add : <4 x i32> v15, v8
+  v17 = add : <4 x i32> v16, v8
+  v18 = add : <4 x i32> v17, v8
+  v19 = add : <4 x i32> v18, v8
+  v20 = add : <4 x i32> v19, v8
+  v21 = add : <4 x i32> v20, v8
+  v22 = add : <4 x i32> v21, v8
+  v23 = add : <4 x i32> v22, v8
+  v24 = shuffle : <4 x i32>  #4146 v23, v23
+  v25 = add : <4 x i32> v23, v24
+  v26 = shuffle : <4 x i32>  #8961 v25, v25
+  v27 = add : <4 x i32> v25, v26
+  v28 = extract : i32  #0 v27
+  v29 = return : ctrl v2, v3, v28
+}
