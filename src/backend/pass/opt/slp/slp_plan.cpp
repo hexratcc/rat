@@ -30,8 +30,7 @@ namespace rat {
 
 		U32 Planner::vectorOf(const Lanes& lanes) {
 			for(const Record& r : plan.records)
-				if(r.lanes[0] == lanes[0] &&
-					 std::equal(lanes.begin(), lanes.end(), r.lanes.begin(), r.lanes.end()))
+				if(std::equal(lanes.begin(), lanes.end(), r.lanes.begin(), r.lanes.end()))
 					return (U32)(&r - plan.records.data());
 			if(oneScalar(lanes))
 				return gather(lanes);
@@ -77,7 +76,7 @@ namespace rat {
 			Addr a0 = s.addrs.get(l0->getPointer());
 			// i8 and i16 lanes, the source of a convert, load only adjacent
 			B32 elem = (typeBits(l0->getType()) & kElem) != 0, adjacent = true, equal = elem;
-			I64 hi = a0.offset + (I64)lsz;
+			r.hi = a0.offset + (I64)lsz;
 			r.lowest = l0;
 			r.off = a0.offset;
 			for(U32 i = 0; i < w; ++i) {
@@ -93,22 +92,21 @@ namespace rat {
 				if(a.offset < r.off)
 					r.lowest = l;
 				r.off = std::min(r.off, a.offset);
-				hi = std::max(hi, a.offset + (I64)lsz);
+				r.hi = std::max(r.hi, a.offset + (I64)lsz);
 			}
-			r.wideLoads = 0; // one load and a broadcast
-			if(!equal)
-				r.wideLoads = 1 + (hi - r.off > (I64)(w * lsz));
+			if(!equal) // else one load and a broadcast
+				r.wideLoads = 1 + (r.hi - r.off > (I64)(w * lsz));
 			r.shuffle = !adjacent && !equal;
-			return adjacent || equal || (elem && permuteSpan(lanes, r, hi));
+			return adjacent || equal || (elem && permuteSpan(lanes, r));
 		}
 
-		B32 Planner::permuteSpan(const Lanes& lanes, Record& r, I64 hi) {
+		B32 Planner::permuteSpan(const Lanes& lanes, Record& r) {
 			U32 w = lanes.size(), lsz = r.lowest->getType()->byteSize(s.ptrBytes);
 			U32 group = s.addrs.get(r.lowest->getPointer()).group;
 			I64 bytes = (I64)(r.wideLoads * w * lsz);
-			if(hi - r.off > bytes || (r.wideLoads == 2 && w * lsz != kVecBytes))
+			if(r.hi - r.off > bytes || (r.wideLoads == 2 && w * lsz != kVecBytes))
 				return false;
-			for(I64 b : {r.off, hi - bytes}) {
+			for(I64 b : {r.off, r.hi - bytes}) {
 				U32 read = 0; // bit per element
 				r.sel = 0;
 				for(U32 i = 0; i < w; ++i) {
@@ -131,38 +129,33 @@ namespace rat {
 		}
 
 		B32 Planner::loadState(const Lanes& lanes, Record& r) {
-			Node* m = r.lowest->getMemory();
-			Node* ctrl = r.lowest->getControl();
 			B32 shared = true;
+			r.mem = r.lowest->getMemory();
 			for(Node* l : lanes)
-				shared &= cast<LoadNode>(l)->getMemory() == m;
-			r.mem = m;
-			// in a block with a guarded run, a run reads memIn, as loads of an earlier state would stay
-			// live across that guard. A reduction adds no guard
-			B32 open = seed.root || !s.guardedBlocks.count(ctrl);
-			if(shared && open && !isInner(seed, m))
-				return true;
+				shared &= cast<LoadNode>(l)->getMemory() == r.mem;
 			if(seed.root)
-				return false; // a reduction has no memIn
+				return shared; // a reduction has no memIn and adds no guard
+			// in a block with a guarded run, a run reads memIn, as loads of an earlier state would stay
+			// live across that guard
+			if(shared && !s.guardedBlocks.count(r.lowest->getControl()) && !isInner(seed, r.mem))
+				return true;
 			r.mem = seed.memIn;
 			const Addr& run = s.addrs.get(seed.heads[0]->getPointer());
-			for(Node* l : lanes) {
-				Edge e = readsAtMemIn(cast<LoadNode>(l), run);
-				if(e == Edge::Strong)
+			for(Node* l : lanes)
+				if(!readsAtMemIn(cast<LoadNode>(l), run, r))
 					return false;
-				r.guard |= e == Edge::Weak;
-			}
 			return true;
 		}
 
-		Edge Planner::readsAtMemIn(LoadNode* l, const Addr& run) {
+		// whether l may read memIn instead of its state, by the edge between them: none and weak
+		// say yes, a weak edge also guards r, strong says no
+		B32 Planner::readsAtMemIn(LoadNode* l, const Addr& run, Record& r) {
 			const Addr& a = s.addrs.get(l->getPointer());
 			B32 inner = isInner(seed, l->getMemory());
 			// only run stores lie between, all in the run's group, so the bases decide
 			if(inner && a.group != run.group) {
-				if(disjointBases(a, run))
-					return Edge::None;
-				return Edge::Weak;
+				r.guard |= !disjointBases(a, run);
+				return true;
 			}
 			Node *later = seed.memIn, *earlier = l->getMemory();
 			if(inner)
@@ -172,21 +165,20 @@ namespace rat {
 				if(MemMergeNode* m = dyn_cast<MemMergeNode>(later)) {
 					later = stepOverSet(m, l, hops);
 					if(!later)
-						return Edge::Strong;
+						return false;
 					continue;
 				}
 				StoreNode* st = dyn_cast<StoreNode>(later);
 				if(!st || hops >= kMaxHops || st->isVolatile() || st->getControl() != l->getControl())
-					return Edge::Strong;
+					return false;
 				const Addr& b = s.addrs.get(st->getPointer());
 				if(!disjoint(a, size, b, st->getValue()->getType()->byteSize(s.ptrBytes)))
-					return Edge::Strong;
+					return false;
 				later = st->getMemory();
 			}
-			return Edge::None;
+			return true;
 		}
 
-		// the state before set m when no member may overlap l, each member counts as a hop, else null
 		Node* Planner::stepOverSet(MemMergeNode* m, LoadNode* l, U32& hops) {
 			const Addr& a = s.addrs.get(l->getPointer());
 			U32 size = l->getType()->byteSize(s.ptrBytes);
@@ -206,13 +198,10 @@ namespace rat {
 
 		U32 Planner::op(const Lanes& lanes) {
 			Forms f;
-			if(!budget || !laneForms(lanes, f))
-				return kNone;
-			const OpRule* rule = formRule(f, lanes[0]);
-			if(!rule)
+			if(!budget || !laneForms(lanes, f) || !formRule(f, lanes[0]))
 				return kNone;
 			Lanes ops[kMaxInputs];
-			U32 count = operandTuples(lanes, f, rule->form, ops);
+			U32 count = operandTuples(lanes, f, ops);
 			if(!count)
 				return kNone;
 			--budget;
@@ -229,7 +218,7 @@ namespace rat {
 			r.kind = Kind::Op;
 			r.op = f.first;
 			r.op2 = f.second;
-			if(rule->form == Form::Uniform)
+			if(isShiftOpcode(f.first))
 				r.amount = lanes[0]->getInput(1);
 			// a variable shift amount costs a move to xmm
 			r.profit = (I32)lanes.size() - 1 - (r.amount && !isa<ConstantNode>(r.amount));
@@ -286,37 +275,33 @@ namespace rat {
 			}
 		}
 
-		const OpRule* Planner::formRule(const Forms& f, Node* n0) {
-			const OpRule* rule = ruleOf(f.first, n0);
-			if(!rule || f.second == kNoOp)
-				return rule;
-			const OpRule* rule2 = ruleOf(f.second, n0);
+		B32 Planner::formRule(const Forms& f, Node* n0) {
+			if(!ruleOf(f.first, n0))
+				return false;
+			if(f.second == kNoOp)
+				return true;
 			B32 binary =
 					getOpClass(f.first) == OpClass::Binary && getOpClass(f.second) == OpClass::Binary;
-			B32 lanewise = rule->form == Form::Lanewise && rule2 && rule2->form == Form::Lanewise;
-			if(!s.sse41 || !lanewise || !binary)
-				return nullptr;
-			return rule;
+			B32 shift = isShiftOpcode(f.first) || isShiftOpcode(f.second);
+			return s.sse41 && binary && !shift && ruleOf(f.second, n0);
 		}
 
-		// the row of opcode op over lanes like n, null when n's input type or the target does not fit
-		const OpRule* Planner::ruleOf(Opcode op, Node* n) {
+		// whether a row has opcode op over lanes like n, and n's input type and the target fit it
+		B32 Planner::ruleOf(Opcode op, Node* n) {
 			U8 types = typeBits(s.laneType(n));
 			for(const OpRule& row : kOpRules) {
 				if(op < row.first || op > row.last || !(types & row.types))
 					continue;
 				B32 from = !row.from || (typeBits(n->getInput(0)->getType()) & row.from);
-				if(!from || (row.sse41 && !s.sse41))
-					return nullptr;
-				return &row;
+				return from && (!row.sse41 || s.sse41);
 			}
-			return nullptr;
+			return false;
 		}
 
 		// one operand tuple per vector input, or 0 when the lanes do not fit one vector op
-		U32 Planner::operandTuples(const Lanes& lanes, const Forms& f, Form form, Lanes* ops) {
+		U32 Planner::operandTuples(const Lanes& lanes, const Forms& f, Lanes* ops) {
 			U32 count = (U32)getOpcodeInfo(f.first).minInputs;
-			if(form == Form::Uniform)
+			if(isShiftOpcode(f.first))
 				count = 1;
 			for(U32 i = 0; i < lanes.size(); ++i) {
 				if(lanes[i]->getType() != lanes[0]->getType())
@@ -332,9 +317,9 @@ namespace rat {
 				if(bytes > kVecBytes || bytes < 4) // at most a vector, at least a movd
 					return 0;
 			}
-			if(form == Form::Uniform && !uniformShift(lanes))
+			if(isShiftOpcode(f.first) && !uniformShift(lanes))
 				return 0;
-			if(form == Form::Select && s.laneType(ops[0][0]) != lanes[0]->getType())
+			if(f.first == Opcode::Select && s.laneType(ops[0][0]) != lanes[0]->getType())
 				return 0;
 			if(count == 2)
 				orient(f, ops);
@@ -387,34 +372,26 @@ namespace rat {
 		// add the bytes of r's lanes to the runtime check of their group
 		void Planner::addGuard(const Record& r) {
 			const Addr& a = s.addrs.get(r.lowest->getPointer());
-			I64 hi = a.offset;
-			for(Node* n : r.lanes) {
-				LoadNode* l = cast<LoadNode>(n);
-				I64 end = s.addrs.get(l->getPointer()).offset + (I64)l->getType()->byteSize(s.ptrBytes);
-				hi = std::max(hi, end);
-			}
 			for(GuardGroup& g : plan.guards)
 				if(g.group == a.group) {
 					if(a.offset < g.lo)
 						g = {g.group, r.lowest->getPointer(), a.offset, g.hi};
-					g.hi = std::max(g.hi, hi);
+					g.hi = std::max(g.hi, r.hi);
 					return;
 				}
-			plan.guards.push_back({a.group, r.lowest->getPointer(), a.offset, hi});
+			plan.guards.push_back({a.group, r.lowest->getPointer(), a.offset, r.hi});
 		}
 
 		// some load at ctrl reads each 4-byte piece of [off, off + size) of group
 		B32 Slp::bytesRead(U32 group, I64 off, U32 size, const Node* ctrl) {
 			if(!readsIndexed)
 				indexReads();
-			auto it = reads.find(readsKey(ctrl, group));
+			auto it = reads.find(pairKey(ctrl->getId(), group));
 			for(U32 b = 0; b < size; b += kReadPiece)
 				if(it == reads.end() || !it->second.count(off + (I64)b))
 					return false;
 			return true;
 		}
-
-		U64 Slp::readsKey(const Node* ctrl, U32 group) { return (U64)ctrl->getId() << 32 | group; }
 
 		void Slp::indexReads() {
 			readsIndexed = true;
@@ -425,7 +402,7 @@ namespace rat {
 					size = l->getType()->byteSize(ptrBytes);
 				for(U32 b = 0; size % kReadPiece == 0 && b < size; b += kReadPiece) {
 					const Addr& a = addrs.get(l->getPointer());
-					reads[readsKey(l->getControl(), a.group)].insert(a.offset + (I64)b);
+					reads[pairKey(l->getControl()->getId(), a.group)].insert(a.offset + (I64)b);
 				}
 			}
 		}

@@ -1,7 +1,6 @@
 // load canonicalization: a load of a block that reads an inner state of the block's store chain
 // reads the earliest chain state that holds its bytes, but no state above one that a memory reader
-// in its address cone reads, so the schedule stays acyclic. The slp pass finds every load at its
-// canonical state
+// in its address cone reads, so the schedule stays acyclic
 
 #ifndef RAT_PASS_OPT_LOADCANON_H
 #define RAT_PASS_OPT_LOADCANON_H
@@ -14,11 +13,7 @@
 #include <array>
 
 namespace rat {
-	namespace canon {
-		using slp::Access;
-		using slp::Chain;
-		using slp::kVecBytes;
-		using slp::kVecShift;
+	namespace slp {
 		constexpr U32 kMaxCone = 64; // address cone nodes visited per hoisted load
 
 		struct LastOutside {
@@ -28,9 +23,7 @@ namespace rat {
 			U32 last = 0, lastGroup = 0, lastOther = 0;
 		};
 
-		// the stores of a chain seen so far (indexed from 1), to find the last that may overlap a load
 		struct Conflicts {
-			static U64 blockKey(U32 group, I64 offset);
 			void add(U32 at, const Access& a);
 			U32 lastConflict(const Access& a) const;
 
@@ -43,7 +36,7 @@ namespace rat {
 		B32 readsInner(const List<Chain>& chains);
 		U32 coneState(LoadNode* l, const List<U32>& index);
 		U32 hoistLoads(AddrCache& addrs, U32 ptrBytes, const Chain& chain, List<U32>& index);
-	} // namespace canon
+	} // namespace slp
 
 	struct LoadCanonPass : FunctionPass {
 		const C8* name() const override;

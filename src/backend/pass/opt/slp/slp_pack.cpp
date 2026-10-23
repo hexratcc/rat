@@ -23,46 +23,30 @@ namespace rat {
 			return v;
 		}
 
-		B32 statsEnabled() {
-			static const B32 v = std::getenv("RAT_SLP_STATS") != nullptr;
-			return v;
-		}
-
 		Handoff& handoff() {
 			thread_local Handoff h;
 			return h;
 		}
 
-		// loadcanon's cache when fn is unchanged since, else a new one
-		AddrCache takeAddrs(const Function& fn) {
-			Handoff& h = handoff();
-			if(h.fn == &fn && h.version == fn.getVersion() && h.addrs)
-				return std::move(*h.addrs);
-			return AddrCache(AliasAnalysis::restrictFacts(fn), fn.idBound());
-		}
-
-		// loadcanon's chains when fn is unchanged since, else new ones. Empties the handoff
-		List<Chain> takeChains(Function& fn) {
-			Handoff& h = handoff();
-			B32 fresh = h.fn == &fn && h.version == fn.getVersion();
-			h.fn = nullptr;
-			h.addrs.reset();
-			if(fresh)
-				return std::move(h.chains);
-			return collectChains(fn);
+		Handoff takeHandoff(Function& fn) {
+			Handoff h = std::exchange(handoff(), Handoff{});
+			if(h.fn != &fn || h.version != fn.getVersion())
+				h = {&fn, 0, collectChains(fn), AddrCache(AliasAnalysis::restrictFacts(fn), fn.idBound())};
+			return h;
 		}
 
 		Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
 		: fn(fn),
 			ptrBytes(target.getPointerSizeInBytes()),
 			sse41(target.hasSse41()),
-			stats(stats),
-			addrs(takeAddrs(fn)) {}
+			stats(stats) {}
 
 		// the disjoint stretches become sets, which processSet searches by lookup, then the sets become
 		// chains again
 		U32 Slp::run() {
-			List<Piece> pieces = mergeStretches();
+			Handoff h = takeHandoff(fn);
+			addrs = std::move(h.addrs);
+			List<Piece> pieces = mergeStretches(h.chains);
 			U32 changed = 0;
 			for(const Piece& p : pieces) {
 				if(p.set)
@@ -115,17 +99,13 @@ namespace rat {
 			return (bits == 8) * kI8 | (bits == 16) * kI16 | (bits == 32) * kI32 | (bits == 64) * kI64;
 		}
 
-		Node* memoryOperand(const Node* n) {
-			B32 access = isa<LoadNode>(n) || isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n);
-			if(access || isStackOpcode(n->getOpcode()))
-				return n->getInput(1);
-			return nullptr;
-		}
-
 		void replaceUses(Node* from, Node* to) {
 			for(U32 k = from->getUsers().size(); k-- > 0;)
 				from->getUsers()[k]->setInput(from->getUserSlot(k), to);
 		}
+
+		// high in the upper 32 bits, the low 32 bits of low below
+		U64 pairKey(U32 high, I64 low) { return (U64)high << 32 | (U32)low; }
 
 		I32 gatherCost(const Lanes& lanes) {
 			if(oneScalar(lanes))
@@ -172,21 +152,12 @@ namespace rat {
 		void Slp::setRoles(const Seed& seed, const Plan& plan, B32 on) {
 			if(roles.size() < fn.idBound())
 				roles.resize(2 * fn.idBound(), 0); // room for the nodes later seeds make
-			U8 load = 0, op = 0, sink = 0;
-			if(on) {
-				load = kLoadLane;
-				op = kOpLane;
-				sink = kSink;
-			}
-			for(const Record& r : plan.records) {
-				if(r.kind == Kind::Gather)
-					continue;
-				U8 role = op;
-				if(r.kind == Kind::Load)
-					role = load;
-				for(Node* n : r.lanes)
-					roles[n->getId()] = role;
-			}
+			U8 lane = (U8)(kLane * on);
+			U8 sink = (U8)(kSink * on);
+			for(const Record& r : plan.records)
+				if(r.kind != Kind::Gather)
+					for(Node* n : r.lanes)
+						roles[n->getId()] = lane;
 			for(Node* n : seed.stores)
 				roles[n->getId()] = sink;
 			for(Node* n : seed.steps)
@@ -212,7 +183,7 @@ namespace rat {
 			while(!work.empty()) {
 				const Node* n = work.back();
 				work.pop_back();
-				if(!(roleOf(n) & (kLoadLane | kOpLane)) || (roleOf(n) & kKept))
+				if(!(roleOf(n) & kLane) || (roleOf(n) & kKept))
 					continue;
 				roles[n->getId()] |= kKept;
 				++kept;
@@ -225,7 +196,8 @@ namespace rat {
 		B32 Slp::usedOutside(const Node* n, B32 copies) const {
 			for(U32 k = 0; k < n->getUsers().size(); ++k) {
 				const Node* u = n->getUsers()[k];
-				B32 inside = roleOf(u) & (kOpLane | kSink);
+				// a load lane reads n as its scalar pointer
+				B32 inside = (roleOf(u) & (kLane | kSink)) && !isa<LoadNode>(u);
 				if(isa<StoreNode>(u)) // input 3 is the value
 					inside = n->getUserSlot(k) == 3 && (copies || (roleOf(u) & kSink));
 				if(!inside)
@@ -235,7 +207,7 @@ namespace rat {
 		}
 
 		B32 Slp::dies(const Node* n) const {
-			return (roleOf(n) & (kLoadLane | kOpLane)) && !(roleOf(n) & kKept) && !usedOutside(n, false);
+			return (roleOf(n) & kLane) && !(roleOf(n) & kKept) && !usedOutside(n, false);
 		}
 
 		// every load of a state between the run's stores dies, as the wide stores make no such state
@@ -257,7 +229,7 @@ namespace rat {
 
 	void SlpPackPass::endModule(Module& module) {
 		const SlpStats& s = stats;
-		if(slp::statsEnabled())
+		if(std::getenv("RAT_SLP_STATS"))
 			std::cerr << "slp[" << module.getName() << "]: windows " << s.windowsSeen << " packed "
 								<< (s.packedUnguarded + s.packedGuarded) << " (static " << s.packedUnguarded
 								<< ", guarded " << s.packedGuarded << " in " << s.guardedRuns << " runs, "

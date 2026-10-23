@@ -397,12 +397,8 @@ namespace rat {
 		Node* getSaved() const;
 	};
 
-	// the state after a set of disjoint stores that all read one state, in no order, input 0 is the
-	// control and inputs 1.. the stores in program order, a null input is a store a pack removed
 	struct MemMergeNode : Node {
 		MemMergeNode(Function& fn, Type* memoryType, const List<Node*>& controlStores);
-
-		Node* getControl() const;
 	};
 
 	namespace detail {
@@ -456,6 +452,8 @@ namespace rat {
 	}
 
 	B32 isControlNode(const Node* n);
+	// the state a load, store, call, asm or stack op reads, else null
+	Node* memoryInput(const Node* n);
 	Node* cloneShell(Function& into, const Node* n);
 } // namespace rat
 

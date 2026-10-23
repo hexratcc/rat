@@ -1,5 +1,5 @@
 // expect: 0
-// foo exits before the division by zero. The wide load of a0..a3 must run before foo, and the
+// foo exits before the division by zero, the wide load of a0..a3 must run before foo, and the
 // scheduler must not let the division move above foo while foo waits for that load
 #include <stdlib.h>
 

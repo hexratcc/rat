@@ -117,8 +117,8 @@ namespace rat {
 			Map<U32, Pair<Node*, I64>> best;
 			for(Node* p : ptrs) {
 				Pair<Node*, I64> a = anchorOf(p);
-				auto [it, added] = best.try_emplace(addrs.get(p).group, a);
-				if(!added && a.second < it->second.second)
+				auto it = best.try_emplace(addrs.get(p).group, a).first;
+				if(a.second < it->second.second)
 					it->second = a;
 			}
 			for(const auto& [group, a] : best)
@@ -170,7 +170,6 @@ namespace rat {
 			stats.packedUnguarded += seed.windows;
 		}
 
-		// the wide store takes the slot of the window's first member in program order
 		void Slp::commitSet(const Seed& seed, const Made& made) {
 			U32 first = ~0u;
 			for(StoreNode* st : seed.stores)
@@ -184,14 +183,12 @@ namespace rat {
 			stats.packedUnguarded += seed.windows;
 		}
 
-		// a guarded run committed earlier read from as its state before the run, now it reads to
 		void Slp::renameMemIn(Node* from, Node* to) {
 			for(GuardSplit& g : splits)
 				if(g.memIn == from)
 					g.memIn = to;
 		}
 
-		// each set becomes a chain in its input order, a guarded run that read its merge reads the last
 		void Slp::lowerSets(const List<Piece>& pieces) {
 			for(const Piece& p : pieces) {
 				if(!p.set) {
@@ -291,7 +288,7 @@ namespace rat {
 		// move the users of g's block that read the merged state or a later one below g's merge region
 		B32 Slp::moveLaterUsers(const GuardSplit& g, const Map<const Node*, U32>& runAt) {
 			B32 next = false;
-			List<Node*> states = {g.phi}, moved;
+			List<Node*> states = {g.phi};
 			while(!states.empty()) {
 				Node* m = states.back();
 				states.pop_back();
@@ -299,11 +296,9 @@ namespace rat {
 					splits[it->second].iff->setInput(0, g.region); // input 0 is the branch control
 					next = true;
 				}
-				moved.clear();
-				for(Node* u : m->getUsers())
-					if(memoryOperand(u) == m && u->getInput(0) == g.block)
-						moved.push_back(u);
-				for(Node* u : moved) {
+				for(Node* u : m->getUsers()) {
+					if(memoryInput(u) != m || u->getInput(0) != g.block)
+						continue;
 					u->setInput(0, g.region); // input 0 is the control of an anchored access
 					if(u->getType()->isMemory())
 						states.push_back(u);

@@ -336,8 +336,6 @@ namespace rat {
 	MemMergeNode::MemMergeNode(Function& fn, Type* memoryType, const List<Node*>& controlStores)
 	: Node(fn, Opcode::MemMerge, memoryType, controlStores) {}
 
-	Node* MemMergeNode::getControl() const { return getInput(0); }
-
 	SplatNode::SplatNode(Function& fn, Type* vecType, Node* scalar)
 	: Node(fn, Opcode::Splat, vecType, {scalar}) {}
 
@@ -386,6 +384,13 @@ namespace rat {
 		default:
 			return false;
 		}
+	}
+
+	Node* memoryInput(const Node* n) {
+		B32 access = isa<LoadNode>(n) || isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n);
+		if(access || isStackOpcode(n->getOpcode()))
+			return n->getInput(1);
+		return nullptr;
 	}
 
 	Node* cloneShell(Function& into, const Node* n) {

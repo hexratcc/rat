@@ -676,20 +676,6 @@ namespace rat {
 					nodeFlat.data() + nodeStart[b], (U32)(nodeStart[b + 1] - nodeStart[b]), aa, scratch);
 	}
 
-	Node* Schedule::memoryInputOf(const Node* n) {
-		if(const LoadNode* l = dyn_cast<LoadNode>(n))
-			return l->getMemory();
-		if(const StoreNode* s = dyn_cast<StoreNode>(n))
-			return s->getMemory();
-		if(const CallNode* c = dyn_cast<CallNode>(n))
-			return c->getMemory();
-		if(const AsmNode* a = dyn_cast<AsmNode>(n))
-			return a->getMemory();
-		if(isStackOpcode(n->getOpcode()))
-			return n->getInput(1);
-		return nullptr;
-	}
-
 	B32 Schedule::isMemWriter(const Node* n) {
 		return isa<StoreNode>(n) || isa<CallNode>(n) || isa<AsmNode>(n) || isa<StackRestoreNode>(n);
 	}
@@ -714,7 +700,6 @@ namespace rat {
 
 	I32 Schedule::TopoScratch::local(const Node* n) const { return n ? localOf[n->getId()] : -1; }
 
-	// a writer of the current block made state m
 	B32 Schedule::TopoScratch::writtenHere(const Node* m) const {
 		if(const ProjNode* p = dyn_cast<ProjNode>(m))
 			m = p->getProducer();
@@ -801,7 +786,7 @@ namespace rat {
 				continue;
 			I32 start = s.stHead[ld->getMemory()->getId()];
 			if(start < 0 && !s.writtenHere(ld->getMemory()))
-				start = s.entry; // a state from another block comes before the entry writer
+				start = s.entry;
 			if(start < 0)
 				continue;
 			if(I32 w = firstClobber(nodes, ld, start, aa, s); w >= 0)
@@ -809,15 +794,12 @@ namespace rat {
 		}
 	}
 
-	// a call or an asm with text may not return, the empty asm of a volatile access returns
 	B32 Schedule::mayNotReturn(const Node* n) {
 		if(const AsmNode* a = dyn_cast<AsmNode>(n))
 			return !a->getText().empty();
 		return isa<CallNode>(n);
 	}
 
-	// a call may not return, so a div or rem that may trap stays below the calls before its first use
-	// in the block, where the program computes it at the latest
 	void Schedule::addTrapEdges(NodeSpan nodes, TopoScratch& s) {
 		s.calls.clear();
 		for(U32 i = 0; i < nodes.size(); ++i) {
@@ -830,8 +812,6 @@ namespace rat {
 		}
 	}
 
-	// the calls that may not return along the chain from the entry writer and the calls before each
-	// writer, false when there are none
 	B32 Schedule::numberCalls(NodeSpan nodes, TopoScratch& s) {
 		s.callPos.assign(nodes.size(), -1);
 		s.need.assign(nodes.size(), -1);
@@ -849,9 +829,8 @@ namespace rat {
 		return !s.calls.empty();
 	}
 
-	// the calls before n along memory, a load or writer runs after the calls of its state
 	I32 Schedule::callsBefore(const Node* n, const TopoScratch& s) {
-		Node* w = memoryInputOf(n);
+		Node* w = memoryInput(n);
 		if(!w)
 			return 0;
 		if(ProjNode* p = dyn_cast<ProjNode>(w))
@@ -862,8 +841,6 @@ namespace rat {
 		return s.callPos[wi] + mayNotReturn(w);
 	}
 
-	// the fewest calls before a use of node i in the block, through its arithmetic users. A use in
-	// another block comes after every call
 	I32 Schedule::needOf(NodeSpan nodes, U32 i, TopoScratch& s) {
 		s.needStack.clear();
 		s.needStack.push_back({(I32)i, 0});
@@ -895,7 +872,7 @@ namespace rat {
 		U32 k = (U32)nodes.size();
 		s.rank.assign(k, -1);
 		for(U32 i = 0; i < k; ++i) {
-			Node* mem = memoryInputOf(nodes[i]);
+			Node* mem = memoryInput(nodes[i]);
 			if(!mem || !isMemWriter(nodes[i]))
 				continue;
 			if(isa<StoreNode>(mem) && s.local(mem) >= 0 && s.stHead[mem->getId()] == (I32)i)
@@ -967,7 +944,7 @@ namespace rat {
 		Node* prevStack = nullptr;
 		for(U32 i = 0; i < nodes.size(); ++i) {
 			Node* n = nodes[i];
-			Node* mem = memoryInputOf(n);
+			Node* mem = memoryInput(n);
 			Node* prod = mem;
 			if(ProjNode* p = dyn_cast<ProjNode>(prod))
 				prod = p->getProducer();

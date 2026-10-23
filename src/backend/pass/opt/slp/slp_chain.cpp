@@ -48,8 +48,6 @@ namespace rat {
 			return chains;
 		}
 
-		// chain[lo..hi] have groups and share no byte, the test of a set, without a sort. written is
-		// scratch: (group, 16-byte block) -> bytes written
 		B32 setDisjoint(const List<Access>& acc, U32 lo, U32 hi, Map<U64, U16>& written) {
 			List<U32> groups; // first index of each group
 			written.clear();
@@ -68,7 +66,7 @@ namespace rat {
 				for(I64 o = a.offset; o < end; o = (o | (I64)(kVecBytes - 1)) + 1) { // each 16-byte block
 					I64 stop = std::min(end, (o | (I64)(kVecBytes - 1)) + 1);
 					U16 bits = (U16)(((1u << (stop - o)) - 1) << (o & (kVecBytes - 1)));
-					U16& mask = written[setKey(a.group, o >> kVecShift)];
+					U16& mask = written[pairKey(a.group, o >> kVecShift)];
 					if(mask & bits)
 						return false; // two stores share a byte
 					mask |= bits;
@@ -81,7 +79,6 @@ namespace rat {
 			return true;
 		}
 
-		// the stores of chain[lo..hi] read the state before them, a MemMerge joins their states
 		MemMergeNode* Slp::mergeStretch(const Chain& chain, U32 lo, U32 hi) {
 			Node* before = chain[lo]->getMemory();
 			StoreNode* last = chain[hi];
@@ -96,36 +93,31 @@ namespace rat {
 			return m;
 		}
 
-		// each stretch of disjoint stores whose inner states no load reads becomes a set
-		List<Piece> Slp::mergeStretches() {
+		List<Piece> Slp::mergeStretches(const List<Chain>& chains) {
 			List<Piece> pieces;
 			List<Access> acc;
 			Map<U64, U16> written;
-			for(const Chain& chain : takeChains(fn)) {
+			for(const Chain& chain : chains) {
 				acc.clear();
 				for(StoreNode* st : chain)
 					acc.push_back(accessOf(addrs, ptrBytes, st));
-				pieces.emplace_back();
+				U32 from = 0; // first store of the part not pushed yet
 				for(U32 a = 0, b = 0; a < chain.size(); a = b + 1) {
 					for(b = a; b + 1 < chain.size() && chain[b]->getUsers().size() == 1;)
 						++b;
-					if(b == a || !setDisjoint(acc, a, b, written)) {
-						pieces.back().chain.insert(
-								pieces.back().chain.end(), chain.begin() + a, chain.begin() + b + 1);
+					if(b == a || !setDisjoint(acc, a, b, written))
 						continue;
-					}
-					if(pieces.back().chain.empty())
-						pieces.pop_back();
+					if(from < a)
+						pieces.push_back({nullptr, Chain(chain.begin() + from, chain.begin() + a)});
 					pieces.push_back({mergeStretch(chain, a, b), {}});
-					pieces.emplace_back();
+					from = b + 1;
 				}
-				if(pieces.back().chain.empty())
-					pieces.pop_back();
+				if(from < chain.size())
+					pieces.push_back({nullptr, Chain(chain.begin() + from, chain.end())});
 			}
 			return pieces;
 		}
 
-		// chain the stores of m in input order, give m's users the last and return it
 		Node* lowerMerge(MemMergeNode* m) {
 			Node* prev = nullptr;
 			for(U32 i = 1; i < m->getInputCount(); ++i) {
@@ -135,8 +127,7 @@ namespace rat {
 				if(st)
 					prev = st;
 			}
-			for(U32 k = m->getUsers().size(); k-- > 0;)
-				m->getUsers()[k]->setInput(m->getUserSlot(k), prev);
+			replaceUses(m, prev);
 			m->clearInputs();
 			return prev;
 		}
@@ -181,17 +172,14 @@ namespace rat {
 			return changed;
 		}
 
-		U64 setKey(U32 group, I64 offset) { return (U64)group << 32 | (U32)offset; }
-
-		// the windows of a set: each run of members of one group and type whose offsets continue each
-		// other, found by lookup from the member with no predecessor, no order of the members is used
+		// windows of a set
 		U32 Slp::processSet(MemMergeNode* m) {
 			Map<U64, Pair<StoreNode*, Type*>> at; // (group, offset) -> member and its value type
 			setSlot.clear();
 			for(U32 i = 1; i < m->getInputCount(); ++i) {
 				StoreNode* st = cast<StoreNode>(m->getInput(i));
 				const Addr& a = addrs.get(st->getPointer());
-				at[setKey(a.group, a.offset)] = {st, st->getValue()->getType()};
+				at[pairKey(a.group, a.offset)] = {st, st->getValue()->getType()};
 				setSlot[st] = i;
 			}
 			U32 changed = 0;
@@ -203,19 +191,18 @@ namespace rat {
 				Type* t = st->getValue()->getType();
 				I64 esz = t->byteSize(ptrBytes);
 				const Addr& a = addrs.get(st->getPointer());
-				auto prev = at.find(setKey(a.group, a.offset - esz));
+				auto prev = at.find(pairKey(a.group, a.offset - esz));
 				if(prev != at.end() && prev->second.second == t)
 					continue; // not the first of its run
 				run.clear();
-				for(auto it = at.find(setKey(a.group, a.offset)); it != at.end() && it->second.second == t;
-						it = at.find(setKey(a.group, a.offset + (I64)run.size() * esz)))
+				for(auto it = at.find(pairKey(a.group, a.offset)); it != at.end() && it->second.second == t;
+						it = at.find(pairKey(a.group, a.offset + (I64)run.size() * esz)))
 					run.push_back(it->second.first);
 				changed += processRun(m, run);
 			}
 			return changed;
 		}
 
-		// windows from the run's start on, as processChain takes them from a chain
 		U32 Slp::processRun(MemMergeNode* m, const Chain& run) {
 			U32 changed = 0;
 			for(U32 p = 0; p < run.size();) {
@@ -236,7 +223,7 @@ namespace rat {
 			for(U32 k = 0; k < w; ++k)
 				win.lane[k] = run[p + k];
 			++stats.windowsSeen;
-			if(leafProfit(win) < kMinProfit) { // no load reads a member, so no window is observed
+			if(leafProfit(win) < kMinProfit) {
 				++stats.rejected;
 				return 0;
 			}
@@ -245,9 +232,8 @@ namespace rat {
 			return w;
 		}
 
-		// the windows of the lowered chains that a seam splits, as no piece held them whole
 		U32 Slp::processSeams() {
-			B32 inner = false; // a seam is not the last store of its chain, else no window holds one
+			B32 inner = false;
 			for(const Node* s : seams)
 				inner |= chainSuccessor(cast<StoreNode>(s)) != nullptr;
 			if(!inner)
@@ -266,7 +252,6 @@ namespace rat {
 			return changed;
 		}
 
-		// a seam is an inner store of the window of bytes at chain[i]
 		B32 Slp::splitBySeam(const Chain& chain, U32 i, U32 bytes) {
 			Type* t = chain[i]->getValue()->getType();
 			if(!(typeBits(t) & kElem))
@@ -366,27 +351,27 @@ namespace rat {
 			return s;
 		}
 
-		B32 Slp::reduces(const Node* n) {
+		// a reducible op with an input of its op and no user of its op and type
+		B32 Slp::isReductionRoot(const Node* n) {
 			Opcode op = n->getOpcode();
+			if(op != Opcode::Add && op != Opcode::Mul && (op < Opcode::And || op > Opcode::Xor))
+				return false;
 			U8 t = typeBits(n->getType());
-			return ((op == Opcode::Add || (op >= Opcode::And && op <= Opcode::Xor)) && (t & kI32I64)) ||
-						 (op == Opcode::Mul && t == kI32 && sse41);
+			if(!(t & kI32I64) || (op == Opcode::Mul && (t != kI32 || !sse41)))
+				return false;
+			B32 root = false;
+			for(U32 i = 0; i < n->getInputCount(); ++i)
+				root |= n->getInput(i)->getOpcode() == op;
+			for(Node* u : n->getUsers())
+				root &= u->getOpcode() != op || u->getType() != n->getType();
+			return root;
 		}
 
 		U32 Slp::packReductions() {
 			List<Node*> roots;
-			for(Node* n : fn) {
-				if(!isBinaryOpcode(n->getOpcode()))
-					continue; // a cheap filter before reduces
-				B32 isRoot = false;
-				for(U32 i = 0; i < n->getInputCount(); ++i)
-					isRoot |= n->getInput(i)->getOpcode() == n->getOpcode();
-				isRoot = isRoot && reduces(n);
-				for(Node* u : n->getUsers())
-					isRoot = isRoot && (u->getOpcode() != n->getOpcode() || u->getType() != n->getType());
-				if(isRoot)
+			for(Node* n : fn)
+				if(isReductionRoot(n))
 					roots.push_back(n);
-			}
 			U32 changed = 0;
 			for(Node* root : roots)
 				changed += tryReduction(root);

@@ -57,7 +57,7 @@ namespace rat {
 	AddrCache::AddrCache(U64 restrictParams, U32 ids)
 	: restrictParams(restrictParams),
 		slots(ids) {
-		addrs.reserve(16); // most functions access few addresses
+		addrs.reserve(16);
 	}
 
 	Addr AddrCache::get(Node* ptr) {
@@ -113,10 +113,8 @@ namespace rat {
 		I32 index = AliasAnalysis::paramIndex(base);
 		if(const GlobalNode* g = dyn_cast<GlobalNode>(base)) {
 			U32 number = symbols.try_emplace(g->getSymbol(), (U32)symbols.size()).first->second;
-			a.kind = BaseKind::Object;
 			a.object = detail::kObjectTags * number + detail::kGlobalTag;
 		} else if(AliasAnalysis::isIdentified(base)) {
-			a.kind = BaseKind::Object;
 			a.object = detail::kObjectTags * base->getId() + detail::kAllocTag;
 		} else if(AliasAnalysis::isRestrictParam(index, restrictParams)) {
 			a.kind = BaseKind::Restrict;

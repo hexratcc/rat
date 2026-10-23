@@ -12,10 +12,9 @@ namespace rat {
 	struct Node;
 
 	enum class BaseKind : U8 {
-		Unknown,	// may be based on any pointer
+		Unknown,	// not known to be a parameter
 		Param,		// a pointer parameter
 		Restrict, // a restrict parameter
-		Object,		// allocation, stack slot or global symbol
 	};
 
 	struct Addr {
@@ -42,13 +41,13 @@ namespace rat {
 	} // namespace detail
 
 	struct AddrCache {
-		AddrCache(U64 restrictParams, U32 ids); // ids: the node id bound
+		AddrCache(U64 restrictParams = 0, U32 ids = 0);
 		Addr get(Node* ptr);
 	private:
 		Addr classify(const detail::Terms& terms);
 	private:
 		U64 restrictParams;
-		List<U32> slots; // node id -> 1 + its index in addrs, 0 until computed
+		List<U32> slots; // node id -> 1 + its index in addrs
 		List<Addr> addrs;
 		std::map<detail::Terms, Addr> groups; // at offset 0
 		Map<U32, Addr> bases;									// base id -> group of a pointer without terms
