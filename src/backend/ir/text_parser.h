@@ -36,6 +36,7 @@ namespace rat {
 			Type* allocType = nullptr; // Alloc
 			B32 loopHeader = false;		 // Region
 			B32 isVolatile = false;		 // Load, Store
+			B32 nsw = false;					 // Add, Sub, Mul, Shl
 			List<U32> operands;
 		};
 

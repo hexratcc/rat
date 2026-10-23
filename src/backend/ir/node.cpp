@@ -469,8 +469,11 @@ namespace rat {
 			break;
 		}
 		switch(getOpClass(op)) {
-		case OpClass::Binary:
-			return into.create<BinaryNode>(op, t, nullptr, nullptr);
+		case OpClass::Binary: {
+			BinaryNode* b = into.create<BinaryNode>(op, t, nullptr, nullptr);
+			b->setNsw(cast<BinaryNode>(n)->isNsw());
+			return b;
+		}
 		case OpClass::Unary:
 			return into.create<UnaryNode>(op, t, nullptr);
 		case OpClass::Compare:
