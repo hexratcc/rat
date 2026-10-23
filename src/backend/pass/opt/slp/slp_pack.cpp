@@ -24,7 +24,12 @@ namespace rat {
 				h.fn = nullptr; // taken
 				return std::move(h);
 			}
-			return {&fn, 0, collectChains(fn), AddrCache(AliasAnalysis::restrictFacts(fn), fn.idBound())};
+			return freshHandoff(fn);
+		}
+
+		Handoff freshHandoff(Function& fn) {
+			U64 restrictParams = AliasAnalysis::restrictFacts(fn);
+			return {&fn, 0, collectChains(fn), AddrCache(restrictParams, fn.idBound()), {}};
 		}
 
 		Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
@@ -36,7 +41,9 @@ namespace rat {
 		U32 Slp::run() {
 			Handoff h = takeHandoff(fn);
 			addrs = std::move(h.addrs);
-			U32 changed = packChains(h.chains);
+			List<B32> packed; // per chain
+			U32 changed = packChains(h.chains, packed);
+			unhoistLoads(h.hoists, packed);
 			splitBlocks();
 			fn.eliminateDeadNodes(); // so every reduction root found is live
 			changed += packReductions();

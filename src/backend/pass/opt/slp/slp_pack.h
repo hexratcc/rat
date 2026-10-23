@@ -100,15 +100,24 @@ namespace rat {
 		using Lanes = SmallList<Node*, kMaxLanes>; // a tuple, one scalar per lane
 		using Chain = List<StoreNode*>;						 // a block's stores in chain order, or a set's run
 
+		// a load loadcanon moved off an inner state of a chain
+		struct Hoist {
+			U32 chain = 0; // index in Handoff::chains
+			LoadNode* load = nullptr;
+			StoreNode* state = nullptr; // the state it read before
+		};
+
 		// what loadcanon leaves for slp on the same function, to save compile time
 		struct Handoff {
 			const Function* fn = nullptr;
 			U64 version = 0; // of fn when loadcanon finished
 			List<Chain> chains;
 			AddrCache addrs;
+			List<Hoist> hoists;
 		};
 		Handoff& handoff();
 		Handoff takeHandoff(Function& fn);
+		Handoff freshHandoff(Function& fn); // chains and an empty cache, nothing hoisted
 
 		struct Access {
 			Addr addr;
@@ -208,6 +217,7 @@ namespace rat {
 		List<Chain> collectChains(Function& fn);
 		B32 isDisjointSet(const List<Access>& accesses, U32 first, U32 last, Map<U64, U16>& written);
 		void lowerSet(MemMergeNode* set);
+		void unhoistLoads(const List<Hoist>& hoists, const List<B32>& packed);
 		Seed seedOfRun(const Chain& chain, const Run& run, MemMergeNode* set);
 		List<Node*> flattenReduction(Node* root, List<Node*>& steps);
 		// type classes, keys and costs
@@ -224,7 +234,7 @@ namespace rat {
 			B32 pack(const Seed& seed);
 			Type* laneType(const Node* n);
 			// sets
-			U32 packChains(const List<Chain>& chains);
+			U32 packChains(const List<Chain>& chains, List<B32>& packed);
 			MemMergeNode* mergeStretch(const Chain& chain, U32 first, U32 last);
 			// seed
 			B32 windowAt(const Chain& chain, U32 start, U32 bytes, Window& window);

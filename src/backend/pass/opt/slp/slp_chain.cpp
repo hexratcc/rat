@@ -94,11 +94,13 @@ namespace rat {
 		}
 
 		// a disjoint stretch becomes a set, the sets and the parts between are searched in chain order
-		U32 Slp::packChains(const List<Chain>& chains) {
+		U32 Slp::packChains(const List<Chain>& chains, List<B32>& packed) {
 			U32 changed = 0;
+			packed.reserve(chains.size());
 			List<Access> accesses;
 			Map<U64, U16> written;
 			for(const Chain& chain : chains) {
+				U32 before = changed;
 				accesses.clear();
 				for(StoreNode* st : chain)
 					accesses.push_back(accessOf(addrs, ptrBytes, st));
@@ -115,8 +117,17 @@ namespace rat {
 					partStart = last + 1;
 				}
 				changed += packChain(Chain(chain.begin() + partStart, chain.end()), nullptr);
+				packed.push_back(changed != before);
 			}
 			return changed;
+		}
+
+		// a chain without a pack gets its loads back on their old states, as an earlier state only
+		// lets the scheduler load a value long before its use
+		void unhoistLoads(const List<Hoist>& hoists, const List<B32>& packed) {
+			for(const Hoist& hoist : hoists)
+				if(!packed[hoist.chain])
+					hoist.load->setInput(1, hoist.state); // input 1 is the memory
 		}
 
 		void lowerSet(MemMergeNode* set) {

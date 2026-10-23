@@ -38,7 +38,7 @@ func t(ptr, f64, f64) -> void {
   v10 = add : ptr v4, v8
   v11 = store : mem v2, v3, v7, v5
   v12 = store : mem v2, v11, v9, v6
-  v13 = load : i64 v2, v11, v7
+  v13 = load : i64 v2, v12, v7
   v14 = load : i64 v2, v12, v9
   v15 = store : mem v2, v12, v4, v13
   v16 = store : mem v2, v15, v10, v14
