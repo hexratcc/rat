@@ -12,6 +12,10 @@
 
 namespace rat {
 	namespace slp {
+		namespace detail {
+			// kLane a Load or Op lane, kSink a run store or reduction step, 0 any other node or a kept lane
+			enum Role : U8 { kLane = 1, kSink = 2 };
+		} // namespace detail
 
 		Handoff& handoff() {
 			thread_local Handoff h;
@@ -52,19 +56,18 @@ namespace rat {
 		}
 
 		B32 Slp::pack(const Seed& seed) {
-			Planner planner(*this, seed);
-			const Plan& plan = planner.plan;
+			Plan plan(*this, seed);
 			I32 margin = -1;
-			if(planner.planSeed())
-				margin = profitMargin(seed, plan);
+			if(plan.build())
+				margin = profitMargin(plan);
 			B32 ok = margin >= 0;
 			if(ok) {
-				setRoles(seed, plan, true);
+				setRoles(plan, true);
 				// the first innerReadersDie is a cheap early reject, as kept lanes can only make it fail
 				ok = innerReadersDie(seed) && (I32)markKeptLanes(plan) <= margin && innerReadersDie(seed);
 				if(ok)
-					apply(seed, plan);
-				setRoles(seed, plan, false);
+					apply(plan);
+				setRoles(plan, false);
 			}
 			stats.rejected += !ok;
 			return ok;
@@ -89,40 +92,18 @@ namespace rat {
 
 		U64 pairKey(U32 high, I64 low) { return (U64)high << 32 | (U32)low; }
 
-		// as SSE4.1 lowers it, a movd or insert per variable lane and a pool vector when lane 0 or a
-		// nonzero lane is a constant
-		I32 gatherCost(const Lanes& lanes, B32 reduction) {
-			if(isSplat(lanes))
-				return 1;
-			I32 variables = 0;
-			B32 poolLoad = isa<ConstantNode>(lanes[0]);
-			for(Node* n : lanes) {
-				if(const ConstantNode* c = dyn_cast<ConstantNode>(n))
-					poolLoad |= c->getValue() != 0;
-				else
-					++variables;
-			}
-			// a reduction of lanes that are all scalars waits for their moves into xmm
-			B32 moveLatency = reduction && variables == (I32)lanes.size();
-			return variables + poolLoad + moveLatency;
-		}
-
-		B32 isSplat(const Lanes& lanes) {
-			for(Node* n : lanes)
-				if(n != lanes[0])
-					return false;
-			return !isa<ConstantNode>(lanes[0]);
-		}
-
-		I32 profitMargin(const Seed& seed, const Plan& plan) {
-			I32 profit = seed.profit;
+		I32 profitMargin(const Plan& plan) {
+			I32 profit = plan.seed.profit;
 			for(const Vector& vec : plan.vectors)
 				profit += vec.profit;
 			static const B32 noGuardCost = std::getenv("RAT_SLP_NO_GUARD_COST") != nullptr;
 			if(!plan.guards.empty() && !noGuardCost)
 				profit -= (I32)plan.guards.size() * kGuardCheckCost + kGuardBranchCost;
-			return profit - kMinProfit * (I32)seed.windows;
+			return profit;
 		}
+
+		// the state before a run, valid until commitRun clears the stores
+		Node* memIn(const Seed& seed) { return seed.stores[0]->getMemory(); }
 
 		B32 isInner(const Seed& seed, const Node* state) {
 			for(U32 j = 0; j + 1 < seed.stores.size(); ++j)
@@ -131,18 +112,18 @@ namespace rat {
 			return false;
 		}
 
-		void Slp::setRoles(const Seed& seed, const Plan& plan, B32 on) {
+		void Slp::setRoles(const Plan& plan, B32 on) {
 			if(roles.size() < fn.idBound())
 				roles.resize(2 * fn.idBound(), 0); // room for the nodes later seeds make
-			U8 laneRole = (U8)(kLane * on);
-			U8 sinkRole = (U8)(kSink * on);
+			U8 laneRole = (U8)(detail::kLane * on);
+			U8 sinkRole = (U8)(detail::kSink * on);
 			for(const Vector& vec : plan.vectors)
 				if(vec.kind != VectorKind::Gather)
 					for(Node* n : vec.lanes)
 						roles[n->getId()] = laneRole;
-			for(Node* n : seed.stores)
+			for(Node* n : plan.seed.stores)
 				roles[n->getId()] = sinkRole;
-			for(Node* n : seed.steps)
+			for(Node* n : plan.seed.steps)
 				roles[n->getId()] = sinkRole;
 		}
 
@@ -152,6 +133,7 @@ namespace rat {
 			return roles[n->getId()];
 		}
 
+		// a lane a scalar user needs stays scalar with its lane inputs, so it drops its role
 		U32 Slp::markKeptLanes(const Plan& plan) {
 			SmallList<const Node*, 64> work;
 			for(const Vector& vec : plan.vectors) {
@@ -165,9 +147,9 @@ namespace rat {
 			while(!work.empty()) {
 				const Node* n = work.back();
 				work.pop_back();
-				if(!(roleOf(n) & kLane) || (roleOf(n) & kKept))
+				if(roleOf(n) != detail::kLane)
 					continue;
-				roles[n->getId()] |= kKept;
+				roles[n->getId()] = 0;
 				++kept;
 				for(U32 i = 0; i < n->getInputCount(); ++i)
 					work.push_back(n->getInput(i));
@@ -179,9 +161,9 @@ namespace rat {
 			for(U32 i = 0; i < n->getUsers().size(); ++i) {
 				const Node* user = n->getUsers()[i];
 				// a load lane reads n as its scalar pointer
-				B32 inside = (roleOf(user) & (kLane | kSink)) && !isa<LoadNode>(user);
+				B32 inside = roleOf(user) != 0 && !isa<LoadNode>(user);
 				if(isa<StoreNode>(user)) // input 3 is the value
-					inside = n->getUserSlot(i) == 3 && (copies || (roleOf(user) & kSink));
+					inside = n->getUserSlot(i) == 3 && (copies || roleOf(user) == detail::kSink);
 				if(!inside)
 					return true;
 			}
@@ -189,7 +171,7 @@ namespace rat {
 		}
 
 		B32 Slp::laneDies(const Node* n) const {
-			return (roleOf(n) & kLane) && !(roleOf(n) & kKept) && !usedOutside(n, false);
+			return roleOf(n) == detail::kLane && !usedOutside(n, false);
 		}
 
 		// every load of a state between the run's stores dies, as the wide stores make no such state

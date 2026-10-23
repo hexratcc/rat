@@ -7,32 +7,39 @@
 namespace rat {
 	namespace slp {
 
-		void Slp::apply(const Seed& seed, const Plan& plan) {
-			seedAnchors(seed, plan);
-			Emitted emitted = emitPlan(plan);
-			if(seed.root)
-				commitReduction(seed, emitted);
-			else if(plan.guards.empty())
-				commitRun(seed, emitted);
-			else
-				commitGuarded(seed, plan, emitted);
+		void Slp::apply(Plan& plan) {
+			const Seed& seed = plan.seed;
+			seedAnchors(plan);
+			emitVectors(plan);
+			if(seed.root) {
+				commitReduction(plan);
+				++stats.packedReduction;
+			} else if(plan.guards.empty()) {
+				commitRun(plan);
+				stats.packedUnguarded += (U32)seed.lowestStores.size();
+			} else {
+				commitGuarded(plan);
+				stats.packedGuarded += (U32)seed.lowestStores.size();
+				++stats.guardedRuns;
+				stats.guardChecks += (U32)plan.guards.size();
+			}
 		}
 
-		Emitted Slp::emitPlan(const Plan& plan) {
-			Emitted emitted;
-			for(const Vector& vec : plan.vectors) {
+		// operands first, so an Op finds the nodes of its operands
+		void Slp::emitVectors(Plan& plan) {
+			for(Vector& vec : plan.vectors) {
 				Type* vecTy = fn.types().getVec(laneType(vec.lanes[0]), vec.lanes.size());
 				if(vec.kind == VectorKind::Load)
-					emitted.nodes.push_back(emitLoad(vec, vecTy, emitted));
+					vec.node = emitLoad(vec, vecTy, plan);
 				else if(vec.kind == VectorKind::Op)
-					emitted.nodes.push_back(emitOp(vec, vecTy, emitted));
+					vec.node = emitOp(vec, vecTy, plan);
 				else
-					emitted.nodes.push_back(emitGather(vec, vecTy));
+					vec.node = emitGather(vec, vecTy);
 			}
-			for(U32 index : plan.tupleVectors)
-				emitted.tupleNodes.push_back(emitted.nodes[index]);
-			return emitted;
 		}
+
+		// the node apply emitted for seed tuple
+		Node* Plan::tupleNode(U32 tuple) const { return vectors[tupleVectors[tuple]].node; }
 
 		Node* Slp::emitGather(const Vector& vec, Type* vecTy) {
 			if(isSplat(vec.lanes))
@@ -41,39 +48,39 @@ namespace rat {
 			return fn.create<PackNode>(vecTy, scalars);
 		}
 
-		Node* Slp::emitLoad(const Vector& vec, Type* vecTy, Emitted& emitted) {
+		Node* Slp::emitLoad(const Vector& vec, Type* vecTy, Plan& plan) {
 			if(!vec.wideLoads)
 				return fn.create<SplatNode>(vecTy,
-																		loadAt(vec, vec.lowestLoad->getType(), vec.offset, emitted));
-			Node* low = loadAt(vec, vecTy, vec.offset, emitted);
+																		loadAt(vec, vec.lowestLoad->getType(), vec.offset, plan));
+			Node* low = loadAt(vec, vecTy, vec.offset, plan);
 			if(!vec.permuted)
 				return low;
 			Node* high = low;
 			if(vec.wideLoads == 2)
-				high = loadAt(vec, vecTy, vec.offset + (I64)kVecBytes, emitted);
+				high = loadAt(vec, vecTy, vec.offset + (I64)kVecBytes, plan);
 			return fn.create<ShuffleNode>(vecTy, low, high, vec.sel);
 		}
 
 		// a load of type ty at offset of vec's group from vec.mem, or an earlier vector's equal load
-		Node* Slp::loadAt(const Vector& vec, Type* ty, I64 offset, Emitted& emitted) {
+		Node* Slp::loadAt(const Vector& vec, Type* ty, I64 offset, Plan& plan) {
 			Addr addr = addrs.get(vec.lowestLoad->getPointer());
 			addr.offset = offset;
-			for(const auto& [ld, ldAddr] : emitted.loads)
+			for(const auto& [ld, ldAddr] : plan.loads)
 				if(ld->getType() == ty && ld->getMemory() == vec.mem && ldAddr.group == addr.group &&
 					 ldAddr.offset == offset && ld->getControl() == vec.lowestLoad->getControl())
 					return ld;
 			Node* ptr = anchorPtr(vec.lowestLoad->getPointer(), offset, vec.lowestLoad->getControl());
 			LoadNode* ld = fn.create<LoadNode>(ty, vec.lowestLoad->getControl(), vec.mem, ptr);
-			emitted.loads.push_back({ld, addr});
+			plan.loads.push_back({ld, addr});
 			return ld;
 		}
 
 		// mainOp over the operand vectors, or mainOp and altOp blended by sel
-		Node* Slp::emitOp(const Vector& vec, Type* vecTy, const Emitted& emitted) {
+		Node* Slp::emitOp(const Vector& vec, Type* vecTy, const Plan& plan) {
 			Node* inputs[kMaxInputs] = {};
 			for(U32 i = 0; i < kMaxInputs; ++i)
 				if(vec.operands[i] != kNoVector)
-					inputs[i] = emitted.nodes[vec.operands[i]];
+					inputs[i] = plan.vectors[vec.operands[i]].node;
 			if(vec.shiftAmount)
 				inputs[1] = vec.shiftAmount;
 			Node* result = makeOp(vec.mainOp, vecTy, inputs);
@@ -100,12 +107,12 @@ namespace rat {
 		// a (control, group) the plan is the first to use takes the anchorOf base of the lowest offset
 		// among the plan's pointers of it, the first in plan order on a tie. A group's equal addresses
 		// can rest on nsw facts that hold only where its accesses run, so an anchor stays in its control
-		void Slp::seedAnchors(const Seed& seed, const Plan& plan) {
+		void Slp::seedAnchors(const Plan& plan) {
 			List<Pair<Node*, const Node*>> ptrs;
 			for(const Vector& vec : plan.vectors)
 				if(vec.kind == VectorKind::Load)
 					ptrs.push_back({vec.lowestLoad->getPointer(), vec.lowestLoad->getControl()});
-			for(StoreNode* st : seed.lowestStores)
+			for(StoreNode* st : plan.seed.lowestStores)
 				ptrs.push_back({st->getPointer(), st->getControl()});
 			Map<U64, Pair<Node*, I64>> best;
 			for(const auto& [ptr, ctrl] : ptrs) {
@@ -147,19 +154,21 @@ namespace rat {
 			return {base, baseAddr.offset};
 		}
 
-		Node* Slp::emitWideStores(const Seed& seed, const Emitted& emitted, Node* ctrl) {
-			Node* state = seed.memIn;
+		Node* Slp::emitWideStores(const Plan& plan, Node* ctrl) {
+			const Seed& seed = plan.seed;
+			Node* state = memIn(seed);
 			for(U32 window = 0; window < seed.lowestStores.size(); ++window) {
 				StoreNode* lowest = seed.lowestStores[window];
 				I64 offset = addrs.get(lowest->getPointer()).offset;
 				Node* ptr = anchorPtr(lowest->getPointer(), offset, lowest->getControl());
-				state = fn.create<StoreNode>(fn.memTy(), ctrl, state, ptr, emitted.tupleNodes[window]);
+				state = fn.create<StoreNode>(fn.memTy(), ctrl, state, ptr, plan.tupleNode(window));
 			}
 			return state;
 		}
 
-		void Slp::commitRun(const Seed& seed, const Emitted& emitted) {
-			Node* wide = emitWideStores(seed, emitted, seed.stores[0]->getControl());
+		void Slp::commitRun(const Plan& plan) {
+			const Seed& seed = plan.seed;
+			Node* wide = emitWideStores(plan, seed.stores[0]->getControl());
 			if(seed.set) {
 				U32 firstSlot = ~0u;
 				for(StoreNode* st : seed.stores) {
@@ -174,47 +183,46 @@ namespace rat {
 			}
 			for(StoreNode* st : seed.stores)
 				st->clearInputs(); // dead without inputs, the sweep in run erases it
-			stats.packedUnguarded += seed.windows;
 		}
 
-		void Slp::commitGuarded(const Seed& seed, const Plan& plan, const Emitted& emitted) {
+		void Slp::commitGuarded(const Plan& plan) {
+			const Seed& seed = plan.seed;
 			assert(!seed.set && "no load reads a set member, so no lane edge is weak");
 			StoreNode* last = seed.stores.back();
 			Node* block = last->getControl();
 			Node* firstIf = nullptr;
 			Node* elseP = nullptr;
-			Node* thenP = emitGuardCascade(seed, plan, firstIf, elseP);
-			for(const auto& [ld, addr] : emitted.loads)
-				if(ld->getControl() == block && ld->getMemory() == seed.memIn)
+			Node* thenP = emitGuardCascade(plan, firstIf, elseP);
+			for(const auto& [ld, addr] : plan.loads)
+				if(ld->getControl() == block && ld->getMemory() == memIn(seed))
 					ld->setInput(0, thenP);
-			Node* wide = emitWideStores(seed, emitted, thenP);
+			Node* wide = emitWideStores(plan, thenP);
 			Node* region = fn.create<RegionNode>(fn.ctrlTy(), List<Node*>{thenP, elseP});
 			PhiNode* phi = fn.create<PhiNode>(fn.memTy(), List<Node*>{region, wide, last});
 			last->replaceAllUsesWith(phi);
 			phi->setInput(2, last); // replaceAllUsesWith also rewired the phi's own else input
-			moveToElse(seed, plan, block, elseP);
+			moveToElse(plan, block, elseP);
 			splits.push_back({block, seed.stores[0], phi, firstIf, region});
 			++guardedRuns[block];
-			stats.packedGuarded += seed.windows;
-			stats.guardedRuns += 1;
-			stats.guardChecks += (U32)plan.guards.size();
 		}
 
-		void Slp::moveToElse(const Seed& seed, const Plan& plan, Node* block, Node* elseP) {
+		void Slp::moveToElse(const Plan& plan, Node* block, Node* elseP) {
+			const Seed& seed = plan.seed;
 			for(StoreNode* st : seed.stores)
 				st->setInput(0, elseP);
 			for(const Vector& vec : plan.vectors)
 				if(vec.kind == VectorKind::Load)
 					for(Node* lane : vec.lanes) {
 						LoadNode* ld = cast<LoadNode>(lane);
-						B32 runState = ld->getMemory() == seed.memIn || isInner(seed, ld->getMemory());
+						B32 runState = ld->getMemory() == memIn(seed) || isInner(seed, ld->getMemory());
 						if(ld->getControl() == block && runState && laneDies(ld))
 							ld->setInput(0, elseP);
 					}
 		}
 
 		// per load group, two branches test that its range ends before the run or starts after it
-		Node* Slp::emitGuardCascade(const Seed& seed, const Plan& plan, Node*& firstIf, Node*& elseP) {
+		Node* Slp::emitGuardCascade(const Plan& plan, Node*& firstIf, Node*& elseP) {
+			const Seed& seed = plan.seed;
 			Type* ctrlTy = fn.ctrlTy();
 			Type* iffTy = fn.types().getTuple({ctrlTy, ctrlTy});
 			Node* runPtr = seed.lowestStores[0]->getPointer();
@@ -291,13 +299,13 @@ namespace rat {
 		}
 
 		// combine the vectors by the op, fold the lanes by shuffles, then the other terms as scalars
-		void Slp::commitReduction(const Seed& seed, const Emitted& emitted) {
-			const List<Node*>& vectors = emitted.tupleNodes;
+		void Slp::commitReduction(const Plan& plan) {
+			const Seed& seed = plan.seed;
 			Opcode op = seed.root->getOpcode();
-			Type* vecTy = vectors[0]->getType();
-			Node* acc = vectors[0];
-			for(U32 i = 1; i < vectors.size(); ++i)
-				acc = fn.create<BinaryNode>(op, vecTy, acc, vectors[i]);
+			Node* acc = plan.tupleNode(0);
+			Type* vecTy = acc->getType();
+			for(U32 i = 1; i < plan.tupleVectors.size(); ++i)
+				acc = fn.create<BinaryNode>(op, vecTy, acc, plan.tupleNode(i));
 			U32 laneCount = vecTy->getVecLanes();
 			// finish shuffles by [laneCount / 4][round], nibble i is the source of lane i
 			constexpr U16 kFinishSel[2][2] = {{0x01}, {0x1032, 0x2301}};
@@ -309,7 +317,6 @@ namespace rat {
 			for(Node* term : seed.scalarTerms)
 				result = fn.create<BinaryNode>(op, seed.root->getType(), result, term);
 			seed.root->replaceAllUsesWith(result);
-			++stats.packedReduction;
 		}
 	} // namespace slp
 } // namespace rat

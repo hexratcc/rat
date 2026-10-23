@@ -163,7 +163,7 @@ namespace rat {
 				offsets[j] = a.offset;
 				lowest = std::min(lowest, a.offset);
 			}
-			window = Window{start, laneCount, bytes, firstAddr.group, lowest};
+			window = Window{start, laneCount, firstAddr.group, lowest};
 			for(U32 j = 0; j < laneCount; ++j) { // the offsets fill the lanes above lowest once each
 				U64 delta = (U64)(offsets[j] - lowest);
 				U64 lane = delta / elemSize;
@@ -231,47 +231,40 @@ namespace rat {
 				++stats.rejected;
 				return 0;
 			}
-			Run run = {first};
+			Seed seed;
+			seed.set = set;
+			addWindow(seed, chain, first);
 			if(observed)
-				extendRun(chain, run);
-			Seed seed = seedOfRun(chain, run, set);
+				extendRun(chain, first, bytes, seed);
 			if(!pack(seed))
 				return 0;
 			return (U32)seed.stores.size();
 		}
 
-		// add the next windows of run[0]'s group and width that continue its bytes
-		void Slp::extendRun(const Chain& chain, Run& run) {
-			Window first = run[0];
+		// add to seed the windows after first of its group and width that continue its bytes
+		void Slp::extendRun(const Chain& chain, const Window& first, U32 bytes, Seed& seed) {
 			Window next;
-			while(run.size() < kMaxRunWindows) {
-				if(!windowAt(chain, first.start + run.size() * first.laneCount, first.bytes, next))
+			for(U32 windows = 1; windows < kMaxRunWindows; ++windows) {
+				if(!windowAt(chain, first.start + windows * first.laneCount, bytes, next))
 					break;
 				B32 continues = next.group == first.group && next.laneCount == first.laneCount &&
-												next.offset == first.offset + (I64)(run.size() * first.bytes);
+												next.offset == first.offset + (I64)(windows * bytes);
 				if(!continues)
 					break;
-				run.push_back(next);
+				addWindow(seed, chain, next);
 				++stats.windowsSeen;
 			}
 		}
 
-		Seed seedOfRun(const Chain& chain, const Run& run, MemMergeNode* set) {
-			Seed seed;
-			seed.set = set;
-			const Window& first = run[0];
-			seed.memIn = chain[first.start]->getMemory();
-			seed.windows = (U32)run.size();
-			seed.stores.assign(chain.data() + first.start,
-												 chain.data() + first.start + seed.windows * first.laneCount);
-			for(const Window& window : run) {
-				seed.lowestStores.push_back(window.laneStore[0]);
-				seed.tuples.emplace_back();
-				for(U32 lane = 0; lane < window.laneCount; ++lane)
-					seed.tuples.back().push_back(window.laneStore[lane]->getValue());
-				seed.profit += (I32)window.laneCount - 1; // the fused store
-			}
-			return seed;
+		// add the stores of window, its tuple of values and its profit to seed
+		void addWindow(Seed& seed, const Chain& chain, const Window& window) {
+			for(U32 j = 0; j < window.laneCount; ++j)
+				seed.stores.push_back(chain[window.start + j]);
+			seed.lowestStores.push_back(window.laneStore[0]);
+			seed.tuples.emplace_back();
+			for(U32 lane = 0; lane < window.laneCount; ++lane)
+				seed.tuples.back().push_back(window.laneStore[lane]->getValue());
+			seed.profit += (I32)window.laneCount - 1 - kMinProfit; // the fused store, less the minimum
 		}
 
 		// a reducible op with an input of its op and no user of its op and type
@@ -337,8 +330,8 @@ namespace rat {
 				seed.tuples[i].assign(terms.data() + i * laneCount, terms.data() + (i + 1) * laneCount);
 			seed.scalarTerms.assign(terms.begin() + vectorCount * laneCount, terms.end());
 			I32 finishOps = 2 * (I32)(laneCount / 2) + 1; // shuffle and op per round, then the extract
-			seed.profit =
-					(I32)termCount - 1 - (I32)seed.scalarTerms.size() - ((I32)vectorCount - 1 + finishOps);
+			seed.profit = (I32)termCount - 1 - (I32)seed.scalarTerms.size() -
+										((I32)vectorCount - 1 + finishOps) - kMinProfit;
 			return pack(seed);
 		}
 	} // namespace slp

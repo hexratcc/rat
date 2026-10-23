@@ -6,36 +6,77 @@
 
 namespace rat {
 	namespace slp {
+		namespace detail {
+			// lanes of one opcode in [first, last] become one vector op of that opcode
+			// a shift takes one amount for all lanes, a select takes a mask, every other input is a tuple
+			struct OpRule {
+				Opcode first;
+				Opcode last;
+				U8 laneTypes;	 // a compare lane is its mask
+				U8 inputTypes; // of input 0 of a compare or convert, 0 for no check
+				B32 needsSse41;
+			};
 
-		Planner::Planner(Slp& slp, const Seed& seed)
+			// clang-format off
+			constexpr OpRule kOpRules[] = {
+				{Opcode::Add, Opcode::Sub, kI32I64, 0, false},
+				{Opcode::Mul, Opcode::Mul, kI32, 0, true},							// pmulld, no i64 mul
+				{Opcode::And, Opcode::Xor, kI32I64, 0, false},
+				{Opcode::Shl, Opcode::LShr, kI32I64, 0, false},
+				{Opcode::AShr, Opcode::AShr, kI32, 0, false},						// psrad, no i64 sar
+				{Opcode::FAdd, Opcode::FDiv, kFp, 0, false},
+				{Opcode::FNeg, Opcode::FNeg, kFp, 0, false},
+				{Opcode::Eq, Opcode::Ne, kI32I64, kI32I64, false},			// pcmpeqd, pcmpeqq
+				{Opcode::Slt, Opcode::Ule, kI32, kI32, false},					// pcmpgtd, pminud
+				{Opcode::FEq, Opcode::FGe, kI32I64, kFp, false},				// cmpps, cmppd
+				{Opcode::SExt, Opcode::ZExt, kI32I64, kI8 | kI16 | kI32, true}, // pmovsx/zx
+				{Opcode::SIToFP, Opcode::SIToFP, kFp, kI32, false},			// cvtdq2ps/pd
+				{Opcode::FPToSI, Opcode::FPToSI, kI32, kFp, false},			// cvttps2dq/pd2dq
+				{Opcode::FPExt, Opcode::FPExt, kF64, kF32, false},			// cvtps2pd
+				{Opcode::FPTrunc, Opcode::FPTrunc, kF32, kF64, false},	// cvtpd2ps
+				{Opcode::Select, Opcode::Select, kI32I64, 0, true},			// blendv
+			};
+			static_assert((I32)Opcode::Sub - (I32)Opcode::Add == 1 &&
+										(I32)Opcode::Xor - (I32)Opcode::And == 2 &&
+										(I32)Opcode::LShr - (I32)Opcode::Shl == 1 &&
+										(I32)Opcode::FDiv - (I32)Opcode::FAdd == 3 &&
+										(I32)Opcode::Ne - (I32)Opcode::Eq == 1 &&
+										(I32)Opcode::Ule - (I32)Opcode::Slt == 3 &&
+										(I32)Opcode::FGe - (I32)Opcode::FEq == 5 &&
+										(I32)Opcode::ZExt - (I32)Opcode::SExt == 1,
+										"kOpRules ranges follow ir/opcode.h");
+			// clang-format on
+		} // namespace detail
+
+		Plan::Plan(Slp& slp, const Seed& seed)
 		: slp(slp),
 			seed(seed) {
-			plan.vectors.reserve(4 * seed.tuples.size());
+			vectors.reserve(4 * seed.tuples.size());
 		}
 
-		B32 Planner::planSeed() {
+		B32 Plan::build() {
 			for(const Lanes& tuple : seed.tuples) {
 				budget += kMaxOps;
 				U32 index = planVector(tuple);
 				if(index == kNoVector)
 					return false;
-				plan.tupleVectors.push_back(index);
+				tupleVectors.push_back(index);
 			}
-			for(const Vector& vec : plan.vectors)
+			for(const Vector& vec : vectors)
 				if(vec.needsGuard)
 					addGuard(vec);
-			if(plan.guards.empty())
+			if(guards.empty())
 				return true;
 			// a guarded run splits its block, and the loads above its guard stay live across the splits
 			auto it = slp.guardedRuns.find(seed.stores.back()->getControl());
 			B32 blockFull = it != slp.guardedRuns.end() && it->second >= kMaxGuardedRuns;
-			return plan.guards.size() <= kMaxGuards && !blockFull;
+			return guards.size() <= kMaxGuards && !blockFull;
 		}
 
-		U32 Planner::planVector(const Lanes& lanes) {
-			for(const Vector& vec : plan.vectors)
+		U32 Plan::planVector(const Lanes& lanes) {
+			for(const Vector& vec : vectors)
 				if(std::equal(lanes.begin(), lanes.end(), vec.lanes.begin(), vec.lanes.end()))
-					return (U32)(&vec - plan.vectors.data());
+					return (U32)(&vec - vectors.data());
 			if(isSplat(lanes))
 				return planGather(lanes);
 			U32 index = planLoad(lanes);
@@ -46,16 +87,41 @@ namespace rat {
 			return index;
 		}
 
-		U32 Planner::planGather(const Lanes& lanes) {
+		U32 Plan::planGather(const Lanes& lanes) {
 			if(!(typeBits(lanes[0]->getType()) & kElem))
 				return kNoVector;
 			Vector vec{lanes, VectorKind::Gather};
 			vec.profit = -gatherCost(lanes, seed.root != nullptr);
-			plan.vectors.push_back(vec);
-			return (U32)plan.vectors.size() - 1;
+			vectors.push_back(vec);
+			return (U32)vectors.size() - 1;
 		}
 
-		U32 Planner::planLoad(const Lanes& lanes) {
+		B32 isSplat(const Lanes& lanes) {
+			for(Node* n : lanes)
+				if(n != lanes[0])
+					return false;
+			return !isa<ConstantNode>(lanes[0]);
+		}
+
+		// as SSE4.1 lowers it, a movd or insert per variable lane and a pool vector when lane 0 or a
+		// nonzero lane is a constant
+		I32 gatherCost(const Lanes& lanes, B32 reduction) {
+			if(isSplat(lanes))
+				return 1;
+			I32 variables = 0;
+			B32 poolLoad = isa<ConstantNode>(lanes[0]);
+			for(Node* n : lanes) {
+				if(const ConstantNode* c = dyn_cast<ConstantNode>(n))
+					poolLoad |= c->getValue() != 0;
+				else
+					++variables;
+			}
+			// a reduction of lanes that are all scalars waits for their moves into xmm
+			B32 moveLatency = reduction && variables == (I32)lanes.size();
+			return variables + poolLoad + moveLatency;
+		}
+
+		U32 Plan::planLoad(const Lanes& lanes) {
 			Vector vec{lanes, VectorKind::Load};
 			if(!loadShape(lanes, vec) || !loadState(lanes, vec) || forwardBlocked(vec))
 				return kNoVector;
@@ -63,11 +129,11 @@ namespace rat {
 			vec.profit = laneCount - 2; // one load and a broadcast
 			if(vec.wideLoads)
 				vec.profit = laneCount - (I32)vec.wideLoads - vec.permuted;
-			plan.vectors.push_back(vec);
-			return (U32)plan.vectors.size() - 1;
+			vectors.push_back(vec);
+			return (U32)vectors.size() - 1;
 		}
 
-		B32 Planner::loadShape(const Lanes& lanes, Vector& vec) {
+		B32 Plan::loadShape(const Lanes& lanes, Vector& vec) {
 			LoadNode* firstLoad = dyn_cast<LoadNode>(lanes[0]);
 			if(!firstLoad)
 				return false;
@@ -102,7 +168,7 @@ namespace rat {
 			return adjacent || equal || (elem && permuteSpan(lanes, vec));
 		}
 
-		B32 Planner::permuteSpan(const Lanes& lanes, Vector& vec) {
+		B32 Plan::permuteSpan(const Lanes& lanes, Vector& vec) {
 			U32 laneCount = lanes.size();
 			U32 laneSize = vec.lowestLoad->getType()->byteSize(slp.ptrBytes);
 			U32 group = slp.addrs.get(vec.lowestLoad->getPointer()).group;
@@ -132,7 +198,7 @@ namespace rat {
 			return false;
 		}
 
-		B32 Planner::loadState(const Lanes& lanes, Vector& vec) {
+		B32 Plan::loadState(const Lanes& lanes, Vector& vec) {
 			B32 shared = true;
 			vec.mem = vec.lowestLoad->getMemory();
 			for(Node* l : lanes)
@@ -143,7 +209,7 @@ namespace rat {
 			// live across that guard
 			if(shared && !slp.guardedRuns.count(vec.lowestLoad->getControl()) && !isInner(seed, vec.mem))
 				return true;
-			vec.mem = seed.memIn;
+			vec.mem = memIn(seed);
 			const Addr& runAddr = slp.addrs.get(seed.lowestStores[0]->getPointer());
 			for(Node* l : lanes)
 				if(!canReadMemIn(cast<LoadNode>(l), runAddr, vec.needsGuard))
@@ -153,7 +219,7 @@ namespace rat {
 
 		// whether l may read memIn instead of its state, by the edge between them: none and weak
 		// say yes, a weak edge also sets needsGuard, strong says no
-		B32 Planner::canReadMemIn(LoadNode* l, const Addr& runAddr, B32& needsGuard) {
+		B32 Plan::canReadMemIn(LoadNode* l, const Addr& runAddr, B32& needsGuard) {
 			const Addr& loadAddr = slp.addrs.get(l->getPointer());
 			B32 inner = isInner(seed, l->getMemory());
 			// only run stores lie between, all in the run's group, so the bases decide
@@ -161,7 +227,7 @@ namespace rat {
 				needsGuard |= !disjointBases(loadAddr, runAddr);
 				return true;
 			}
-			Node* later = seed.memIn;
+			Node* later = memIn(seed);
 			Node* earlier = l->getMemory();
 			if(inner)
 				std::swap(later, earlier);
@@ -180,7 +246,7 @@ namespace rat {
 
 		// a wide load forwards only from one older store that holds all its bytes, else it waits about
 		// 11 cycles on Zen 3 until the stores commit, so each youngest writer must hold all its bytes
-		B32 Planner::forwardBlocked(const Vector& vec) {
+		B32 Plan::forwardBlocked(const Vector& vec) {
 			U32 bytes = (U32)vec.lanes.size() * vec.lowestLoad->getType()->byteSize(slp.ptrBytes);
 			Access load{slp.addrs.get(vec.lowestLoad->getPointer()), bytes};
 			for(U32 k = 0; k < vec.wideLoads; ++k) {
@@ -195,7 +261,7 @@ namespace rat {
 
 		// whether state writes some but not all bytes of load, or is a call that writes them, and else
 		// add to walk the states before it, which may hold the youngest writer
-		B32 Planner::splitsLoad(Node* state, const Access& load, SmallList<Node*, kMaxStlfHops>& walk) {
+		B32 Plan::splitsLoad(Node* state, const Access& load, SmallList<Node*, kMaxStlfHops>& walk) {
 			if(PhiNode* phi = dyn_cast<PhiNode>(state)) {
 				// a backedge brings stores of the previous iteration, whose addresses the walk cannot
 				// compare, so a loop header gives only its entry, input 0
@@ -227,7 +293,7 @@ namespace rat {
 		// an object that no store of the function writes, an out parameter or a struct return, gets
 		// its bytes from the calls that take its address, with stores the walk cannot see, and a
 		// callee writes a struct field by field
-		B32 Planner::callWrites(const CallNode* call, const Addr& addr) {
+		B32 Plan::callWrites(const CallNode* call, const Addr& addr) {
 			if(!addr.object || slp.storesTo(addr.object))
 				return false;
 			for(U32 i = 0; i < call->getArgCount(); ++i) {
@@ -238,7 +304,7 @@ namespace rat {
 			return false;
 		}
 
-		U32 Planner::planOp(const Lanes& lanes) {
+		U32 Plan::planOp(const Lanes& lanes) {
 			LaneOps ops;
 			if(!budget || !readLaneOps(lanes, ops) || !hasRuleForOps(ops, lanes[0]))
 				return kNoVector;
@@ -248,11 +314,11 @@ namespace rat {
 				return kNoVector;
 			--budget;
 			Vector vec{lanes, VectorKind::Op};
-			U32 firstNew = (U32)plan.vectors.size();
+			U32 firstNew = (U32)vectors.size();
 			for(U32 i = 0; i < tupleCount; ++i) {
 				vec.operands[i] = planVector(tuples[i]);
 				if(vec.operands[i] == kNoVector) {
-					plan.vectors.resize(firstNew);
+					vectors.resize(firstNew);
 					return kNoVector;
 				}
 			}
@@ -264,11 +330,11 @@ namespace rat {
 			vec.profit = (I32)lanes.size() - 1 - (vec.shiftAmount && !isa<ConstantNode>(vec.shiftAmount));
 			if(ops.altOp != kNoOp)
 				vec.profit = blendProfit(ops, lanes.size(), vec.sel);
-			plan.vectors.push_back(vec);
-			return (U32)plan.vectors.size() - 1;
+			vectors.push_back(vec);
+			return (U32)vectors.size() - 1;
 		}
 
-		B32 Planner::readLaneOps(const Lanes& lanes, LaneOps& ops) {
+		B32 Plan::readLaneOps(const Lanes& lanes, LaneOps& ops) {
 			Node* zero = nullptr;
 			Node* ones = nullptr;
 			for(U32 i = 0; i < lanes.size(); ++i) {
@@ -301,7 +367,7 @@ namespace rat {
 			return true;
 		}
 
-		B32 Planner::hasRuleForOps(const LaneOps& ops, Node* lane0) {
+		B32 Plan::hasRuleForOps(const LaneOps& ops, Node* lane0) {
 			if(!hasRule(ops.mainOp, lane0))
 				return false;
 			if(ops.altOp == kNoOp)
@@ -312,9 +378,9 @@ namespace rat {
 			return slp.sse41 && binary && !shift && hasRule(ops.altOp, lane0);
 		}
 
-		B32 Planner::hasRule(Opcode op, Node* lane) {
+		B32 Plan::hasRule(Opcode op, Node* lane) {
 			U8 laneTypes = typeBits(slp.laneType(lane));
-			for(const OpRule& row : kOpRules) {
+			for(const detail::OpRule& row : detail::kOpRules) {
 				if(op < row.first || op > row.last || !(laneTypes & row.laneTypes))
 					continue;
 				B32 inputOk = !row.inputTypes || (typeBits(lane->getInput(0)->getType()) & row.inputTypes);
@@ -324,7 +390,7 @@ namespace rat {
 		}
 
 		// one operand tuple per vector input, or 0 when the lanes do not fit one vector op
-		U32 Planner::operandTuples(const Lanes& lanes, const LaneOps& ops, Lanes* tuples) {
+		U32 Plan::operandTuples(const Lanes& lanes, const LaneOps& ops, Lanes* tuples) {
 			U32 tupleCount = (U32)getOpcodeInfo(ops.mainOp).minInputs;
 			if(isShiftOpcode(ops.mainOp))
 				tupleCount = 1;
@@ -351,7 +417,7 @@ namespace rat {
 			return tupleCount;
 		}
 
-		B32 Planner::isUniformShift(const Lanes& lanes) {
+		B32 isUniformShift(const Lanes& lanes) {
 			Node* amount = lanes[0]->getInput(1);
 			for(Node* n : lanes)
 				if(n->getInput(1) != amount)
@@ -362,7 +428,7 @@ namespace rat {
 		}
 
 		// opcode, type and, for a load, its address group: what orientOperands compares
-		std::tuple<Opcode, const Type*, U32> Planner::operandKey(Node* n) {
+		std::tuple<Opcode, const Type*, U32> Plan::operandKey(Node* n) {
 			U32 group = 0;
 			if(LoadNode* l = dyn_cast<LoadNode>(n))
 				group = slp.addrs.get(l->getPointer()).group;
@@ -370,7 +436,7 @@ namespace rat {
 		}
 
 		// swap the operands of a commutative lane when they match lane 0's in reverse order
-		void Planner::orientOperands(const LaneOps& ops, Lanes* tuples) {
+		void Plan::orientOperands(const LaneOps& ops, Lanes* tuples) {
 			auto key0 = operandKey(tuples[0][0]);
 			auto key1 = operandKey(tuples[1][0]);
 			for(U32 i = 1; i < tuples[0].size() && key0 != key1; ++i) {
@@ -383,7 +449,7 @@ namespace rat {
 			}
 		}
 
-		I32 Planner::blendProfit(const LaneOps& ops, U32 laneCount, U16& sel) {
+		I32 blendProfit(const LaneOps& ops, U32 laneCount, U16& sel) {
 			constexpr Opcode kAddSub[2] = {Opcode::FSub, Opcode::FAdd}; // lane i % 2 of an addsubps
 			B32 addSub = true;
 			sel = 0;
@@ -396,16 +462,16 @@ namespace rat {
 		}
 
 		// add the bytes of vec's lanes to the runtime check of their group
-		void Planner::addGuard(const Vector& vec) {
+		void Plan::addGuard(const Vector& vec) {
 			const Addr& lowest = slp.addrs.get(vec.lowestLoad->getPointer());
-			for(GuardRange& range : plan.guards)
+			for(GuardRange& range : guards)
 				if(range.group == lowest.group) {
 					if(lowest.offset < range.begin)
 						range = {range.group, vec.lowestLoad->getPointer(), lowest.offset, range.end};
 					range.end = std::max(range.end, vec.end);
 					return;
 				}
-			plan.guards.push_back({lowest.group, vec.lowestLoad->getPointer(), lowest.offset, vec.end});
+			guards.push_back({lowest.group, vec.lowestLoad->getPointer(), lowest.offset, vec.end});
 		}
 
 		// some load at ctrl reads each 4-byte piece of [offset, offset + size) of group
