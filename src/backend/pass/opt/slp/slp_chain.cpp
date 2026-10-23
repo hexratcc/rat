@@ -95,32 +95,35 @@ namespace rat {
 			return m;
 		}
 
-		List<Piece> Slp::mergeStretches(const List<Chain>& chains) {
-			List<Piece> pieces;
+		// a disjoint stretch becomes a set, the sets and the parts between are searched in chain order
+		U32 Slp::searchChains(const List<Chain>& chains, List<MemMergeNode*>& sets) {
+			U32 changed = 0;
 			List<Access> acc;
 			Map<U64, U16> written;
 			for(const Chain& chain : chains) {
 				acc.clear();
 				for(StoreNode* st : chain)
 					acc.push_back(accessOf(addrs, ptrBytes, st));
-				U32 from = 0; // first store of the part not pushed yet
+				U32 from = 0; // first store of the part not searched yet
 				for(U32 a = 0, b = 0; a < chain.size(); a = b + 1) {
 					for(b = a; b + 1 < chain.size() && chain[b]->getUsers().size() == 1;)
 						++b;
 					if(b == a || !setDisjoint(acc, a, b, written))
 						continue;
 					if(from < a)
-						pieces.push_back({nullptr, Chain(chain.begin() + from, chain.begin() + a)});
-					pieces.push_back({mergeStretch(chain, a, b), {}});
+						changed += processChain(Chain(chain.begin() + from, chain.begin() + a), nullptr);
+					MemMergeNode* m = mergeStretch(chain, a, b);
+					changed += processSet(m);
+					sets.push_back(m);
 					from = b + 1;
 				}
 				if(from < chain.size())
-					pieces.push_back({nullptr, Chain(chain.begin() + from, chain.end())});
+					changed += processChain(Chain(chain.begin() + from, chain.end()), nullptr);
 			}
-			return pieces;
+			return changed;
 		}
 
-		Node* lowerMerge(MemMergeNode* m) {
+		void lowerMerge(MemMergeNode* m) {
 			Node* prev = nullptr;
 			for(U32 i = 1; i < m->getInputCount(); ++i) {
 				Node* st = m->getInput(i);
@@ -129,18 +132,8 @@ namespace rat {
 				if(st)
 					prev = st;
 			}
-			replaceUses(m, prev);
+			m->replaceAllUsesWith(prev);
 			m->clearInputs();
-			return prev;
-		}
-
-		void Slp::lowerSets(const List<Piece>& pieces) {
-			for(const Piece& p : pieces) {
-				if(p.set)
-					seams.insert(lowerMerge(p.set));
-				else
-					seams.insert(p.chain.back());
-			}
 		}
 
 		// bytes / element size stores from chain[at] of one type and group that fill one span
@@ -215,31 +208,9 @@ namespace rat {
 			return changed;
 		}
 
-		U32 Slp::processSeams() {
-			B32 inner = false;
-			for(const Node* s : seams)
-				inner |= chainSuccessor(cast<StoreNode>(s)) != nullptr;
-			if(!inner)
-				return 0;
-			U32 changed = 0;
-			for(const Chain& chain : collectChains(fn))
-				changed += processChain(chain, nullptr);
-			return changed;
-		}
-
-		// every window is new until lowerSets marks the seams, after that only a window across a seam
-		B32 Slp::isNewWindow(const Chain& chain, const Window& w) {
-			if(seams.empty())
-				return true;
-			for(U32 j = 0; j + 1 < w.w; ++j)
-				if(seams.count(chain[w.begin + j]))
-					return true;
-			return false;
-		}
-
 		U32 Slp::tryRun(const Chain& chain, U32 i, U32 bytes, MemMergeNode* set) {
 			Window w0;
-			if(!windowAt(chain, i, bytes, w0) || !isNewWindow(chain, w0))
+			if(!windowAt(chain, i, bytes, w0))
 				return 0;
 			++stats.windowsSeen;
 			B32 observed = false;

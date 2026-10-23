@@ -33,21 +33,14 @@ namespace rat {
 			sse41(target.hasSse41()),
 			stats(stats) {}
 
-		// sets by lookup and chain parts in chain order, then lowerSets, then the windows across a seam
-		// on the lowered chains
+		// sets by lookup and chain parts in chain order, then the sets lower to chains
 		U32 Slp::run() {
 			Handoff h = takeHandoff(fn);
 			addrs = std::move(h.addrs);
-			List<Piece> pieces = mergeStretches(h.chains);
-			U32 changed = 0;
-			for(const Piece& p : pieces) {
-				if(p.set)
-					changed += processSet(p.set);
-				else
-					changed += processChain(p.chain, nullptr);
-			}
-			lowerSets(pieces);
-			changed += processSeams();
+			List<MemMergeNode*> sets;
+			U32 changed = searchChains(h.chains, sets);
+			for(MemMergeNode* m : sets)
+				lowerMerge(m);
 			splitBlocks();
 			fn.eliminateDeadNodes(); // so every reduction root found is live
 			changed += packReductions();
@@ -89,11 +82,6 @@ namespace rat {
 				return (t->getFloatWidth() == 32) * kF32 | (t->getFloatWidth() == 64) * kF64;
 			U32 bits = t->getIntWidth();
 			return (bits == 8) * kI8 | (bits == 16) * kI16 | (bits == 32) * kI32 | (bits == 64) * kI64;
-		}
-
-		void replaceUses(Node* from, Node* to) {
-			for(U32 k = from->getUsers().size(); k-- > 0;)
-				from->getUsers()[k]->setInput(from->getUserSlot(k), to);
 		}
 
 		// high in the upper 32 bits, the low 32 bits of low below

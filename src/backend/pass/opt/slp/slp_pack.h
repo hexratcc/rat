@@ -113,12 +113,6 @@ namespace rat {
 			U32 size = 0;
 		};
 
-		// one set, or a chain part that no set covers
-		struct Piece {
-			MemMergeNode* set = nullptr;
-			Chain chain;
-		};
-
 		// w stores of group from chain[begin] that fill bytes from lo, lane[k] writes lo + k * element size
 		struct Window {
 			U32 begin = 0, w = 0, bytes = 0, group = 0;
@@ -196,7 +190,6 @@ namespace rat {
 
 		// helpers without pass state
 		U8 typeBits(const Type* t);
-		void replaceUses(Node* from, Node* to);
 		U64 pairKey(U32 high, I64 low);
 		I32 gatherCost(const Lanes& lanes);
 		B32 oneScalar(const Lanes& lanes);
@@ -206,7 +199,7 @@ namespace rat {
 		Handoff& handoff();
 		Handoff takeHandoff(Function& fn);
 		B32 setDisjoint(const List<Access>& acc, U32 lo, U32 hi, Map<U64, U16>& written);
-		Node* lowerMerge(MemMergeNode* m);
+		void lowerMerge(MemMergeNode* m);
 		Seed runSeed(const Chain& chain, const Run& run, MemMergeNode* set);
 		List<Node*> flattenReduction(Node* root, List<Node*>& steps);
 		I32 profitMargin(const Seed& seed, const Plan& plan);
@@ -218,15 +211,12 @@ namespace rat {
 			B32 pack(const Seed& seed);
 			Type* laneType(const Node* n);
 			// sets
-			List<Piece> mergeStretches(const List<Chain>& chains);
+			U32 searchChains(const List<Chain>& chains, List<MemMergeNode*>& sets);
 			MemMergeNode* mergeStretch(const Chain& chain, U32 lo, U32 hi);
-			void lowerSets(const List<Piece>& pieces);
 			// seed
 			B32 windowAt(const Chain& chain, U32 at, U32 bytes, Window& out);
 			U32 processChain(const Chain& chain, MemMergeNode* set);
 			U32 processSet(MemMergeNode* m);
-			U32 processSeams();
-			B32 isNewWindow(const Chain& chain, const Window& w);
 			U32 tryRun(const Chain& chain, U32 i, U32 bytes, MemMergeNode* set);
 			void extendRun(const Chain& chain, Run& run);
 			U32 packReductions();
@@ -274,7 +264,6 @@ namespace rat {
 			Set<const Node*> guardedBlocks; // blocks with a guarded run, for loadState
 			List<U8> roles;									// node id -> Role bits of the plan being checked, else 0
 			Map<const Node*, U32> setSlot;	// member of a set -> its input slot
-			Set<const Node*> seams;					// the last store of each piece after lowerSets
 		};
 
 		struct Planner {
@@ -292,7 +281,6 @@ namespace rat {
 			// Op
 			U32 op(const Lanes& lanes);
 			B32 laneForms(const Lanes& lanes, Forms& f);
-			void subAsAdd(const Lanes& lanes, Forms& f);
 			B32 hasFormRule(const Forms& f, Node* n0);
 			B32 hasRule(Opcode op, Node* n);
 			U32 operandTuples(const Lanes& lanes, const Forms& f, Lanes* ops);

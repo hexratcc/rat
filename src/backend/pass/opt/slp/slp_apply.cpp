@@ -164,7 +164,7 @@ namespace rat {
 				// the wide store takes the slot of the window's first store
 				seed.set->setInput(first, wide);
 			} else {
-				replaceUses(seed.stores.back(), wide);
+				seed.stores.back()->replaceAllUsesWith(wide);
 			}
 			for(StoreNode* st : seed.stores)
 				st->clearInputs(); // dead without inputs, the sweep in run erases it
@@ -183,8 +183,8 @@ namespace rat {
 			Node* wide = chainWideStores(seed, made, thenP);
 			Node* region = fn.create<RegionNode>(fn.ctrlTy(), List<Node*>{thenP, elseP});
 			PhiNode* phi = fn.create<PhiNode>(fn.memTy(), List<Node*>{region, wide, last});
-			replaceUses(last, phi);
-			phi->setInput(2, last); // replaceUses also rewired the phi's own else input
+			last->replaceAllUsesWith(phi);
+			phi->setInput(2, last); // replaceAllUsesWith also rewired the phi's own else input
 			moveToElse(seed, plan, block, elseP);
 			splits.push_back({block, seed.stores[0], phi, iff, region});
 			guardedBlocks.insert(block);
@@ -296,7 +296,7 @@ namespace rat {
 			Node* res = fn.create<ExtractNode>(seed.root->getType(), acc, 0);
 			for(Node* r : seed.rest)
 				res = fn.create<BinaryNode>(op, seed.root->getType(), res, r);
-			replaceUses(seed.root, res);
+			seed.root->replaceAllUsesWith(res);
 			++stats.packedReduction;
 		}
 	} // namespace slp

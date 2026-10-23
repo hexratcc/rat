@@ -250,8 +250,6 @@ namespace rat {
 					f.in[i][1] = ones;
 				}
 			}
-			if(std::count(f.op, f.op + lanes.size(), f.op[0]) != (I64)lanes.size())
-				subAsAdd(lanes, f);
 			f.first = f.op[0];
 			for(U32 i = 0; i < lanes.size(); ++i)
 				if(f.op[i] != f.first && f.op[i] != f.second) {
@@ -260,19 +258,6 @@ namespace rat {
 					f.second = f.op[i];
 				}
 			return true;
-		}
-
-		// an integer x - c as x + -c mod 2^n, so that such lanes beside adds pack as one op
-		void Planner::subAsAdd(const Lanes& lanes, Forms& f) {
-			for(U32 i = 0; i < lanes.size(); ++i) {
-				const ConstantNode* c = dyn_cast<ConstantNode>(f.in[i][1]);
-				Type* t = lanes[i]->getType();
-				if(f.op[i] != Opcode::Sub || !c || !t->isInt())
-					continue;
-				I64 neg = (I64)(0 - (U64)c->getValue());
-				f.op[i] = Opcode::Add;
-				f.in[i][1] = s.fn.create<ConstantNode>(t, signExtend(neg, t->getIntWidth()));
-			}
 		}
 
 		B32 Planner::hasFormRule(const Forms& f, Node* n0) {
