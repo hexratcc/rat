@@ -98,6 +98,8 @@ namespace rat {
 			*os << Green << "  #" << (U32)cast<ShuffleNode>(node)->getSelector() << Reset;
 			break;
 		default:
+			if(const BinaryNode* b = dyn_cast<BinaryNode>(node); b && b->isNsw())
+				*os << Green << "  nsw" << Reset;
 			break;
 		}
 

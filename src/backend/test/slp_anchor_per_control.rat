@@ -1,0 +1,115 @@
+@name slp: p + 4 * sext(i + 1) and p + 4 * sext(i) share a group only where i + 1 does not overflow, so the else arm takes its own anchor (v75) and not the then arm's v23, whose i + 1 the else arm never computes
+@passes loadcanon slp
+
+@input
+func f(ptr restrict, i32, i32, ptr restrict) -> void noinline {
+  v0 = start : (ctrl, mem, ptr, i32, i32, ptr)
+  v1 = stop : ctrl v117
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : i32  #3 "arg1" of v0
+  v6 = proj : i32  #4 "arg2" of v0
+  v7 = proj : ptr  #5 "arg3" of v0
+  v8 = const : i32  0
+  v9 = ne : i1 v6, v8
+  v10 = if : (ctrl, ctrl) v2, v9
+  v11 = proj : ctrl  #0 "then" of v10
+  v12 = proj : ctrl  #1 "else" of v10
+  v18 = const : i32  1
+  v19 = add : i32  nsw v5, v18
+  v20 = sext : i64 v19
+  v23 = add : ptr v4, v135
+  v24 = load : i32 v11, v3, v23
+  v25 = store : mem v11, v3, v7, v24
+  v30 = add : ptr v7, v121
+  v31 = const : i32  2
+  v32 = add : i32  nsw v5, v31
+  v33 = sext : i64 v32
+  v36 = add : ptr v4, v137
+  v37 = load : i32 v11, v25, v36
+  v38 = store : mem v11, v25, v30, v37
+  v43 = add : ptr v7, v123
+  v44 = const : i32  3
+  v45 = add : i32  nsw v5, v44
+  v46 = sext : i64 v45
+  v49 = add : ptr v4, v139
+  v50 = load : i32 v11, v38, v49
+  v51 = store : mem v11, v38, v43, v50
+  v56 = add : ptr v7, v125
+  v57 = const : i32  4
+  v58 = add : i32  nsw v5, v57
+  v59 = sext : i64 v58
+  v62 = add : ptr v4, v141
+  v63 = load : i32 v11, v51, v62
+  v64 = store : mem v11, v51, v56, v63
+  v71 = sub : i32  nsw v5, v44
+  v72 = sext : i64 v71
+  v75 = add : ptr v4, v143
+  v76 = load : i32 v12, v3, v75
+  v77 = store : mem v12, v3, v7, v76
+  v84 = sub : i32  nsw v5, v31
+  v85 = sext : i64 v84
+  v88 = add : ptr v4, v145
+  v89 = load : i32 v12, v77, v88
+  v90 = store : mem v12, v77, v30, v89
+  v97 = sub : i32  nsw v5, v18
+  v98 = sext : i64 v97
+  v101 = add : ptr v4, v147
+  v102 = load : i32 v12, v90, v101
+  v103 = store : mem v12, v90, v43, v102
+  v109 = sext : i64 v5
+  v112 = add : ptr v4, v149
+  v113 = load : i32 v12, v103, v112
+  v114 = store : mem v12, v103, v56, v113
+  v115 = region : ctrl v11, v12
+  v116 = phi : mem v115, v64, v114
+  v117 = return : ctrl v115, v116
+  v121 = const : i64  4
+  v123 = const : i64  8
+  v125 = const : i64  12
+  v134 = const : i64  2
+  v135 = shl : i64 v20, v134
+  v137 = shl : i64 v33, v134
+  v139 = shl : i64 v46, v134
+  v141 = shl : i64 v59, v134
+  v143 = shl : i64 v72, v134
+  v145 = shl : i64 v85, v134
+  v147 = shl : i64 v98, v134
+  v149 = shl : i64 v109, v134
+}
+
+@expect
+func f(ptr restrict, i32, i32, ptr restrict) -> void noinline {
+  v0 = start : (ctrl, mem, ptr, i32, i32, ptr)
+  v1 = stop : ctrl v21
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : i32  #3 "arg1" of v0
+  v6 = proj : i32  #4 "arg2" of v0
+  v7 = proj : ptr  #5 "arg3" of v0
+  v8 = const : i32  0
+  v9 = ne : i1 v6, v8
+  v10 = if : (ctrl, ctrl) v2, v9
+  v11 = proj : ctrl  #0 "then" of v10
+  v12 = proj : ctrl  #1 "else" of v10
+  v13 = const : i32  1
+  v14 = add : i32  nsw v5, v13
+  v15 = sext : i64 v14
+  v16 = const : i32  3
+  v17 = sub : i32  nsw v5, v16
+  v18 = sext : i64 v17
+  v19 = region : ctrl v11, v12
+  v20 = phi : mem v19, v28, v30
+  v21 = return : ctrl v19, v20
+  v22 = const : i64  2
+  v23 = shl : i64 v15, v22
+  v24 = shl : i64 v18, v22
+  v25 = add : ptr v4, v23
+  v26 = add : ptr v4, v24
+  v27 = load : <4 x i32> v11, v3, v25
+  v28 = store : mem v11, v3, v7, v27
+  v29 = load : <4 x i32> v12, v3, v26
+  v30 = store : mem v12, v3, v7, v29
+}

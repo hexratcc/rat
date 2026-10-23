@@ -7,13 +7,17 @@ typedef struct {
 } SD;
 
 double G;
+// u and v start as whole copies, so the wide loads in the loop forward from one wide store
+SD U;
+SD V = {4};
 
 uint64_t swap(uint64_t a, float f) {
 	double d[2] = {0, 0};
 	for(int k = 0; k < 2; k++)
 		;
 	double v0 = 2 - 2 > -1e15 && 2 < 1e15 ? f : 5, v4 = a;
-	SD u = (SD){0, 0}, v = {v4};
+	SD v = V;
+	SD u = U;
 	for(int i = 0; i < 2; i++) {
 		for(; 1 ? f : 5;)
 			;

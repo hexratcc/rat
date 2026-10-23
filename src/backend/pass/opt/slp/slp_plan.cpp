@@ -24,7 +24,12 @@ namespace rat {
 			for(const Vector& vec : plan.vectors)
 				if(vec.needsGuard)
 					addGuard(vec);
-			return plan.guards.size() <= kMaxGuards;
+			if(plan.guards.empty())
+				return true;
+			// a guarded run splits its block, and the loads above its guard stay live across the splits
+			auto it = slp.guardedRuns.find(seed.stores.back()->getControl());
+			B32 blockFull = it != slp.guardedRuns.end() && it->second >= kMaxGuardedRuns;
+			return plan.guards.size() <= kMaxGuards && !blockFull;
 		}
 
 		U32 Planner::planVector(const Lanes& lanes) {
@@ -45,14 +50,14 @@ namespace rat {
 			if(!(typeBits(lanes[0]->getType()) & kElem))
 				return kNoVector;
 			Vector vec{lanes, VectorKind::Gather};
-			vec.profit = -gatherCost(lanes);
+			vec.profit = -gatherCost(lanes, seed.root != nullptr);
 			plan.vectors.push_back(vec);
 			return (U32)plan.vectors.size() - 1;
 		}
 
 		U32 Planner::planLoad(const Lanes& lanes) {
 			Vector vec{lanes, VectorKind::Load};
-			if(!loadShape(lanes, vec) || !loadState(lanes, vec))
+			if(!loadShape(lanes, vec) || !loadState(lanes, vec) || forwardBlocked(vec))
 				return kNoVector;
 			I32 laneCount = (I32)lanes.size();
 			vec.profit = laneCount - 2; // one load and a broadcast
@@ -136,8 +141,7 @@ namespace rat {
 				return shared; // a reduction has no memIn and adds no guard
 			// in a block with a guarded run, a run reads memIn, as loads of an earlier state would stay
 			// live across that guard
-			if(shared && !slp.guardedBlocks.count(vec.lowestLoad->getControl()) &&
-				 !isInner(seed, vec.mem))
+			if(shared && !slp.guardedRuns.count(vec.lowestLoad->getControl()) && !isInner(seed, vec.mem))
 				return true;
 			vec.mem = seed.memIn;
 			const Addr& runAddr = slp.addrs.get(seed.lowestStores[0]->getPointer());
@@ -172,6 +176,66 @@ namespace rat {
 				later = st->getMemory();
 			}
 			return true;
+		}
+
+		// a wide load forwards only from one older store that holds all its bytes, else it waits about
+		// 11 cycles on Zen 3 until the stores commit, so each youngest writer must hold all its bytes
+		B32 Planner::forwardBlocked(const Vector& vec) {
+			U32 bytes = (U32)vec.lanes.size() * vec.lowestLoad->getType()->byteSize(slp.ptrBytes);
+			Access load{slp.addrs.get(vec.lowestLoad->getPointer()), bytes};
+			for(U32 k = 0; k < vec.wideLoads; ++k) {
+				load.addr.offset = vec.offset + (I64)(k * bytes);
+				SmallList<Node*, kMaxStlfHops> walk = {vec.mem};
+				for(U32 i = 0; i < walk.size() && i < kMaxStlfHops; ++i)
+					if(splitsLoad(walk[i], load, walk))
+						return true;
+			}
+			return false;
+		}
+
+		// whether state writes some but not all bytes of load, or is a call that writes them, and else
+		// add to walk the states before it, which may hold the youngest writer
+		B32 Planner::splitsLoad(Node* state, const Access& load, SmallList<Node*, kMaxStlfHops>& walk) {
+			if(PhiNode* phi = dyn_cast<PhiNode>(state)) {
+				// a backedge brings stores of the previous iteration, whose addresses the walk cannot
+				// compare, so a loop header gives only its entry, input 0
+				U32 count = phi->getValueCount();
+				if(phi->getRegion()->isLoopHeader())
+					count = 1;
+				for(U32 i = 0; i < count; ++i)
+					walk.push_back(phi->getValue(i));
+				return false;
+			}
+			ProjNode* proj = dyn_cast<ProjNode>(state);
+			if(proj && isa<CallNode>(proj->getProducer()))
+				return callWrites(cast<CallNode>(proj->getProducer()), load.addr);
+			StoreNode* st = dyn_cast<StoreNode>(state);
+			if(!st)
+				return false; // the entry state or another writer, taken as old
+			Access store = accessOf(slp.addrs, slp.ptrBytes, st);
+			if(disjoint(load.addr, load.size, store.addr, store.size)) {
+				walk.push_back(st->getMemory());
+				return false;
+			}
+			// a store of another group that may overlap ends the walk
+			I64 loadEnd = load.addr.offset + (I64)load.size;
+			I64 storeEnd = store.addr.offset + (I64)store.size;
+			B32 holdsAll = store.addr.offset <= load.addr.offset && storeEnd >= loadEnd;
+			return store.addr.group == load.addr.group && !holdsAll;
+		}
+
+		// an object that no store of the function writes, an out parameter or a struct return, gets
+		// its bytes from the calls that take its address, with stores the walk cannot see, and a
+		// callee writes a struct field by field
+		B32 Planner::callWrites(const CallNode* call, const Addr& addr) {
+			if(!addr.object || slp.storesTo(addr.object))
+				return false;
+			for(U32 i = 0; i < call->getArgCount(); ++i) {
+				Node* arg = call->getArg(i);
+				if(arg->getType()->isPtr() && slp.addrs.get(arg).object == addr.object)
+					return true;
+			}
+			return false;
 		}
 
 		U32 Planner::planOp(const Lanes& lanes) {
@@ -367,6 +431,19 @@ namespace rat {
 					reads[pairKey(load->getControl()->getId(), addr.group)].insert(addr.offset + (I64)piece);
 				}
 			}
+		}
+
+		B32 Slp::storesTo(U32 object) {
+			if(!storesIndexed)
+				indexStores();
+			return storedObjects.count(object) != 0;
+		}
+
+		void Slp::indexStores() {
+			storesIndexed = true;
+			for(Node* n : fn)
+				if(StoreNode* st = dyn_cast<StoreNode>(n))
+					storedObjects.insert(addrs.get(st->getPointer()).object);
 		}
 	} // namespace slp
 } // namespace rat

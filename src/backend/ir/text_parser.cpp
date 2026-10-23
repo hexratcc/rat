@@ -421,6 +421,15 @@ namespace rat {
 				pn.operands = parseVRefs(body);
 				return true;
 			}
+			case Opcode::Add:
+			case Opcode::Sub:
+			case Opcode::Mul:
+			case Opcode::Shl: {
+				String body = remainder;
+				pn.nsw = takeKeyword(body, "nsw");
+				pn.operands = parseVRefs(body);
+				return true;
+			}
 			case Opcode::Extract:
 			case Opcode::Shuffle:
 				return parseLaneOp(remainder, line, pn);
@@ -610,8 +619,11 @@ namespace rat {
 				break;
 			}
 			switch(getOpClass(op)) {
-			case OpClass::Binary:
-				return fn->create<BinaryNode>(op, pn.ty, in[0], in[1]);
+			case OpClass::Binary: {
+				BinaryNode* b = fn->create<BinaryNode>(op, pn.ty, in[0], in[1]);
+				b->setNsw(pn.nsw);
+				return b;
+			}
 			case OpClass::Compare:
 				return fn->create<CompareNode>(op, pn.ty, in[0], in[1]);
 			case OpClass::Unary:

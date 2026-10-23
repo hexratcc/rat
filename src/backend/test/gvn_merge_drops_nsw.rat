@@ -1,0 +1,135 @@
+@name gvn: an nsw add that merges with a plain copy loses nsw, so its lane stays scalar
+@passes gvn slp
+
+@input
+func plain(ptr, ptr, i32, i32) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr, i32, i32)
+	v1 = stop : ctrl v33
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "p" of v0
+	v35 = proj : ptr  #3 "q" of v0
+	v5 = proj : i32  #4 "u" of v0
+	v6 = proj : i32  #5 "v" of v0
+	v8 = const : i64  2
+	v12 = const : i32  1
+	v19 = const : i32  2
+	v26 = const : i32  3
+	v7 = sext : i64 v5
+	v9 = shl : i64 v7, v8
+	v10 = add : ptr v4, v9
+	v11 = store : mem v2, v3, v10, v6
+	v13 = add : i32  nsw v5, v12
+	v14 = sext : i64 v13
+	v15 = shl : i64 v14, v8
+	v17 = add : ptr v4, v15
+	v18 = store : mem v2, v11, v17, v6
+	v20 = add : i32  nsw v5, v19
+	v21 = sext : i64 v20
+	v22 = shl : i64 v21, v8
+	v24 = add : ptr v4, v22
+	v25 = store : mem v2, v18, v24, v6
+	v27 = add : i32  nsw v5, v26
+	v28 = sext : i64 v27
+	v29 = shl : i64 v28, v8
+	v31 = add : ptr v4, v29
+	v32 = store : mem v2, v25, v31, v6
+	v36 = add : i32 v5, v12
+	v37 = store : mem v2, v32, v35, v36
+	v33 = return : ctrl v2, v37
+}
+
+func flagged(ptr, ptr, i32, i32) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr, i32, i32)
+	v1 = stop : ctrl v33
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "p" of v0
+	v35 = proj : ptr  #3 "q" of v0
+	v5 = proj : i32  #4 "u" of v0
+	v6 = proj : i32  #5 "v" of v0
+	v8 = const : i64  2
+	v12 = const : i32  1
+	v19 = const : i32  2
+	v26 = const : i32  3
+	v7 = sext : i64 v5
+	v9 = shl : i64 v7, v8
+	v10 = add : ptr v4, v9
+	v11 = store : mem v2, v3, v10, v6
+	v13 = add : i32  nsw v5, v12
+	v14 = sext : i64 v13
+	v15 = shl : i64 v14, v8
+	v17 = add : ptr v4, v15
+	v18 = store : mem v2, v11, v17, v6
+	v20 = add : i32  nsw v5, v19
+	v21 = sext : i64 v20
+	v22 = shl : i64 v21, v8
+	v24 = add : ptr v4, v22
+	v25 = store : mem v2, v18, v24, v6
+	v27 = add : i32  nsw v5, v26
+	v28 = sext : i64 v27
+	v29 = shl : i64 v28, v8
+	v31 = add : ptr v4, v29
+	v32 = store : mem v2, v25, v31, v6
+	v36 = add : i32  nsw v5, v12
+	v37 = store : mem v2, v32, v35, v36
+	v33 = return : ctrl v2, v37
+}
+
+@expect
+func plain(ptr, ptr, i32, i32) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, i32, i32)
+  v1 = stop : ctrl v33
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "p" of v0
+  v5 = proj : ptr  #3 "q" of v0
+  v6 = proj : i32  #4 "u" of v0
+  v7 = proj : i32  #5 "v" of v0
+  v8 = const : i64  2
+  v9 = const : i32  1
+  v10 = const : i32  2
+  v11 = const : i32  3
+  v12 = sext : i64 v6
+  v13 = shl : i64 v12, v8
+  v14 = add : ptr v4, v13
+  v15 = store : mem v2, v3, v14, v7
+  v16 = add : i32 v6, v9
+  v17 = sext : i64 v16
+  v18 = shl : i64 v17, v8
+  v19 = add : ptr v4, v18
+  v20 = store : mem v2, v15, v19, v7
+  v21 = add : i32  nsw v6, v10
+  v22 = sext : i64 v21
+  v23 = shl : i64 v22, v8
+  v24 = add : ptr v4, v23
+  v25 = store : mem v2, v20, v24, v7
+  v26 = add : i32  nsw v6, v11
+  v27 = sext : i64 v26
+  v28 = shl : i64 v27, v8
+  v29 = add : ptr v4, v28
+  v30 = store : mem v2, v25, v29, v7
+  v32 = store : mem v2, v30, v5, v16
+  v33 = return : ctrl v2, v32
+}
+
+func flagged(ptr, ptr, i32, i32) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, i32, i32)
+  v1 = stop : ctrl v33
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "p" of v0
+  v5 = proj : ptr  #3 "q" of v0
+  v6 = proj : i32  #4 "u" of v0
+  v7 = proj : i32  #5 "v" of v0
+  v8 = const : i64  2
+  v9 = const : i32  1
+  v12 = sext : i64 v6
+  v13 = shl : i64 v12, v8
+  v14 = add : ptr v4, v13
+  v16 = add : i32  nsw v6, v9
+  v32 = store : mem v2, v35, v5, v16
+  v33 = return : ctrl v2, v32
+  v34 = splat : <4 x i32> v7
+  v35 = store : mem v2, v3, v14, v34
+}

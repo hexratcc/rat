@@ -9,7 +9,7 @@ __attribute__((noinline)) void ext(unsigned *x) {
 
 __attribute__((noinline)) void k(unsigned *p, unsigned *q, int n, int sel) {
 	if(sel & 2)
-		((unsigned char *)q)[76] = (unsigned char)159;
+		((unsigned char *)q)[8] = (unsigned char)159;
 	q[0] = (q[17] - p[0]) ^ 312u;
 	q[1] = (q[18] - p[1]) ^ 312u;
 	q[2] = (q[19] - p[2]) ^ 312u;
@@ -23,7 +23,7 @@ __attribute__((noinline)) void k(unsigned *p, unsigned *q, int n, int sel) {
 // the same in a loop, which SLP leaves alone
 __attribute__((noinline)) void ref(unsigned *p, unsigned *q, int sel) {
 	if(sel & 2)
-		((unsigned char *)q)[76] = (unsigned char)159;
+		((unsigned char *)q)[8] = (unsigned char)159;
 	for(int i = 0; i < 4; i++)
 		q[i] = (q[17 + i] - p[i]) ^ 312u;
 	p[2] ^= 0x99u;

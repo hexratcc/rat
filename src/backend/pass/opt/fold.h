@@ -36,9 +36,9 @@ namespace rat {
 		B32 isAllOnesConst(Node* n, U32 w);
 		I32 pow2Log(Node* n, U32 w);
 		B32 matchVarConst(Node* n, Opcode want, Node*& base, I64& c);
-		Node* mkBin(Function& fn, Opcode op, Type* ty, Node* x, I64 c);
+		Node* mkBin(Function& fn, Opcode op, Type* ty, Node* x, I64 c, B32 nsw = false);
 
-		Node* foldBinary(Function& fn, Opcode op, Node* lhs, Node* rhs);
+		Node* foldBinary(Function& fn, Opcode op, Node* lhs, Node* rhs, B32 nsw);
 		Node* foldUnary(Function& fn, Opcode op, Node* operand);
 		Node* foldCompare(Function& fn, Opcode op, Node* lhs, Node* rhs);
 		Node* foldBoolRetest(Function& fn, Opcode op, Node* lhs, ConstantNode* cr);
@@ -46,9 +46,11 @@ namespace rat {
 		Node* foldBinaryIdentity(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs);
 		Node* foldSExtMask(Function& fn, Type* ty, Node* lhs, Node* rhs);
 		Node* foldRotate(Function& fn, Type* ty, U32 w, Node* lhs, Node* rhs);
-		Node* foldBinaryReassoc(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, ConstantNode* cr);
-		Node* foldBinaryStrength(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs);
-		Node* foldShiftOfShift(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs);
+		Node* foldBinaryReassoc(
+				Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, ConstantNode* cr, B32 nsw);
+		Node*
+		foldBinaryStrength(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs, B32 nsw);
+		Node* foldShiftOfShift(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs, B32 nsw);
 
 		// hacker's delight 10-9: magic number for unsigned 32-bit division by d
 		struct MagicU32 {

@@ -46,6 +46,8 @@ namespace rat {
 		};
 
 		B32 makeKey(Node* n, GVNKey& k);
+		// keep has nsw only when dup has it too, as the merged node stands for both
+		void meetNsw(Node* keep, const Node* dup);
 	} // namespace detail
 
 	struct GVNPass : FunctionPass {

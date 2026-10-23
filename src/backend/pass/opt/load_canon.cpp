@@ -1,6 +1,5 @@
 #include "pass/opt/load_canon.h"
 
-#include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/node.h"
 #include "target/target.h"
@@ -83,20 +82,20 @@ namespace rat {
 			return false;
 		}
 
-		U32 hoistLoads(AddrCache& addrs, U32 ptrBytes, const Chain& chain, List<U32>& stateOf) {
+		void hoistLoads(Handoff& h, U32 ptrBytes, U32 chainIndex, List<U32>& stateOf) {
+			const Chain& chain = h.chains[chainIndex];
 			Node* block = chain[0]->getControl();
 			Conflicts seen;
-			U32 moved = 0;
 			for(U32 k = 1; k <= chain.size(); ++k)
 				stateOf[chain[k - 1]->getId()] = k;
 			for(U32 k = 1; k < chain.size(); ++k) { // a hoist of a final state reader only adds an order
-				seen.add(k, accessOf(addrs, ptrBytes, chain[k - 1]));
+				seen.add(k, accessOf(h.addrs, ptrBytes, chain[k - 1]));
 				SmallList<LoadNode*, 8> readers; // copy first, a hoist changes the store's users
 				for(Node* u : chain[k - 1]->getUsers())
 					if(LoadNode* l = dyn_cast<LoadNode>(u); l && l->getControl() == block && !l->isVolatile())
 						readers.push_back(l);
 				for(LoadNode* l : readers) {
-					Access access = accessOf(addrs, ptrBytes, l);
+					Access access = accessOf(h.addrs, ptrBytes, l);
 					if(!access.addr.group)
 						continue;
 					U32 target = std::max(seen.lastConflict(access), coneState(l, stateOf));
@@ -105,13 +104,12 @@ namespace rat {
 					Node* state = chain[0]->getMemory(); // the state before the chain
 					if(target)
 						state = chain[target - 1];
+					h.hoists.push_back({chainIndex, l, chain[k - 1]});
 					l->setInput(1, state); // input 1 is the memory
-					++moved;
 				}
 			}
 			for(StoreNode* st : chain)
 				stateOf[st->getId()] = 0;
-			return moved;
 		}
 	} // namespace slp
 
@@ -119,15 +117,14 @@ namespace rat {
 
 	U32 LoadCanonPass::runOnFunction(Function& fn, const TargetInfo& target) {
 		slp::Handoff& h = slp::handoff();
-		h = {&fn, 0, slp::collectChains(fn), AddrCache(AliasAnalysis::restrictFacts(fn), fn.idBound())};
-		U32 moved = 0;
+		h = slp::freshHandoff(fn);
 		List<U32> stateOf; // node id -> store number in the walked chain, sized on first use
-		for(const slp::Chain& chain : h.chains)
-			if(slp::hasInnerReader(chain)) {
+		for(U32 c = 0; c < h.chains.size(); ++c)
+			if(slp::hasInnerReader(h.chains[c])) {
 				stateOf.resize(fn.idBound(), 0);
-				moved += slp::hoistLoads(h.addrs, target.getPointerSizeInBytes(), chain, stateOf);
+				slp::hoistLoads(h, target.getPointerSizeInBytes(), c, stateOf);
 			}
 		h.version = fn.getVersion();
-		return moved;
+		return (U32)h.hoists.size();
 	}
 } // namespace rat

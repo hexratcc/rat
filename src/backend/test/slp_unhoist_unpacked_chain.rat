@@ -1,0 +1,40 @@
+@name slp: a load that loadcanon moved off an inner state goes back to it when slp packs nothing in the chain, so the scheduler does not load it long before its use
+@passes loadcanon slp
+
+@input
+func t(ptr, i32, f64) -> i32 {
+	v0 = start : (ctrl, mem, ptr, i32, f64)
+	v1 = stop : ctrl v14
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "p" of v0
+	v5 = proj : i32  #3 "x" of v0
+	v6 = proj : f64  #4 "y" of v0
+	v7 = const : i64  8
+	v8 = add : ptr v4, v7
+	v9 = const : i64  16
+	v10 = add : ptr v4, v9
+	v11 = store : mem v2, v3, v4, v5
+	v12 = load : i32 v2, v11, v10
+	v13 = store : mem v2, v11, v8, v6
+	v14 = return : ctrl v2, v13, v12
+}
+
+@expect
+func t(ptr, i32, f64) -> i32 {
+  v0 = start : (ctrl, mem, ptr, i32, f64)
+  v1 = stop : ctrl v14
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "p" of v0
+  v5 = proj : i32  #3 "x" of v0
+  v6 = proj : f64  #4 "y" of v0
+  v7 = const : i64  8
+  v8 = add : ptr v4, v7
+  v9 = const : i64  16
+  v10 = add : ptr v4, v9
+  v11 = store : mem v2, v3, v4, v5
+  v12 = load : i32 v2, v11, v10
+  v13 = store : mem v2, v11, v8, v6
+  v14 = return : ctrl v2, v13, v12
+}

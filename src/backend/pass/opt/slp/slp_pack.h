@@ -14,6 +14,7 @@
 
 namespace rat {
 	struct Node;
+	struct CallNode;
 	struct StoreNode;
 	struct LoadNode;
 	struct MemMergeNode;
@@ -39,6 +40,7 @@ namespace rat {
 		constexpr I32 kMinProfit = 2;							 // scalar ops saved per window, net of lane plumbing
 		constexpr U32 kMaxRunWindows = 4;					 // windows sharing one guard branch
 		constexpr U32 kMaxGuards = 4;							 // runtime checks per guarded run
+		constexpr U32 kMaxGuardedRuns = 16;				 // guarded runs per block, see planSeed
 		constexpr I32 kGuardCheckCost = 6;				 // ops per runtime disjointness check
 		constexpr I32 kGuardBranchCost = 6;				 // branch + else-arm bloat per guarded run
 		constexpr U32 kMinTerms = 4;							 // fewest terms of a reduction
@@ -50,6 +52,7 @@ namespace rat {
 		constexpr U32 kMaxOps = 64;				// Op vectors tried per seed tuple
 		constexpr U32 kMaxSetGroups = 16; // groups of a set, compared pairwise by their bases
 		constexpr U32 kMaxHops = 16;			// stores walked between a lane load's state and memIn
+		constexpr U32 kMaxStlfHops = 16;	// states walked back to the stores a wide load reads
 
 		// lane type classes of the op table
 		enum TypeBits : U8 { kI8 = 1, kI16 = 2, kI32 = 4, kI64 = 8, kF32 = 16, kF64 = 32, kPtr = 64 };
@@ -98,15 +101,24 @@ namespace rat {
 		using Lanes = SmallList<Node*, kMaxLanes>; // a tuple, one scalar per lane
 		using Chain = List<StoreNode*>;						 // a block's stores in chain order, or a set's run
 
+		// a load loadcanon moved off an inner state of a chain
+		struct Hoist {
+			U32 chain = 0; // index in Handoff::chains
+			LoadNode* load = nullptr;
+			StoreNode* state = nullptr; // the state it read before
+		};
+
 		// what loadcanon leaves for slp on the same function, to save compile time
 		struct Handoff {
 			const Function* fn = nullptr;
 			U64 version = 0; // of fn when loadcanon finished
 			List<Chain> chains;
 			AddrCache addrs;
+			List<Hoist> hoists;
 		};
 		Handoff& handoff();
 		Handoff takeHandoff(Function& fn);
+		Handoff freshHandoff(Function& fn); // chains and an empty cache, nothing hoisted
 
 		struct Access {
 			Addr addr;
@@ -206,12 +218,13 @@ namespace rat {
 		List<Chain> collectChains(Function& fn);
 		B32 isDisjointSet(const List<Access>& accesses, U32 first, U32 last, Map<U64, U16>& written);
 		void lowerSet(MemMergeNode* set);
+		void unhoistLoads(const List<Hoist>& hoists, const List<B32>& packed);
 		Seed seedOfRun(const Chain& chain, const Run& run, MemMergeNode* set);
 		List<Node*> flattenReduction(Node* root, List<Node*>& steps);
 		// type classes, keys and costs
 		U8 typeBits(const Type* t);
 		U64 pairKey(U32 high, I64 low);
-		I32 gatherCost(const Lanes& lanes);
+		I32 gatherCost(const Lanes& lanes, B32 reduction);
 		B32 isSplat(const Lanes& lanes);
 		I32 profitMargin(const Seed& seed, const Plan& plan);
 		B32 isInner(const Seed& seed, const Node* state);
@@ -222,7 +235,7 @@ namespace rat {
 			B32 pack(const Seed& seed);
 			Type* laneType(const Node* n);
 			// sets
-			U32 packChains(const List<Chain>& chains);
+			U32 packChains(const List<Chain>& chains, List<B32>& packed);
 			MemMergeNode* mergeStretch(const Chain& chain, U32 first, U32 last);
 			// seed
 			B32 windowAt(const Chain& chain, U32 start, U32 bytes, Window& window);
@@ -236,6 +249,8 @@ namespace rat {
 			// planner queries
 			B32 bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl);
 			void indexReads();
+			B32 storesTo(U32 object);
+			void indexStores();
 			// check
 			void setRoles(const Seed& seed, const Plan& plan, B32 on);
 			U8 roleOf(const Node* n) const;
@@ -252,7 +267,7 @@ namespace rat {
 			Node* emitOp(const Vector& vec, Type* vecTy, const Emitted& emitted);
 			Node* makeOp(Opcode op, Type* vecTy, Node* const* inputs);
 			void seedAnchors(const Seed& seed, const Plan& plan);
-			Node* anchorPtr(Node* ptr, I64 offset);
+			Node* anchorPtr(Node* ptr, I64 offset, const Node* ctrl);
 			Pair<Node*, I64> anchorOf(Node* ptr);
 			Node* emitWideStores(const Seed& seed, const Emitted& emitted, Node* ctrl);
 			void commitRun(const Seed& seed, const Emitted& emitted);
@@ -270,12 +285,14 @@ namespace rat {
 			SlpStats& stats;
 			// address facts
 			AddrCache addrs;
-			Map<U32, Pair<Node*, I64>> anchors; // group -> (anchor ptr, its offset)
+			Map<U64, Pair<Node*, I64>> anchors; // (control, group) -> (anchor ptr, its offset)
 			Map<U64, Set<I64>> reads; // (control id, group) -> offsets of 4-byte pieces loads read
 			B32 readsIndexed = false;
+			Set<U32> storedObjects; // objects the stores of fn write
+			B32 storesIndexed = false;
 			// guarded runs
-			List<GuardSplit> splits;				// for splitBlocks
-			Set<const Node*> guardedBlocks; // their blocks, for loadState
+			List<GuardSplit> splits;					 // for splitBlocks
+			Map<const Node*, U32> guardedRuns; // block -> its guarded runs
 			// plan check
 			List<U8> roles; // node id -> Role bits, else 0
 		};
@@ -292,6 +309,9 @@ namespace rat {
 			B32 permuteSpan(const Lanes& lanes, Vector& vec);
 			B32 loadState(const Lanes& lanes, Vector& vec);
 			B32 canReadMemIn(LoadNode* l, const Addr& runAddr, B32& needsGuard);
+			B32 forwardBlocked(const Vector& vec);
+			B32 splitsLoad(Node* state, const Access& load, SmallList<Node*, kMaxStlfHops>& walk);
+			B32 callWrites(const CallNode* call, const Addr& addr);
 			// Op
 			U32 planOp(const Lanes& lanes);
 			B32 readLaneOps(const Lanes& lanes, LaneOps& ops);

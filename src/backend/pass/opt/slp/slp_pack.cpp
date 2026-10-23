@@ -24,7 +24,12 @@ namespace rat {
 				h.fn = nullptr; // taken
 				return std::move(h);
 			}
-			return {&fn, 0, collectChains(fn), AddrCache(AliasAnalysis::restrictFacts(fn), fn.idBound())};
+			return freshHandoff(fn);
+		}
+
+		Handoff freshHandoff(Function& fn) {
+			U64 restrictParams = AliasAnalysis::restrictFacts(fn);
+			return {&fn, 0, collectChains(fn), AddrCache(restrictParams, fn.idBound()), {}};
 		}
 
 		Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
@@ -36,7 +41,9 @@ namespace rat {
 		U32 Slp::run() {
 			Handoff h = takeHandoff(fn);
 			addrs = std::move(h.addrs);
-			U32 changed = packChains(h.chains);
+			List<B32> packed; // per chain
+			U32 changed = packChains(h.chains, packed);
+			unhoistLoads(h.hoists, packed);
 			splitBlocks();
 			fn.eliminateDeadNodes(); // so every reduction root found is live
 			changed += packReductions();
@@ -82,7 +89,9 @@ namespace rat {
 
 		U64 pairKey(U32 high, I64 low) { return (U64)high << 32 | (U32)low; }
 
-		I32 gatherCost(const Lanes& lanes) {
+		// as SSE4.1 lowers it, a movd or insert per variable lane and a pool vector when lane 0 or a
+		// nonzero lane is a constant
+		I32 gatherCost(const Lanes& lanes, B32 reduction) {
 			if(isSplat(lanes))
 				return 1;
 			I32 variables = 0;
@@ -93,7 +102,9 @@ namespace rat {
 				else
 					++variables;
 			}
-			return variables + (poolLoad || variables == (I32)lanes.size());
+			// a reduction of lanes that are all scalars waits for their moves into xmm
+			B32 moveLatency = reduction && variables == (I32)lanes.size();
+			return variables + poolLoad + moveLatency;
 		}
 
 		B32 isSplat(const Lanes& lanes) {

@@ -39,7 +39,7 @@ func t(ptr restrict, ptr restrict) -> i64 {
   v11 = store : mem v2, v3, v4, v10
   v12 = add : ptr v4, v8
   v13 = add : ptr v5, v8
-  v14 = load : i64 v2, v3, v13
+  v14 = load : i64 v2, v11, v13
   v15 = add : i64 v14, v9
   v16 = store : mem v2, v11, v12, v15
   v17 = return : ctrl v2, v16, v10

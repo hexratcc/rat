@@ -77,7 +77,11 @@ namespace rat::cc {
 			diag.fail("unsupported arithmetic operator");
 			return nullptr;
 		}
-		return fn.binary(ct.isUnsigned() ? kArith[idx].u : kArith[idx].s, l, r);
+		Node* res = fn.binary(ct.isUnsigned() ? kArith[idx].u : kArith[idx].s, l, r);
+		// signed overflow is undefined (C11 6.5p5). gcc defines a signed shl, so it gets no flag
+		if(!ct.isUnsigned() && (op == ExprOp::Add || op == ExprOp::Sub || op == ExprOp::Mul))
+			cast<BinaryNode>(res)->setNsw(true);
+		return res;
 	}
 
 	Emitter::Value Emitter::emitIncDec(Function& fn, const Expr* e) {
@@ -112,6 +116,9 @@ namespace rat::cc {
 			Node* delta =
 					isPointer(type) ? constSize(fn, byteSize(pointee(type))) : fn.constInt(irType(type), 1);
 			updated = isInc ? fn.add(old, delta) : fn.sub(old, delta);
+			// a signed type of int rank or more does not promote, so its overflow is undefined
+			if(!isPointer(type) && !type.isUnsigned() && type.bits >= 32)
+				cast<BinaryNode>(updated)->setNsw(true);
 			updated = reduceBitfield(fn, updated, type);
 		}
 		storeLValue(fn, lv, updated);

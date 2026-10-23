@@ -1,6 +1,7 @@
 // load canonicalization: a load of a block that reads an inner state of the block's store chain
 // reads the earliest chain state that holds its bytes, but no state above one that a memory reader
-// in its address cone reads, so the schedule stays acyclic
+// in its address cone reads, so the schedule stays acyclic. slp moves it back when it packs
+// nothing in the chain
 
 #ifndef RAT_PASS_OPT_LOADCANON_H
 #define RAT_PASS_OPT_LOADCANON_H
@@ -38,7 +39,7 @@ namespace rat {
 
 		B32 hasInnerReader(const Chain& chain);
 		U32 coneState(LoadNode* l, const List<U32>& stateOf);
-		U32 hoistLoads(AddrCache& addrs, U32 ptrBytes, const Chain& chain, List<U32>& stateOf);
+		void hoistLoads(Handoff& h, U32 ptrBytes, U32 chainIndex, List<U32>& stateOf);
 	} // namespace slp
 
 	struct LoadCanonPass : FunctionPass {
