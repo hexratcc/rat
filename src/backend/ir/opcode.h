@@ -108,7 +108,7 @@ namespace rat {
 		// branch-free choice
 		Select,
 
-		// join of the states of unordered disjoint stores, only inside the slp pass
+		// join of the states of unordered disjoint stores
 		MemMerge,
 	};
 
@@ -136,6 +136,7 @@ namespace rat {
 	OpClass getOpClass(Opcode op);
 
 	constexpr B32 isBinaryOpcode(Opcode op) { return op >= Opcode::Add && op <= Opcode::FDiv; }
+	constexpr B32 isShiftOpcode(Opcode op) { return op >= Opcode::Shl && op <= Opcode::AShr; }
 	constexpr B32 isUnaryOpcode(Opcode op) { return op >= Opcode::Neg && op <= Opcode::FNeg; }
 	constexpr B32 isCompareOpcode(Opcode op) { return op >= Opcode::Eq && op <= Opcode::FGe; }
 	constexpr B32 isConvertOpcode(Opcode op) { return op >= Opcode::Trunc && op <= Opcode::FPTrunc; }

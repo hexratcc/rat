@@ -1,4 +1,5 @@
-// SLP vectorization on store chains Runs of adjacent stores and integer reductions pack into SSE vector
+// SLP vectorization. Windows of stores in store chains and store sets, and integer reductions,
+// pack into SSE vectors
 
 #ifndef RAT_PASS_OPT_SLPPACK_H
 #define RAT_PASS_OPT_SLPPACK_H
@@ -24,211 +25,196 @@ namespace rat {
 		U32 packedGuarded = 0;	 // windows fused behind a runtime guard
 		U32 packedReduction = 0; // reductions packed into vectors
 		U32 guardedRuns = 0;		 // merged guard regions emitted
-		U32 guardPairs = 0;			 // runtime disjointness checks emitted
+		U32 guardChecks = 0;		 // runtime disjointness checks emitted
 		U32 rejected = 0;				 // windows rejected early, and seeds that did not pack
 	};
 
 	namespace slp {
-		constexpr U32 kVecBytes = 16;						// SSE baseline
-		constexpr U32 kVecShift = 4;						// log2 kVecBytes
-		constexpr U32 kMaxLanes = 4;						// i32/f32 in 16 bytes
-		constexpr U32 kMaxInputs = 3;						// most inputs of a lane op, a select has 3
-		constexpr U32 kNone = ~0u;							// no record
-		constexpr Opcode kNoOp = Opcode::Start; // no opcode
-		constexpr I32 kMinProfit = 2;						// scalar ops saved per window, net of lane plumbing
-		constexpr U32 kMaxRunWindows = 4;				// windows sharing one guard branch
-		constexpr U32 kMaxGuards = 4;						// runtime checks per guarded run
-		constexpr I32 kGuardCheckCost = 6;			// ops per runtime disjointness check
-		constexpr I32 kGuardBranchCost = 6;			// branch + else-arm bloat per guarded run
-		constexpr U32 kMinTerms = 4;						// fewest terms of a reduction
-		constexpr U32 kMaxTerms = 64;						// most terms of one reduction
-		constexpr U32 kReadPiece = 4;						// bytes of one entry of the reads index
-		static_assert(1u << kVecShift == kVecBytes, "kVecShift is log2 kVecBytes");
-		// offset bound of a known access, so its 16-byte blocks fit a block key
+		constexpr U32 kVecShift = 4;							 // log2 kVecBytes
+		constexpr U32 kVecBytes = 1u << kVecShift; // SSE baseline
+		constexpr U32 kMaxLanes = 4;							 // i32/f32 in 16 bytes
+		constexpr U32 kMaxInputs = 3;							 // most inputs of a lane op, a select has 3
+		constexpr U32 kNoVector = ~0u;						 // no plan vector
+		constexpr Opcode kNoOp = Opcode::Start;		 // no opcode
+		constexpr I32 kMinProfit = 2;							 // scalar ops saved per window, net of lane plumbing
+		constexpr U32 kMaxRunWindows = 4;					 // windows sharing one guard branch
+		constexpr U32 kMaxGuards = 4;							 // runtime checks per guarded run
+		constexpr I32 kGuardCheckCost = 6;				 // ops per runtime disjointness check
+		constexpr I32 kGuardBranchCost = 6;				 // branch + else-arm bloat per guarded run
+		constexpr U32 kMinTerms = 4;							 // fewest terms of a reduction
+		constexpr U32 kMaxTerms = 64;							 // most terms of one reduction
+		constexpr U32 kReadPiece = 4;							 // bytes of one entry of the reads index
+		// offset bound of a known access, so an offset and its neighbors fit the low half of a pairKey
 		constexpr I64 kMaxOffset = INT32_MAX - (I64)kVecBytes;
 		// work bounds, so each search stays linear in the function
-		constexpr U32 kMaxOps = 64;				// Op records tried per seed tuple
-		constexpr U32 kMaxSetGroups = 16; // groups of a set, setDisjoint compares their bases pairwise
+		constexpr U32 kMaxOps = 64;				// Op vectors tried per seed tuple
+		constexpr U32 kMaxSetGroups = 16; // groups of a set, compared pairwise by their bases
 		constexpr U32 kMaxHops = 16;			// stores walked between a lane load's state and memIn
-
-		// reduction finish shuffles by [w / 4][round], nibble i is the source of lane i
-		constexpr U16 kFinishSel[2][2] = {{0x01}, {0x1032, 0x2301}};
 
 		// lane type classes of the op table
 		enum TypeBits : U8 { kI8 = 1, kI16 = 2, kI32 = 4, kI64 = 8, kF32 = 16, kF64 = 32, kPtr = 64 };
 		constexpr U8 kI32I64 = kI32 | kI64, kFp = kF32 | kF64, kElem = kI32I64 | kFp | kPtr;
 
-		// how the inputs of op lanes become the operands of their vector op
-		enum class Form : U8 {
-			Lanewise, // every input is a tuple
-			Uniform,	// input 1 is one shift amount for all lanes
-			Select,		// a blend by a compare mask
-		};
-
 		// lanes of one opcode in [first, last] become one vector op of that opcode
+		// a shift takes one amount for all lanes, a select takes a mask, every other input is a tuple
 		struct OpRule {
-			Opcode first, last;
-			U8 types; // lane types, a compare lane is its mask
-			U8 from;	// input 0 types of a compare or convert, 0 for no check
-			Form form;
-			B32 sse41;
+			Opcode first;
+			Opcode last;
+			U8 laneTypes;	 // a compare lane is its mask
+			U8 inputTypes; // of input 0 of a compare or convert, 0 for no check
+			B32 needsSse41;
 		};
 
 		// clang-format off
 		constexpr OpRule kOpRules[] = {
-			{Opcode::Add, Opcode::Sub, kI32I64, 0, Form::Lanewise, false},
-			{Opcode::Mul, Opcode::Mul, kI32, 0, Form::Lanewise, true},						// pmulld, no i64 mul
-			{Opcode::And, Opcode::Xor, kI32I64, 0, Form::Lanewise, false},
-			{Opcode::Shl, Opcode::LShr, kI32I64, 0, Form::Uniform, false},
-			{Opcode::AShr, Opcode::AShr, kI32, 0, Form::Uniform, false},					// psrad, no i64 sar
-			{Opcode::FAdd, Opcode::FDiv, kFp, 0, Form::Lanewise, false},
-			{Opcode::FNeg, Opcode::FNeg, kFp, 0, Form::Lanewise, false},
-			{Opcode::Eq, Opcode::Ne, kI32I64, kI32I64, Form::Lanewise, false},		// pcmpeqd, pcmpeqq
-			{Opcode::Slt, Opcode::Ule, kI32, kI32, Form::Lanewise, false},				// pcmpgtd, pminud
-			{Opcode::FEq, Opcode::FGe, kI32I64, kFp, Form::Lanewise, false},			// cmpps, cmppd
-			{Opcode::SExt, Opcode::ZExt, kI32I64, kI8 | kI16 | kI32, Form::Lanewise, true}, // pmovsx/zx
-			{Opcode::SIToFP, Opcode::SIToFP, kFp, kI32, Form::Lanewise, false},		// cvtdq2ps/pd
-			{Opcode::FPToSI, Opcode::FPToSI, kI32, kFp, Form::Lanewise, false},		// cvttps2dq/pd2dq
-			{Opcode::FPExt, Opcode::FPExt, kF64, kF32, Form::Lanewise, false},		// cvtps2pd
-			{Opcode::FPTrunc, Opcode::FPTrunc, kF32, kF64, Form::Lanewise, false}, // cvtpd2ps
-			{Opcode::Select, Opcode::Select, kI32I64, 0, Form::Select, true},			// blendv
+			{Opcode::Add, Opcode::Sub, kI32I64, 0, false},
+			{Opcode::Mul, Opcode::Mul, kI32, 0, true},							// pmulld, no i64 mul
+			{Opcode::And, Opcode::Xor, kI32I64, 0, false},
+			{Opcode::Shl, Opcode::LShr, kI32I64, 0, false},
+			{Opcode::AShr, Opcode::AShr, kI32, 0, false},						// psrad, no i64 sar
+			{Opcode::FAdd, Opcode::FDiv, kFp, 0, false},
+			{Opcode::FNeg, Opcode::FNeg, kFp, 0, false},
+			{Opcode::Eq, Opcode::Ne, kI32I64, kI32I64, false},			// pcmpeqd, pcmpeqq
+			{Opcode::Slt, Opcode::Ule, kI32, kI32, false},					// pcmpgtd, pminud
+			{Opcode::FEq, Opcode::FGe, kI32I64, kFp, false},				// cmpps, cmppd
+			{Opcode::SExt, Opcode::ZExt, kI32I64, kI8 | kI16 | kI32, true}, // pmovsx/zx
+			{Opcode::SIToFP, Opcode::SIToFP, kFp, kI32, false},			// cvtdq2ps/pd
+			{Opcode::FPToSI, Opcode::FPToSI, kI32, kFp, false},			// cvttps2dq/pd2dq
+			{Opcode::FPExt, Opcode::FPExt, kF64, kF32, false},			// cvtps2pd
+			{Opcode::FPTrunc, Opcode::FPTrunc, kF32, kF64, false},	// cvtpd2ps
+			{Opcode::Select, Opcode::Select, kI32I64, 0, true},			// blendv
 		};
-		// clang-format on
 		static_assert((I32)Opcode::Sub - (I32)Opcode::Add == 1 &&
-											(I32)Opcode::Xor - (I32)Opcode::And == 2 &&
-											(I32)Opcode::LShr - (I32)Opcode::Shl == 1 &&
-											(I32)Opcode::FDiv - (I32)Opcode::FAdd == 3 &&
-											(I32)Opcode::Ne - (I32)Opcode::Eq == 1 &&
-											(I32)Opcode::Ule - (I32)Opcode::Slt == 3 &&
-											(I32)Opcode::FGe - (I32)Opcode::FEq == 5 &&
-											(I32)Opcode::ZExt - (I32)Opcode::SExt == 1,
+									(I32)Opcode::Xor - (I32)Opcode::And == 2 &&
+									(I32)Opcode::LShr - (I32)Opcode::Shl == 1 &&
+									(I32)Opcode::FDiv - (I32)Opcode::FAdd == 3 &&
+									(I32)Opcode::Ne - (I32)Opcode::Eq == 1 &&
+									(I32)Opcode::Ule - (I32)Opcode::Slt == 3 &&
+									(I32)Opcode::FGe - (I32)Opcode::FEq == 5 &&
+									(I32)Opcode::ZExt - (I32)Opcode::SExt == 1,
 									"kOpRules ranges follow ir/opcode.h");
+		// clang-format on
 
-		using Lanes = SmallList<Node*, kMaxLanes>;
-		using Chain = List<StoreNode*>;
+		using Lanes = SmallList<Node*, kMaxLanes>; // a tuple, one scalar per lane
+		using Chain = List<StoreNode*>;						 // a block's stores in chain order, or a set's run
 
-		// what loadcanon leaves for slp on the same function, used while the function is unchanged: its
-		// chains, and its address cache when it hoisted. Per thread, as the IR test runner is threaded
+		// what loadcanon leaves for slp on the same function, to save compile time
 		struct Handoff {
 			const Function* fn = nullptr;
 			U64 version = 0; // of fn when loadcanon finished
 			List<Chain> chains;
-			UniquePtr<AddrCache> addrs;
+			AddrCache addrs;
 		};
+		Handoff& handoff();
+		Handoff takeHandoff(Function& fn);
 
 		struct Access {
 			Addr addr;
 			U32 size = 0;
 		};
 
-		// a set of one stretch, or the chain stores between sets, in chain order
-		struct Piece {
-			MemMergeNode* set = nullptr;
-			Chain chain;
-		};
-
+		// laneCount stores of group from chain[start] fill bytes from offset, lane k is laneStore[k]
 		struct Window {
-			U32 begin = 0, w = 0, bytes = 0;
-			I64 lo = 0;
-			StoreNode* lane[kMaxLanes] = {};
+			U32 start = 0;
+			U32 laneCount = 0;
+			U32 bytes = 0;
+			U32 group = 0;
+			I64 offset = 0;
+			StoreNode* laneStore[kMaxLanes] = {};
 		};
 
-		// windows of one group that continue each other
-		using Run = SmallList<Window, kMaxRunWindows>;
+		using Run = SmallList<Window, kMaxRunWindows>; // consecutive windows of one group
 
-		// the tuples to pack, one vector each, for a run of stores or for a reduction
+		// the tuples to pack for a run of stores or a reduction
 		struct Seed {
-			List<Lanes> tuples;
-			I32 profit = 0;
-			U32 windows = 1;
-			Node* memIn = nullptr;
-			SmallList<StoreNode*, kMaxRunWindows * kMaxLanes> stores;
-			SmallList<StoreNode*, kMaxRunWindows> heads;
+			List<Lanes> tuples; // one vector each
+			I32 profit = 0;			// scalar ops saved besides the plan's vectors
+			U32 windows = 1;		// each window must save kMinProfit
+			// a run of stores
+			Node* memIn = nullptr;																		// state before the run
+			SmallList<StoreNode*, kMaxRunWindows * kMaxLanes> stores; // in chain order
+			SmallList<StoreNode*, kMaxRunWindows> lowestStores;				// the lane 0 store of each window
+			MemMergeNode* set = nullptr;															// the run's set, null in a chain
+			// a reduction
 			Node* root = nullptr;
-			List<Node*> steps, rest;
-			MemMergeNode* set = nullptr; // the set of a window found by processSet
+			List<Node*> steps;			 // the ops the vectors replace
+			List<Node*> scalarTerms; // terms left as scalars
 		};
 
-		// how a record builds its vector
-		enum class Kind : U8 {
-			Gather,
-			Load,
-			Op,
-		};
+		// Gather: a Pack or Splat, Load: wide loads or a broadcast load, Op: lane ops as vector ops
+		enum class VectorKind : U8 { Gather, Load, Op };
 
 		// one vector of a plan
-		struct Record {
+		struct Vector {
 			Lanes lanes;
-			Kind kind = Kind::Gather;
-			I32 profit = 0;
-			Opcode op = kNoOp, op2 = kNoOp;
-			U32 in[kMaxInputs] = {kNone, kNone, kNone};
-			Node* amount = nullptr;
-			Node* mem = nullptr;
-			LoadNode* lowest = nullptr;
-			I64 off = 0;
-			U32 wideLoads = 0;
-			B32 shuffle = false;
-			B32 guard = false;
-			U16 sel = 0;
+			VectorKind kind = VectorKind::Gather;
+			I32 profit = 0; // scalar ops saved, negative for a gather
+			Opcode mainOp = kNoOp;
+			Opcode altOp = kNoOp; // opcode of the lanes sel takes from the second op
+			U32 operands[kMaxInputs] = {kNoVector, kNoVector, kNoVector}; // vector of each Op input
+			Node* shiftAmount = nullptr;
+			Node* mem = nullptr;						// state the loads read
+			LoadNode* lowestLoad = nullptr; // lane load at the lowest offset
+			I64 offset = 0;									// of the first wide load, or of the one load
+			I64 end = 0;										// end of the highest lane
+			U32 wideLoads = 0;							// 1 or 2, 0 for one load and a broadcast
+			B32 permuted = false;						// the lanes are permuted in the wide loads
+			B32 needsGuard = false;					// a lane load crosses a weak edge
+			U16 sel = 0;										// ShuffleNode selector of the permute or the blend
 		};
 
-		struct GuardGroup {
+		struct GuardRange {
 			U32 group = 0;
-			Node* ptr = nullptr; // pointer of the access at lo
-			I64 lo = 0, hi = 0;
+			Node* ptr = nullptr; // pointer of the access at begin
+			I64 begin = 0;
+			I64 end = 0;
 		};
 
 		struct Plan {
-			List<Record> records;
-			SmallList<U32, kMaxTerms / 4> tuples;
-			List<GuardGroup> guards;
+			List<Vector> vectors;												// operands first
+			SmallList<U32, kMaxTerms / 4> tupleVectors; // vector of each seed tuple
+			List<GuardRange> guards;										// one runtime check each
 		};
 
-		struct Made {
-			List<Node*> nodes, vectors;
-			List<Pair<LoadNode*, Addr>> loads;
+		struct LaneOps {
+			Opcode opcode[kMaxLanes] = {}; // Neg as Sub from 0, Not as Xor with -1
+			Node* input[kMaxLanes][kMaxInputs] = {};
+			Opcode mainOp = kNoOp;
+			Opcode altOp = kNoOp;
 		};
 
-		struct Forms {
-			Opcode op[kMaxLanes] = {};
-			Node* in[kMaxLanes][kMaxInputs] = {};
-			Opcode first = kNoOp, second = kNoOp;
+		struct Emitted {
+			List<Node*> nodes;								 // one per plan vector
+			List<Node*> tupleNodes;						 // one per seed tuple
+			List<Pair<LoadNode*, Addr>> loads; // with their address, so loadAt reuses an equal load
 		};
-
-		// whether a lane load may read memIn instead of its state
-		enum class Edge : U8 { None, Weak, Strong };
-
-		enum Role : U8 { kLoadLane = 1, kOpLane = 2, kSink = 4, kKept = 8 };
 
 		struct GuardSplit {
-			Node *block, *memIn, *phi, *iff, *region; // phi: final state, iff: first guard branch
+			Node* block;
+			StoreNode* firstStore; // of the run, its memory follows every rewire of memIn
+			Node* phi;						 // final state
+			Node* firstIf;				 // first guard branch
+			Node* region;
 		};
 
-		B32 guardsDisabled();
-		B32 guardCostDisabled();
-		B32 statsEnabled();
+		// kLane a Load or Op lane, kSink a run store or reduction step, kKept a lane left scalar
+		enum Role : U8 { kLane = 1, kSink = 2, kKept = 4 };
 
-		// helpers without pass state
-		U8 typeBits(const Type* t);
-		Node* memoryOperand(const Node* n);
-		void replaceUses(Node* from, Node* to);
-		I32 gatherCost(const Lanes& lanes);
-		B32 oneScalar(const Lanes& lanes);
-		StoreNode* chainSuccessor(const StoreNode* prev);
+		// chains, sets and seeds
 		Access accessOf(AddrCache& addrs, U32 ptrBytes, Node* n);
+		StoreNode* chainSuccessor(const StoreNode* prev);
 		List<Chain> collectChains(Function& fn);
-		Handoff& handoff();
-		AddrCache takeAddrs(const Function& fn);
-		List<Chain> takeChains(Function& fn);
-		B32 setDisjoint(const List<Access>& acc, U32 lo, U32 hi, Map<U64, U16>& written);
-		Node* lowerMerge(MemMergeNode* m);
-		Seed runSeed(const Chain& chain, const Run& run);
-		Seed setSeed(MemMergeNode* m, const Window& w);
-		U64 setKey(U32 group, I64 offset);
+		B32 isDisjointSet(const List<Access>& accesses, U32 first, U32 last, Map<U64, U16>& written);
+		void lowerSet(MemMergeNode* set);
+		Seed seedOfRun(const Chain& chain, const Run& run, MemMergeNode* set);
 		List<Node*> flattenReduction(Node* root, List<Node*>& steps);
+		// type classes, keys and costs
+		U8 typeBits(const Type* t);
+		U64 pairKey(U32 high, I64 low);
+		I32 gatherCost(const Lanes& lanes);
+		B32 isSplat(const Lanes& lanes);
 		I32 profitMargin(const Seed& seed, const Plan& plan);
-		B32 isInner(const Seed& seed, const Node* m);
+		B32 isInner(const Seed& seed, const Node* state);
 
 		struct Slp {
 			Slp(Function& fn, const TargetInfo& target, SlpStats& stats);
@@ -236,100 +222,91 @@ namespace rat {
 			B32 pack(const Seed& seed);
 			Type* laneType(const Node* n);
 			// sets
-			List<Piece> mergeStretches();
-			MemMergeNode* mergeStretch(const Chain& chain, U32 lo, U32 hi);
+			U32 packChains(const List<Chain>& chains);
+			MemMergeNode* mergeStretch(const Chain& chain, U32 first, U32 last);
 			// seed
-			B32 windowAt(const Chain& chain, U32 at, U32 bytes, Window& out);
-			U32 processChain(const Chain& chain);
-			U32 processSet(MemMergeNode* m);
-			U32 processRun(MemMergeNode* m, const Chain& run);
-			U32 trySetWindow(MemMergeNode* m, const Chain& run, U32 p, U32 bytes);
-			U32 processSeams();
-			B32 splitBySeam(const Chain& chain, U32 i, U32 bytes);
-			U32 tryRun(const Chain& chain, U32 i, U32 bytes);
+			B32 windowAt(const Chain& chain, U32 start, U32 bytes, Window& window);
+			U32 packChain(const Chain& chain, MemMergeNode* set);
+			U32 packSet(MemMergeNode* set);
+			U32 packRunAt(const Chain& chain, U32 start, U32 bytes, MemMergeNode* set);
 			void extendRun(const Chain& chain, Run& run);
-			I32 leafProfit(const Window& w);
 			U32 packReductions();
-			B32 reduces(const Node* n);
-			U32 tryReduction(Node* root);
+			B32 isReductionRoot(const Node* n);
+			U32 packReduction(Node* root);
 			// planner queries
-			B32 bytesRead(U32 group, I64 off, U32 size, const Node* ctrl);
-			static U64 readsKey(const Node* ctrl, U32 group);
+			B32 bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl);
 			void indexReads();
 			// check
 			void setRoles(const Seed& seed, const Plan& plan, B32 on);
 			U8 roleOf(const Node* n) const;
-			U32 keepLanes(const Plan& plan);
+			U32 markKeptLanes(const Plan& plan);
 			B32 usedOutside(const Node* n, B32 copies) const;
-			B32 dies(const Node* n) const;
+			B32 laneDies(const Node* n) const;
 			B32 innerReadersDie(const Seed& seed) const;
 			// apply
 			void apply(const Seed& seed, const Plan& plan);
-			Made emit(const Plan& plan);
-			Node* emitGather(const Record& r, Type* vecTy);
-			Node* emitLoad(const Record& r, Type* vecTy, Made& made);
-			Node* wideLoad(const Record& r, Type* vecTy, I64 off, Made& made);
-			Node* emitOp(const Record& r, Type* vecTy, const Made& made);
-			Node* makeOp(Opcode op, Type* vecTy, Node* const* in);
+			Emitted emitPlan(const Plan& plan);
+			Node* emitGather(const Vector& vec, Type* vecTy);
+			Node* emitLoad(const Vector& vec, Type* vecTy, Emitted& emitted);
+			Node* loadAt(const Vector& vec, Type* ty, I64 offset, Emitted& emitted);
+			Node* emitOp(const Vector& vec, Type* vecTy, const Emitted& emitted);
+			Node* makeOp(Opcode op, Type* vecTy, Node* const* inputs);
 			void seedAnchors(const Seed& seed, const Plan& plan);
-			Node* anchorPtr(Node* ptr, I64 off);
+			Node* anchorPtr(Node* ptr, I64 offset);
 			Pair<Node*, I64> anchorOf(Node* ptr);
-			Node* chainWideStores(const Seed& seed, const Made& made, Node* ctrl);
-			void commitRun(const Seed& seed, const Made& made);
-			void commitSet(const Seed& seed, const Made& made);
-			void lowerSets(const List<Piece>& pieces);
-			void renameMemIn(Node* from, Node* to);
-			void commitGuarded(const Seed& seed, const Plan& plan, const Made& made);
+			Node* emitWideStores(const Seed& seed, const Emitted& emitted, Node* ctrl);
+			void commitRun(const Seed& seed, const Emitted& emitted);
+			void commitGuarded(const Seed& seed, const Plan& plan, const Emitted& emitted);
 			void moveToElse(const Seed& seed, const Plan& plan, Node* block, Node* elseP);
-			Node* emitGuardCascade(const Seed& seed, const Plan& plan, Node*& iff, Node*& elseP);
+			Node* emitGuardCascade(const Seed& seed, const Plan& plan, Node*& firstIf, Node*& elseP);
 			void splitBlocks();
-			B32 moveLaterUsers(const GuardSplit& g, const Map<const Node*, U32>& runAt);
-			void commitReduction(const Seed& seed, const Made& made);
+			B32 moveLaterUsers(const GuardSplit& split, const Map<const Node*, U32>& runAt);
+			void commitReduction(const Seed& seed, const Emitted& emitted);
 
+			// function, target and stats
 			Function& fn;
 			U32 ptrBytes;
 			B32 sse41;
 			SlpStats& stats;
+			// address facts
 			AddrCache addrs;
 			Map<U32, Pair<Node*, I64>> anchors; // group -> (anchor ptr, its offset)
 			Map<U64, Set<I64>> reads; // (control id, group) -> offsets of 4-byte pieces loads read
 			B32 readsIndexed = false;
-			List<GuardSplit> splits;				// the guarded runs, for splitBlocks
-			Set<const Node*> guardedBlocks; // blocks with a guarded run, for loadState
-			List<U8> roles;									// node id -> Role bits of the plan being checked, else 0
-			Map<const Node*, U32> setSlot;	// member of a set -> its input slot
-			Set<const Node*> seams;					// the last store of each piece, where a stretch ends
+			// guarded runs
+			List<GuardSplit> splits;				// for splitBlocks
+			Set<const Node*> guardedBlocks; // their blocks, for loadState
+			// plan check
+			List<U8> roles; // node id -> Role bits, else 0
 		};
 
 		struct Planner {
-			Planner(Slp& s, const Seed& seed);
+			Planner(Slp& slp, const Seed& seed);
 			B32 planSeed();
-			U32 vectorOf(const Lanes& lanes);
-			U32 gather(const Lanes& lanes);
+			void addGuard(const Vector& vec);
+			U32 planVector(const Lanes& lanes);
+			U32 planGather(const Lanes& lanes);
 			// Load
-			U32 loads(const Lanes& lanes);
-			B32 loadShape(const Lanes& lanes, Record& r);
-			B32 permuteSpan(const Lanes& lanes, Record& r, I64 hi);
-			B32 loadState(const Lanes& lanes, Record& r);
-			Edge readsAtMemIn(LoadNode* l, const Addr& run);
-			Node* stepOverSet(MemMergeNode* m, LoadNode* l, U32& hops);
+			U32 planLoad(const Lanes& lanes);
+			B32 loadShape(const Lanes& lanes, Vector& vec);
+			B32 permuteSpan(const Lanes& lanes, Vector& vec);
+			B32 loadState(const Lanes& lanes, Vector& vec);
+			B32 canReadMemIn(LoadNode* l, const Addr& runAddr, B32& needsGuard);
 			// Op
-			U32 op(const Lanes& lanes);
-			B32 laneForms(const Lanes& lanes, Forms& f);
-			void subAsAdd(const Lanes& lanes, Forms& f);
-			const OpRule* formRule(const Forms& f, Node* n0);
-			const OpRule* ruleOf(Opcode op, Node* n);
-			U32 operandTuples(const Lanes& lanes, const Forms& f, Form form, Lanes* ops);
-			B32 uniformShift(const Lanes& lanes);
+			U32 planOp(const Lanes& lanes);
+			B32 readLaneOps(const Lanes& lanes, LaneOps& ops);
+			B32 hasRuleForOps(const LaneOps& ops, Node* lane0);
+			B32 hasRule(Opcode op, Node* lane);
+			U32 operandTuples(const Lanes& lanes, const LaneOps& ops, Lanes* tuples);
+			B32 isUniformShift(const Lanes& lanes);
 			std::tuple<Opcode, const Type*, U32> operandKey(Node* n);
-			void orient(const Forms& f, Lanes* ops);
-			I32 blendProfit(const Forms& f, U32 w, U16& sel);
-			void addGuard(const Record& r);
+			void orientOperands(const LaneOps& ops, Lanes* tuples);
+			I32 blendProfit(const LaneOps& ops, U32 laneCount, U16& sel);
 
-			Slp& s;
+			Slp& slp;
 			const Seed& seed;
 			Plan plan;
-			U32 budget = 0; // Op records left to try, kMaxOps more per seed tuple
+			U32 budget = 0; // Op vectors left to try, kMaxOps more per seed tuple
 		};
 	} // namespace slp
 

@@ -1,7 +1,7 @@
 // expect: 0
 // lanes of two opcodes pack as both vector ops and a blend (addsubps for a difference in the even
-// lanes and a sum in the odd ones), an integer x - c as x + -c, and a lane that is just x as x op
-// identity, which keeps -0.0 and NaN lanes exact
+// lanes and a sum in the odd ones). The other functions mix x + c with x - c lanes, or have a lane
+// that is just x, and must give exact results, -0.0 lanes included
 int signbitf(float x) {
 	union { float f; unsigned u; } v = {x};
 	return v.u >> 31;

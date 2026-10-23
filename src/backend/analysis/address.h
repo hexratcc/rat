@@ -11,25 +11,18 @@
 namespace rat {
 	struct Node;
 
-	enum class BaseKind : U8 {
-		Unknown,	// may be based on any pointer
-		Param,		// a pointer parameter
-		Restrict, // a restrict parameter
-		Object,		// allocation, stack slot or global symbol
-	};
-
 	struct Addr {
 		I64 offset = 0;
-		U32 group = 0;	// same for pointers with equal base and terms
-		U32 object = 0; // object or restrict parameter of the base, 0 for none
-		BaseKind kind = BaseKind::Unknown;
+		U32 group = 0;		 // same for pointers with equal base and terms
+		U32 object = 0;		 // object or restrict parameter of the base, 0 for none
+		B32 param = false; // the base is a pointer parameter, restrict or not
 	};
 
 	namespace detail {
 		using Terms = List<Pair<const Node*, I64>>; // (var, scale) sorted, then (base, 0)
 
 		constexpr U32 kMaxRefineDepth = 12; // nested integer ops refined into terms
-		constexpr U32 kMaxPtrHops = 32;
+		constexpr U32 kMaxPtrHops = 32;			// add and sub steps walked from a pointer to its base
 
 		// object id = kObjectTags * number + tag
 		constexpr U32 kObjectTags = 4;
@@ -42,22 +35,23 @@ namespace rat {
 	} // namespace detail
 
 	struct AddrCache {
-		AddrCache(U64 restrictParams, U32 ids); // ids: the node id bound
+		AddrCache(U64 restrictParams = 0, U32 idBound = 0);
 		Addr get(Node* ptr);
 	private:
-		Addr classify(const detail::Terms& terms);
+		Addr decompose(Node* ptr); // ptr as its group plus a constant offset
+		Addr classifyBase(const detail::Terms& terms);
 	private:
 		U64 restrictParams;
-		List<U32> slots; // node id -> 1 + its index in addrs, 0 until computed
-		List<Addr> addrs;
-		std::map<detail::Terms, Addr> groups; // at offset 0
-		Map<U32, Addr> bases;									// base id -> group of a pointer without terms
-		detail::Terms key;										// scratch of get
-		Map<String, U32> symbols;							// global symbol -> number
+		List<U32> slotOf;													// node id -> 1 + its index in cached, 0 for none
+		List<Addr> cached;												// the Addr of each pointer get has seen
+		std::map<detail::Terms, Addr> termGroups; // terms key -> group, at offset 0
+		Map<U32, Addr> baseGroups;								// base id -> group of a pointer without terms
+		detail::Terms key;												// the termGroups key decompose builds
+		Map<String, U32> symbols;									// global symbol -> number
 	};
 
 	B32 disjointBases(const Addr& a, const Addr& b);
-	B32 disjoint(const Addr& a, U32 sza, const Addr& b, U32 szb);
+	B32 disjoint(const Addr& a, U32 sizeA, const Addr& b, U32 sizeB);
 } // namespace rat
 
 #endif

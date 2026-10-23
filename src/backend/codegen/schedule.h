@@ -132,10 +132,10 @@ namespace rat {
 			List<I32> nextWild;
 			List<Pair<U32, I32>> byObject; // (object id, chain position) of stores to objects, sorted
 			I32 entry = -1;								 // the first writer that reads a state from another block
-			List<I32> callPos;						 // per local index: calls before the writer (-1)
-			List<I32> calls;							 // local indices of the calls that may not return, memory order
-			List<I32> need;								 // per local index: fewest calls before a use (-1 = not yet)
-			List<Pair<I32, U32>> needStack; // local index, next user
+			List<I32> callPos;
+			List<I32> calls; // memory order
+			List<I32> need;
+			List<Pair<I32, U32>> needStack;
 
 			I32 local(const Node* n) const;
 			B32 writtenHere(const Node* m) const;
@@ -160,7 +160,6 @@ namespace rat {
 
 		I32 fixedDataBlock(Node* n, const List<I32>& early) const;
 		static Node* requireProj(Node* n, U32 index);
-		static Node* memoryInputOf(const Node* n);
 		static B32 isMemWriter(const Node* n);
 	private:
 		const Function& fn;
