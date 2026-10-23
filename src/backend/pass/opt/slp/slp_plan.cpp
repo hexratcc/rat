@@ -176,7 +176,7 @@ namespace rat {
 					continue;
 				}
 				StoreNode* st = dyn_cast<StoreNode>(later);
-				if(!st || hops == kMaxHops || st->isVolatile() || st->getControl() != l->getControl())
+				if(!st || hops >= kMaxHops || st->isVolatile() || st->getControl() != l->getControl())
 					return Edge::Strong;
 				const Addr& b = s.addrs.get(st->getPointer());
 				if(!disjoint(a, size, b, st->getValue()->getType()->byteSize(s.ptrBytes)))
