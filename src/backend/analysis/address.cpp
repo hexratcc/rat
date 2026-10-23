@@ -7,6 +7,10 @@
 
 namespace rat {
 	namespace detail {
+		I64 wrapAdd(I64 a, I64 b) { return (I64)((U64)a + (U64)b); }
+
+		I64 wrapMul(I64 a, I64 b) { return (I64)((U64)a * (U64)b); }
+
 		// add scale * n to constant and terms. narrow: n is an i32 under a sext, so only an nsw op
 		// splits, an add or sub splits off only a constant and a shift stays below 31
 		void refineTerm(const Node* n, I64 scale, B32 narrow, I64& constant, Terms& terms, U32 depth) {
@@ -22,22 +26,23 @@ namespace rat {
 			if(scale == 0) // a cancelled var stays in the key, so a group's pointers share their vars
 				terms.push_back({n, 0});
 			else if(const ConstantNode* c = dyn_cast<ConstantNode>(n))
-				constant += scale * c->getValue();
+				constant = wrapAdd(constant, wrapMul(scale, c->getValue()));
 			else if(sextOfI32 && !narrow)
 				refineTerm(n->getInput(0), scale, true, constant, terms, depth + 1);
 			else if(canSplit && (op == Opcode::Add || op == Opcode::Sub) && (rhsConst || !narrow)) {
 				I64 rhsScale = scale;
 				if(op == Opcode::Sub)
-					rhsScale = -scale;
+					rhsScale = wrapMul(scale, -1);
 				refineTerm(bin->getLHS(), scale, narrow, constant, terms, depth + 1);
 				refineTerm(bin->getRHS(), rhsScale, narrow, constant, terms, depth + 1);
-			} else if(canSplit && op == Opcode::Mul && rhsConst)
-				refineTerm(bin->getLHS(), scale * rhsConst->getValue(), narrow, constant, terms, depth + 1);
-			else if(canSplit && op == Opcode::Shl && rhsConst && rhsConst->getValue() >= 0 &&
-							rhsConst->getValue() < 63 - 32 * narrow)
-				refineTerm(
-						bin->getLHS(), scale << rhsConst->getValue(), narrow, constant, terms, depth + 1);
-			else
+			} else if(canSplit && op == Opcode::Mul && rhsConst) {
+				I64 lhsScale = wrapMul(scale, rhsConst->getValue());
+				refineTerm(bin->getLHS(), lhsScale, narrow, constant, terms, depth + 1);
+			} else if(canSplit && op == Opcode::Shl && rhsConst && rhsConst->getValue() >= 0 &&
+								rhsConst->getValue() < 63 - 32 * narrow) {
+				I64 lhsScale = wrapMul(scale, (I64)1 << rhsConst->getValue());
+				refineTerm(bin->getLHS(), lhsScale, narrow, constant, terms, depth + 1);
+			} else
 				terms.push_back({n, scale});
 		}
 
@@ -46,7 +51,7 @@ namespace rat {
 			U32 kept = 0;
 			for(U32 i = 0; i < terms.size(); ++i) {
 				if(kept && terms[kept - 1].first == terms[i].first)
-					terms[kept - 1].second += terms[i].second;
+					terms[kept - 1].second = wrapAdd(terms[kept - 1].second, terms[i].second);
 				else
 					terms[kept++] = terms[i];
 			}
@@ -86,6 +91,10 @@ namespace rat {
 				sign = -1;
 			detail::refineTerm(step->getRHS(), sign, false, offset, key, 0);
 			base = step->getLHS();
+		}
+		if(offset > detail::kMaxPtrOffset || offset < -detail::kMaxPtrOffset) {
+			key.push_back({ptr, 0});
+			offset = 0;
 		}
 		detail::mergeTerms(key);
 		B32 hasTerms = !key.empty();
