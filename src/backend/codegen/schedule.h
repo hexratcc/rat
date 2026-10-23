@@ -131,8 +131,14 @@ namespace rat {
 			List<I32> rank;				// per local index: position of the writer in chain (-1)
 			List<I32> nextWild;
 			List<Pair<U32, I32>> byObject; // (object id, chain position) of stores to objects, sorted
+			I32 entry = -1;								 // the first writer that reads a state from another block
+			List<I32> callPos;						 // per local index: calls before the writer (-1)
+			List<I32> calls;							 // local indices of the calls that may not return, memory order
+			List<I32> need;								 // per local index: fewest calls before a use (-1 = not yet)
+			List<Pair<I32, U32>> needStack; // local index, next user
 
 			I32 local(const Node* n) const;
+			B32 writtenHere(const Node* m) const;
 			void addEdge(Node* before, Node* after);
 			void push(I32 i);
 			I32 pop();
@@ -146,6 +152,11 @@ namespace rat {
 		static I32
 		firstClobber(NodeSpan nodes, LoadNode* ld, I32 start, const AliasAnalysis& aa, TopoScratch& s);
 		static void addOrderEdges(NodeSpan nodes, TopoScratch& s);
+		static B32 mayNotReturn(const Node* n);
+		static void addTrapEdges(NodeSpan nodes, TopoScratch& s);
+		static B32 numberCalls(NodeSpan nodes, TopoScratch& s);
+		static I32 callsBefore(const Node* n, const TopoScratch& s);
+		static I32 needOf(NodeSpan nodes, U32 i, TopoScratch& s);
 
 		I32 fixedDataBlock(Node* n, const List<I32>& early) const;
 		static Node* requireProj(Node* n, U32 index);
