@@ -14,6 +14,7 @@
 
 namespace rat {
 	struct Node;
+	struct CallNode;
 	struct StoreNode;
 	struct LoadNode;
 	struct MemMergeNode;
@@ -50,6 +51,7 @@ namespace rat {
 		constexpr U32 kMaxOps = 64;				// Op vectors tried per seed tuple
 		constexpr U32 kMaxSetGroups = 16; // groups of a set, compared pairwise by their bases
 		constexpr U32 kMaxHops = 16;			// stores walked between a lane load's state and memIn
+		constexpr U32 kMaxStlfHops = 16;	// states walked back to the stores a wide load reads
 
 		// lane type classes of the op table
 		enum TypeBits : U8 { kI8 = 1, kI16 = 2, kI32 = 4, kI64 = 8, kF32 = 16, kF64 = 32, kPtr = 64 };
@@ -236,6 +238,8 @@ namespace rat {
 			// planner queries
 			B32 bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl);
 			void indexReads();
+			B32 storesTo(U32 object);
+			void indexStores();
 			// check
 			void setRoles(const Seed& seed, const Plan& plan, B32 on);
 			U8 roleOf(const Node* n) const;
@@ -273,6 +277,8 @@ namespace rat {
 			Map<U32, Pair<Node*, I64>> anchors; // group -> (anchor ptr, its offset)
 			Map<U64, Set<I64>> reads; // (control id, group) -> offsets of 4-byte pieces loads read
 			B32 readsIndexed = false;
+			Set<U32> storedObjects; // objects the stores of fn write
+			B32 storesIndexed = false;
 			// guarded runs
 			List<GuardSplit> splits;				// for splitBlocks
 			Set<const Node*> guardedBlocks; // their blocks, for loadState
@@ -292,6 +298,9 @@ namespace rat {
 			B32 permuteSpan(const Lanes& lanes, Vector& vec);
 			B32 loadState(const Lanes& lanes, Vector& vec);
 			B32 canReadMemIn(LoadNode* l, const Addr& runAddr, B32& needsGuard);
+			B32 forwardBlocked(const Vector& vec);
+			B32 splitsLoad(Node* state, const Access& load, SmallList<Node*, kMaxStlfHops>& walk);
+			B32 callWrites(const CallNode* call, const Addr& addr);
 			// Op
 			U32 planOp(const Lanes& lanes);
 			B32 readLaneOps(const Lanes& lanes, LaneOps& ops);

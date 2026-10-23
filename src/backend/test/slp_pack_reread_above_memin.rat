@@ -14,9 +14,9 @@ func t(ptr, i64) -> void {
 	v8 = const : i64  8
 	v9 = add : ptr v6, v8
 	v10 = add : ptr v7, v8
-	v11 = const : i32  0
-	v12 = store : mem v2, v3, v6, v11
-	v13 = store : mem v2, v12, v9, v5
+	v11 = const : i64  0
+	v12 = pack : <2 x i64> v11, v5
+	v13 = store : mem v2, v3, v6, v12
 	v14 = load : i64 v2, v13, v6
 	v15 = store : mem v2, v13, v7, v14
 	v16 = load : i64 v2, v15, v9
@@ -30,21 +30,19 @@ func t(ptr, i64) -> void {
 @expect
 func t(ptr, i64) -> void {
 	v0 = start : (ctrl, mem, ptr, i64)
-	v1 = stop : ctrl v17
+	v1 = stop : ctrl v15
 	v2 = proj : ctrl  #0 "ctrl" of v0
 	v3 = proj : mem  #1 "mem" of v0
 	v4 = proj : i64  #3 "x" of v0
 	v5 = alloc : ptr  [16 x i8]
 	v6 = alloc : ptr  [16 x i8]
-	v7 = const : i64  8
-	v8 = add : ptr v5, v7
-	v9 = const : i32  0
-	v10 = store : mem v2, v3, v5, v9
-	v11 = store : mem v2, v10, v8, v4
-	v12 = load : <2 x i64> v2, v11, v5
-	v13 = store : mem v2, v11, v6, v12
-	v14 = call : (ctrl, mem)  "use" v2, v13, v6
-	v15 = proj : ctrl  #0 "ctrl" of v14
-	v16 = proj : mem  #1 "mem" of v14
-	v17 = return : ctrl v15, v16
+	v7 = const : i64  0
+	v8 = pack : <2 x i64> v7, v4
+	v9 = store : mem v2, v3, v5, v8
+	v10 = load : <2 x i64> v2, v9, v5
+	v11 = store : mem v2, v9, v6, v10
+	v12 = call : (ctrl, mem)  "use" v2, v11, v6
+	v13 = proj : ctrl  #0 "ctrl" of v12
+	v14 = proj : mem  #1 "mem" of v12
+	v15 = return : ctrl v13, v14
 }
