@@ -180,12 +180,52 @@ namespace rat {
 			}
 			mf.blocks = std::move(arranged);
 		}
+
+		// a branch to a block still on the depth-first search stack is a back edge,
+		// its target a loop header
+		void alignLoopHeaders(MachineFunc& mf) {
+			U32 n = (U32)mf.blocks.size();
+			U32 entry = 0;
+			while(entry < n && mf.blocks[entry].id < 0)
+				++entry;
+			if(entry == n)
+				return;
+			List<U32> at(n, 0);
+			for(U32 i = 0; i < n; ++i)
+				if(mf.blocks[i].id >= 0)
+					at[(U32)mf.blocks[i].id] = i;
+			List<U8> state(n, 0);		// by id: 0 unseen, 1 on the stack, 2 done
+			List<U32> stack{entry}; // block indices
+			List<U32> cursor{0};		// next branch operand of each stacked block
+			state[(U32)mf.blocks[entry].id] = 1;
+			while(!stack.empty()) {
+				const MachineBlock& b = mf.blocks[stack.back()];
+				U32 k = cursor.back()++;
+				if(!endsInBranch(b) || k >= (U32)b.insts.back().uses.size()) {
+					state[(U32)b.id] = 2;
+					stack.pop_back();
+					cursor.pop_back();
+					continue;
+				}
+				const MachineOperand& u = b.insts.back().uses[k];
+				if(u.kind != MachineOperand::Kind::Block || u.block < 0)
+					continue;
+				if(state[(U32)u.block] == 1)
+					mf.blocks[at[(U32)u.block]].align = kLoopAlign;
+				if(state[(U32)u.block] != 0)
+					continue;
+				state[(U32)u.block] = 1;
+				stack.push_back(at[(U32)u.block]);
+				cursor.push_back(0);
+			}
+		}
 	} // namespace detail
 
 	B32 X86LayoutPass::run(Module&, const Function&, MachineFunc& mf, const TargetInfo&) {
 		U32 changed = detail::duplicateTestBlocks(mf);
 		changed += detail::forwardJumpChains(mf);
 		detail::chainLayout(mf);
+		detail::alignLoopHeaders(mf);
 		return changed != 0;
 	}
 } // namespace rat

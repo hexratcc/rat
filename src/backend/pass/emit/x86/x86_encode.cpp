@@ -507,6 +507,8 @@ namespace rat {
 			const MachineBlock& blk = f.blocks[bi];
 			if(blk.id < 0)
 				continue;
+			if(blk.align)
+				a->alignNop(blk.align);
 			blockOffset[blk.id] = a->here();
 			I32 fallthrough = (bi + 1 < f.blocks.size()) ? (I32)f.blocks[bi + 1].id : -1;
 			for(const MachineInstr& in : blk.insts)
@@ -561,7 +563,11 @@ namespace rat {
 		code.clear();
 		Asm a(code, relocs);
 		encodeFunction(mf, a);
-		obj->align(ObjectFile::Text, std::max(f.getAttrs().align, 16u));
+		// block alignment is relative to the function start
+		U32 align = std::max(f.getAttrs().align, 16u);
+		for(const MachineBlock& blk : mf.blocks)
+			align = std::max(align, blk.align);
+		obj->align(ObjectFile::Text, align);
 		U32 off = obj->append(ObjectFile::Text, code.data(), (U32)code.size());
 		placed.push_back({&f, off, (U32)relocs.size()});
 		return false;

@@ -61,6 +61,7 @@ namespace rat {
 	struct MachineBlock {
 		I32 id = -1;
 		I32 loopDepth = 0; // natural loops containing this block
+		U32 align = 0;		 // start offset alignment in bytes, 0 = none
 		SmallList<I32, 2> preds;
 		SmallList<I32, 2> succs;
 		List<MachineInstr> insts;
