@@ -190,7 +190,7 @@ namespace rat {
 			phi->setInput(2, last); // replaceAllUsesWith also rewired the phi's own else input
 			moveToElse(seed, plan, block, elseP);
 			splits.push_back({block, seed.stores[0], phi, firstIf, region});
-			guardedBlocks.insert(block);
+			++guardedRuns[block];
 			stats.packedGuarded += seed.windows;
 			stats.guardedRuns += 1;
 			stats.guardChecks += (U32)plan.guards.size();

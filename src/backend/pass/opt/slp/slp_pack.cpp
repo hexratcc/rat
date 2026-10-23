@@ -89,7 +89,9 @@ namespace rat {
 
 		U64 pairKey(U32 high, I64 low) { return (U64)high << 32 | (U32)low; }
 
-		I32 gatherCost(const Lanes& lanes) {
+		// as SSE4.1 lowers it, a movd or insert per variable lane and a pool vector when lane 0 or a
+		// nonzero lane is a constant
+		I32 gatherCost(const Lanes& lanes, B32 reduction) {
 			if(isSplat(lanes))
 				return 1;
 			I32 variables = 0;
@@ -100,7 +102,9 @@ namespace rat {
 				else
 					++variables;
 			}
-			return variables + (poolLoad || variables == (I32)lanes.size());
+			// a reduction of lanes that are all scalars waits for their moves into xmm
+			B32 moveLatency = reduction && variables == (I32)lanes.size();
+			return variables + poolLoad + moveLatency;
 		}
 
 		B32 isSplat(const Lanes& lanes) {

@@ -24,7 +24,12 @@ namespace rat {
 			for(const Vector& vec : plan.vectors)
 				if(vec.needsGuard)
 					addGuard(vec);
-			return plan.guards.size() <= kMaxGuards;
+			if(plan.guards.empty())
+				return true;
+			// a guarded run splits its block, and the loads above its guard stay live across the splits
+			auto it = slp.guardedRuns.find(seed.stores.back()->getControl());
+			B32 blockFull = it != slp.guardedRuns.end() && it->second >= kMaxGuardedRuns;
+			return plan.guards.size() <= kMaxGuards && !blockFull;
 		}
 
 		U32 Planner::planVector(const Lanes& lanes) {
@@ -45,7 +50,7 @@ namespace rat {
 			if(!(typeBits(lanes[0]->getType()) & kElem))
 				return kNoVector;
 			Vector vec{lanes, VectorKind::Gather};
-			vec.profit = -gatherCost(lanes);
+			vec.profit = -gatherCost(lanes, seed.root != nullptr);
 			plan.vectors.push_back(vec);
 			return (U32)plan.vectors.size() - 1;
 		}
@@ -136,8 +141,7 @@ namespace rat {
 				return shared; // a reduction has no memIn and adds no guard
 			// in a block with a guarded run, a run reads memIn, as loads of an earlier state would stay
 			// live across that guard
-			if(shared && !slp.guardedBlocks.count(vec.lowestLoad->getControl()) &&
-				 !isInner(seed, vec.mem))
+			if(shared && !slp.guardedRuns.count(vec.lowestLoad->getControl()) && !isInner(seed, vec.mem))
 				return true;
 			vec.mem = seed.memIn;
 			const Addr& runAddr = slp.addrs.get(seed.lowestStores[0]->getPointer());

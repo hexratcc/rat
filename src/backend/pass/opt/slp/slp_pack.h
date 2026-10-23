@@ -40,6 +40,7 @@ namespace rat {
 		constexpr I32 kMinProfit = 2;							 // scalar ops saved per window, net of lane plumbing
 		constexpr U32 kMaxRunWindows = 4;					 // windows sharing one guard branch
 		constexpr U32 kMaxGuards = 4;							 // runtime checks per guarded run
+		constexpr U32 kMaxGuardedRuns = 16;				 // guarded runs per block, see planSeed
 		constexpr I32 kGuardCheckCost = 6;				 // ops per runtime disjointness check
 		constexpr I32 kGuardBranchCost = 6;				 // branch + else-arm bloat per guarded run
 		constexpr U32 kMinTerms = 4;							 // fewest terms of a reduction
@@ -223,7 +224,7 @@ namespace rat {
 		// type classes, keys and costs
 		U8 typeBits(const Type* t);
 		U64 pairKey(U32 high, I64 low);
-		I32 gatherCost(const Lanes& lanes);
+		I32 gatherCost(const Lanes& lanes, B32 reduction);
 		B32 isSplat(const Lanes& lanes);
 		I32 profitMargin(const Seed& seed, const Plan& plan);
 		B32 isInner(const Seed& seed, const Node* state);
@@ -290,8 +291,8 @@ namespace rat {
 			Set<U32> storedObjects; // objects the stores of fn write
 			B32 storesIndexed = false;
 			// guarded runs
-			List<GuardSplit> splits;				// for splitBlocks
-			Set<const Node*> guardedBlocks; // their blocks, for loadState
+			List<GuardSplit> splits;					 // for splitBlocks
+			Map<const Node*, U32> guardedRuns; // block -> its guarded runs
 			// plan check
 			List<U8> roles; // node id -> Role bits, else 0
 		};
