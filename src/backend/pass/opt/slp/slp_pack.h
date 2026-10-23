@@ -1,4 +1,5 @@
-// SLP vectorization on store chains Runs of adjacent stores and integer reductions pack into SSE vector
+// SLP vectorization. Windows of stores in store chains and store sets, and integer reductions,
+// pack into SSE vectors
 
 #ifndef RAT_PASS_OPT_SLPPACK_H
 #define RAT_PASS_OPT_SLPPACK_H
@@ -43,7 +44,7 @@ namespace rat {
 		constexpr U32 kMinTerms = 4;							 // fewest terms of a reduction
 		constexpr U32 kMaxTerms = 64;							 // most terms of one reduction
 		constexpr U32 kReadPiece = 4;							 // bytes of one entry of the reads index
-		// offset bound of a known access, so its 16-byte blocks fit a block key
+		// offset bound of a known access, so an offset and its neighbors fit the low half of a pairKey
 		constexpr I64 kMaxOffset = INT32_MAX - (I64)kVecBytes;
 		// work bounds, so each search stays linear in the function
 		constexpr U32 kMaxOps = 64;				// Op records tried per seed tuple
@@ -112,13 +113,15 @@ namespace rat {
 			U32 size = 0;
 		};
 
+		// one set, or a chain part that no set covers
 		struct Piece {
 			MemMergeNode* set = nullptr;
 			Chain chain;
 		};
 
+		// w stores of group from chain[begin] that fill bytes from lo, lane[k] writes lo + k * element size
 		struct Window {
-			U32 begin = 0, w = 0, bytes = 0;
+			U32 begin = 0, w = 0, bytes = 0, group = 0;
 			I64 lo = 0;
 			StoreNode* lane[kMaxLanes] = {};
 		};
@@ -140,11 +143,7 @@ namespace rat {
 		};
 
 		// how a record builds its vector
-		enum class Kind : U8 {
-			Gather,
-			Load,
-			Op,
-		};
+		enum class Kind : U8 { Gather, Load, Op };
 
 		// one vector of a plan
 		struct Record {
@@ -190,11 +189,10 @@ namespace rat {
 		enum Role : U8 { kLane = 1, kSink = 2, kKept = 4 };
 
 		struct GuardSplit {
-			Node *block, *memIn, *phi, *iff, *region; // phi: final state, iff: first guard branch
+			Node* block;
+			StoreNode* first; // the run's first scalar store, its memory follows every rewire of memIn
+			Node *phi, *iff, *region; // phi: final state, iff: first guard branch
 		};
-
-		B32 guardsDisabled();
-		B32 guardCostDisabled();
 
 		// helpers without pass state
 		U8 typeBits(const Type* t);
@@ -209,8 +207,7 @@ namespace rat {
 		Handoff takeHandoff(Function& fn);
 		B32 setDisjoint(const List<Access>& acc, U32 lo, U32 hi, Map<U64, U16>& written);
 		Node* lowerMerge(MemMergeNode* m);
-		Seed runSeed(const Chain& chain, const Run& run);
-		Seed setSeed(MemMergeNode* m, const Window& w);
+		Seed runSeed(const Chain& chain, const Run& run, MemMergeNode* set);
 		List<Node*> flattenReduction(Node* root, List<Node*>& steps);
 		I32 profitMargin(const Seed& seed, const Plan& plan);
 		B32 isInner(const Seed& seed, const Node* m);
@@ -223,17 +220,15 @@ namespace rat {
 			// sets
 			List<Piece> mergeStretches(const List<Chain>& chains);
 			MemMergeNode* mergeStretch(const Chain& chain, U32 lo, U32 hi);
+			void lowerSets(const List<Piece>& pieces);
 			// seed
 			B32 windowAt(const Chain& chain, U32 at, U32 bytes, Window& out);
-			U32 processChain(const Chain& chain);
+			U32 processChain(const Chain& chain, MemMergeNode* set);
 			U32 processSet(MemMergeNode* m);
-			U32 processRun(MemMergeNode* m, const Chain& run);
-			U32 trySetWindow(MemMergeNode* m, const Chain& run, U32 p, U32 bytes);
 			U32 processSeams();
-			B32 splitBySeam(const Chain& chain, U32 i, U32 bytes);
-			U32 tryRun(const Chain& chain, U32 i, U32 bytes);
+			B32 isNewWindow(const Chain& chain, const Window& w);
+			U32 tryRun(const Chain& chain, U32 i, U32 bytes, MemMergeNode* set);
 			void extendRun(const Chain& chain, Run& run);
-			I32 leafProfit(const Window& w);
 			U32 packReductions();
 			B32 isReductionRoot(const Node* n);
 			U32 tryReduction(Node* root);
@@ -252,7 +247,7 @@ namespace rat {
 			Made emit(const Plan& plan);
 			Node* emitGather(const Record& r, Type* vecTy);
 			Node* emitLoad(const Record& r, Type* vecTy, Made& made);
-			Node* wideLoad(const Record& r, Type* vecTy, I64 off, Made& made);
+			Node* loadAt(const Record& r, Type* ty, I64 off, Made& made);
 			Node* emitOp(const Record& r, Type* vecTy, const Made& made);
 			Node* makeOp(Opcode op, Type* vecTy, Node* const* in);
 			void seedAnchors(const Seed& seed, const Plan& plan);
@@ -260,9 +255,6 @@ namespace rat {
 			Pair<Node*, I64> anchorOf(Node* ptr);
 			Node* chainWideStores(const Seed& seed, const Made& made, Node* ctrl);
 			void commitRun(const Seed& seed, const Made& made);
-			void commitSet(const Seed& seed, const Made& made);
-			void lowerSets(const List<Piece>& pieces);
-			void renameMemIn(Node* from, Node* to);
 			void commitGuarded(const Seed& seed, const Plan& plan, const Made& made);
 			void moveToElse(const Seed& seed, const Plan& plan, Node* block, Node* elseP);
 			Node* emitGuardCascade(const Seed& seed, const Plan& plan, Node*& iff, Node*& elseP);
@@ -282,7 +274,7 @@ namespace rat {
 			Set<const Node*> guardedBlocks; // blocks with a guarded run, for loadState
 			List<U8> roles;									// node id -> Role bits of the plan being checked, else 0
 			Map<const Node*, U32> setSlot;	// member of a set -> its input slot
-			Set<const Node*> seams;					// the last store of each piece, where a stretch ends
+			Set<const Node*> seams;					// the last store of each piece after lowerSets
 		};
 
 		struct Planner {
@@ -301,8 +293,8 @@ namespace rat {
 			U32 op(const Lanes& lanes);
 			B32 laneForms(const Lanes& lanes, Forms& f);
 			void subAsAdd(const Lanes& lanes, Forms& f);
-			B32 formRule(const Forms& f, Node* n0);
-			B32 ruleOf(Opcode op, Node* n);
+			B32 hasFormRule(const Forms& f, Node* n0);
+			B32 hasRule(Opcode op, Node* n);
 			U32 operandTuples(const Lanes& lanes, const Forms& f, Lanes* ops);
 			B32 uniformShift(const Lanes& lanes);
 			std::tuple<Opcode, const Type*, U32> operandKey(Node* n);

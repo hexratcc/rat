@@ -13,26 +13,18 @@
 namespace rat {
 	namespace slp {
 
-		B32 guardsDisabled() {
-			static const B32 v = std::getenv("RAT_SLP_NO_GUARDS") != nullptr;
-			return v;
-		}
-
-		B32 guardCostDisabled() {
-			static const B32 v = std::getenv("RAT_SLP_NO_GUARD_COST") != nullptr;
-			return v;
-		}
-
 		Handoff& handoff() {
 			thread_local Handoff h;
 			return h;
 		}
 
 		Handoff takeHandoff(Function& fn) {
-			Handoff h = std::exchange(handoff(), Handoff{});
-			if(h.fn != &fn || h.version != fn.getVersion())
-				h = {&fn, 0, collectChains(fn), AddrCache(AliasAnalysis::restrictFacts(fn), fn.idBound())};
-			return h;
+			Handoff& h = handoff();
+			if(h.fn == &fn && h.version == fn.getVersion()) {
+				h.fn = nullptr; // taken
+				return std::move(h);
+			}
+			return {&fn, 0, collectChains(fn), AddrCache(AliasAnalysis::restrictFacts(fn), fn.idBound())};
 		}
 
 		Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
@@ -41,8 +33,8 @@ namespace rat {
 			sse41(target.hasSse41()),
 			stats(stats) {}
 
-		// the disjoint stretches become sets, which processSet searches by lookup, then the sets become
-		// chains again
+		// sets by lookup and chain parts in chain order, then lowerSets, then the windows across a seam
+		// on the lowered chains
 		U32 Slp::run() {
 			Handoff h = takeHandoff(fn);
 			addrs = std::move(h.addrs);
@@ -52,7 +44,7 @@ namespace rat {
 				if(p.set)
 					changed += processSet(p.set);
 				else
-					changed += processChain(p.chain);
+					changed += processChain(p.chain, nullptr);
 			}
 			lowerSets(pieces);
 			changed += processSeams();
@@ -141,7 +133,8 @@ namespace rat {
 			for(const Record& r : plan.records)
 				profit += r.profit;
 			U32 guards = (U32)plan.guards.size();
-			if(guards && !guardCostDisabled())
+			static const B32 noGuardCost = std::getenv("RAT_SLP_NO_GUARD_COST") != nullptr;
+			if(guards && !noGuardCost)
 				profit -= (I32)guards * kGuardCheckCost + kGuardBranchCost;
 			if(guards > kMaxGuards)
 				return -1;

@@ -4,6 +4,8 @@
 #include "ir/node.h"
 #include "ir/type.h"
 
+#include <cstdlib>
+
 namespace rat {
 	namespace slp {
 
@@ -132,6 +134,15 @@ namespace rat {
 			return prev;
 		}
 
+		void Slp::lowerSets(const List<Piece>& pieces) {
+			for(const Piece& p : pieces) {
+				if(p.set)
+					seams.insert(lowerMerge(p.set));
+				else
+					seams.insert(p.chain.back());
+			}
+		}
+
 		// bytes / element size stores from chain[at] of one type and group that fill one span
 		B32 Slp::windowAt(const Chain& chain, U32 at, U32 bytes, Window& out) {
 			Type* t = nullptr;
@@ -143,16 +154,17 @@ namespace rat {
 			if(w < 2 || at + w > chain.size())
 				return false;
 			const Addr& a0 = addrs.get(chain[at]->getPointer());
-			I64 lo = a0.offset;
+			I64 lo = a0.offset, off[kMaxLanes];
 			for(U32 j = 0; j < w; ++j) {
 				const Addr& a = addrs.get(chain[at + j]->getPointer());
 				if(chain[at + j]->getValue()->getType() != t || a.group != a0.group)
 					return false;
+				off[j] = a.offset;
 				lo = std::min(lo, a.offset);
 			}
-			out = Window{at, w, bytes, lo};
+			out = Window{at, w, bytes, a0.group, lo};
 			for(U32 j = 0; j < w; ++j) { // the offsets fill the w lanes above lo once each
-				U64 d = (U64)(addrs.get(chain[at + j]->getPointer()).offset - lo);
+				U64 d = (U64)(off[j] - lo);
 				if(d % esz != 0 || d / esz >= w || out.lane[d / esz])
 					return false;
 				out.lane[d / esz] = chain[at + j];
@@ -160,12 +172,13 @@ namespace rat {
 			return true;
 		}
 
-		U32 Slp::processChain(const Chain& chain) {
+		// windows along a chain, or along a run of a set at consecutive offsets
+		U32 Slp::processChain(const Chain& chain, MemMergeNode* set) {
 			U32 changed = 0;
 			for(U32 i = 0; i < chain.size();) {
-				U32 used = tryRun(chain, i, kVecBytes);
+				U32 used = tryRun(chain, i, kVecBytes, set);
 				if(!used)
-					used = tryRun(chain, i, kVecBytes / 2); // 2 x 32-bit
+					used = tryRun(chain, i, kVecBytes / 2, set); // 2 x 32-bit
 				changed += used != 0;
 				i += std::max(used, 1u);
 			}
@@ -175,7 +188,6 @@ namespace rat {
 		// windows of a set
 		U32 Slp::processSet(MemMergeNode* m) {
 			Map<U64, Pair<StoreNode*, Type*>> at; // (group, offset) -> member and its value type
-			setSlot.clear();
 			for(U32 i = 1; i < m->getInputCount(); ++i) {
 				StoreNode* st = cast<StoreNode>(m->getInput(i));
 				const Addr& a = addrs.get(st->getPointer());
@@ -186,8 +198,8 @@ namespace rat {
 			Chain run;
 			for(U32 i = 1; i < m->getInputCount(); ++i) {
 				StoreNode* st = dyn_cast<StoreNode>(m->getInput(i));
-				if(!st || !setSlot.count(st) || !(typeBits(st->getValue()->getType()) & kElem))
-					continue; // a slot a pack emptied or filled
+				if(!st || !(typeBits(st->getValue()->getType()) & kElem))
+					continue; // a slot a pack emptied, or a narrow or vector store
 				Type* t = st->getValue()->getType();
 				I64 esz = t->byteSize(ptrBytes);
 				const Addr& a = addrs.get(st->getPointer());
@@ -198,38 +210,9 @@ namespace rat {
 				for(auto it = at.find(pairKey(a.group, a.offset)); it != at.end() && it->second.second == t;
 						it = at.find(pairKey(a.group, a.offset + (I64)run.size() * esz)))
 					run.push_back(it->second.first);
-				changed += processRun(m, run);
+				changed += processChain(run, m);
 			}
 			return changed;
-		}
-
-		U32 Slp::processRun(MemMergeNode* m, const Chain& run) {
-			U32 changed = 0;
-			for(U32 p = 0; p < run.size();) {
-				U32 used = trySetWindow(m, run, p, kVecBytes);
-				if(!used)
-					used = trySetWindow(m, run, p, kVecBytes / 2); // 2 x 32-bit
-				changed += used != 0;
-				p += std::max(used, 1u);
-			}
-			return changed;
-		}
-
-		U32 Slp::trySetWindow(MemMergeNode* m, const Chain& run, U32 p, U32 bytes) {
-			U32 esz = run[p]->getValue()->getType()->byteSize(ptrBytes), w = bytes / esz;
-			if(w < 2 || p + w > run.size())
-				return 0;
-			Window win{p, w, bytes, addrs.get(run[p]->getPointer()).offset};
-			for(U32 k = 0; k < w; ++k)
-				win.lane[k] = run[p + k];
-			++stats.windowsSeen;
-			if(leafProfit(win) < kMinProfit) {
-				++stats.rejected;
-				return 0;
-			}
-			if(!pack(setSeed(m, win)))
-				return 0;
-			return w;
 		}
 
 		U32 Slp::processSeams() {
@@ -240,46 +223,37 @@ namespace rat {
 				return 0;
 			U32 changed = 0;
 			for(const Chain& chain : collectChains(fn))
-				for(U32 i = 0; i < chain.size();) {
-					U32 used = 0;
-					if(splitBySeam(chain, i, kVecBytes))
-						used = tryRun(chain, i, kVecBytes);
-					if(!used && splitBySeam(chain, i, kVecBytes / 2))
-						used = tryRun(chain, i, kVecBytes / 2); // 2 x 32-bit
-					changed += used != 0;
-					i += std::max(used, 1u);
-				}
+				changed += processChain(chain, nullptr);
 			return changed;
 		}
 
-		B32 Slp::splitBySeam(const Chain& chain, U32 i, U32 bytes) {
-			Type* t = chain[i]->getValue()->getType();
-			if(!(typeBits(t) & kElem))
-				return false;
-			U32 w = bytes / t->byteSize(ptrBytes);
-			for(U32 j = 0; j + 1 < w && i + j < chain.size(); ++j)
-				if(seams.count(chain[i + j]))
+		// every window is new until lowerSets marks the seams, after that only a window across a seam
+		B32 Slp::isNewWindow(const Chain& chain, const Window& w) {
+			if(seams.empty())
+				return true;
+			for(U32 j = 0; j + 1 < w.w; ++j)
+				if(seams.count(chain[w.begin + j]))
 					return true;
 			return false;
 		}
 
-		U32 Slp::tryRun(const Chain& chain, U32 i, U32 bytes) {
+		U32 Slp::tryRun(const Chain& chain, U32 i, U32 bytes, MemMergeNode* set) {
 			Window w0;
-			if(!windowAt(chain, i, bytes, w0))
+			if(!windowAt(chain, i, bytes, w0) || !isNewWindow(chain, w0))
 				return 0;
 			++stats.windowsSeen;
 			B32 observed = false;
 			for(U32 j = 0; j + 1 < w0.w; ++j)
 				observed |= chain[i + j]->getUsers().size() > 1; // a load besides the next store
-			if((observed && guardsDisabled()) || (!observed && leafProfit(w0) < kMinProfit)) {
+			static const B32 noGuards = std::getenv("RAT_SLP_NO_GUARDS") != nullptr;
+			if(observed && noGuards) {
 				++stats.rejected;
 				return 0;
 			}
-			Run run;
-			run.push_back(w0);
+			Run run = {w0};
 			if(observed)
 				extendRun(chain, run);
-			Seed seed = runSeed(chain, run);
+			Seed seed = runSeed(chain, run, set);
 			if(!pack(seed))
 				return 0;
 			return (U32)seed.stores.size();
@@ -288,12 +262,11 @@ namespace rat {
 		// add the next windows of run[0]'s group and width that continue its bytes
 		void Slp::extendRun(const Chain& chain, Run& run) {
 			Window w0 = run[0], wn;
-			U32 group = addrs.get(w0.lane[0]->getPointer()).group;
 			while(run.size() < kMaxRunWindows) {
 				if(!windowAt(chain, w0.begin + run.size() * w0.w, w0.bytes, wn))
 					break;
-				B32 continues = addrs.get(wn.lane[0]->getPointer()).group == group && wn.w == w0.w &&
-												wn.lo == w0.lo + (I64)(run.size() * w0.bytes);
+				B32 continues =
+						wn.group == w0.group && wn.w == w0.w && wn.lo == w0.lo + (I64)(run.size() * w0.bytes);
 				if(!continues)
 					break;
 				run.push_back(wn);
@@ -301,27 +274,10 @@ namespace rat {
 			}
 		}
 
-		I32 Slp::leafProfit(const Window& w) {
-			Lanes lanes;
-			B32 loads = true;
-			LoadNode* l0 = dyn_cast<LoadNode>(w.lane[0]->getValue());
-			for(U32 k = 0; k < w.w; ++k) {
-				Node* v = w.lane[k]->getValue();
-				if(isArithmeticOpcode(v->getOpcode()) || isa<SelectNode>(v))
-					return INT32_MAX;
-				lanes.push_back(v);
-				LoadNode* l = dyn_cast<LoadNode>(v);
-				loads = loads && l && l0 && l->getControl() == l0->getControl() &&
-								addrs.get(l->getPointer()).group == addrs.get(l0->getPointer()).group;
-			}
-			if(loads)
-				return INT32_MAX;
-			return (I32)w.w - 1 - gatherCost(lanes);
-		}
-
 		// the run's stores and one tuple of lane values per window
-		Seed runSeed(const Chain& chain, const Run& run) {
+		Seed runSeed(const Chain& chain, const Run& run, MemMergeNode* set) {
 			Seed s;
+			s.set = set;
 			const Window& w0 = run[0];
 			s.memIn = chain[w0.begin]->getMemory();
 			s.windows = (U32)run.size();
@@ -334,20 +290,6 @@ namespace rat {
 					s.tuples.back().push_back(w.lane[k]->getValue());
 				s.profit += (I32)w.w - 1; // the fused store
 			}
-			return s;
-		}
-
-		// the window's stores and its lane values, all members read the state before the set
-		Seed setSeed(MemMergeNode* m, const Window& w) {
-			Seed s;
-			s.memIn = w.lane[0]->getMemory();
-			s.set = m;
-			s.stores.assign(w.lane, w.lane + w.w);
-			s.heads.push_back(w.lane[0]);
-			s.tuples.emplace_back();
-			for(U32 k = 0; k < w.w; ++k)
-				s.tuples.back().push_back(w.lane[k]->getValue());
-			s.profit = (I32)w.w - 1; // the fused store
 			return s;
 		}
 

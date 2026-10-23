@@ -12,10 +12,7 @@ namespace rat {
 			Made made = emit(plan);
 			if(seed.root)
 				commitReduction(seed, made);
-			else if(seed.set) {
-				assert(plan.guards.empty() && "no load reads a set member, so no lane edge is weak");
-				commitSet(seed, made);
-			} else if(plan.guards.empty())
+			else if(plan.guards.empty())
 				commitRun(seed, made);
 			else
 				commitGuarded(seed, plan, made);
@@ -47,31 +44,27 @@ namespace rat {
 
 		// one load at off and a broadcast, or the wide loads, shuffled when the lanes are permuted
 		Node* Slp::emitLoad(const Record& r, Type* vecTy, Made& made) {
-			if(!r.wideLoads) {
-				Node* ptr = anchorPtr(r.lowest->getPointer(), r.off);
-				LoadNode* ld = fn.create<LoadNode>(r.lowest->getType(), r.lowest->getControl(), r.mem, ptr);
-				made.loads.push_back({ld, addrs.get(r.lowest->getPointer())});
-				return fn.create<SplatNode>(vecTy, ld);
-			}
-			Node* a = wideLoad(r, vecTy, r.off, made);
+			if(!r.wideLoads)
+				return fn.create<SplatNode>(vecTy, loadAt(r, r.lowest->getType(), r.off, made));
+			Node* a = loadAt(r, vecTy, r.off, made);
 			if(!r.shuffle)
 				return a;
 			Node* b = a;
 			if(r.wideLoads == 2)
-				b = wideLoad(r, vecTy, r.off + (I64)kVecBytes, made);
+				b = loadAt(r, vecTy, r.off + (I64)kVecBytes, made);
 			return fn.create<ShuffleNode>(vecTy, a, b, r.sel);
 		}
 
-		// a vector load of r's state at offset off of its group, or the load an earlier record made
-		Node* Slp::wideLoad(const Record& r, Type* vecTy, I64 off, Made& made) {
+		// a load of type ty at offset off of r's group from r.mem, or an earlier record's equal load
+		Node* Slp::loadAt(const Record& r, Type* ty, I64 off, Made& made) {
 			Addr a = addrs.get(r.lowest->getPointer());
 			a.offset = off;
 			for(const auto& [ld, b] : made.loads)
-				if(ld->getType() == vecTy && ld->getMemory() == r.mem && b.group == a.group &&
+				if(ld->getType() == ty && ld->getMemory() == r.mem && b.group == a.group &&
 					 b.offset == off && ld->getControl() == r.lowest->getControl())
 					return ld;
 			Node* ptr = anchorPtr(r.lowest->getPointer(), off);
-			LoadNode* ld = fn.create<LoadNode>(vecTy, r.lowest->getControl(), r.mem, ptr);
+			LoadNode* ld = fn.create<LoadNode>(ty, r.lowest->getControl(), r.mem, ptr);
 			made.loads.push_back({ld, a});
 			return ld;
 		}
@@ -105,8 +98,8 @@ namespace rat {
 			}
 		}
 
-		// a group the plan is the first to use takes its pointer of the lowest offset as the anchor, the
-		// first in plan order on a tie, so the anchor does not depend on the order of emission
+		// a group the plan is the first to use takes the anchorOf base of the lowest offset among the
+		// plan's pointers of the group, the first in plan order on a tie
 		void Slp::seedAnchors(const Seed& seed, const Plan& plan) {
 			List<Node*> ptrs;
 			for(const Record& r : plan.records)
@@ -161,47 +154,25 @@ namespace rat {
 		}
 
 		void Slp::commitRun(const Seed& seed, const Made& made) {
-			StoreNode* last = seed.stores.back();
-			Node* wide = chainWideStores(seed, made, last->getControl());
-			replaceUses(last, wide);
-			renameMemIn(last, wide);
-			for(StoreNode* st : seed.stores)
-				st->clearInputs(); // dead without inputs, the sweep in run erases it
-			stats.packedUnguarded += seed.windows;
-		}
-
-		void Slp::commitSet(const Seed& seed, const Made& made) {
-			U32 first = ~0u;
-			for(StoreNode* st : seed.stores)
-				first = std::min(first, setSlot[st]);
 			Node* wide = chainWideStores(seed, made, seed.stores[0]->getControl());
-			for(StoreNode* st : seed.stores) {
-				seed.set->setInput(setSlot[st], nullptr);
-				st->clearInputs(); // dead without inputs, the sweep in run erases it
-			}
-			seed.set->setInput(first, wide);
-			stats.packedUnguarded += seed.windows;
-		}
-
-		void Slp::renameMemIn(Node* from, Node* to) {
-			for(GuardSplit& g : splits)
-				if(g.memIn == from)
-					g.memIn = to;
-		}
-
-		void Slp::lowerSets(const List<Piece>& pieces) {
-			for(const Piece& p : pieces) {
-				if(!p.set) {
-					seams.insert(p.chain.back());
-					continue;
+			if(seed.set) {
+				U32 first = ~0u;
+				for(StoreNode* st : seed.stores) {
+					first = std::min(first, setSlot[st]);
+					seed.set->setInput(setSlot[st], nullptr);
 				}
-				Node* last = lowerMerge(p.set);
-				seams.insert(last);
-				renameMemIn(p.set, last);
+				// the wide store takes the slot of the window's first store
+				seed.set->setInput(first, wide);
+			} else {
+				replaceUses(seed.stores.back(), wide);
 			}
+			for(StoreNode* st : seed.stores)
+				st->clearInputs(); // dead without inputs, the sweep in run erases it
+			stats.packedUnguarded += seed.windows;
 		}
 
 		void Slp::commitGuarded(const Seed& seed, const Plan& plan, const Made& made) {
+			assert(!seed.set && "no load reads a set member, so no lane edge is weak");
 			StoreNode* last = seed.stores.back();
 			Node* block = last->getControl();
 			Node *iff = nullptr, *elseP = nullptr;
@@ -214,9 +185,8 @@ namespace rat {
 			PhiNode* phi = fn.create<PhiNode>(fn.memTy(), List<Node*>{region, wide, last});
 			replaceUses(last, phi);
 			phi->setInput(2, last); // replaceUses also rewired the phi's own else input
-			renameMemIn(last, phi);
 			moveToElse(seed, plan, block, elseP);
-			splits.push_back({block, seed.memIn, phi, iff, region});
+			splits.push_back({block, seed.stores[0], phi, iff, region});
 			guardedBlocks.insert(block);
 			stats.packedGuarded += seed.windows;
 			stats.guardedRuns += 1;
@@ -271,7 +241,7 @@ namespace rat {
 			Map<const Node*, U32> runAt; // memIn -> guarded run
 			Set<const Node*> iffs;
 			for(U32 r = 0; r < splits.size(); ++r) {
-				runAt[splits[r].memIn] = r;
+				runAt[splits[r].first->getMemory()] = r;
 				iffs.insert(splits[r].iff);
 			}
 			for(const GuardSplit& g : splits) {
@@ -285,7 +255,8 @@ namespace rat {
 			}
 		}
 
-		// move the users of g's block that read the merged state or a later one below g's merge region
+		// move the users of g's block that read the merged state or a later one below g's merge region,
+		// hang a later guarded run of the block below g's region, and return whether one was found
 		B32 Slp::moveLaterUsers(const GuardSplit& g, const Map<const Node*, U32>& runAt) {
 			B32 next = false;
 			List<Node*> states = {g.phi};

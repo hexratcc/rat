@@ -198,7 +198,7 @@ namespace rat {
 
 		U32 Planner::op(const Lanes& lanes) {
 			Forms f;
-			if(!budget || !laneForms(lanes, f) || !formRule(f, lanes[0]))
+			if(!budget || !laneForms(lanes, f) || !hasFormRule(f, lanes[0]))
 				return kNone;
 			Lanes ops[kMaxInputs];
 			U32 count = operandTuples(lanes, f, ops);
@@ -275,19 +275,19 @@ namespace rat {
 			}
 		}
 
-		B32 Planner::formRule(const Forms& f, Node* n0) {
-			if(!ruleOf(f.first, n0))
+		B32 Planner::hasFormRule(const Forms& f, Node* n0) {
+			if(!hasRule(f.first, n0))
 				return false;
 			if(f.second == kNoOp)
 				return true;
 			B32 binary =
 					getOpClass(f.first) == OpClass::Binary && getOpClass(f.second) == OpClass::Binary;
 			B32 shift = isShiftOpcode(f.first) || isShiftOpcode(f.second);
-			return s.sse41 && binary && !shift && ruleOf(f.second, n0);
+			return s.sse41 && binary && !shift && hasRule(f.second, n0);
 		}
 
 		// whether a row has opcode op over lanes like n, and n's input type and the target fit it
-		B32 Planner::ruleOf(Opcode op, Node* n) {
+		B32 Planner::hasRule(Opcode op, Node* n) {
 			U8 types = typeBits(s.laneType(n));
 			for(const OpRule& row : kOpRules) {
 				if(op < row.first || op > row.last || !(types & row.types))
