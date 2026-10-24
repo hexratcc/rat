@@ -7,6 +7,35 @@
 
 namespace rat {
 	namespace slp {
+		StoreNode* chainSuccessor(const StoreNode* prev) {
+			StoreNode* next = nullptr;
+			for(Node* u : prev->getUsers()) {
+				StoreNode* st = dyn_cast<StoreNode>(u);
+				if(isa<LoadNode>(u))
+					continue;
+				if(!st || next || st->getControl() != prev->getControl() || st->isVolatile())
+					return nullptr;
+				next = st;
+			}
+			return next;
+		}
+
+		List<Chain> collectChains(Function& fn) {
+			List<Chain> chains;
+			for(Node* n : fn) {
+				StoreNode* st = dyn_cast<StoreNode>(n);
+				if(!st || st->isVolatile())
+					continue;
+				StoreNode* prev = dyn_cast<StoreNode>(st->getMemory());
+				if(prev && !prev->isVolatile() && chainSuccessor(prev) == st)
+					continue; // not a chain head
+				chains.emplace_back();
+				for(StoreNode* store = st; store; store = chainSuccessor(store))
+					chains.back().push_back(store);
+			}
+			return chains;
+		}
+
 		Handoff::Handoff(Function& fn)
 		: fn(&fn),
 			chains(collectChains(fn)),
@@ -53,12 +82,15 @@ namespace rat {
 				lastWild = store;
 			else
 				objects[a.addr.object].add(store, a.addr.group);
+			if(!a.addr.group)
+				return;
 			I64 end = a.addr.offset + (I64)a.size;
-			for(I64 from = a.addr.offset, to = 0; a.addr.group && from < end; from = to) { // each block
-				to = std::min(end, (from | (I64)(kVecBytes - 1)) + 1);
+			for(I64 from = a.addr.offset; from < end;) { // each block
+				I64 to = blockEnd(from, end);
 				std::array<U32, kVecBytes>& writers = blocks[pairKey(a.addr.group, from >> kVecShift)];
 				for(I64 byte = from; byte < to; ++byte)
 					writers[byte & (kVecBytes - 1)] = store;
+				from = to;
 			}
 		}
 
@@ -69,11 +101,12 @@ namespace rat {
 			else if(auto it = objects.find(a.addr.object); it != objects.end())
 				conflict = std::max(conflict, it->second.outside(a.addr.group));
 			I64 end = a.addr.offset + (I64)a.size;
-			for(I64 from = a.addr.offset, to = 0; from < end; from = to) { // each block
-				to = std::min(end, (from | (I64)(kVecBytes - 1)) + 1);
+			for(I64 from = a.addr.offset; from < end;) { // each block
+				I64 to = blockEnd(from, end);
 				auto it = blocks.find(pairKey(a.addr.group, from >> kVecShift));
 				for(I64 byte = from; it != blocks.end() && byte < to; ++byte)
 					conflict = std::max(conflict, it->second[byte & (kVecBytes - 1)]);
+				from = to;
 			}
 			return conflict;
 		}
@@ -99,15 +132,6 @@ namespace rat {
 						work.push_back(in);
 			}
 			return latest;
-		}
-
-		// a load reads a state between the chain's stores
-		B32 hasInnerReader(const Chain& chain) {
-			for(U32 k = 0; k + 1 < chain.size(); ++k)
-				for(Node* u : chain[k]->getUsers())
-					if(isa<LoadNode>(u))
-						return true;
-			return false;
 		}
 
 		void hoistLoads(Handoff& h, U32 ptrBytes, U32 chainIndex, List<U32>& stateOf) {
@@ -148,7 +172,7 @@ namespace rat {
 		h = slp::Handoff(fn);
 		List<U32> stateOf; // node id -> store number in the walked chain, sized on first use
 		for(U32 c = 0; c < h.chains.size(); ++c)
-			if(slp::hasInnerReader(h.chains[c])) {
+			if(slp::hasInnerReader(h.chains[c].data(), (U32)h.chains[c].size())) {
 				stateOf.resize(fn.idBound(), 0);
 				slp::hoistLoads(h, target.getPointerSizeInBytes(), c, stateOf);
 			}

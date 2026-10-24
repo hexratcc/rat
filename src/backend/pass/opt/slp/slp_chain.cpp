@@ -1,4 +1,4 @@
-#include "pass/opt/slp/slp_pack.h"
+#include "pass/opt/slp/slp_pack_detail.h"
 
 #include "ir/function.h"
 #include "ir/node.h"
@@ -20,35 +20,17 @@ namespace rat {
 			return access;
 		}
 
-		StoreNode* chainSuccessor(const StoreNode* prev) {
-			StoreNode* next = nullptr;
-			for(Node* u : prev->getUsers()) {
-				StoreNode* st = dyn_cast<StoreNode>(u);
-				if(isa<LoadNode>(u))
-					continue;
-				if(!st || next || st->getControl() != prev->getControl() || st->isVolatile())
-					return nullptr;
-				next = st;
-			}
-			return next;
+		// a load reads a state between count stores of a chain from stores[0]
+		B32 hasInnerReader(StoreNode* const* stores, U32 count) {
+			for(U32 k = 0; k + 1 < count; ++k)
+				for(Node* u : stores[k]->getUsers())
+					if(isa<LoadNode>(u))
+						return true;
+			return false;
 		}
 
-		List<Chain> collectChains(Function& fn) {
-			List<Chain> chains;
-			for(Node* n : fn) {
-				StoreNode* st = dyn_cast<StoreNode>(n);
-				if(!st || st->isVolatile())
-					continue;
-				StoreNode* prev = dyn_cast<StoreNode>(st->getMemory());
-				if(prev && !prev->isVolatile() && chainSuccessor(prev) == st)
-					continue; // not a chain head
-				chains.emplace_back();
-				for(StoreNode* store = st; store; store = chainSuccessor(store))
-					chains.back().push_back(store);
-			}
-			return chains;
-		}
-
+		// accesses[first..last] lie in at most kMaxSetGroups groups with disjoint bases and share no
+		// byte, written is scratch the caller keeps
 		B32 isDisjointSet(const List<Access>& accesses, U32 first, U32 last, Map<U64, U16>& written) {
 			List<Addr> groups; // address of each group's first store
 			written.clear();
@@ -68,13 +50,14 @@ namespace rat {
 				if(groups.size() > kMaxSetGroups)
 					return false;
 				I64 end = a.offset + (I64)accesses[i].size;
-				for(I64 from = a.offset, to = 0; from < end; from = to) { // each 16-byte block
-					to = std::min(end, (from | (I64)(kVecBytes - 1)) + 1);
+				for(I64 from = a.offset; from < end;) { // each 16-byte block
+					I64 to = blockEnd(from, end);
 					U16 bits = (U16)(((1u << (to - from)) - 1) << (from & (kVecBytes - 1)));
 					U16& mask = written[pairKey(a.group, from >> kVecShift)];
 					if(mask & bits)
 						return false; // two stores share a byte
 					mask |= bits;
+					from = to;
 				}
 			}
 			return true;
@@ -85,6 +68,7 @@ namespace rat {
 			StoreNode* lastStore = chain[last];
 			List<Node*> inputs = {lastStore->getControl()};
 			inputs.insert(inputs.end(), chain.begin() + first, chain.begin() + last + 1);
+			// made even when nothing packs, dropping it shifts the ids of later nodes
 			MemMergeNode* set = fn.create<MemMergeNode>(fn.memTy(), inputs);
 			lastStore->replaceAllUsesWith(set);					// the readers of the final state
 			set->setInput(last - first + 1, lastStore); // replaceAllUsesWith also rewired set's own input
@@ -105,18 +89,22 @@ namespace rat {
 				for(StoreNode* st : chain)
 					accesses.push_back(accessOf(addrs, ptrBytes, st));
 				U32 partStart = 0; // first store of the part not searched yet
-				for(U32 first = 0, last = 0; first < chain.size(); first = last + 1) {
-					for(last = first; last + 1 < chain.size() && chain[last]->getUsers().size() == 1;)
+				for(U32 first = 0; first < chain.size();) {
+					U32 last = first; // the stretch of stores whose only user is the next store
+					while(last + 1 < chain.size() && chain[last]->getUsers().size() == 1)
 						++last;
-					if(last == first || !isDisjointSet(accesses, first, last, written))
-						continue;
-					changed += packChain(Chain(chain.begin() + partStart, chain.begin() + first), nullptr);
-					MemMergeNode* set = mergeStretch(chain, first, last);
-					changed += packSet(set);
-					lowerSet(set); // later parts and chains walk its stores as plain stores
-					partStart = last + 1;
+					if(last != first && isDisjointSet(accesses, first, last, written)) {
+						Chain part(chain.begin() + partStart, chain.begin() + first);
+						changed += packWindows(part);
+						MemMergeNode* set = mergeStretch(chain, first, last);
+						changed += packSet(set);
+						lowerSet(set); // later parts and chains walk its stores as plain stores
+						partStart = last + 1;
+					}
+					first = last + 1;
 				}
-				changed += packChain(Chain(chain.begin() + partStart, chain.end()), nullptr);
+				Chain part(chain.begin() + partStart, chain.end());
+				changed += packWindows(part);
 				packed.push_back(changed != before);
 			}
 			return changed;
@@ -145,11 +133,11 @@ namespace rat {
 			U32 laneCount = bytes / elemSize;
 			if(laneCount < 2 || start + laneCount > chain.size())
 				return false;
-			const Addr& firstAddr = addrs.get(chain[start]->getPointer());
+			Addr firstAddr = addrs.get(chain[start]->getPointer());
 			I64 lowest = firstAddr.offset;
 			I64 offsets[kMaxLanes];
 			for(U32 j = 0; j < laneCount; ++j) {
-				const Addr& a = addrs.get(chain[start + j]->getPointer());
+				Addr a = addrs.get(chain[start + j]->getPointer());
 				if(chain[start + j]->getValue()->getType() != type || a.group != firstAddr.group)
 					return false;
 				offsets[j] = a.offset;
@@ -166,13 +154,13 @@ namespace rat {
 			return true;
 		}
 
-		// windows along a chain, or along a run of a set at consecutive offsets
-		U32 Slp::packChain(const Chain& chain, MemMergeNode* set) {
+		// windows along a chain, or along consecutive stores of a set
+		U32 Slp::packWindows(const Chain& chain) {
 			U32 changed = 0;
 			for(U32 i = 0; i < chain.size();) {
-				U32 packedStores = packRunAt(chain, i, kVecBytes, set);
+				U32 packedStores = packRunAt(chain, i, kVecBytes);
 				if(!packedStores)
-					packedStores = packRunAt(chain, i, kVecBytes / 2, set); // 2 x 32-bit
+					packedStores = packRunAt(chain, i, kVecBytes / 2); // 2 x 32-bit
 				changed += packedStores != 0;
 				i += std::max(packedStores, 1u);
 			}
@@ -183,50 +171,47 @@ namespace rat {
 			Map<U64, Pair<StoreNode*, Type*>> members; // (group, offset) -> member and its value type
 			for(U32 i = 1; i < set->getInputCount(); ++i) {
 				StoreNode* st = cast<StoreNode>(set->getInput(i));
-				const Addr& addr = addrs.get(st->getPointer());
+				Addr addr = addrs.get(st->getPointer());
 				members[pairKey(addr.group, addr.offset)] = {st, st->getValue()->getType()};
 			}
 			U32 changed = 0;
-			Chain run;
+			Chain consecutive;
 			for(U32 i = 1; i < set->getInputCount(); ++i) {
 				StoreNode* st = dyn_cast<StoreNode>(set->getInput(i));
 				if(!st || !(typeBits(st->getValue()->getType()) & kElem))
 					continue; // a slot a pack emptied, or a narrow or vector store
 				Type* type = st->getValue()->getType();
 				I64 elemSize = type->byteSize(ptrBytes);
-				const Addr& addr = addrs.get(st->getPointer());
+				Addr addr = addrs.get(st->getPointer());
 				auto below = members.find(pairKey(addr.group, addr.offset - elemSize));
 				if(below != members.end() && below->second.second == type)
-					continue; // not the first of its run
-				run.clear();
+					continue; // not the lowest of its consecutive stores
+				consecutive.clear();
 				for(I64 offset = addr.offset;; offset += elemSize) {
 					auto it = members.find(pairKey(addr.group, offset));
 					if(it == members.end() || it->second.second != type)
-						break; // a gap or another type ends the run
-					run.push_back(it->second.first);
+						break; // a gap or another type ends them
+					consecutive.push_back(it->second.first);
 				}
-				changed += packChain(run, set);
+				changed += packWindows(consecutive);
 			}
 			return changed;
 		}
 
-		U32 Slp::packRunAt(const Chain& chain, U32 start, U32 bytes, MemMergeNode* set) {
+		U32 Slp::packRunAt(const Chain& chain, U32 start, U32 bytes) {
 			Window first;
 			if(!windowAt(chain, start, bytes, first))
 				return 0;
 			++stats.windowsSeen;
-			B32 observed = false;
-			for(U32 j = 0; j + 1 < first.laneCount; ++j)
-				observed |= chain[start + j]->getUsers().size() > 1; // a load besides the next store
+			B32 observed = hasInnerReader(chain.data() + start, first.laneCount);
 			static const B32 noGuards = std::getenv("RAT_SLP_NO_GUARDS") != nullptr;
 			if(observed && noGuards) {
 				++stats.rejected;
 				return 0;
 			}
 			Seed seed;
-			seed.set = set;
 			addWindow(seed, chain, first);
-			if(observed)
+			if(observed) // an observed window takes the next windows that continue it, behind one guard
 				extendRun(chain, first, bytes, seed);
 			if(!pack(seed))
 				return 0;
@@ -257,74 +242,6 @@ namespace rat {
 			for(U32 lane = 0; lane < window.laneCount; ++lane)
 				seed.tuples.back().push_back(window.laneStore[lane]->getValue());
 			seed.profit += (I32)window.laneCount - 1 - kMinProfit; // the fused store, less the minimum
-		}
-
-		// a reducible op with an input of its op and no user of its op and type
-		B32 Slp::isReductionRoot(const Node* n) {
-			Opcode op = n->getOpcode();
-			if(op != Opcode::Add && op != Opcode::Mul && (op < Opcode::And || op > Opcode::Xor))
-				return false;
-			U8 typeClass = typeBits(n->getType());
-			if(!(typeClass & kI32I64) || (op == Opcode::Mul && (typeClass != kI32 || !sse41)))
-				return false;
-			B32 root = false;
-			for(U32 i = 0; i < n->getInputCount(); ++i)
-				root |= n->getInput(i)->getOpcode() == op;
-			for(Node* u : n->getUsers())
-				root &= u->getOpcode() != op || u->getType() != n->getType();
-			return root;
-		}
-
-		U32 Slp::packReductions() {
-			List<Node*> roots;
-			for(Node* n : fn)
-				if(isReductionRoot(n))
-					roots.push_back(n);
-			U32 changed = 0;
-			for(Node* root : roots)
-				changed += packReduction(root);
-			return changed;
-		}
-
-		List<Node*> flattenReduction(Node* root, List<Node*>& steps) {
-			List<Node*> terms;
-			List<Node*> todo = {root};
-			while(!todo.empty()) {
-				Node* n = todo.back();
-				todo.pop_back();
-				B32 isStep = n->getOpcode() == root->getOpcode() && n->getType() == root->getType() &&
-										 (n == root || n->getUsers().size() == 1);
-				// a step replaces n by its two inputs, which can each end as a term
-				if(!isStep || terms.size() + todo.size() + 2 > kMaxTerms) {
-					terms.push_back(n);
-					continue;
-				}
-				steps.push_back(n);
-				todo.push_back(n->getInput(0));
-				todo.push_back(n->getInput(1));
-			}
-			std::reverse(terms.begin(), terms.end());
-			return terms;
-		}
-
-		U32 Slp::packReduction(Node* root) {
-			Seed seed;
-			seed.root = root;
-			U32 laneCount = kVecBytes / root->getType()->byteSize(ptrBytes);
-			List<Node*> terms = flattenReduction(root, seed.steps);
-			U32 termCount = (U32)terms.size();
-			U32 vectorCount = termCount / laneCount;
-			if(termCount < kMinTerms)
-				return 0;
-			++stats.windowsSeen;
-			seed.tuples.resize(vectorCount);
-			for(U32 i = 0; i < vectorCount; ++i)
-				seed.tuples[i].assign(terms.data() + i * laneCount, terms.data() + (i + 1) * laneCount);
-			seed.scalarTerms.assign(terms.begin() + vectorCount * laneCount, terms.end());
-			I32 finishOps = 2 * (I32)(laneCount / 2) + 1; // shuffle and op per round, then the extract
-			seed.profit = (I32)termCount - 1 - (I32)seed.scalarTerms.size() -
-										((I32)vectorCount - 1 + finishOps) - kMinProfit;
-			return pack(seed);
 		}
 	} // namespace slp
 } // namespace rat

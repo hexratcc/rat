@@ -5,6 +5,7 @@
 #include "ir/node.h"
 #include "ir/type.h"
 #include "pass/opt/load_canon.h"
+#include "pass/opt/slp/slp_pack_detail.h"
 #include "target/target.h"
 
 #include <cstdlib>
@@ -13,7 +14,7 @@
 namespace rat {
 	namespace slp {
 		namespace detail {
-			// kLane a Load or Op lane, kSink a run store or reduction step, 0 any other node or a kept lane
+			// kLane a Load or Op lane, kSink a run store or reduction step, 0 other nodes and kept lanes
 			enum Role : U8 { kLane = 1, kSink = 2 };
 		} // namespace detail
 
@@ -73,6 +74,9 @@ namespace rat {
 
 		U64 pairKey(U32 high, I64 low) { return (U64)high << 32 | (U32)low; }
 
+		// the end of the 16-byte block at from, or end when it comes first
+		I64 blockEnd(I64 from, I64 end) { return std::min(end, (from | (I64)(kVecBytes - 1)) + 1); }
+
 		I32 profitMargin(const Plan& plan) {
 			I32 profit = plan.seed.profit;
 			for(const Vector& vec : plan.vectors)
@@ -91,6 +95,11 @@ namespace rat {
 				if(seed.stores[j] == state)
 					return true;
 			return false;
+		}
+
+		// the set of a run of set members, their only user, null for a run of a chain
+		MemMergeNode* setOf(const Seed& seed) {
+			return dyn_cast<MemMergeNode>(seed.stores[0]->getUsers()[0]);
 		}
 
 		void Slp::setRoles(const Plan& plan, B32 on) {
@@ -138,6 +147,8 @@ namespace rat {
 			return kept;
 		}
 
+		// a user of n besides the lanes and sinks of the plan, with copies a store of n's value counts
+		// as inside even when it is no sink, so a Load lane only copied to memory is not kept
 		B32 Slp::usedOutside(const Node* n, B32 copies) const {
 			for(U32 i = 0; i < n->getUsers().size(); ++i) {
 				const Node* user = n->getUsers()[i];

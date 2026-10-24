@@ -8,7 +8,7 @@
 
 #include "core.h"
 
-#include "pass/opt/slp/slp_pack.h"
+#include "pass/opt/slp/slp_pack_detail.h"
 #include "pass/pass.h"
 
 #include <array>
@@ -56,10 +56,11 @@ namespace rat {
 			Map<U64, std::array<U32, kVecBytes>> blocks; // (group, 16-byte block) -> last store per byte
 		};
 
+		StoreNode* chainSuccessor(const StoreNode* prev);
+		List<Chain> collectChains(Function& fn);
 		Handoff& handoff();
 		Handoff takeHandoff(Function& fn);
 		void unhoistLoads(const List<Hoist>& hoists, const List<B32>& packed);
-		B32 hasInnerReader(const Chain& chain);
 		U32 coneState(LoadNode* l, const List<U32>& stateOf);
 		void hoistLoads(Handoff& h, U32 ptrBytes, U32 chainIndex, List<U32>& stateOf);
 	} // namespace slp
