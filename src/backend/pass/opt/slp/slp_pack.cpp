@@ -8,7 +8,6 @@
 #include "pass/opt/slp/slp_pack_detail.h"
 #include "target/target.h"
 
-#include <cstdlib>
 #include <ostream>
 
 namespace rat {
@@ -34,10 +33,11 @@ namespace rat {
 		// the end of the 16-byte block at from, or end when it comes first
 		I64 blockEnd(I64 from, I64 end) { return std::min(end, (from | (I64)(kVecBytes - 1)) + 1); }
 
-		Context::Context(Function& fn, const TargetInfo& target)
+		Context::Context(Function& fn, const TargetInfo& target, SlpGuards guards)
 		: fn(fn),
 			ptrBytes(target.getPointerSizeInBytes()),
-			sse41(target.hasSse41()) {}
+			sse41(target.hasSse41()),
+			guards(guards) {}
 
 		Type* Context::laneType(const Node* n) {
 			if(isCompareOpcode(n->getOpcode()))
@@ -52,8 +52,8 @@ namespace rat {
 			return it->second;
 		}
 
-		Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
-		: cx(fn, target),
+		Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats, SlpGuards guards)
+		: cx(fn, target, guards),
 			stats(stats),
 			check(fn),
 			emitter(cx) {}
@@ -75,7 +75,7 @@ namespace rat {
 			Plan plan(cx, seed);
 			I32 margin = -1;
 			if(plan.build())
-				margin = profitMargin(plan);
+				margin = profitMargin(plan, cx.guards);
 			if(margin < 0) {
 				++stats.rejected;
 				return false;
@@ -92,13 +92,12 @@ namespace rat {
 		}
 
 		// the profit above kMinProfit per window, what kept lanes may cost
-		I32 profitMargin(const Plan& plan) {
+		I32 profitMargin(const Plan& plan, SlpGuards guards) {
 			I32 windows = std::max(1, (I32)plan.seed.lowestStores.size()); // a reduction counts as one
 			I32 profit = plan.seed.profit - kMinProfit * windows;
 			for(const Vector& vec : plan.vectors)
 				profit += vec.profit;
-			static const B32 noGuardCost = std::getenv("RAT_SLP_NO_GUARD_COST") != nullptr;
-			if(!plan.guards.empty() && !noGuardCost)
+			if(!plan.guards.empty() && guards != SlpGuards::NoCost)
 				profit -= (I32)plan.guards.size() * kGuardCheckCost + kGuardBranchCost;
 			return profit;
 		}
@@ -180,7 +179,17 @@ namespace rat {
 		}
 	} // namespace slp
 
-	const C8* SlpPackPass::name() const { return "slp"; }
+	SlpPackPass::SlpPackPass(SlpGuards guards)
+	: guards(guards) {}
+
+	// the registry name, so a variant keeps its own clean marks and timing
+	const C8* SlpPackPass::name() const {
+		if(guards == SlpGuards::NoCost)
+			return "slp-noguardcost";
+		if(guards == SlpGuards::Off)
+			return "slp-noguards";
+		return "slp";
+	}
 
 	void SlpPackPass::beginModule(Module&, const CallGraph&) {
 		stats = SlpStats{};
@@ -196,6 +205,6 @@ namespace rat {
 	}
 
 	U32 SlpPackPass::runOnFunction(Function& fn, const TargetInfo& target) {
-		return slp::Slp(fn, target, stats).run();
+		return slp::Slp(fn, target, stats, guards).run();
 	}
 } // namespace rat

@@ -4,8 +4,6 @@
 #include "ir/node.h"
 #include "ir/type.h"
 
-#include <cstdlib>
-
 namespace rat {
 	namespace slp {
 		// a disjoint stretch becomes a set, the sets and the parts between are searched in chain order
@@ -98,8 +96,7 @@ namespace rat {
 				return 0;
 			++stats.windowsSeen;
 			B32 observed = hasInnerReader(chain.data() + start, first.laneCount);
-			static const B32 noGuards = std::getenv("RAT_SLP_NO_GUARDS") != nullptr;
-			if(observed && noGuards) {
+			if(observed && cx.guards == SlpGuards::Off) {
 				++stats.rejected;
 				return 0;
 			}
