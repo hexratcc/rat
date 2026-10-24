@@ -133,4 +133,9 @@ namespace rat {
 		}
 		os << "\n";
 	}
+
+	void PassManager::printStats(const Module& module, std::ostream& os) const {
+		for(const UniquePtr<Pass>& pass : passes)
+			pass->printStats(module, os);
+	}
 } // namespace rat

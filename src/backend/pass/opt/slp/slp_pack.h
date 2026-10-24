@@ -8,6 +8,8 @@
 
 #include "pass/pass.h"
 
+#include <iosfwd>
+
 namespace rat {
 	struct SlpStats {
 		U32 windowsSeen = 0;		 // windows, and reductions of kMinTerms or more terms, examined
@@ -22,7 +24,7 @@ namespace rat {
 	struct SlpPackPass : FunctionPass {
 		const C8* name() const override;
 		void beginModule(Module& module, const CallGraph& graph) override;
-		void endModule(Module& module) override;
+		void printStats(const Module& module, std::ostream& os) const override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
 		SlpStats stats;

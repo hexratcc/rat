@@ -35,6 +35,7 @@ namespace detail {
 		String machineSpec;				// -fmachine-passes=: exact x86 machine pipeline
 		List<String> extraPasses; // individual -f<pass> requests (in order)
 		B32 timePasses = false;
+		B32 passStats = false;
 		B32 preprocessOnly = false;
 		B32 noStdInc = false;	 // -nostdinc: skip builtin headers
 		B32 noPredefs = false; // -undef: skip predefs
@@ -105,6 +106,7 @@ namespace detail {
 					"  -fmachine-passes=<a,b,...>\n"
 					"                        exact machine pipeline for the x86 backend\n"
 					"  -ftime-passes         print per-phase and per-pass timing to stderr\n"
+					"  -fpass-stats          print pass statistics to stderr\n"
 					"  -list-passes          list available passes and exit\n";
 	}
 
@@ -131,7 +133,8 @@ namespace detail {
 				opt.optLevel = arg != "-O0";
 			else if(setFlag(arg, "-E", opt.preprocessOnly) || setFlag(arg, "-nostdinc", opt.noStdInc) ||
 							setFlag(arg, "-undef", opt.noPredefs) ||
-							setFlag(arg, "-ftime-passes", opt.timePasses))
+							setFlag(arg, "-ftime-passes", opt.timePasses) ||
+							setFlag(arg, "-fpass-stats", opt.passStats))
 				;
 			else if(String spec; cli::value(kTool, argc, argv, i, "-emit", spec))
 				parseEmit(spec, opt.emits);
@@ -227,6 +230,8 @@ namespace detail {
 		PassManager& pm = *new PassManager(target);
 		composePipeline(pm, copt, os);
 		pm.run(mod);
+		if(opt.passStats)
+			pm.printStats(mod, std::cerr);
 		if(opt.timePasses)
 			pm.printTimingReport(std::cerr);
 		return 0;

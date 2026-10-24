@@ -9,7 +9,7 @@
 #include "target/target.h"
 
 #include <cstdlib>
-#include <iostream>
+#include <ostream>
 
 namespace rat {
 	namespace slp {
@@ -187,14 +187,12 @@ namespace rat {
 		slp::handoff() = {}; // a handoff from an earlier pipeline stage is stale
 	}
 
-	void SlpPackPass::endModule(Module& module) {
+	void SlpPackPass::printStats(const Module& module, std::ostream& os) const {
 		const SlpStats& s = stats;
-		if(std::getenv("RAT_SLP_STATS"))
-			std::cerr << "slp[" << module.getName() << "]: windows " << s.windowsSeen << " packed "
-								<< (s.packedUnguarded + s.packedGuarded) << " (static " << s.packedUnguarded
-								<< ", guarded " << s.packedGuarded << " in " << s.guardedRuns << " runs, "
-								<< s.guardChecks << " checks) reductions " << s.packedReduction << " rejected "
-								<< s.rejected << "\n";
+		os << "slp[" << module.getName() << "]: windows " << s.windowsSeen << " packed "
+			 << (s.packedUnguarded + s.packedGuarded) << " (static " << s.packedUnguarded << ", guarded "
+			 << s.packedGuarded << " in " << s.guardedRuns << " runs, " << s.guardChecks
+			 << " checks) reductions " << s.packedReduction << " rejected " << s.rejected << "\n";
 	}
 
 	U32 SlpPackPass::runOnFunction(Function& fn, const TargetInfo& target) {
