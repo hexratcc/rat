@@ -1,15 +1,20 @@
-// SLP internals in stage order. Slp::run drives the stages on one function:
-// 1. chains, slp_chain.cpp: the store chains come from the loadcanon handoff, a disjoint stretch
-//    of a chain becomes a set, and windows of stores along a chain or a set make one Seed per run
-// 2. plan, slp_plan.cpp, slp_load.cpp and slp_guard.cpp: Plan::build covers each seed tuple with a
-//    Gather, Load or Op vector, operands first, and adds the runtime checks its loads need
-// 3. check, slp_pack.cpp: Slp::pack keeps a plan whose profit covers its kept lanes and whose inner
-//    readers die
-// 4. apply, slp_apply.cpp and slp_guard.cpp: emit the vectors, then the wide stores, behind a
-//    runtime guard when a lane load needs one
-// 5. after all chains, load_canon.cpp and slp_guard.cpp: unhoist the loads of chains without a
-//    pack, then split the blocks of the guarded runs
-// 6. reductions, slp_reduce.cpp: each reduction root is a seed and goes through stages 2 to 4
+// SLP internals in stage order. Slp::run drives the stages on one function, each stage object owns
+// its state, and Context holds the function, the target facts and the addresses they share:
+// 1. chains, slp_chain.cpp, Slp: the store chains come from the loadcanon handoff, a disjoint
+//    stretch of a chain becomes a set, and windows of stores along a chain or a set make one Seed
+//    per run
+// 2. plan, slp_plan.cpp, slp_load.cpp and slp_guard.cpp, Plan and LoadFacts: Plan::build covers
+//    each seed tuple with a Gather, Load or Op vector, operands first, and adds the runtime checks
+//    its loads need
+// 3. check, slp_pack.cpp, Check: Slp::pack keeps a plan whose profit covers its kept lanes and
+//    whose inner readers die
+// 4. apply, slp_apply.cpp and slp_guard.cpp, Emitter and GuardedRuns: emit the vectors, then the
+//    wide stores, behind a runtime guard when a lane load needs one
+// 5. after all chains, unhoistLoads of load_canon.cpp and GuardedRuns::splitBlocks of
+//    slp_guard.cpp: unhoist the loads of chains without a pack, then split the blocks of the
+//    guarded runs
+// 6. reductions, slp_reduce.cpp, Slp and Emitter: each reduction root is a seed and goes through
+//    stages 2 to 4
 
 #ifndef RAT_PASS_OPT_SLPPACKDETAIL_H
 #define RAT_PASS_OPT_SLPPACKDETAIL_H
@@ -70,6 +75,17 @@ namespace rat {
 		U64 pairKey(U32 high, I64 low);
 		I64 blockEnd(I64 from, I64 end);
 
+		// the function and target, set once, and the addresses the stages read
+		struct Context {
+			Context(Function& fn, const TargetInfo& target);
+			Type* laneType(const Node* n);
+
+			Function& fn;
+			U32 ptrBytes;
+			B32 sse41;
+			AddrCache addrs; // Slp::run takes it from the loadcanon handoff
+		};
+
 		// chains, sets and seeds
 
 		struct Access {
@@ -111,6 +127,24 @@ namespace rat {
 		MemMergeNode* setOf(const Seed& seed);
 
 		// plan
+
+		// lazy indexes of the loads and stores of fn, for the load plan. The first bytesRead or
+		// storesTo builds one from fn as the packs before left it, a later pack does not update it, so
+		// the moment of the first query shapes the output
+		struct LoadFacts {
+			explicit LoadFacts(Context& cx);
+			B32 bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl);
+			B32 storesTo(U32 object);
+		private:
+			void indexReads();
+			void indexStores();
+		private:
+			Context& cx;
+			Map<U64, Set<I64>> reads; // (control id, group) -> offsets of 4-byte pieces loads read
+			B32 readsIndexed = false;
+			Set<U32> storedObjects; // objects the stores of fn write
+			B32 storesIndexed = false;
+		};
 
 		// Gather: a Pack or Splat, Load: wide loads or a broadcast load, Op: lane ops as vector ops
 		enum class VectorKind : U8 { Gather, Load, Op };
@@ -157,13 +191,23 @@ namespace rat {
 		B32 isUniformShift(const Lanes& lanes);
 		I32 blendProfit(const LaneOps& ops, U32 laneCount, U16& sel);
 
-		struct Slp;
+		struct GuardedRuns;
 
 		// the vectors of one seed and the runtime checks they need, build writes them, the check reads
 		// them, apply reads them and sets Vector::node and loads
 		struct Plan {
-			Plan(Slp& slp, const Seed& seed);
+			Plan(Context& cx, LoadFacts& facts, const GuardedRuns& guardedRuns, const Seed& seed);
 			B32 build();
+			Node* tupleNode(U32 tuple) const; // slp_apply.cpp
+
+			const Seed& seed;
+			List<Vector> vectors;												// operands first
+			SmallList<U32, kMaxTerms / 4> tupleVectors; // vector of each seed tuple
+			List<GuardRange> guards;										// one runtime check each
+			// the loads Emitter::loadAt emitted with their address, loadAt reuses an equal one,
+			// GuardedRuns::commit moves those that read memIn below the guards
+			List<Pair<LoadNode*, Addr>> loads;
+		private:
 			U32 planVector(const Lanes& lanes);
 			U32 planGather(const Lanes& lanes);
 			// Op
@@ -185,23 +229,58 @@ namespace rat {
 			B32 callWrites(const CallNode* call, const Addr& addr);
 			// guards, slp_guard.cpp
 			void addGuard(const Vector& vec);
-			// apply, slp_apply.cpp
-			Node* tupleNode(U32 tuple) const;
-
-			Slp& slp;
-			const Seed& seed;
-			List<Vector> vectors;												// operands first
-			SmallList<U32, kMaxTerms / 4> tupleVectors; // vector of each seed tuple
-			List<GuardRange> guards;										// one runtime check each
-			U32 budget = 0; // Op vectors left to try, kMaxOps more per seed tuple
-			// the loads apply emitted with their address, so loadAt reuses an equal load
-			List<Pair<LoadNode*, Addr>> loads;
+		private:
+			Context& cx;
+			LoadFacts& facts;
+			const GuardedRuns& guardedRuns; // build and loadState ask it about a block
+			U32 budget = 0;									// Op vectors left to try, kMaxOps more per seed tuple
 		};
 
 		// check
 		I32 profitMargin(const Plan& plan);
 
+		// the role of each node in the plan under check and apply, and the queries on it
+		struct Check {
+			explicit Check(const Function& fn);
+			void setRoles(const Plan& plan, B32 on);
+			U32 markKeptLanes(const Plan& plan);
+			B32 laneDies(const Node* n) const;
+			B32 innerReadersDie(const Seed& seed) const;
+		private:
+			U8 roleOf(const Node* n) const;
+			B32 usedOutside(const Node* n, B32 copies) const;
+		private:
+			const Function& fn;
+			// node id -> Role of slp_pack.cpp, else 0, setRoles sets and clears it around the check and
+			// apply of one plan, markKeptLanes clears kept lanes, usedOutside and laneDies read it
+			List<U8> roles;
+		};
+
 		// apply
+
+		// emits an applied plan, its vectors, then its wide stores or its reduction, at addresses off
+		// one anchor per group
+		struct Emitter {
+			explicit Emitter(Context& cx);
+			void seedAnchors(const Plan& plan);
+			void emitVectors(Plan& plan);
+			Node* emitWideStores(const Plan& plan, Node* ctrl);
+			void commitRun(const Plan& plan);
+			void commitReduction(const Plan& plan); // slp_reduce.cpp
+		private:
+			Node* emitGather(const Vector& vec, Type* vecTy);
+			Node* emitLoad(const Vector& vec, Type* vecTy, Plan& plan);
+			Node* loadAt(const Vector& vec, Type* ty, I64 offset, Plan& plan);
+			Node* emitOp(const Vector& vec, Type* vecTy, const Plan& plan);
+			Node* makeOp(Opcode op, Type* vecTy, Node* const* inputs);
+			Node* anchorPtr(Node* ptr, I64 offset, const Node* ctrl);
+			Pair<Node*, I64> anchorOf(Node* ptr);
+		private:
+			Context& cx;
+			// (control, group) -> (anchor ptr, its offset), seedAnchors adds a key the first time an applied
+			// plan uses it and never changes it, anchorPtr reads it
+			Map<U64, Pair<Node*, I64>> anchors;
+		};
 
 		// a run behind runtime guards, its block splits after all chains
 		struct GuardedRun {
@@ -211,12 +290,36 @@ namespace rat {
 			Node* firstIf = nullptr;				 // first guard branch
 		};
 
-		// the pass on one function, the state its stages share
+		// the guarded runs of fn, commit emits one behind its guards, splitBlocks splits their blocks
+		// after all chains
+		struct GuardedRuns {
+			explicit GuardedRuns(Context& cx);
+			B32 hasRuns(const Node* block) const;
+			B32 isFull(const Node* block) const; // kMaxGuardedRuns runs
+			void commit(const Plan& plan, Emitter& emitter, const Check& check);
+			void splitBlocks();
+		private:
+			void moveToElse(const Plan& plan, Node* block, Node* elseP, const Check& check);
+			Node* emitGuardCascade(const Plan& plan, Node*& firstIf, Node*& elseP);
+			B32 moveLaterUsers(const GuardedRun& guarded, const Map<const Node*, U32>& runAt);
+		private:
+			Context& cx;
+			// commit adds to both, hasRuns and isFull read the count for the plan, splitBlocks reads the
+			// list after all chains
+			List<GuardedRun> runs;
+			Map<const Node*, U32> perBlock; // block -> its guarded run count
+		};
+
+		// the pass on one function, it searches the seeds and packs each through the stage objects
 		struct Slp {
 			Slp(Function& fn, const TargetInfo& target, SlpStats& stats);
+			// the stages hold references to cx
+			Slp(const Slp&) = delete;
+			Slp& operator=(const Slp&) = delete;
 			U32 run();
+		private:
 			B32 pack(const Seed& seed);
-			Type* laneType(const Node* n);
+			void apply(Plan& plan); // slp_apply.cpp
 			// chains and sets, slp_chain.cpp
 			U32 packChains(const List<Chain>& chains, List<B32>& packed);
 			MemMergeNode* mergeStretch(const Chain& chain, U32 first, U32 last);
@@ -229,64 +332,16 @@ namespace rat {
 			U32 packReductions();
 			B32 isReductionRoot(const Node* n);
 			U32 packReduction(Node* root);
-			void commitReduction(const Plan& plan);
-			// plan queries, slp_load.cpp
-			B32 bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl);
-			void indexReads();
-			B32 storesTo(U32 object);
-			void indexStores();
-			// check, slp_pack.cpp
-			void setRoles(const Plan& plan, B32 on);
-			U8 roleOf(const Node* n) const;
-			U32 markKeptLanes(const Plan& plan);
-			B32 usedOutside(const Node* n, B32 copies) const;
-			B32 laneDies(const Node* n) const;
-			B32 innerReadersDie(const Seed& seed) const;
-			// apply, slp_apply.cpp
-			void apply(Plan& plan);
-			void emitVectors(Plan& plan);
-			Node* emitGather(const Vector& vec, Type* vecTy);
-			Node* emitLoad(const Vector& vec, Type* vecTy, Plan& plan);
-			Node* loadAt(const Vector& vec, Type* ty, I64 offset, Plan& plan);
-			Node* emitOp(const Vector& vec, Type* vecTy, const Plan& plan);
-			Node* makeOp(Opcode op, Type* vecTy, Node* const* inputs);
-			void seedAnchors(const Plan& plan);
-			Node* anchorPtr(Node* ptr, I64 offset, const Node* ctrl);
-			Pair<Node*, I64> anchorOf(Node* ptr);
-			Node* emitWideStores(const Plan& plan, Node* ctrl);
-			void commitRun(const Plan& plan);
-			// guarded runs, slp_guard.cpp
-			void commitGuarded(const Plan& plan);
-			void moveToElse(const Plan& plan, Node* block, Node* elseP);
-			Node* emitGuardCascade(const Plan& plan, Node*& firstIf, Node*& elseP);
-			void splitBlocks();
-			B32 moveLaterUsers(const GuardedRun& guarded, const Map<const Node*, U32>& runAt);
-
-			// function and target, set once
-			Function& fn;
-			U32 ptrBytes;
-			B32 sse41;
+		private:
+			Context cx;
 			// packRunAt, extendRun and packReduction count windows, packRunAt and pack count rejects,
 			// apply counts packs
 			SlpStats& stats;
-			// run takes addrs from the handoff, every stage reads it
-			AddrCache addrs;
-			// (control, group) -> (anchor ptr, its offset), seedAnchors adds a key the first time an applied
-			// plan uses it and never changes it, anchorPtr reads it
-			Map<U64, Pair<Node*, I64>> anchors;
-			// lazy indexes, the first bytesRead or storesTo builds one from fn as the packs before left
-			// it, a later pack does not update it, so the moment of the first query shapes the output
-			Map<U64, Set<I64>> reads; // (control id, group) -> offsets of 4-byte pieces loads read
-			B32 readsIndexed = false;
-			Set<U32> storedObjects; // objects the stores of fn write
-			B32 storesIndexed = false;
-			// commitGuarded adds to both, Plan::build and loadState read the count, splitBlocks reads
-			// the list after all chains
-			List<GuardedRun> guardedRuns;
-			Map<const Node*, U32> guardedRunsPerBlock; // block -> its guarded run count
-			// node id -> Role of slp_pack.cpp, else 0, setRoles sets and clears it around the check and
-			// apply of one plan, markKeptLanes clears kept lanes, usedOutside and laneDies read it
-			List<U8> roles;
+			// the stages, pack runs a seed through them
+			LoadFacts facts;				 // the plan queries it
+			Check check;						 // pack checks a plan, GuardedRuns::commit asks which lanes die
+			Emitter emitter;				 // apply emits a plan, GuardedRuns::commit its wide stores
+			GuardedRuns guardedRuns; // apply commits, the plan asks hasRuns and isFull, run splits
 		};
 	} // namespace slp
 } // namespace rat

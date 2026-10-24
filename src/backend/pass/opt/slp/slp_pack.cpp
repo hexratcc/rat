@@ -18,47 +18,55 @@ namespace rat {
 			enum Role : U8 { kLane = 1, kSink = 2 };
 		} // namespace detail
 
-		Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
+		Context::Context(Function& fn, const TargetInfo& target)
 		: fn(fn),
 			ptrBytes(target.getPointerSizeInBytes()),
-			sse41(target.hasSse41()),
-			stats(stats) {}
+			sse41(target.hasSse41()) {}
+
+		Type* Context::laneType(const Node* n) {
+			if(isCompareOpcode(n->getOpcode()))
+				return fn.types().getInt(8 * n->getInput(0)->getType()->byteSize(ptrBytes));
+			return n->getType();
+		}
+
+		Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
+		: cx(fn, target),
+			stats(stats),
+			facts(cx),
+			check(fn),
+			emitter(cx),
+			guardedRuns(cx) {}
 
 		U32 Slp::run() {
-			Handoff h = takeHandoff(fn);
-			addrs = std::move(h.addrs);
+			Handoff h = takeHandoff(cx.fn);
+			cx.addrs = std::move(h.addrs);
 			List<B32> packed; // per chain
 			U32 changed = packChains(h.chains, packed);
 			unhoistLoads(h.hoists, packed);
-			splitBlocks();
-			fn.eliminateDeadNodes(); // so every reduction root found is live
+			guardedRuns.splitBlocks();
+			cx.fn.eliminateDeadNodes(); // so every reduction root found is live
 			changed += packReductions();
-			fn.eliminateDeadNodes();
+			cx.fn.eliminateDeadNodes();
 			return changed;
 		}
 
 		B32 Slp::pack(const Seed& seed) {
-			Plan plan(*this, seed);
+			Plan plan(cx, facts, guardedRuns, seed);
 			I32 margin = -1;
 			if(plan.build())
 				margin = profitMargin(plan);
 			B32 ok = margin >= 0;
 			if(ok) {
-				setRoles(plan, true);
+				check.setRoles(plan, true);
 				// the first innerReadersDie is a cheap early reject, as kept lanes can only make it fail
-				ok = innerReadersDie(seed) && (I32)markKeptLanes(plan) <= margin && innerReadersDie(seed);
+				ok = check.innerReadersDie(seed) && (I32)check.markKeptLanes(plan) <= margin &&
+						 check.innerReadersDie(seed);
 				if(ok)
 					apply(plan);
-				setRoles(plan, false);
+				check.setRoles(plan, false);
 			}
 			stats.rejected += !ok;
 			return ok;
-		}
-
-		Type* Slp::laneType(const Node* n) {
-			if(isCompareOpcode(n->getOpcode()))
-				return fn.types().getInt(8 * n->getInput(0)->getType()->byteSize(ptrBytes));
-			return n->getType();
 		}
 
 		U8 typeBits(const Type* t) {
@@ -102,7 +110,10 @@ namespace rat {
 			return dyn_cast<MemMergeNode>(seed.stores[0]->getUsers()[0]);
 		}
 
-		void Slp::setRoles(const Plan& plan, B32 on) {
+		Check::Check(const Function& fn)
+		: fn(fn) {}
+
+		void Check::setRoles(const Plan& plan, B32 on) {
 			if(roles.size() < fn.idBound())
 				roles.resize(2 * fn.idBound(), 0); // room for the nodes later seeds make
 			U8 laneRole = (U8)(detail::kLane * on);
@@ -117,14 +128,14 @@ namespace rat {
 				roles[n->getId()] = sinkRole;
 		}
 
-		U8 Slp::roleOf(const Node* n) const {
+		U8 Check::roleOf(const Node* n) const {
 			if(n->getId() >= roles.size())
 				return 0;
 			return roles[n->getId()];
 		}
 
 		// a lane a scalar user needs stays scalar with its lane inputs, so it drops its role
-		U32 Slp::markKeptLanes(const Plan& plan) {
+		U32 Check::markKeptLanes(const Plan& plan) {
 			SmallList<const Node*, 64> work;
 			for(const Vector& vec : plan.vectors) {
 				for(Node* n : vec.lanes)
@@ -149,7 +160,7 @@ namespace rat {
 
 		// a user of n besides the lanes and sinks of the plan, with copies a store of n's value counts
 		// as inside even when it is no sink, so a Load lane only copied to memory is not kept
-		B32 Slp::usedOutside(const Node* n, B32 copies) const {
+		B32 Check::usedOutside(const Node* n, B32 copies) const {
 			for(U32 i = 0; i < n->getUsers().size(); ++i) {
 				const Node* user = n->getUsers()[i];
 				// a load lane reads n as its scalar pointer
@@ -162,12 +173,12 @@ namespace rat {
 			return false;
 		}
 
-		B32 Slp::laneDies(const Node* n) const {
+		B32 Check::laneDies(const Node* n) const {
 			return roleOf(n) == detail::kLane && !usedOutside(n, false);
 		}
 
 		// every load of a state between the run's stores dies, as the wide stores make no such state
-		B32 Slp::innerReadersDie(const Seed& seed) const {
+		B32 Check::innerReadersDie(const Seed& seed) const {
 			for(U32 j = 0; j + 1 < seed.stores.size(); ++j)
 				for(Node* u : seed.stores[j]->getUsers())
 					if(isa<LoadNode>(u) && !laneDies(u))

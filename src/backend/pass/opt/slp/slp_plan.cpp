@@ -48,9 +48,11 @@ namespace rat {
 			// clang-format on
 		} // namespace detail
 
-		Plan::Plan(Slp& slp, const Seed& seed)
-		: slp(slp),
-			seed(seed) {
+		Plan::Plan(Context& cx, LoadFacts& facts, const GuardedRuns& guardedRuns, const Seed& seed)
+		: seed(seed),
+			cx(cx),
+			facts(facts),
+			guardedRuns(guardedRuns) {
 			vectors.reserve(4 * seed.tuples.size());
 		}
 
@@ -68,9 +70,7 @@ namespace rat {
 			if(guards.empty())
 				return true;
 			// a guarded run splits its block, and the loads above its guard stay live across the splits
-			auto it = slp.guardedRunsPerBlock.find(seed.stores.back()->getControl());
-			B32 blockFull = it != slp.guardedRunsPerBlock.end() && it->second >= kMaxGuardedRuns;
-			return guards.size() <= kMaxGuards && !blockFull;
+			return guards.size() <= kMaxGuards && !guardedRuns.isFull(seed.stores.back()->getControl());
 		}
 
 		U32 Plan::planVector(const Lanes& lanes) {
@@ -164,13 +164,13 @@ namespace rat {
 				if(ops.opcode[i] == Opcode::Neg) {
 					// made even when planOp rejects the lanes, dropping it shifts later node ids
 					if(!zero)
-						zero = slp.fn.create<ConstantNode>(lane->getType(), 0);
+						zero = cx.fn.create<ConstantNode>(lane->getType(), 0);
 					ops.opcode[i] = Opcode::Sub;
 					ops.input[i][1] = ops.input[i][0];
 					ops.input[i][0] = zero;
 				} else if(ops.opcode[i] == Opcode::Not) {
 					if(!ones)
-						ones = slp.fn.create<ConstantNode>(lane->getType(), -1);
+						ones = cx.fn.create<ConstantNode>(lane->getType(), -1);
 					ops.opcode[i] = Opcode::Xor;
 					ops.input[i][1] = ones;
 				}
@@ -198,16 +198,16 @@ namespace rat {
 			B32 binary =
 					getOpClass(ops.mainOp) == OpClass::Binary && getOpClass(ops.altOp) == OpClass::Binary;
 			B32 shift = isShiftOpcode(ops.mainOp) || isShiftOpcode(ops.altOp);
-			return slp.sse41 && binary && !shift && hasRule(ops.altOp, lane0);
+			return cx.sse41 && binary && !shift && hasRule(ops.altOp, lane0);
 		}
 
 		B32 Plan::hasRule(Opcode op, Node* lane) {
-			U8 laneTypes = typeBits(slp.laneType(lane));
+			U8 laneTypes = typeBits(cx.laneType(lane));
 			for(const detail::OpRule& row : detail::kOpRules) {
 				if(op < row.first || op > row.last || !(laneTypes & row.laneTypes))
 					continue;
 				B32 inputOk = !row.inputTypes || (typeBits(lane->getInput(0)->getType()) & row.inputTypes);
-				return inputOk && (!row.needsSse41 || slp.sse41);
+				return inputOk && (!row.needsSse41 || cx.sse41);
 			}
 			return false;
 		}
@@ -227,13 +227,13 @@ namespace rat {
 				}
 			}
 			for(U32 input = 0; input < tupleCount; ++input) {
-				U32 bytes = lanes.size() * slp.laneType(tuples[input][0])->byteSize(slp.ptrBytes);
+				U32 bytes = lanes.size() * cx.laneType(tuples[input][0])->byteSize(cx.ptrBytes);
 				if(bytes > kVecBytes || bytes < 4) // at most a vector, at least a movd
 					return 0;
 			}
 			if(isShiftOpcode(ops.mainOp) && !isUniformShift(lanes))
 				return 0;
-			if(ops.mainOp == Opcode::Select && slp.laneType(tuples[0][0]) != lanes[0]->getType())
+			if(ops.mainOp == Opcode::Select && cx.laneType(tuples[0][0]) != lanes[0]->getType())
 				return 0;
 			if(tupleCount == 2)
 				orientOperands(ops, tuples);
@@ -254,7 +254,7 @@ namespace rat {
 		std::tuple<Opcode, const Type*, U32> Plan::operandKey(Node* n) {
 			U32 group = 0;
 			if(LoadNode* l = dyn_cast<LoadNode>(n))
-				group = slp.addrs.get(l->getPointer()).group;
+				group = cx.addrs.get(l->getPointer()).group;
 			return {n->getOpcode(), n->getType(), group};
 		}
 

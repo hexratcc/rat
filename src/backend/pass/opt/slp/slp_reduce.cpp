@@ -13,7 +13,7 @@ namespace rat {
 			if(op != Opcode::Add && op != Opcode::Mul && (op < Opcode::And || op > Opcode::Xor))
 				return false;
 			U8 typeClass = typeBits(n->getType());
-			if(!(typeClass & kI32I64) || (op == Opcode::Mul && (typeClass != kI32 || !sse41)))
+			if(!(typeClass & kI32I64) || (op == Opcode::Mul && (typeClass != kI32 || !cx.sse41)))
 				return false;
 			B32 root = false;
 			for(U32 i = 0; i < n->getInputCount(); ++i)
@@ -25,7 +25,7 @@ namespace rat {
 
 		U32 Slp::packReductions() {
 			List<Node*> roots;
-			for(Node* n : fn)
+			for(Node* n : cx.fn)
 				if(isReductionRoot(n))
 					roots.push_back(n);
 			U32 changed = 0;
@@ -58,7 +58,7 @@ namespace rat {
 		U32 Slp::packReduction(Node* root) {
 			Seed seed;
 			seed.root = root;
-			U32 laneCount = kVecBytes / root->getType()->byteSize(ptrBytes);
+			U32 laneCount = kVecBytes / root->getType()->byteSize(cx.ptrBytes);
 			List<Node*> terms = flattenReduction(root, seed.steps);
 			U32 termCount = (U32)terms.size();
 			U32 vectorCount = termCount / laneCount;
@@ -76,23 +76,24 @@ namespace rat {
 		}
 
 		// combine the vectors by the op, fold the lanes by shuffles, then the other terms as scalars
-		void Slp::commitReduction(const Plan& plan) {
+		void Emitter::commitReduction(const Plan& plan) {
 			const Seed& seed = plan.seed;
 			Opcode op = seed.root->getOpcode();
 			Node* acc = plan.tupleNode(0);
 			Type* vecTy = acc->getType();
 			for(U32 i = 1; i < plan.tupleVectors.size(); ++i)
-				acc = fn.create<BinaryNode>(op, vecTy, acc, plan.tupleNode(i));
+				acc = cx.fn.create<BinaryNode>(op, vecTy, acc, plan.tupleNode(i));
 			U32 laneCount = vecTy->getVecLanes();
 			// finish shuffles by [laneCount / 4][round], nibble i is the source of lane i
 			constexpr U16 kFinishSel[2][2] = {{0x01}, {0x1032, 0x2301}};
 			for(U32 round = 0; round < laneCount / 2; ++round) {
-				Node* swapped = fn.create<ShuffleNode>(vecTy, acc, acc, kFinishSel[laneCount / 4][round]);
-				acc = fn.create<BinaryNode>(op, vecTy, acc, swapped);
+				U16 sel = kFinishSel[laneCount / 4][round];
+				Node* swapped = cx.fn.create<ShuffleNode>(vecTy, acc, acc, sel);
+				acc = cx.fn.create<BinaryNode>(op, vecTy, acc, swapped);
 			}
-			Node* result = fn.create<ExtractNode>(seed.root->getType(), acc, 0);
+			Node* result = cx.fn.create<ExtractNode>(seed.root->getType(), acc, 0);
 			for(Node* term : seed.scalarTerms)
-				result = fn.create<BinaryNode>(op, seed.root->getType(), result, term);
+				result = cx.fn.create<BinaryNode>(op, seed.root->getType(), result, term);
 			seed.root->replaceAllUsesWith(result);
 		}
 	} // namespace slp

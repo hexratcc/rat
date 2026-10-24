@@ -9,7 +9,7 @@ namespace rat {
 
 		// add the bytes of vec's lanes to the runtime check of their group
 		void Plan::addGuard(const Vector& vec) {
-			Addr lowest = slp.addrs.get(vec.lowestLoad->getPointer());
+			Addr lowest = cx.addrs.get(vec.lowestLoad->getPointer());
 			for(GuardRange& range : guards)
 				if(range.group == lowest.group) {
 					if(lowest.offset < range.begin)
@@ -20,7 +20,17 @@ namespace rat {
 			guards.push_back({lowest.group, vec.lowestLoad->getPointer(), lowest.offset, vec.end});
 		}
 
-		void Slp::commitGuarded(const Plan& plan) {
+		GuardedRuns::GuardedRuns(Context& cx)
+		: cx(cx) {}
+
+		B32 GuardedRuns::hasRuns(const Node* block) const { return perBlock.count(block) != 0; }
+
+		B32 GuardedRuns::isFull(const Node* block) const {
+			auto it = perBlock.find(block);
+			return it != perBlock.end() && it->second >= kMaxGuardedRuns;
+		}
+
+		void GuardedRuns::commit(const Plan& plan, Emitter& emitter, const Check& check) {
 			const Seed& seed = plan.seed;
 			assert(!setOf(seed) && "no load reads a set member, so no lane edge is weak");
 			StoreNode* last = seed.stores.back();
@@ -31,17 +41,17 @@ namespace rat {
 			for(const auto& [ld, addr] : plan.loads)
 				if(ld->getControl() == block && ld->getMemory() == memIn(seed))
 					ld->setInput(0, thenP);
-			Node* wide = emitWideStores(plan, thenP);
-			Node* region = fn.create<RegionNode>(fn.ctrlTy(), List<Node*>{thenP, elseP});
-			PhiNode* phi = fn.create<PhiNode>(fn.memTy(), List<Node*>{region, wide, last});
+			Node* wide = emitter.emitWideStores(plan, thenP);
+			Node* region = cx.fn.create<RegionNode>(cx.fn.ctrlTy(), List<Node*>{thenP, elseP});
+			PhiNode* phi = cx.fn.create<PhiNode>(cx.fn.memTy(), List<Node*>{region, wide, last});
 			last->replaceAllUsesWith(phi);
 			phi->setInput(2, last); // replaceAllUsesWith also rewired the phi's own else input
-			moveToElse(plan, block, elseP);
-			guardedRuns.push_back({block, seed.stores[0], phi, firstIf});
-			++guardedRunsPerBlock[block];
+			moveToElse(plan, block, elseP, check);
+			runs.push_back({block, seed.stores[0], phi, firstIf});
+			++perBlock[block];
 		}
 
-		void Slp::moveToElse(const Plan& plan, Node* block, Node* elseP) {
+		void GuardedRuns::moveToElse(const Plan& plan, Node* block, Node* elseP, const Check& check) {
 			const Seed& seed = plan.seed;
 			for(StoreNode* st : seed.stores)
 				st->setInput(0, elseP);
@@ -50,18 +60,19 @@ namespace rat {
 					for(Node* lane : vec.lanes) {
 						LoadNode* ld = cast<LoadNode>(lane);
 						B32 runState = ld->getMemory() == memIn(seed) || isInner(seed, ld->getMemory());
-						if(ld->getControl() == block && runState && laneDies(ld))
+						if(ld->getControl() == block && runState && check.laneDies(ld))
 							ld->setInput(0, elseP);
 					}
 		}
 
 		// per load group, two branches test that its range ends before the run or starts after it
-		Node* Slp::emitGuardCascade(const Plan& plan, Node*& firstIf, Node*& elseP) {
+		Node* GuardedRuns::emitGuardCascade(const Plan& plan, Node*& firstIf, Node*& elseP) {
 			const Seed& seed = plan.seed;
+			Function& fn = cx.fn;
 			Type* ctrlTy = fn.ctrlTy();
 			Type* iffTy = fn.types().getTuple({ctrlTy, ctrlTy});
 			Node* runPtr = seed.lowestStores[0]->getPointer();
-			U32 elemSize = seed.lowestStores[0]->getValue()->getType()->byteSize(ptrBytes);
+			U32 elemSize = seed.lowestStores[0]->getValue()->getType()->byteSize(cx.ptrBytes);
 			I64 runBytes = (I64)(seed.stores.size() * elemSize);
 			Node* runSize = fn.create<ConstantNode>(fn.types().getInt(64), runBytes);
 			Node* runEnd = fn.create<BinaryNode>(Opcode::Add, runPtr->getType(), runPtr, runSize);
@@ -89,14 +100,14 @@ namespace rat {
 			return ctrl;
 		}
 
-		void Slp::splitBlocks() {
+		void GuardedRuns::splitBlocks() {
 			Map<const Node*, U32> runAt; // memIn -> guarded run
 			Set<const Node*> firstIfs;
-			for(U32 i = 0; i < guardedRuns.size(); ++i) {
-				runAt[guardedRuns[i].firstStore->getMemory()] = i;
-				firstIfs.insert(guardedRuns[i].firstIf);
+			for(U32 i = 0; i < runs.size(); ++i) {
+				runAt[runs[i].firstStore->getMemory()] = i;
+				firstIfs.insert(runs[i].firstIf);
 			}
-			for(const GuardedRun& guarded : guardedRuns) {
+			for(const GuardedRun& guarded : runs) {
 				if(moveLaterUsers(guarded, runAt))
 					continue;
 				for(U32 k = guarded.block->getUsers().size(); k-- > 0;) {
@@ -109,7 +120,7 @@ namespace rat {
 
 		// move the users of the split block that read the merged state or a later one below the merge
 		// region, hang a later guarded run of the block below it, and return whether one was found
-		B32 Slp::moveLaterUsers(const GuardedRun& guarded, const Map<const Node*, U32>& runAt) {
+		B32 GuardedRuns::moveLaterUsers(const GuardedRun& guarded, const Map<const Node*, U32>& runAt) {
 			Node* region = guarded.phi->getRegion();
 			B32 foundLater = false;
 			List<Node*> states = {guarded.phi};
@@ -117,9 +128,9 @@ namespace rat {
 				Node* state = states.back();
 				states.pop_back();
 				if(auto it = runAt.find(state);
-					 it != runAt.end() && guardedRuns[it->second].block == guarded.block) {
+					 it != runAt.end() && runs[it->second].block == guarded.block) {
 					// input 0 is the branch control
-					guardedRuns[it->second].firstIf->setInput(0, region);
+					runs[it->second].firstIf->setInput(0, region);
 					foundLater = true;
 				}
 				for(Node* user : state->getUsers()) {

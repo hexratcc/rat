@@ -69,7 +69,7 @@ namespace rat {
 			List<Node*> inputs = {lastStore->getControl()};
 			inputs.insert(inputs.end(), chain.begin() + first, chain.begin() + last + 1);
 			// made even when nothing packs, dropping it shifts the ids of later nodes
-			MemMergeNode* set = fn.create<MemMergeNode>(fn.memTy(), inputs);
+			MemMergeNode* set = cx.fn.create<MemMergeNode>(cx.fn.memTy(), inputs);
 			lastStore->replaceAllUsesWith(set);					// the readers of the final state
 			set->setInput(last - first + 1, lastStore); // replaceAllUsesWith also rewired set's own input
 			for(U32 i = first + 1; i <= last; ++i)
@@ -87,7 +87,7 @@ namespace rat {
 				U32 before = changed;
 				accesses.clear();
 				for(StoreNode* st : chain)
-					accesses.push_back(accessOf(addrs, ptrBytes, st));
+					accesses.push_back(accessOf(cx.addrs, cx.ptrBytes, st));
 				U32 partStart = 0; // first store of the part not searched yet
 				for(U32 first = 0; first < chain.size();) {
 					U32 last = first; // the stretch of stores whose only user is the next store
@@ -129,15 +129,15 @@ namespace rat {
 			Type* type = chain[start]->getValue()->getType();
 			if(!(typeBits(type) & kElem))
 				return false;
-			U32 elemSize = type->byteSize(ptrBytes);
+			U32 elemSize = type->byteSize(cx.ptrBytes);
 			U32 laneCount = bytes / elemSize;
 			if(laneCount < 2 || start + laneCount > chain.size())
 				return false;
-			Addr firstAddr = addrs.get(chain[start]->getPointer());
+			Addr firstAddr = cx.addrs.get(chain[start]->getPointer());
 			I64 lowest = firstAddr.offset;
 			I64 offsets[kMaxLanes];
 			for(U32 j = 0; j < laneCount; ++j) {
-				Addr a = addrs.get(chain[start + j]->getPointer());
+				Addr a = cx.addrs.get(chain[start + j]->getPointer());
 				if(chain[start + j]->getValue()->getType() != type || a.group != firstAddr.group)
 					return false;
 				offsets[j] = a.offset;
@@ -171,7 +171,7 @@ namespace rat {
 			Map<U64, Pair<StoreNode*, Type*>> members; // (group, offset) -> member and its value type
 			for(U32 i = 1; i < set->getInputCount(); ++i) {
 				StoreNode* st = cast<StoreNode>(set->getInput(i));
-				Addr addr = addrs.get(st->getPointer());
+				Addr addr = cx.addrs.get(st->getPointer());
 				members[pairKey(addr.group, addr.offset)] = {st, st->getValue()->getType()};
 			}
 			U32 changed = 0;
@@ -181,8 +181,8 @@ namespace rat {
 				if(!st || !(typeBits(st->getValue()->getType()) & kElem))
 					continue; // a slot a pack emptied, or a narrow or vector store
 				Type* type = st->getValue()->getType();
-				I64 elemSize = type->byteSize(ptrBytes);
-				Addr addr = addrs.get(st->getPointer());
+				I64 elemSize = type->byteSize(cx.ptrBytes);
+				Addr addr = cx.addrs.get(st->getPointer());
 				auto below = members.find(pairKey(addr.group, addr.offset - elemSize));
 				if(below != members.end() && below->second.second == type)
 					continue; // not the lowest of its consecutive stores

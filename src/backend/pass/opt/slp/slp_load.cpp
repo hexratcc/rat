@@ -24,8 +24,8 @@ namespace rat {
 			if(!firstLoad)
 				return false;
 			U32 laneCount = lanes.size();
-			U32 laneSize = firstLoad->getType()->byteSize(slp.ptrBytes);
-			Addr firstAddr = slp.addrs.get(firstLoad->getPointer());
+			U32 laneSize = firstLoad->getType()->byteSize(cx.ptrBytes);
+			Addr firstAddr = cx.addrs.get(firstLoad->getPointer());
 			// i8 and i16 lanes, the source of a convert, load only adjacent
 			B32 elem = (typeBits(firstLoad->getType()) & kElem) != 0;
 			B32 adjacent = true;
@@ -38,7 +38,7 @@ namespace rat {
 				if(!l || l->isVolatile() || l->getType() != firstLoad->getType() ||
 					 l->getControl() != firstLoad->getControl())
 					return false;
-				Addr a = slp.addrs.get(l->getPointer());
+				Addr a = cx.addrs.get(l->getPointer());
 				if(a.group != firstAddr.group)
 					return false;
 				adjacent &= a.offset == firstAddr.offset + (I64)(i * laneSize);
@@ -56,8 +56,8 @@ namespace rat {
 
 		B32 Plan::permuteSpan(const Lanes& lanes, Vector& vec) {
 			U32 laneCount = lanes.size();
-			U32 laneSize = vec.lowestLoad->getType()->byteSize(slp.ptrBytes);
-			U32 group = slp.addrs.get(vec.lowestLoad->getPointer()).group;
+			U32 laneSize = vec.lowestLoad->getType()->byteSize(cx.ptrBytes);
+			U32 group = cx.addrs.get(vec.lowestLoad->getPointer()).group;
 			Node* ctrl = vec.lowestLoad->getControl();
 			I64 bytes = (I64)(vec.wideLoads * laneCount * laneSize);
 			if(vec.end - vec.offset > bytes || (vec.wideLoads == 2 && laneCount * laneSize != kVecBytes))
@@ -66,7 +66,7 @@ namespace rat {
 				U32 readElements = 0; // bit per element
 				vec.sel = 0;
 				for(U32 i = 0; i < laneCount; ++i) {
-					I64 delta = slp.addrs.get(cast<LoadNode>(lanes[i])->getPointer()).offset - start;
+					I64 delta = cx.addrs.get(cast<LoadNode>(lanes[i])->getPointer()).offset - start;
 					if(delta % laneSize)
 						return false;
 					readElements |= 1u << (delta / laneSize);
@@ -75,7 +75,7 @@ namespace rat {
 				B32 covered = true;
 				for(U32 element = 0; element < vec.wideLoads * laneCount; ++element)
 					if(!(readElements >> element & 1))
-						covered &= slp.bytesRead(group, start + (I64)(element * laneSize), laneSize, ctrl);
+						covered &= facts.bytesRead(group, start + (I64)(element * laneSize), laneSize, ctrl);
 				if(covered) {
 					vec.offset = start;
 					return true;
@@ -93,11 +93,10 @@ namespace rat {
 				return shared; // a reduction has no memIn and adds no guard
 			// in a block with a guarded run, a run reads memIn, as loads of an earlier state would stay
 			// live across that guard
-			if(shared && !slp.guardedRunsPerBlock.count(vec.lowestLoad->getControl()) &&
-				 !isInner(seed, vec.mem))
+			if(shared && !guardedRuns.hasRuns(vec.lowestLoad->getControl()) && !isInner(seed, vec.mem))
 				return true;
 			vec.mem = memIn(seed);
-			Addr runAddr = slp.addrs.get(seed.lowestStores[0]->getPointer());
+			Addr runAddr = cx.addrs.get(seed.lowestStores[0]->getPointer());
 			for(Node* l : lanes)
 				if(!canReadMemIn(cast<LoadNode>(l), runAddr, vec.needsGuard))
 					return false;
@@ -107,7 +106,7 @@ namespace rat {
 		// whether l may read memIn instead of its state, by the edge between them: none and weak
 		// say yes, a weak edge also sets needsGuard, strong says no
 		B32 Plan::canReadMemIn(LoadNode* l, const Addr& runAddr, B32& needsGuard) {
-			Addr loadAddr = slp.addrs.get(l->getPointer());
+			Addr loadAddr = cx.addrs.get(l->getPointer());
 			B32 inner = isInner(seed, l->getMemory());
 			// only run stores lie between, all in the run's group, so the bases decide
 			if(inner && loadAddr.group != runAddr.group) {
@@ -118,13 +117,13 @@ namespace rat {
 			Node* earlier = l->getMemory();
 			if(inner)
 				std::swap(later, earlier);
-			U32 size = l->getType()->byteSize(slp.ptrBytes);
+			U32 size = l->getType()->byteSize(cx.ptrBytes);
 			for(U32 hops = 0; later != earlier; ++hops) {
 				StoreNode* st = dyn_cast<StoreNode>(later);
 				if(!st || hops >= kMaxHops || st->isVolatile() || st->getControl() != l->getControl())
 					return false;
-				Addr storeAddr = slp.addrs.get(st->getPointer());
-				if(!disjoint(loadAddr, size, storeAddr, st->getValue()->getType()->byteSize(slp.ptrBytes)))
+				Addr storeAddr = cx.addrs.get(st->getPointer());
+				if(!disjoint(loadAddr, size, storeAddr, st->getValue()->getType()->byteSize(cx.ptrBytes)))
 					return false;
 				later = st->getMemory();
 			}
@@ -134,8 +133,8 @@ namespace rat {
 		// a wide load forwards only from one older store that holds all its bytes, else it waits about
 		// 11 cycles on Zen 3 until the stores commit, so each youngest writer must hold all its bytes
 		B32 Plan::forwardBlocked(const Vector& vec) {
-			U32 bytes = (U32)vec.lanes.size() * vec.lowestLoad->getType()->byteSize(slp.ptrBytes);
-			Access load{slp.addrs.get(vec.lowestLoad->getPointer()), bytes};
+			U32 bytes = (U32)vec.lanes.size() * vec.lowestLoad->getType()->byteSize(cx.ptrBytes);
+			Access load{cx.addrs.get(vec.lowestLoad->getPointer()), bytes};
 			for(U32 k = 0; k < vec.wideLoads; ++k) {
 				load.addr.offset = vec.offset + (I64)(k * bytes);
 				SmallList<Node*, kMaxStlfHops> walk = {vec.mem};
@@ -165,7 +164,7 @@ namespace rat {
 			StoreNode* st = dyn_cast<StoreNode>(state);
 			if(!st)
 				return false; // the entry state or another writer, taken as old
-			Access store = accessOf(slp.addrs, slp.ptrBytes, st);
+			Access store = accessOf(cx.addrs, cx.ptrBytes, st);
 			if(disjoint(load.addr, load.size, store.addr, store.size)) {
 				walk.push_back(st->getMemory());
 				return false;
@@ -182,18 +181,21 @@ namespace rat {
 		// its bytes from the calls that take its address, with stores the walk cannot see, and a
 		// callee writes a struct field by field
 		B32 Plan::callWrites(const CallNode* call, const Addr& addr) {
-			if(!addr.object || slp.storesTo(addr.object))
+			if(!addr.object || facts.storesTo(addr.object))
 				return false;
 			for(U32 i = 0; i < call->getArgCount(); ++i) {
 				Node* arg = call->getArg(i);
-				if(arg->getType()->isPtr() && slp.addrs.get(arg).object == addr.object)
+				if(arg->getType()->isPtr() && cx.addrs.get(arg).object == addr.object)
 					return true;
 			}
 			return false;
 		}
 
+		LoadFacts::LoadFacts(Context& cx)
+		: cx(cx) {}
+
 		// some load at ctrl reads each 4-byte piece of [offset, offset + size) of group
-		B32 Slp::bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl) {
+		B32 LoadFacts::bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl) {
 			if(!readsIndexed)
 				indexReads();
 			auto it = reads.find(pairKey(ctrl->getId(), group));
@@ -203,33 +205,33 @@ namespace rat {
 			return true;
 		}
 
-		void Slp::indexReads() {
+		void LoadFacts::indexReads() {
 			readsIndexed = true;
-			for(Node* n : fn) {
+			for(Node* n : cx.fn) {
 				LoadNode* load = dyn_cast<LoadNode>(n);
 				if(!load || load->isVolatile())
 					continue;
-				U32 size = load->getType()->byteSize(ptrBytes);
+				U32 size = load->getType()->byteSize(cx.ptrBytes);
 				if(!size || size % kReadPiece != 0)
 					continue;
-				Addr addr = addrs.get(load->getPointer());
+				Addr addr = cx.addrs.get(load->getPointer());
 				Set<I64>& pieces = reads[pairKey(load->getControl()->getId(), addr.group)];
 				for(U32 piece = 0; piece < size; piece += kReadPiece)
 					pieces.insert(addr.offset + (I64)piece);
 			}
 		}
 
-		B32 Slp::storesTo(U32 object) {
+		B32 LoadFacts::storesTo(U32 object) {
 			if(!storesIndexed)
 				indexStores();
 			return storedObjects.count(object) != 0;
 		}
 
-		void Slp::indexStores() {
+		void LoadFacts::indexStores() {
 			storesIndexed = true;
-			for(Node* n : fn)
+			for(Node* n : cx.fn)
 				if(StoreNode* st = dyn_cast<StoreNode>(n))
-					storedObjects.insert(addrs.get(st->getPointer()).object);
+					storedObjects.insert(cx.addrs.get(st->getPointer()).object);
 		}
 	} // namespace slp
 } // namespace rat
