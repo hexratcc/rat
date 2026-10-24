@@ -192,8 +192,6 @@ namespace rat {
 		Node* getLHS() const;
 		Node* getRHS() const;
 
-		// no signed wrap: the exact result of this add, sub, mul or shl (lhs * 2^rhs) fits the type,
-		// so a sext of it is the op of the sexts. Set for signed C arithmetic, where overflow is undefined
 		B32 isNsw() const { return nsw; }
 		void setNsw(B32 v) { nsw = v; }
 	private:

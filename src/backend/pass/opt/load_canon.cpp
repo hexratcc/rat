@@ -1,53 +1,77 @@
 #include "pass/opt/load_canon.h"
 
+#include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/node.h"
 #include "target/target.h"
 
 namespace rat {
 	namespace slp {
-		void LastOutside::add(U32 store, U32 group) {
-			if(group != lastGroup)
-				lastOther = last;
-			lastGroup = group;
-			last = store;
-		}
+		Handoff::Handoff(Function& fn)
+		: fn(&fn),
+			chains(collectChains(fn)),
+			addrs(AliasAnalysis::restrictFacts(fn), fn.idBound()) {}
 
-		U32 LastOutside::outside(U32 group) const {
-			if(group != lastGroup)
-				return last;
-			return lastOther;
-		}
-
-		void Conflicts::add(U32 store, const Access& a) {
-			all.add(store, a.addr.group);
-			if(!a.addr.object)
-				lastWild = store;
-			else
-				objects[a.addr.object].add(store, a.addr.group);
-			I64 end = a.addr.offset + (I64)a.size;
-			for(I64 from = a.addr.offset, to = 0; a.addr.group && from < end; from = to) { // each block
-				to = std::min(end, (from | (I64)(kVecBytes - 1)) + 1);
-				std::array<U32, kVecBytes>& writers = blocks[pairKey(a.addr.group, from >> kVecShift)];
-				for(I64 byte = from; byte < to; ++byte)
-					writers[byte & (kVecBytes - 1)] = store;
+		List<Chain> collectChains(Function& fn) {
+			List<Chain> chains;
+			for(Node* n : fn) {
+				StoreNode* st = dyn_cast<StoreNode>(n);
+				if(!st || st->isVolatile())
+					continue;
+				StoreNode* prev = dyn_cast<StoreNode>(st->getMemory());
+				if(prev && !prev->isVolatile() && chainSuccessor(prev) == st)
+					continue; // not a chain head
+				chains.emplace_back();
+				for(StoreNode* store = st; store; store = chainSuccessor(store))
+					chains.back().push_back(store);
 			}
+			return chains;
 		}
 
-		U32 Conflicts::lastConflict(const Access& a) const {
-			U32 conflict = lastWild;
-			if(!a.addr.object)
-				conflict = all.outside(a.addr.group);
-			else if(auto it = objects.find(a.addr.object); it != objects.end())
-				conflict = std::max(conflict, it->second.outside(a.addr.group));
-			I64 end = a.addr.offset + (I64)a.size;
-			for(I64 from = a.addr.offset, to = 0; from < end; from = to) { // each block
-				to = std::min(end, (from | (I64)(kVecBytes - 1)) + 1);
-				auto it = blocks.find(pairKey(a.addr.group, from >> kVecShift));
-				for(I64 byte = from; it != blocks.end() && byte < to; ++byte)
-					conflict = std::max(conflict, it->second[byte & (kVecBytes - 1)]);
+		// prev's only user besides loads, when it is a non-volatile store under prev's control
+		StoreNode* chainSuccessor(const StoreNode* prev) {
+			StoreNode* next = nullptr;
+			for(Node* u : prev->getUsers()) {
+				if(isa<LoadNode>(u))
+					continue;
+				StoreNode* st = dyn_cast<StoreNode>(u);
+				if(!st || next || st->getControl() != prev->getControl() || st->isVolatile())
+					return nullptr;
+				next = st;
 			}
-			return conflict;
+			return next;
+		}
+
+		// a reader of the state after store k, not the last, reads the state after store target < k,
+		// the later of its last possible overlap and the latest state its cone reads
+		void hoistLoads(Handoff& h, U32 ptrBytes, U32 chainIndex, List<U32>& stateOf) {
+			const Chain& chain = h.chains[chainIndex];
+			Node* block = chain[0]->getControl();
+			Conflicts seen;
+			for(U32 k = 1; k <= chain.size(); ++k)
+				stateOf[chain[k - 1]->getId()] = k;
+			for(U32 k = 1; k < chain.size(); ++k) { // a hoist of a final state reader only adds an order
+				seen.add(k, accessOf(h.addrs, ptrBytes, chain[k - 1]));
+				SmallList<LoadNode*, 8> readers; // copy first, a hoist changes the store's users
+				for(Node* u : chain[k - 1]->getUsers())
+					if(LoadNode* l = dyn_cast<LoadNode>(u); l && l->getControl() == block && !l->isVolatile())
+						readers.push_back(l);
+				for(LoadNode* l : readers) {
+					Access access = accessOf(h.addrs, ptrBytes, l);
+					if(!access.addr.group)
+						continue;
+					U32 target = std::max(seen.lastConflict(access), coneState(l, stateOf));
+					if(target >= k)
+						continue;
+					Node* state = chain[0]->getMemory(); // the state before the chain
+					if(target)
+						state = chain[target - 1];
+					h.hoists.push_back({chainIndex, l, chain[k - 1]});
+					l->setInput(1, state);
+				}
+			}
+			for(StoreNode* st : chain)
+				stateOf[st->getId()] = 0;
 		}
 
 		// the latest chain state read in l's address cone, ~0u past kMaxCone nodes
@@ -73,43 +97,73 @@ namespace rat {
 			return latest;
 		}
 
-		// a load reads a state between the chain's stores
-		B32 hasInnerReader(const Chain& chain) {
-			for(U32 k = 0; k + 1 < chain.size(); ++k)
-				for(Node* u : chain[k]->getUsers())
-					if(isa<LoadNode>(u))
-						return true;
-			return false;
+		void Conflicts::add(U32 store, const Access& a) {
+			all.add(store, a.addr.group);
+			if(!a.addr.object)
+				lastWild = store;
+			else
+				objects[a.addr.object].add(store, a.addr.group);
+			if(!a.addr.group)
+				return;
+			I64 end = a.addr.offset + (I64)a.size;
+			for(I64 from = a.addr.offset; from < end;) { // each 16-byte block
+				I64 to = blockEnd(from, end);
+				std::array<U32, kVecBytes>& writers = blocks[pairKey(a.addr.group, from >> kVecShift)];
+				for(I64 byte = from; byte < to; ++byte)
+					writers[byte & (kVecBytes - 1)] = store;
+				from = to;
+			}
 		}
 
-		void hoistLoads(Handoff& h, U32 ptrBytes, U32 chainIndex, List<U32>& stateOf) {
-			const Chain& chain = h.chains[chainIndex];
-			Node* block = chain[0]->getControl();
-			Conflicts seen;
-			for(U32 k = 1; k <= chain.size(); ++k)
-				stateOf[chain[k - 1]->getId()] = k;
-			for(U32 k = 1; k < chain.size(); ++k) { // a hoist of a final state reader only adds an order
-				seen.add(k, accessOf(h.addrs, ptrBytes, chain[k - 1]));
-				SmallList<LoadNode*, 8> readers; // copy first, a hoist changes the store's users
-				for(Node* u : chain[k - 1]->getUsers())
-					if(LoadNode* l = dyn_cast<LoadNode>(u); l && l->getControl() == block && !l->isVolatile())
-						readers.push_back(l);
-				for(LoadNode* l : readers) {
-					Access access = accessOf(h.addrs, ptrBytes, l);
-					if(!access.addr.group)
-						continue;
-					U32 target = std::max(seen.lastConflict(access), coneState(l, stateOf));
-					if(target >= k)
-						continue;
-					Node* state = chain[0]->getMemory(); // the state before the chain
-					if(target)
-						state = chain[target - 1];
-					h.hoists.push_back({chainIndex, l, chain[k - 1]});
-					l->setInput(1, state); // input 1 is the memory
-				}
+		U32 Conflicts::lastConflict(const Access& a) const {
+			U32 conflict = lastWild;
+			if(!a.addr.object)
+				conflict = all.outside(a.addr.group);
+			else if(auto it = objects.find(a.addr.object); it != objects.end())
+				conflict = std::max(conflict, it->second.outside(a.addr.group));
+			I64 end = a.addr.offset + (I64)a.size;
+			for(I64 from = a.addr.offset; from < end;) { // each 16-byte block
+				I64 to = blockEnd(from, end);
+				auto it = blocks.find(pairKey(a.addr.group, from >> kVecShift));
+				for(I64 byte = from; it != blocks.end() && byte < to; ++byte)
+					conflict = std::max(conflict, it->second[byte & (kVecBytes - 1)]);
+				from = to;
 			}
-			for(StoreNode* st : chain)
-				stateOf[st->getId()] = 0;
+			return conflict;
+		}
+
+		void LastOutside::add(U32 store, U32 group) {
+			if(group != lastGroup)
+				lastOther = last;
+			lastGroup = group;
+			last = store;
+		}
+
+		U32 LastOutside::outside(U32 group) const {
+			if(group != lastGroup)
+				return last;
+			return lastOther;
+		}
+
+		Handoff& handoff() {
+			thread_local Handoff h;
+			return h;
+		}
+
+		Handoff takeHandoff(Function& fn) {
+			Handoff& h = handoff();
+			if(h.fn == &fn && h.version == fn.getVersion()) {
+				h.fn = nullptr; // taken
+				return std::move(h);
+			}
+			return Handoff(fn);
+		}
+
+		// a chain that did not pack gets its loads back, else they could load long before their use
+		void unhoistLoads(const List<Hoist>& hoists, const List<B32>& packed) {
+			for(const Hoist& hoist : hoists)
+				if(!packed[hoist.chain])
+					hoist.load->setInput(1, hoist.state);
 		}
 	} // namespace slp
 
@@ -117,10 +171,10 @@ namespace rat {
 
 	U32 LoadCanonPass::runOnFunction(Function& fn, const TargetInfo& target) {
 		slp::Handoff& h = slp::handoff();
-		h = slp::freshHandoff(fn);
+		h = slp::Handoff(fn);
 		List<U32> stateOf; // node id -> store number in the walked chain, sized on first use
 		for(U32 c = 0; c < h.chains.size(); ++c)
-			if(slp::hasInnerReader(h.chains[c])) {
+			if(slp::hasInnerReader(h.chains[c].data(), (U32)h.chains[c].size())) {
 				stateOf.resize(fn.idBound(), 0);
 				slp::hoistLoads(h, target.getPointerSizeInBytes(), c, stateOf);
 			}
