@@ -1,5 +1,5 @@
-// SLP vectorization. Windows of stores in store chains and store sets, and integer reductions,
-// pack into SSE vectors. The internals are in slp_pack_detail.h
+// SLP vectorization: windows of stores in store chains and sets, and integer reductions, pack
+// into SSE vectors. The internals are in slp_pack_detail.h
 
 #ifndef RAT_PASS_OPT_SLPPACK_H
 #define RAT_PASS_OPT_SLPPACK_H

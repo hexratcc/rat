@@ -6,7 +6,6 @@
 
 namespace rat {
 	namespace slp {
-
 		void Slp::apply(Plan& plan) {
 			const Seed& seed = plan.seed;
 			emitter.seedAnchors(plan);
@@ -28,7 +27,55 @@ namespace rat {
 		Emitter::Emitter(Context& cx)
 		: cx(cx) {}
 
-		// operands first, so an Op finds the nodes of its operands
+		// a new (control, group) takes the anchorOf base at its lowest offset in the plan, the first on
+		// a tie. Keyed by control, as a group's nsw facts hold only where its accesses run (F3)
+		void Emitter::seedAnchors(const Plan& plan) {
+			List<Pair<Node*, const Node*>> ptrs;
+			for(const Vector& vec : plan.vectors)
+				if(vec.kind == VectorKind::Load)
+					ptrs.push_back({vec.lowestLoad->getPointer(), vec.lowestLoad->getControl()});
+			for(StoreNode* st : plan.seed.lowestStores)
+				ptrs.push_back({st->getPointer(), st->getControl()});
+			Map<U64, Pair<Node*, I64>> best;
+			for(const auto& [ptr, ctrl] : ptrs) {
+				Pair<Node*, I64> anchor = anchorOf(ptr);
+				U64 key = pairKey(ctrl->getId(), cx.addrs.get(ptr).group);
+				auto it = best.try_emplace(key, anchor).first;
+				if(anchor.second < it->second.second)
+					it->second = anchor;
+			}
+			for(const auto& [key, anchor] : best)
+				anchors.try_emplace(key, anchor);
+		}
+
+		// the base of ptr's constant adds when it shares ptr's group, else ptr, with its offset
+		Pair<Node*, I64> Emitter::anchorOf(Node* ptr) {
+			Node* base = ptr;
+			BinaryNode* add = dyn_cast<BinaryNode>(base);
+			while(add && add->getOpcode() == Opcode::Add && isa<ConstantNode>(add->getRHS()) &&
+						add->getLHS()->getType()->isPtr()) {
+				base = add->getLHS();
+				add = dyn_cast<BinaryNode>(base);
+			}
+			Addr ptrAddr = cx.addrs.get(ptr);
+			Addr baseAddr = cx.addrs.get(base);
+			if(baseAddr.group != ptrAddr.group)
+				return {ptr, ptrAddr.offset};
+			return {base, baseAddr.offset};
+		}
+
+		// the address at offset in ptr's group, as its anchor plus a constant, so lowering folds it
+		Node* Emitter::anchorPtr(Node* ptr, I64 offset, const Node* ctrl) {
+			auto it = anchors.find(pairKey(ctrl->getId(), cx.addrs.get(ptr).group));
+			assert(it != anchors.end() && "seedAnchors covers every pointer of the plan");
+			auto [anchor, anchorOffset] = it->second;
+			if(offset == anchorOffset)
+				return anchor;
+			Node* delta = cx.fn.create<ConstantNode>(cx.fn.types().getInt(64), offset - anchorOffset);
+			return cx.fn.create<BinaryNode>(Opcode::Add, ptr->getType(), anchor, delta);
+		}
+
+		// plan order puts operands first, so an Op finds their nodes
 		void Emitter::emitVectors(Plan& plan) {
 			for(Vector& vec : plan.vectors) {
 				Type* vecTy = cx.fn.types().getVec(cx.laneType(vec.lanes[0]), vec.lanes.size());
@@ -44,8 +91,7 @@ namespace rat {
 		Node* Emitter::emitGather(const Vector& vec, Type* vecTy) {
 			if(isSplat(vec.lanes))
 				return cx.fn.create<SplatNode>(vecTy, vec.lanes[0]);
-			List<Node*> scalars(vec.lanes.begin(), vec.lanes.end());
-			return cx.fn.create<PackNode>(vecTy, scalars);
+			return cx.fn.create<PackNode>(vecTy, List<Node*>(vec.lanes.begin(), vec.lanes.end()));
 		}
 
 		Node* Emitter::emitLoad(const Vector& vec, Type* vecTy, Plan& plan) {
@@ -105,68 +151,6 @@ namespace rat {
 			}
 		}
 
-		// a (control, group) the plan is the first to use takes the anchorOf base of the lowest offset
-		// among the plan's pointers of it, the first in plan order on a tie. A group's equal addresses
-		// can rest on nsw facts that hold only where its accesses run, so an anchor stays in its control
-		void Emitter::seedAnchors(const Plan& plan) {
-			List<Pair<Node*, const Node*>> ptrs;
-			for(const Vector& vec : plan.vectors)
-				if(vec.kind == VectorKind::Load)
-					ptrs.push_back({vec.lowestLoad->getPointer(), vec.lowestLoad->getControl()});
-			for(StoreNode* st : plan.seed.lowestStores)
-				ptrs.push_back({st->getPointer(), st->getControl()});
-			Map<U64, Pair<Node*, I64>> best;
-			for(const auto& [ptr, ctrl] : ptrs) {
-				Pair<Node*, I64> anchor = anchorOf(ptr);
-				U64 key = pairKey(ctrl->getId(), cx.addrs.get(ptr).group);
-				auto it = best.try_emplace(key, anchor).first;
-				if(anchor.second < it->second.second)
-					it->second = anchor;
-			}
-			for(const auto& [key, anchor] : best)
-				anchors.try_emplace(key, anchor);
-		}
-
-		// the address at offset in ptr's group, as its anchor plus a constant, so lowering folds it
-		Node* Emitter::anchorPtr(Node* ptr, I64 offset, const Node* ctrl) {
-			U64 key = pairKey(ctrl->getId(), cx.addrs.get(ptr).group);
-			auto it = anchors.find(key);
-			assert(it != anchors.end() && "seedAnchors covers every pointer of the plan");
-			auto [anchor, anchorOffset] = it->second;
-			if(offset == anchorOffset)
-				return anchor;
-			Node* delta = cx.fn.create<ConstantNode>(cx.fn.types().getInt(64), offset - anchorOffset);
-			return cx.fn.create<BinaryNode>(Opcode::Add, ptr->getType(), anchor, delta);
-		}
-
-		// the base of ptr's constant adds when it shares ptr's group, else ptr, with its offset
-		Pair<Node*, I64> Emitter::anchorOf(Node* ptr) {
-			Node* base = ptr;
-			BinaryNode* add = dyn_cast<BinaryNode>(base);
-			while(add && add->getOpcode() == Opcode::Add && isa<ConstantNode>(add->getRHS()) &&
-						add->getLHS()->getType()->isPtr()) {
-				base = add->getLHS();
-				add = dyn_cast<BinaryNode>(base);
-			}
-			Addr ptrAddr = cx.addrs.get(ptr);
-			Addr baseAddr = cx.addrs.get(base);
-			if(baseAddr.group != ptrAddr.group)
-				return {ptr, ptrAddr.offset};
-			return {base, baseAddr.offset};
-		}
-
-		Node* Emitter::emitWideStores(const Plan& plan, Node* ctrl) {
-			const Seed& seed = plan.seed;
-			Node* state = memIn(seed);
-			for(U32 window = 0; window < seed.lowestStores.size(); ++window) {
-				StoreNode* lowest = seed.lowestStores[window];
-				I64 offset = cx.addrs.get(lowest->getPointer()).offset;
-				Node* ptr = anchorPtr(lowest->getPointer(), offset, lowest->getControl());
-				state = cx.fn.create<StoreNode>(cx.fn.memTy(), ctrl, state, ptr, plan.tupleNode(window));
-			}
-			return state;
-		}
-
 		void Emitter::commitRun(const Plan& plan) {
 			const Seed& seed = plan.seed;
 			Node* wide = emitWideStores(plan, seed.stores[0]->getControl());
@@ -186,6 +170,19 @@ namespace rat {
 				st->clearInputs(); // dead without inputs, the sweep in run erases it
 		}
 
+		Node* Emitter::emitWideStores(const Plan& plan, Node* ctrl) {
+			const Seed& seed = plan.seed;
+			Node* state = memIn(seed);
+			for(U32 window = 0; window < seed.lowestStores.size(); ++window) {
+				StoreNode* lowest = seed.lowestStores[window];
+				I64 offset = cx.addrs.get(lowest->getPointer()).offset;
+				Node* ptr = anchorPtr(lowest->getPointer(), offset, lowest->getControl());
+				state = cx.fn.create<StoreNode>(cx.fn.memTy(), ctrl, state, ptr, plan.tupleNode(window));
+			}
+			return state;
+		}
+
+		// the wide stores behind the guards, the scalar run in the else arm, a phi merges the states
 		void Emitter::commitGuarded(const Plan& plan, const Check& check) {
 			const Seed& seed = plan.seed;
 			assert(!setOf(seed) && "no load reads a set member, so no lane edge is weak");
@@ -194,6 +191,7 @@ namespace rat {
 			Node* firstIf = nullptr;
 			Node* elseP = nullptr;
 			Node* thenP = emitGuardCascade(plan, firstIf, elseP);
+			// the new loads of memIn run in the vector arm, so nothing speculative runs if a check fails
 			for(const auto& [ld, addr] : plan.loads)
 				if(ld->getControl() == block && ld->getMemory() == memIn(seed))
 					ld->setInput(0, thenP);
@@ -205,20 +203,6 @@ namespace rat {
 			moveToElse(plan, block, elseP, check);
 			guardedRuns.push_back({block, seed.stores[0], phi, firstIf});
 			++cx.guardedRunsPerBlock[block];
-		}
-
-		void Emitter::moveToElse(const Plan& plan, Node* block, Node* elseP, const Check& check) {
-			const Seed& seed = plan.seed;
-			for(StoreNode* st : seed.stores)
-				st->setInput(0, elseP);
-			for(const Vector& vec : plan.vectors)
-				if(vec.kind == VectorKind::Load)
-					for(Node* lane : vec.lanes) {
-						LoadNode* ld = cast<LoadNode>(lane);
-						B32 runState = ld->getMemory() == memIn(seed) || isInner(seed, ld->getMemory());
-						if(ld->getControl() == block && runState && check.laneDies(ld))
-							ld->setInput(0, elseP);
-					}
 		}
 
 		// per load group, two branches test that its range ends before the run or starts after it
@@ -256,6 +240,22 @@ namespace rat {
 			return ctrl;
 		}
 
+		// the run's stores, and the lane loads of its states that die
+		void Emitter::moveToElse(const Plan& plan, Node* block, Node* elseP, const Check& check) {
+			const Seed& seed = plan.seed;
+			for(StoreNode* st : seed.stores)
+				st->setInput(0, elseP);
+			for(const Vector& vec : plan.vectors)
+				if(vec.kind == VectorKind::Load)
+					for(Node* lane : vec.lanes) {
+						LoadNode* ld = cast<LoadNode>(lane);
+						B32 runState = ld->getMemory() == memIn(seed) || isInner(seed, ld->getMemory());
+						if(ld->getControl() == block && runState && check.laneDies(ld))
+							ld->setInput(0, elseP);
+					}
+		}
+
+		// the control users of a block, but its guard branches, move below its last guarded run
 		void Emitter::splitBlocks() {
 			Map<const Node*, U32> runAt; // memIn -> guarded run
 			Set<const Node*> firstIfs;
@@ -266,6 +266,7 @@ namespace rat {
 			for(const GuardedRun& guarded : guardedRuns) {
 				if(moveLaterUsers(guarded, runAt))
 					continue;
+				// backward, as setInput swap-removes the user from the block's list
 				for(U32 k = guarded.block->getUsers().size(); k-- > 0;) {
 					Node* user = guarded.block->getUsers()[k];
 					if(isControlNode(user) && !firstIfs.count(user))
@@ -274,8 +275,8 @@ namespace rat {
 			}
 		}
 
-		// move the users of the split block that read the merged state or a later one below the merge
-		// region, hang a later guarded run of the block below it, and return whether one was found
+		// the block's users of the merged state or a later one move below the merge region, so does a
+		// later guarded run of the block. Returns whether there is one
 		B32 Emitter::moveLaterUsers(const GuardedRun& guarded, const Map<const Node*, U32>& runAt) {
 			Node* region = guarded.phi->getRegion();
 			B32 foundLater = false;
@@ -285,18 +286,17 @@ namespace rat {
 				states.pop_back();
 				if(auto it = runAt.find(state);
 					 it != runAt.end() && guardedRuns[it->second].block == guarded.block) {
-					// input 0 is the branch control
 					guardedRuns[it->second].firstIf->setInput(0, region);
 					foundLater = true;
 				}
 				for(Node* user : state->getUsers()) {
 					if(memoryInput(user) != state || user->getInput(0) != guarded.block)
 						continue;
-					user->setInput(0, region); // input 0 is the control of an anchored access
+					user->setInput(0, region);
 					if(user->getType()->isMemory())
 						states.push_back(user);
-					else if(user->getType()->isTuple() && user->projection(CallNode::memoryProjIndex()))
-						states.push_back(user->projection(CallNode::memoryProjIndex())); // a call or asm
+					else if(ProjNode* mem = user->projection(CallNode::memoryProjIndex()))
+						states.push_back(mem); // a call or asm
 				}
 			}
 			return foundLater;

@@ -6,24 +6,8 @@
 
 namespace rat {
 	namespace slp {
-
-		// a reducible op with an input of its op and no user of its op and type
-		B32 Slp::isReductionRoot(const Node* n) {
-			Opcode op = n->getOpcode();
-			if(op != Opcode::Add && op != Opcode::Mul && (op < Opcode::And || op > Opcode::Xor))
-				return false;
-			U8 typeClass = typeBits(n->getType());
-			if(!(typeClass & kI32I64) || (op == Opcode::Mul && (typeClass != kI32 || !cx.sse41)))
-				return false;
-			B32 root = false;
-			for(U32 i = 0; i < n->getInputCount(); ++i)
-				root |= n->getInput(i)->getOpcode() == op;
-			for(Node* u : n->getUsers())
-				root &= u->getOpcode() != op || u->getType() != n->getType();
-			return root;
-		}
-
 		U32 Slp::packReductions() {
+			// roots first, as a pack adds nodes to fn
 			List<Node*> roots;
 			for(Node* n : cx.fn)
 				if(isReductionRoot(n))
@@ -34,6 +18,45 @@ namespace rat {
 			return changed;
 		}
 
+		// a reducible op with an input of its op and no user of its op and type
+		B32 Slp::isReductionRoot(const Node* n) {
+			Opcode op = n->getOpcode();
+			if(op != Opcode::Add && op != Opcode::Mul && (op < Opcode::And || op > Opcode::Xor))
+				return false;
+			U8 typeClass = typeBits(n->getType());
+			// a Mul packs only as SSE4.1 pmulld on i32
+			if(!(typeClass & kI32I64) || (op == Opcode::Mul && (typeClass != kI32 || !cx.sse41)))
+				return false;
+			B32 root = false;
+			for(U32 i = 0; i < n->getInputCount(); ++i)
+				root |= n->getInput(i)->getOpcode() == op;
+			for(Node* u : n->getUsers())
+				root &= u->getOpcode() != op || u->getType() != n->getType();
+			return root;
+		}
+
+		U32 Slp::packReduction(Node* root) {
+			Seed seed;
+			seed.root = root;
+			List<Node*> terms = flattenReduction(root, seed.steps);
+			U32 termCount = (U32)terms.size();
+			if(termCount < kMinTerms)
+				return 0;
+			++stats.windowsSeen;
+			U32 laneCount = kVecBytes / root->getType()->byteSize(cx.ptrBytes);
+			U32 vectorCount = termCount / laneCount;
+			seed.tuples.resize(vectorCount);
+			for(U32 i = 0; i < vectorCount; ++i)
+				seed.tuples[i].assign(terms.data() + i * laneCount, terms.data() + (i + 1) * laneCount);
+			seed.scalarTerms.assign(terms.begin() + vectorCount * laneCount, terms.end());
+			I32 finishOps = 2 * (I32)(laneCount / 2) + 1; // shuffle and op per round, then the extract
+			// termCount - 1 scalar ops become vectorCount - 1 vector ops, finishOps and the scalar terms
+			seed.profit =
+					(I32)termCount - 1 - (I32)seed.scalarTerms.size() - ((I32)vectorCount - 1 + finishOps);
+			return pack(seed);
+		}
+
+		// root's terms left to right, below its steps: single-use ops of its opcode and type
 		List<Node*> flattenReduction(Node* root, List<Node*>& steps) {
 			List<Node*> terms;
 			List<Node*> todo = {root};
@@ -53,26 +76,6 @@ namespace rat {
 			}
 			std::reverse(terms.begin(), terms.end());
 			return terms;
-		}
-
-		U32 Slp::packReduction(Node* root) {
-			Seed seed;
-			seed.root = root;
-			U32 laneCount = kVecBytes / root->getType()->byteSize(cx.ptrBytes);
-			List<Node*> terms = flattenReduction(root, seed.steps);
-			U32 termCount = (U32)terms.size();
-			U32 vectorCount = termCount / laneCount;
-			if(termCount < kMinTerms)
-				return 0;
-			++stats.windowsSeen;
-			seed.tuples.resize(vectorCount);
-			for(U32 i = 0; i < vectorCount; ++i)
-				seed.tuples[i].assign(terms.data() + i * laneCount, terms.data() + (i + 1) * laneCount);
-			seed.scalarTerms.assign(terms.begin() + vectorCount * laneCount, terms.end());
-			I32 finishOps = 2 * (I32)(laneCount / 2) + 1; // shuffle and op per round, then the extract
-			seed.profit =
-					(I32)termCount - 1 - (I32)seed.scalarTerms.size() - ((I32)vectorCount - 1 + finishOps);
-			return pack(seed);
 		}
 
 		// combine the vectors by the op, fold the lanes by shuffles, then the other terms as scalars

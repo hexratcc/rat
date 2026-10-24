@@ -1,7 +1,6 @@
-// load canonicalization: a load of a block that reads an inner state of the block's store chain
-// reads the earliest chain state that holds its bytes, but no state above one that a memory reader
-// in its address cone reads, so the schedule stays acyclic. slp moves it back when it packs
-// nothing in the chain
+// load canonicalization: a load of an inner state of its block's store chain reads the earliest
+// chain state that holds its bytes, but none above a state read in its address cone, so the
+// schedule stays acyclic (C). slp moves it back when the chain packs nothing
 
 #ifndef RAT_PASS_OPT_LOADCANON_H
 #define RAT_PASS_OPT_LOADCANON_H
@@ -24,7 +23,8 @@ namespace rat {
 			StoreNode* state = nullptr; // the state it read before
 		};
 
-		// what loadcanon leaves for slp on the same function, to save compile time
+		// what loadcanon leaves for slp on the same function: its hoists, and its chains and addresses
+		// to save compile time
 		struct Handoff {
 			Handoff() = default;
 			explicit Handoff(Function& fn); // chains and an empty cache, nothing hoisted
@@ -42,10 +42,11 @@ namespace rat {
 			U32 outside(U32 group) const; // the last store outside group
 
 			U32 last = 0;
-			U32 lastGroup = 0; // the group of last
+			U32 lastGroup = 0;
 			U32 lastOther = 0; // the last store outside lastGroup
 		};
 
+		// the stores of a chain so far, by the bytes they may overlap
 		struct Conflicts {
 			void add(U32 store, const Access& a);
 			U32 lastConflict(const Access& a) const; // the last store that may overlap a
@@ -56,13 +57,13 @@ namespace rat {
 			Map<U64, std::array<U32, kVecBytes>> blocks; // (group, 16-byte block) -> last store per byte
 		};
 
-		StoreNode* chainSuccessor(const StoreNode* prev);
 		List<Chain> collectChains(Function& fn);
+		StoreNode* chainSuccessor(const StoreNode* prev);
+		void hoistLoads(Handoff& h, U32 ptrBytes, U32 chainIndex, List<U32>& stateOf);
+		U32 coneState(LoadNode* l, const List<U32>& stateOf);
 		Handoff& handoff();
 		Handoff takeHandoff(Function& fn);
 		void unhoistLoads(const List<Hoist>& hoists, const List<B32>& packed);
-		U32 coneState(LoadNode* l, const List<U32>& stateOf);
-		void hoistLoads(Handoff& h, U32 ptrBytes, U32 chainIndex, List<U32>& stateOf);
 	} // namespace slp
 
 	struct LoadCanonPass : FunctionPass {

@@ -18,6 +18,22 @@ namespace rat {
 			enum Role : U8 { kLane = 1, kSink = 2 };
 		} // namespace detail
 
+		U8 typeBits(const Type* t) {
+			if(!t || !(t->isInt() || t->isFloat() || t->isPtr()))
+				return 0;
+			if(t->isPtr())
+				return kPtr;
+			if(t->isFloat())
+				return (t->getFloatWidth() == 32) * kF32 | (t->getFloatWidth() == 64) * kF64;
+			U32 bits = t->getIntWidth();
+			return (bits == 8) * kI8 | (bits == 16) * kI16 | (bits == 32) * kI32 | (bits == 64) * kI64;
+		}
+
+		U64 pairKey(U32 high, I64 low) { return (U64)high << 32 | (U32)low; }
+
+		// the end of the 16-byte block at from, or end when it comes first
+		I64 blockEnd(I64 from, I64 end) { return std::min(end, (from | (I64)(kVecBytes - 1)) + 1); }
+
 		Context::Context(Function& fn, const TargetInfo& target)
 		: fn(fn),
 			ptrBytes(target.getPointerSizeInBytes()),
@@ -60,36 +76,22 @@ namespace rat {
 			I32 margin = -1;
 			if(plan.build())
 				margin = profitMargin(plan);
-			B32 ok = margin >= 0;
-			if(ok) {
-				check.setRoles(plan, true);
-				// the first innerReadersDie is a cheap early reject, as kept lanes can only make it fail
-				ok = check.innerReadersDie(seed) && (I32)check.markKeptLanes(plan) <= margin &&
-						 check.innerReadersDie(seed);
-				if(ok)
-					apply(plan);
-				check.setRoles(plan, false);
+			if(margin < 0) {
+				++stats.rejected;
+				return false;
 			}
+			check.setRoles(plan, true);
+			// the first innerReadersDie is an early reject, kept lanes can only make it fail
+			B32 ok = check.innerReadersDie(seed) && (I32)check.markKeptLanes(plan) <= margin &&
+							 check.innerReadersDie(seed);
+			if(ok)
+				apply(plan);
+			check.setRoles(plan, false);
 			stats.rejected += !ok;
 			return ok;
 		}
 
-		U8 typeBits(const Type* t) {
-			if(!t || !(t->isInt() || t->isFloat() || t->isPtr()))
-				return 0;
-			if(t->isPtr())
-				return kPtr;
-			if(t->isFloat())
-				return (t->getFloatWidth() == 32) * kF32 | (t->getFloatWidth() == 64) * kF64;
-			U32 bits = t->getIntWidth();
-			return (bits == 8) * kI8 | (bits == 16) * kI16 | (bits == 32) * kI32 | (bits == 64) * kI64;
-		}
-
-		U64 pairKey(U32 high, I64 low) { return (U64)high << 32 | (U32)low; }
-
-		// the end of the 16-byte block at from, or end when it comes first
-		I64 blockEnd(I64 from, I64 end) { return std::min(end, (from | (I64)(kVecBytes - 1)) + 1); }
-
+		// the profit above kMinProfit per window, what kept lanes may cost
 		I32 profitMargin(const Plan& plan) {
 			I32 windows = std::max(1, (I32)plan.seed.lowestStores.size()); // a reduction counts as one
 			I32 profit = plan.seed.profit - kMinProfit * windows;
@@ -99,19 +101,6 @@ namespace rat {
 			if(!plan.guards.empty() && !noGuardCost)
 				profit -= (I32)plan.guards.size() * kGuardCheckCost + kGuardBranchCost;
 			return profit;
-		}
-
-		// the state before a run, valid until commitRun clears the stores
-		Node* memIn(const Seed& seed) { return seed.stores[0]->getMemory(); }
-
-		// state is a run store before the last, only runs ask, so stores is not empty
-		B32 isInner(const Seed& seed, const Node* state) {
-			return std::count(seed.stores.begin(), seed.stores.end() - 1, state) != 0;
-		}
-
-		// the set of a run of set members, their only user, null for a run of a chain
-		MemMergeNode* setOf(const Seed& seed) {
-			return dyn_cast<MemMergeNode>(seed.stores[0]->getUsers()[0]);
 		}
 
 		Check::Check(const Function& fn)
@@ -132,13 +121,20 @@ namespace rat {
 				roles[n->getId()] = sinkRole;
 		}
 
-		U8 Check::roleOf(const Node* n) const {
-			if(n->getId() >= roles.size())
-				return 0;
-			return roles[n->getId()];
+		// L3: the wide stores make no inner state, so every load of one must die
+		B32 Check::innerReadersDie(const Seed& seed) const {
+			for(U32 j = 0; j + 1 < seed.stores.size(); ++j)
+				for(Node* u : seed.stores[j]->getUsers())
+					if(isa<LoadNode>(u) && !laneDies(u))
+						return false;
+			return true;
 		}
 
-		// a lane a scalar user needs stays scalar with its lane inputs, so it drops its role
+		B32 Check::laneDies(const Node* n) const {
+			return roleOf(n) == detail::kLane && !usedOutside(n, false);
+		}
+
+		// a lane a gather, shift or outside user reads stays scalar with its lane inputs, returns count
 		U32 Check::markKeptLanes(const Plan& plan) {
 			SmallList<const Node*, 64> work;
 			for(const Vector& vec : plan.vectors) {
@@ -162,8 +158,8 @@ namespace rat {
 			return kept;
 		}
 
-		// a user of n besides the lanes and sinks of the plan, with copies a store of n's value counts
-		// as inside even when it is no sink, so a Load lane only copied to memory is not kept
+		// n has a user besides the plan's Op lanes and sinks. With copies a store of n's value is
+		// inside even when it is no sink, so a Load lane only copied to memory is not kept
 		B32 Check::usedOutside(const Node* n, B32 copies) const {
 			for(U32 i = 0; i < n->getUsers().size(); ++i) {
 				const Node* user = n->getUsers()[i];
@@ -177,17 +173,10 @@ namespace rat {
 			return false;
 		}
 
-		B32 Check::laneDies(const Node* n) const {
-			return roleOf(n) == detail::kLane && !usedOutside(n, false);
-		}
-
-		// every load of a state between the run's stores dies, as the wide stores make no such state
-		B32 Check::innerReadersDie(const Seed& seed) const {
-			for(U32 j = 0; j + 1 < seed.stores.size(); ++j)
-				for(Node* u : seed.stores[j]->getUsers())
-					if(isa<LoadNode>(u) && !laneDies(u))
-						return false;
-			return true;
+		U8 Check::roleOf(const Node* n) const {
+			if(n->getId() >= roles.size())
+				return 0;
+			return roles[n->getId()];
 		}
 	} // namespace slp
 

@@ -7,8 +7,7 @@
 namespace rat {
 	namespace slp {
 		namespace detail {
-			// lanes of one opcode in [first, last] become one vector op of that opcode
-			// a shift takes one amount for all lanes, a select takes a mask, every other input is a tuple
+			// lanes with an opcode in [first, last] become one vector op of that opcode
 			struct OpRule {
 				Opcode first;
 				Opcode last;
@@ -65,14 +64,23 @@ namespace rat {
 			for(const Vector& vec : vectors)
 				if(vec.needsGuard)
 					addGuard(vec);
-			// a guarded run splits its block, and the loads above its guard stay live across the splits
 			return guards.empty() ||
 						 (guards.size() <= kMaxGuards &&
 							cx.guardedRunsIn(seed.stores.back()->getControl()) < kMaxGuardedRuns);
 		}
 
-		// the node apply emitted for seed tuple
-		Node* Plan::tupleNode(U32 tuple) const { return vectors[tupleVectors[tuple]].node; }
+		// add the bytes of vec's lanes to the runtime check of their group
+		void Plan::addGuard(const Vector& vec) {
+			Addr lowest = cx.addrs.get(vec.lowestLoad->getPointer());
+			for(GuardRange& range : guards)
+				if(range.group == lowest.group) {
+					if(lowest.offset < range.begin)
+						range = {range.group, vec.lowestLoad->getPointer(), lowest.offset, range.end};
+					range.end = std::max(range.end, vec.end);
+					return;
+				}
+			guards.push_back({lowest.group, vec.lowestLoad->getPointer(), lowest.offset, vec.end});
+		}
 
 		U32 Plan::planVector(const Lanes& lanes) {
 			for(const Vector& vec : vectors)
@@ -88,6 +96,14 @@ namespace rat {
 			return index;
 		}
 
+		// a constant tuple stays a Pack, one pool load
+		B32 isSplat(const Lanes& lanes) {
+			for(Node* n : lanes)
+				if(n != lanes[0])
+					return false;
+			return !isa<ConstantNode>(lanes[0]);
+		}
+
 		U32 Plan::planGather(const Lanes& lanes) {
 			if(!(typeBits(lanes[0]->getType()) & kElem))
 				return kNoVector;
@@ -95,13 +111,6 @@ namespace rat {
 			vec.profit = -gatherCost(lanes, seed.root != nullptr);
 			vectors.push_back(vec);
 			return (U32)vectors.size() - 1;
-		}
-
-		B32 isSplat(const Lanes& lanes) {
-			for(Node* n : lanes)
-				if(n != lanes[0])
-					return false;
-			return !isa<ConstantNode>(lanes[0]);
 		}
 
 		// as SSE4.1 lowers it, a movd or insert per variable lane and a pool vector when lane 0 or a
@@ -152,6 +161,7 @@ namespace rat {
 		}
 
 		B32 Plan::readLaneOps(const Lanes& lanes, LaneOps& ops) {
+			// made even when planOp rejects the lanes, dropping zero or ones shifts later node ids
 			Node* zero = nullptr;
 			Node* ones = nullptr;
 			for(U32 i = 0; i < lanes.size(); ++i) {
@@ -162,7 +172,6 @@ namespace rat {
 				for(U32 k = 0; k < lane->getInputCount(); ++k)
 					ops.operands[k].push_back(lane->getInput(k));
 				if(ops.opcode[i] == Opcode::Neg) {
-					// made even when planOp rejects the lanes, dropping it shifts later node ids
 					if(!zero)
 						zero = cx.fn.create<ConstantNode>(lane->getType(), 0);
 					ops.opcode[i] = Opcode::Sub;
@@ -184,7 +193,7 @@ namespace rat {
 			for(U32 i = 0; i < laneCount; ++i)
 				if(ops.opcode[i] != ops.mainOp && ops.opcode[i] != ops.altOp) {
 					if(ops.altOp != kNoOp)
-						return false; // a third opcode
+						return false;
 					ops.altOp = ops.opcode[i];
 				}
 			return true;
@@ -198,6 +207,7 @@ namespace rat {
 			B32 binary =
 					getOpClass(ops.mainOp) == OpClass::Binary && getOpClass(ops.altOp) == OpClass::Binary;
 			B32 shift = isShiftOpcode(ops.mainOp) || isShiftOpcode(ops.altOp);
+			// a blend lowers to SSE4.1 blendps
 			return cx.sse41 && binary && !shift && hasRule(ops.altOp, lane0);
 		}
 
@@ -212,11 +222,11 @@ namespace rat {
 			return false;
 		}
 
-		// the number of operand tuples, one per vector input, or 0 when they do not fit one vector op
+		// how many operand tuples become vector inputs, 0 when they do not fit one vector op
 		U32 Plan::operandTuples(const Lanes& lanes, LaneOps& ops) {
 			U32 tupleCount = (U32)getOpcodeInfo(ops.mainOp).minInputs;
 			if(isShiftOpcode(ops.mainOp))
-				tupleCount = 1;
+				tupleCount = 1; // the amount is one scalar for all lanes
 			for(U32 input = 0; input < tupleCount; ++input)
 				for(Node* n : ops.operands[input])
 					if(n->getType() != ops.operands[input][0]->getType())
@@ -229,7 +239,7 @@ namespace rat {
 			if(isShiftOpcode(ops.mainOp) && !isUniformShift(lanes))
 				return 0;
 			if(ops.mainOp == Opcode::Select && cx.laneType(ops.operands[0][0]) != lanes[0]->getType())
-				return 0;
+				return 0; // blendv needs a mask of the lane type
 			if(tupleCount == 2)
 				orientOperands(ops);
 			return tupleCount;
@@ -243,14 +253,6 @@ namespace rat {
 			const ConstantNode* constant = dyn_cast<ConstantNode>(amount);
 			return !constant || (constant->getValue() >= 0 &&
 													 constant->getValue() < (I64)lanes[0]->getType()->getIntWidth());
-		}
-
-		// opcode, type and, for a load, its address group: what orientOperands compares
-		std::tuple<Opcode, const Type*, U32> Plan::operandKey(Node* n) {
-			U32 group = 0;
-			if(LoadNode* l = dyn_cast<LoadNode>(n))
-				group = cx.addrs.get(l->getPointer()).group;
-			return {n->getOpcode(), n->getType(), group};
 		}
 
 		// swap the operands of a commutative lane when they match lane 0's in reverse order
@@ -267,6 +269,15 @@ namespace rat {
 			}
 		}
 
+		// what orientOperands compares: the opcode, the type and a load's group
+		std::tuple<Opcode, const Type*, U32> Plan::operandKey(Node* n) {
+			U32 group = 0;
+			if(LoadNode* l = dyn_cast<LoadNode>(n))
+				group = cx.addrs.get(l->getPointer()).group;
+			return {n->getOpcode(), n->getType(), group};
+		}
+
+		// two vector ops and a blend, or one addsubps when the lanes subtract and add in turn
 		I32 blendProfit(const LaneOps& ops, U32 laneCount, U16& sel) {
 			constexpr Opcode kAddSub[2] = {Opcode::FSub, Opcode::FAdd}; // lane i % 2 of an addsubps
 			B32 addSub = true;
@@ -278,5 +289,7 @@ namespace rat {
 			}
 			return (I32)laneCount - 3 + 2 * (I32)addSub;
 		}
+
+		Node* Plan::tupleNode(U32 tuple) const { return vectors[tupleVectors[tuple]].node; }
 	} // namespace slp
 } // namespace rat

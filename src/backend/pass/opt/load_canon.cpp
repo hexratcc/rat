@@ -7,18 +7,10 @@
 
 namespace rat {
 	namespace slp {
-		StoreNode* chainSuccessor(const StoreNode* prev) {
-			StoreNode* next = nullptr;
-			for(Node* u : prev->getUsers()) {
-				StoreNode* st = dyn_cast<StoreNode>(u);
-				if(isa<LoadNode>(u))
-					continue;
-				if(!st || next || st->getControl() != prev->getControl() || st->isVolatile())
-					return nullptr;
-				next = st;
-			}
-			return next;
-		}
+		Handoff::Handoff(Function& fn)
+		: fn(&fn),
+			chains(collectChains(fn)),
+			addrs(AliasAnalysis::restrictFacts(fn), fn.idBound()) {}
 
 		List<Chain> collectChains(Function& fn) {
 			List<Chain> chains;
@@ -36,79 +28,50 @@ namespace rat {
 			return chains;
 		}
 
-		Handoff::Handoff(Function& fn)
-		: fn(&fn),
-			chains(collectChains(fn)),
-			addrs(AliasAnalysis::restrictFacts(fn), fn.idBound()) {}
-
-		Handoff& handoff() {
-			thread_local Handoff h;
-			return h;
-		}
-
-		Handoff takeHandoff(Function& fn) {
-			Handoff& h = handoff();
-			if(h.fn == &fn && h.version == fn.getVersion()) {
-				h.fn = nullptr; // taken
-				return std::move(h);
+		// prev's only user besides loads, when it is a non-volatile store under prev's control
+		StoreNode* chainSuccessor(const StoreNode* prev) {
+			StoreNode* next = nullptr;
+			for(Node* u : prev->getUsers()) {
+				if(isa<LoadNode>(u))
+					continue;
+				StoreNode* st = dyn_cast<StoreNode>(u);
+				if(!st || next || st->getControl() != prev->getControl() || st->isVolatile())
+					return nullptr;
+				next = st;
 			}
-			return Handoff(fn);
+			return next;
 		}
 
-		// a chain without a pack gets its loads back on their old states, as an earlier state only
-		// lets the scheduler load a value long before its use
-		void unhoistLoads(const List<Hoist>& hoists, const List<B32>& packed) {
-			for(const Hoist& hoist : hoists)
-				if(!packed[hoist.chain])
-					hoist.load->setInput(1, hoist.state); // input 1 is the memory
-		}
-
-		void LastOutside::add(U32 store, U32 group) {
-			if(group != lastGroup)
-				lastOther = last;
-			lastGroup = group;
-			last = store;
-		}
-
-		U32 LastOutside::outside(U32 group) const {
-			if(group != lastGroup)
-				return last;
-			return lastOther;
-		}
-
-		void Conflicts::add(U32 store, const Access& a) {
-			all.add(store, a.addr.group);
-			if(!a.addr.object)
-				lastWild = store;
-			else
-				objects[a.addr.object].add(store, a.addr.group);
-			if(!a.addr.group)
-				return;
-			I64 end = a.addr.offset + (I64)a.size;
-			for(I64 from = a.addr.offset; from < end;) { // each block
-				I64 to = blockEnd(from, end);
-				std::array<U32, kVecBytes>& writers = blocks[pairKey(a.addr.group, from >> kVecShift)];
-				for(I64 byte = from; byte < to; ++byte)
-					writers[byte & (kVecBytes - 1)] = store;
-				from = to;
+		// a reader of the state after store k, not the last, reads the state after store target < k,
+		// the later of its last possible overlap and the latest state its cone reads
+		void hoistLoads(Handoff& h, U32 ptrBytes, U32 chainIndex, List<U32>& stateOf) {
+			const Chain& chain = h.chains[chainIndex];
+			Node* block = chain[0]->getControl();
+			Conflicts seen;
+			for(U32 k = 1; k <= chain.size(); ++k)
+				stateOf[chain[k - 1]->getId()] = k;
+			for(U32 k = 1; k < chain.size(); ++k) { // a hoist of a final state reader only adds an order
+				seen.add(k, accessOf(h.addrs, ptrBytes, chain[k - 1]));
+				SmallList<LoadNode*, 8> readers; // copy first, a hoist changes the store's users
+				for(Node* u : chain[k - 1]->getUsers())
+					if(LoadNode* l = dyn_cast<LoadNode>(u); l && l->getControl() == block && !l->isVolatile())
+						readers.push_back(l);
+				for(LoadNode* l : readers) {
+					Access access = accessOf(h.addrs, ptrBytes, l);
+					if(!access.addr.group)
+						continue;
+					U32 target = std::max(seen.lastConflict(access), coneState(l, stateOf));
+					if(target >= k)
+						continue;
+					Node* state = chain[0]->getMemory(); // the state before the chain
+					if(target)
+						state = chain[target - 1];
+					h.hoists.push_back({chainIndex, l, chain[k - 1]});
+					l->setInput(1, state);
+				}
 			}
-		}
-
-		U32 Conflicts::lastConflict(const Access& a) const {
-			U32 conflict = lastWild;
-			if(!a.addr.object)
-				conflict = all.outside(a.addr.group);
-			else if(auto it = objects.find(a.addr.object); it != objects.end())
-				conflict = std::max(conflict, it->second.outside(a.addr.group));
-			I64 end = a.addr.offset + (I64)a.size;
-			for(I64 from = a.addr.offset; from < end;) { // each block
-				I64 to = blockEnd(from, end);
-				auto it = blocks.find(pairKey(a.addr.group, from >> kVecShift));
-				for(I64 byte = from; it != blocks.end() && byte < to; ++byte)
-					conflict = std::max(conflict, it->second[byte & (kVecBytes - 1)]);
-				from = to;
-			}
-			return conflict;
+			for(StoreNode* st : chain)
+				stateOf[st->getId()] = 0;
 		}
 
 		// the latest chain state read in l's address cone, ~0u past kMaxCone nodes
@@ -134,34 +97,73 @@ namespace rat {
 			return latest;
 		}
 
-		void hoistLoads(Handoff& h, U32 ptrBytes, U32 chainIndex, List<U32>& stateOf) {
-			const Chain& chain = h.chains[chainIndex];
-			Node* block = chain[0]->getControl();
-			Conflicts seen;
-			for(U32 k = 1; k <= chain.size(); ++k)
-				stateOf[chain[k - 1]->getId()] = k;
-			for(U32 k = 1; k < chain.size(); ++k) { // a hoist of a final state reader only adds an order
-				seen.add(k, accessOf(h.addrs, ptrBytes, chain[k - 1]));
-				SmallList<LoadNode*, 8> readers; // copy first, a hoist changes the store's users
-				for(Node* u : chain[k - 1]->getUsers())
-					if(LoadNode* l = dyn_cast<LoadNode>(u); l && l->getControl() == block && !l->isVolatile())
-						readers.push_back(l);
-				for(LoadNode* l : readers) {
-					Access access = accessOf(h.addrs, ptrBytes, l);
-					if(!access.addr.group)
-						continue;
-					U32 target = std::max(seen.lastConflict(access), coneState(l, stateOf));
-					if(target >= k)
-						continue;
-					Node* state = chain[0]->getMemory(); // the state before the chain
-					if(target)
-						state = chain[target - 1];
-					h.hoists.push_back({chainIndex, l, chain[k - 1]});
-					l->setInput(1, state); // input 1 is the memory
-				}
+		void Conflicts::add(U32 store, const Access& a) {
+			all.add(store, a.addr.group);
+			if(!a.addr.object)
+				lastWild = store;
+			else
+				objects[a.addr.object].add(store, a.addr.group);
+			if(!a.addr.group)
+				return;
+			I64 end = a.addr.offset + (I64)a.size;
+			for(I64 from = a.addr.offset; from < end;) { // each 16-byte block
+				I64 to = blockEnd(from, end);
+				std::array<U32, kVecBytes>& writers = blocks[pairKey(a.addr.group, from >> kVecShift)];
+				for(I64 byte = from; byte < to; ++byte)
+					writers[byte & (kVecBytes - 1)] = store;
+				from = to;
 			}
-			for(StoreNode* st : chain)
-				stateOf[st->getId()] = 0;
+		}
+
+		U32 Conflicts::lastConflict(const Access& a) const {
+			U32 conflict = lastWild;
+			if(!a.addr.object)
+				conflict = all.outside(a.addr.group);
+			else if(auto it = objects.find(a.addr.object); it != objects.end())
+				conflict = std::max(conflict, it->second.outside(a.addr.group));
+			I64 end = a.addr.offset + (I64)a.size;
+			for(I64 from = a.addr.offset; from < end;) { // each 16-byte block
+				I64 to = blockEnd(from, end);
+				auto it = blocks.find(pairKey(a.addr.group, from >> kVecShift));
+				for(I64 byte = from; it != blocks.end() && byte < to; ++byte)
+					conflict = std::max(conflict, it->second[byte & (kVecBytes - 1)]);
+				from = to;
+			}
+			return conflict;
+		}
+
+		void LastOutside::add(U32 store, U32 group) {
+			if(group != lastGroup)
+				lastOther = last;
+			lastGroup = group;
+			last = store;
+		}
+
+		U32 LastOutside::outside(U32 group) const {
+			if(group != lastGroup)
+				return last;
+			return lastOther;
+		}
+
+		Handoff& handoff() {
+			thread_local Handoff h;
+			return h;
+		}
+
+		Handoff takeHandoff(Function& fn) {
+			Handoff& h = handoff();
+			if(h.fn == &fn && h.version == fn.getVersion()) {
+				h.fn = nullptr; // taken
+				return std::move(h);
+			}
+			return Handoff(fn);
+		}
+
+		// a chain that did not pack gets its loads back, else they could load long before their use
+		void unhoistLoads(const List<Hoist>& hoists, const List<B32>& packed) {
+			for(const Hoist& hoist : hoists)
+				if(!packed[hoist.chain])
+					hoist.load->setInput(1, hoist.state);
 		}
 	} // namespace slp
 
