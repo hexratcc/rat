@@ -8,6 +8,8 @@
 
 #include "pass/pass.h"
 
+#include <iosfwd>
+
 namespace rat {
 	struct SlpStats {
 		U32 windowsSeen = 0;		 // windows, and reductions of kMinTerms or more terms, examined
@@ -19,12 +21,18 @@ namespace rat {
 		U32 rejected = 0;				 // windows rejected early, and seeds that did not pack
 	};
 
+	// the pass variants: slp, slp-noguardcost prices guards at 0 (a fuzz test mode), slp-noguards
+	// rejects each window with an inner reader, so no run needs a guard (an ablation)
+	enum class SlpGuards : U8 { On, NoCost, Off };
+
 	struct SlpPackPass : FunctionPass {
+		explicit SlpPackPass(SlpGuards guards = SlpGuards::On);
 		const C8* name() const override;
 		void beginModule(Module& module, const CallGraph& graph) override;
-		void endModule(Module& module) override;
+		void printStats(const Module& module, std::ostream& os) const override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
+		SlpGuards guards;
 		SlpStats stats;
 	};
 } // namespace rat

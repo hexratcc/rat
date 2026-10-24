@@ -69,10 +69,8 @@ namespace rat {
 				nanos[i] += detail::nowNanos() - start;
 			}
 		}
-		for(U32 i = 0; i < group.size(); ++i) {
-			group[i]->endModule(module);
+		for(U32 i = 0; i < group.size(); ++i)
 			finish(group[i]->name(), nanos[i], changed[i], log);
-		}
 	}
 
 	void PassManager::run(Module& module, std::ostream* log) {
@@ -132,5 +130,10 @@ namespace rat {
 			first = false;
 		}
 		os << "\n";
+	}
+
+	void PassManager::printStats(const Module& module, std::ostream& os) const {
+		for(const UniquePtr<Pass>& pass : passes)
+			pass->printStats(module, os);
 	}
 } // namespace rat

@@ -3,6 +3,8 @@
 
 #include "core.h"
 
+#include <iosfwd>
+
 namespace rat {
 	struct CallGraph;
 	struct Function;
@@ -15,6 +17,7 @@ namespace rat {
 
 		virtual const C8* name() const = 0;
 		virtual B32 run(Module& module, const TargetInfo& target) = 0;
+		virtual void printStats(const Module&, std::ostream&) const {} // -fpass-stats, rat -stats
 	};
 
 	// the pass manager runs consecutive function passes function by function (see PassManager)
@@ -24,7 +27,6 @@ namespace rat {
 
 		// graph: the module's call graph as the run starts
 		virtual void beginModule(Module&, const CallGraph&) {}
-		virtual void endModule(Module&) {}
 		virtual U32 runOnFunction(Function& fn, const TargetInfo& target) = 0;
 		virtual B32 onlyReadsFunction() const { return true; }
 	};

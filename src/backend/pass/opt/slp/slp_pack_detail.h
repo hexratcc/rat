@@ -65,7 +65,7 @@ namespace rat {
 		// what the stages share. Each lazy index is built at its first query and never updated, so that
 		// moment shapes the output
 		struct Context {
-			Context(Function& fn, const TargetInfo& target);
+			Context(Function& fn, const TargetInfo& target, SlpGuards guards);
 			Type* laneType(const Node* n); // a compare's is its mask, an int as wide as its operands
 			U32 guardedRunsIn(const Node* block) const;
 			B32 bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl); // slp_load.cpp
@@ -74,6 +74,7 @@ namespace rat {
 			Function& fn;
 			U32 ptrBytes;
 			B32 sse41;
+			SlpGuards guards;
 			AddrCache addrs;													 // from the loadcanon handoff
 			Map<const Node*, U32> guardedRunsPerBlock; // block -> guarded runs, commitGuarded counts
 		private:
@@ -208,7 +209,7 @@ namespace rat {
 
 		// 3. check
 
-		I32 profitMargin(const Plan& plan);
+		I32 profitMargin(const Plan& plan, SlpGuards guards);
 
 		// the role of each node in the plan under check and apply
 		struct Check {
@@ -268,7 +269,7 @@ namespace rat {
 
 		// the pass on one function, it searches the seeds and runs each through the stages
 		struct Slp {
-			Slp(Function& fn, const TargetInfo& target, SlpStats& stats);
+			Slp(Function& fn, const TargetInfo& target, SlpStats& stats, SlpGuards guards);
 			Slp(const Slp&) = delete; // the stages hold references to cx
 			Slp& operator=(const Slp&) = delete;
 			U32 run();

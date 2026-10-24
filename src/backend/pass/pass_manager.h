@@ -33,6 +33,7 @@ namespace rat {
 		void run(Module& module, std::ostream* log = nullptr);
 
 		void printTimingReport(std::ostream& os) const;
+		void printStats(const Module& module, std::ostream& os) const;
 	private:
 		void record(const C8* name, U64 nanos);
 		B32 finish(const C8* name, U64 nanos, B32 changed, std::ostream* log);

@@ -25,7 +25,7 @@ namespace detail {
 					"  -passes <a,b,...>   pass pipeline to run, in order\n"
 					"  -emit <text|dot>    output format (default text)\n"
 					"  -o <file>           output file (default stdout)\n"
-					"  -stats              report per-pass changes to stderr\n"
+					"  -stats              report per-pass changes and pass statistics to stderr\n"
 					"  -verify             append a verify pass\n"
 					"  -list-passes        list available passes and exit\n"
 					"  -h, -help           show this help\n"
@@ -66,6 +66,8 @@ namespace detail {
 		pm.add(createPass(emitter, out));
 
 		pm.run(module, o.stats ? &std::cerr : nullptr);
+		if(o.stats)
+			pm.printStats(module, std::cerr);
 		return 0;
 	}
 
