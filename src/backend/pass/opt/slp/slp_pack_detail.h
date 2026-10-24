@@ -1,20 +1,10 @@
-// SLP internals in stage order. Slp::run drives the stages on one function, each stage object owns
-// its state, and Context holds the function, the target facts and the addresses they share:
-// 1. chains, slp_chain.cpp, Slp: the store chains come from the loadcanon handoff, a disjoint
-//    stretch of a chain becomes a set, and windows of stores along a chain or a set make one Seed
-//    per run
-// 2. plan, slp_plan.cpp, slp_load.cpp and slp_guard.cpp, Plan and LoadFacts: Plan::build covers
-//    each seed tuple with a Gather, Load or Op vector, operands first, and adds the runtime checks
-//    its loads need
-// 3. check, slp_pack.cpp, Check: Slp::pack keeps a plan whose profit covers its kept lanes and
-//    whose inner readers die
-// 4. apply, slp_apply.cpp and slp_guard.cpp, Emitter and GuardedRuns: emit the vectors, then the
-//    wide stores, behind a runtime guard when a lane load needs one
-// 5. after all chains, unhoistLoads of load_canon.cpp and GuardedRuns::splitBlocks of
-//    slp_guard.cpp: unhoist the loads of chains without a pack, then split the blocks of the
-//    guarded runs
-// 6. reductions, slp_reduce.cpp, Slp and Emitter: each reduction root is a seed and goes through
-//    stages 2 to 4
+// SLP internals by stage. Slp::run drives the stages on one function, Context holds what they share
+// 1. chains, slp_chain.cpp, Slp: windows of stores along a chain or a set make one Seed per run
+// 2. plan, slp_plan.cpp and slp_load.cpp, Plan: the vectors and runtime checks of a Seed
+// 3. check, slp_pack.cpp, Check: the profit covers the kept lanes, and the inner readers die
+// 4. apply, slp_apply.cpp, Emitter: the vectors, then the wide stores, guarded when a lane load
+//    needs it, and after all chains the guarded blocks split
+// 5. reductions, slp_reduce.cpp, Slp: each reduction root is a Seed for stages 2 to 4
 
 #ifndef RAT_PASS_OPT_SLPPACKDETAIL_H
 #define RAT_PASS_OPT_SLPPACKDETAIL_H
@@ -43,7 +33,7 @@ namespace rat {
 		constexpr U32 kMaxInputs = 3;							 // most inputs of a lane op, a select has 3
 		constexpr U32 kNoVector = ~0u;						 // no plan vector
 		constexpr Opcode kNoOp = Opcode::Start;		 // no opcode
-		constexpr I32 kMinProfit = 2;							 // scalar ops saved per window, net of lane plumbing
+		constexpr I32 kMinProfit = 2;							 // least scalar ops saved per window or reduction
 		constexpr U32 kMaxRunWindows = 4;					 // windows of one run, which share one guard
 		constexpr U32 kMaxGuards = 4;							 // runtime checks per guarded run
 		constexpr U32 kMaxGuardedRuns = 16;				 // guarded runs per block, see Plan::build
@@ -57,8 +47,7 @@ namespace rat {
 		// work bounds, so each search stays linear in the function
 		constexpr U32 kMaxOps = 64;				// Op vectors tried per seed tuple
 		constexpr U32 kMaxSetGroups = 16; // groups of a set, compared pairwise by their bases
-		constexpr U32 kMaxHops = 16;			// stores walked between a lane load's state and memIn
-		constexpr U32 kMaxStlfHops = 16;	// states walked back to the stores a wide load reads
+		constexpr U32 kMaxHops = 16;			// states walked between a load and memIn, or to its writers
 
 		// lane type classes of the op table
 		enum TypeBits : U8 { kI8 = 1, kI16 = 2, kI32 = 4, kI64 = 8, kF32 = 16, kF64 = 32, kPtr = 64 };
@@ -66,7 +55,7 @@ namespace rat {
 		constexpr U8 kFp = kF32 | kF64;
 		constexpr U8 kElem = kI32I64 | kFp | kPtr;
 
-		using Lanes = SmallList<Node*, kMaxLanes>; // a tuple, one scalar per lane
+		using Lanes = SmallList<Node*, kMaxLanes>; // a tuple, one scalar per lane, all of one type
 		// the stores of a chain or of a part of it in chain order, or a set's consecutive stores
 		using Chain = List<StoreNode*>;
 
@@ -75,15 +64,28 @@ namespace rat {
 		U64 pairKey(U32 high, I64 low);
 		I64 blockEnd(I64 from, I64 end);
 
-		// the function and target, set once, and the addresses the stages read
+		// the function, the target and the tables the stages share. A lazy index is built from fn at
+		// its first bytesRead or storesTo and never updated, so that moment shapes the output
 		struct Context {
 			Context(Function& fn, const TargetInfo& target);
 			Type* laneType(const Node* n);
+			B32 bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl); // slp_load.cpp
+			B32 storesTo(U32 object);																					// slp_load.cpp
+			U32 guardedRunsIn(const Node* block) const;
 
 			Function& fn;
 			U32 ptrBytes;
 			B32 sse41;
-			AddrCache addrs; // Slp::run takes it from the loadcanon handoff
+			AddrCache addrs;													 // Slp::run takes it from the loadcanon handoff
+			Map<const Node*, U32> guardedRunsPerBlock; // block -> guarded runs, commitGuarded adds
+		private:
+			void indexReads();
+			void indexStores();
+		private:
+			Map<U64, Set<I64>> reads; // (control id, group) -> offsets of 4-byte pieces loads read
+			B32 readsIndexed = false;
+			Set<U32> storedObjects; // objects the stores of fn write
+			B32 storesIndexed = false;
 		};
 
 		// chains, sets and seeds
@@ -105,8 +107,7 @@ namespace rat {
 		// the tuples to pack for a run of stores or a reduction
 		struct Seed {
 			List<Lanes> tuples; // one vector each
-			// scalar ops saved besides the plan's vectors, less kMinProfit per window or reduction
-			I32 profit = 0;
+			I32 profit = 0;			// scalar ops saved besides the plan's vectors
 			// a run of stores, the stores in chain order, in a set by offset
 			SmallList<StoreNode*, kMaxRunWindows * kMaxLanes> stores;
 			SmallList<StoreNode*, kMaxRunWindows> lowestStores; // the lane 0 store of each window
@@ -119,7 +120,6 @@ namespace rat {
 		Access accessOf(AddrCache& addrs, U32 ptrBytes, Node* n);
 		B32 hasInnerReader(StoreNode* const* stores, U32 count);
 		void addWindow(Seed& seed, const Chain& chain, const Window& window);
-		B32 isDisjointSet(const List<Access>& accesses, U32 first, U32 last, Map<U64, U16>& written);
 		void lowerSet(MemMergeNode* set);
 		List<Node*> flattenReduction(Node* root, List<Node*>& steps);
 		Node* memIn(const Seed& seed);
@@ -127,24 +127,6 @@ namespace rat {
 		MemMergeNode* setOf(const Seed& seed);
 
 		// plan
-
-		// lazy indexes of the loads and stores of fn, for the load plan. The first bytesRead or
-		// storesTo builds one from fn as the packs before left it, a later pack does not update it, so
-		// the moment of the first query shapes the output
-		struct LoadFacts {
-			explicit LoadFacts(Context& cx);
-			B32 bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl);
-			B32 storesTo(U32 object);
-		private:
-			void indexReads();
-			void indexStores();
-		private:
-			Context& cx;
-			Map<U64, Set<I64>> reads; // (control id, group) -> offsets of 4-byte pieces loads read
-			B32 readsIndexed = false;
-			Set<U32> storedObjects; // objects the stores of fn write
-			B32 storesIndexed = false;
-		};
 
 		// Gather: a Pack or Splat, Load: wide loads or a broadcast load, Op: lane ops as vector ops
 		enum class VectorKind : U8 { Gather, Load, Op };
@@ -177,10 +159,10 @@ namespace rat {
 			I64 end = 0;
 		};
 
-		// the lanes of an Op vector as one opcode each, with their inputs
+		// the lanes of an Op vector as one opcode each, with their operand tuples
 		struct LaneOps {
 			Opcode opcode[kMaxLanes] = {}; // Neg as Sub from 0, Not as Xor with -1
-			Node* input[kMaxLanes][kMaxInputs] = {};
+			Lanes operands[kMaxInputs];		 // tuple k holds input k of each lane
 			Opcode mainOp = kNoOp;
 			Opcode altOp = kNoOp;
 		};
@@ -191,21 +173,17 @@ namespace rat {
 		B32 isUniformShift(const Lanes& lanes);
 		I32 blendProfit(const LaneOps& ops, U32 laneCount, U16& sel);
 
-		struct GuardedRuns;
-
-		// the vectors of one seed and the runtime checks they need, build writes them, the check reads
-		// them, apply reads them and sets Vector::node and loads
+		// the vectors of one seed and the runtime checks they need, apply sets Vector::node and loads
 		struct Plan {
-			Plan(Context& cx, LoadFacts& facts, const GuardedRuns& guardedRuns, const Seed& seed);
+			Plan(Context& cx, const Seed& seed);
 			B32 build();
-			Node* tupleNode(U32 tuple) const; // slp_apply.cpp
+			Node* tupleNode(U32 tuple) const;
 
 			const Seed& seed;
 			List<Vector> vectors;												// operands first
 			SmallList<U32, kMaxTerms / 4> tupleVectors; // vector of each seed tuple
 			List<GuardRange> guards;										// one runtime check each
-			// the loads Emitter::loadAt emitted with their address, loadAt reuses an equal one,
-			// GuardedRuns::commit moves those that read memIn below the guards
+			// the loads apply emitted with their address, loadAt reuses them, commitGuarded moves them
 			List<Pair<LoadNode*, Addr>> loads;
 		private:
 			U32 planVector(const Lanes& lanes);
@@ -215,9 +193,9 @@ namespace rat {
 			B32 readLaneOps(const Lanes& lanes, LaneOps& ops);
 			B32 hasRuleForOps(const LaneOps& ops, Node* lane0);
 			B32 hasRule(Opcode op, Node* lane);
-			U32 operandTuples(const Lanes& lanes, const LaneOps& ops, Lanes* tuples);
+			U32 operandTuples(const Lanes& lanes, LaneOps& ops);
 			std::tuple<Opcode, const Type*, U32> operandKey(Node* n);
-			void orientOperands(const LaneOps& ops, Lanes* tuples);
+			void orientOperands(LaneOps& ops);
 			// Load, slp_load.cpp
 			U32 planLoad(const Lanes& lanes);
 			B32 loadShape(const Lanes& lanes, Vector& vec);
@@ -225,15 +203,12 @@ namespace rat {
 			B32 loadState(const Lanes& lanes, Vector& vec);
 			B32 canReadMemIn(LoadNode* l, const Addr& runAddr, B32& needsGuard);
 			B32 forwardBlocked(const Vector& vec);
-			B32 splitsLoad(Node* state, const Access& load, SmallList<Node*, kMaxStlfHops>& walk);
+			B32 splitsLoad(Node* state, const Access& load, SmallList<Node*, kMaxHops>& walk);
 			B32 callWrites(const CallNode* call, const Addr& addr);
-			// guards, slp_guard.cpp
 			void addGuard(const Vector& vec);
 		private:
 			Context& cx;
-			LoadFacts& facts;
-			const GuardedRuns& guardedRuns; // build and loadState ask it about a block
-			U32 budget = 0;									// Op vectors left to try, kMaxOps more per seed tuple
+			U32 budget = 0; // Op vectors left to try, kMaxOps more per seed tuple
 		};
 
 		// check
@@ -251,36 +226,11 @@ namespace rat {
 			B32 usedOutside(const Node* n, B32 copies) const;
 		private:
 			const Function& fn;
-			// node id -> Role of slp_pack.cpp, else 0, setRoles sets and clears it around the check and
-			// apply of one plan, markKeptLanes clears kept lanes, usedOutside and laneDies read it
+			// node id -> Role of slp_pack.cpp or 0, set for the check and apply of one plan
 			List<U8> roles;
 		};
 
 		// apply
-
-		// emits an applied plan, its vectors, then its wide stores or its reduction, at addresses off
-		// one anchor per group
-		struct Emitter {
-			explicit Emitter(Context& cx);
-			void seedAnchors(const Plan& plan);
-			void emitVectors(Plan& plan);
-			Node* emitWideStores(const Plan& plan, Node* ctrl);
-			void commitRun(const Plan& plan);
-			void commitReduction(const Plan& plan); // slp_reduce.cpp
-		private:
-			Node* emitGather(const Vector& vec, Type* vecTy);
-			Node* emitLoad(const Vector& vec, Type* vecTy, Plan& plan);
-			Node* loadAt(const Vector& vec, Type* ty, I64 offset, Plan& plan);
-			Node* emitOp(const Vector& vec, Type* vecTy, const Plan& plan);
-			Node* makeOp(Opcode op, Type* vecTy, Node* const* inputs);
-			Node* anchorPtr(Node* ptr, I64 offset, const Node* ctrl);
-			Pair<Node*, I64> anchorOf(Node* ptr);
-		private:
-			Context& cx;
-			// (control, group) -> (anchor ptr, its offset), seedAnchors adds a key the first time an applied
-			// plan uses it and never changes it, anchorPtr reads it
-			Map<U64, Pair<Node*, I64>> anchors;
-		};
 
 		// a run behind runtime guards, its block splits after all chains
 		struct GuardedRun {
@@ -290,24 +240,34 @@ namespace rat {
 			Node* firstIf = nullptr;				 // first guard branch
 		};
 
-		// the guarded runs of fn, commit emits one behind its guards, splitBlocks splits their blocks
-		// after all chains
-		struct GuardedRuns {
-			explicit GuardedRuns(Context& cx);
-			B32 hasRuns(const Node* block) const;
-			B32 isFull(const Node* block) const; // kMaxGuardedRuns runs
-			void commit(const Plan& plan, Emitter& emitter, const Check& check);
+		// emits an applied plan at addresses off one anchor per (control, group): its vectors, then its
+		// wide stores, guarded or not, or its reduction. splitBlocks runs after all chains
+		struct Emitter {
+			explicit Emitter(Context& cx);
+			void seedAnchors(const Plan& plan);
+			void emitVectors(Plan& plan);
+			void commitRun(const Plan& plan);
+			void commitGuarded(const Plan& plan, const Check& check);
+			void commitReduction(const Plan& plan); // slp_reduce.cpp
 			void splitBlocks();
 		private:
+			Node* emitGather(const Vector& vec, Type* vecTy);
+			Node* emitLoad(const Vector& vec, Type* vecTy, Plan& plan);
+			Node* loadAt(const Vector& vec, Type* ty, I64 offset, Plan& plan);
+			Node* emitOp(const Vector& vec, Type* vecTy, const Plan& plan);
+			Node* makeOp(Opcode op, Type* vecTy, Node* const* inputs);
+			Node* emitWideStores(const Plan& plan, Node* ctrl);
+			Node* anchorPtr(Node* ptr, I64 offset, const Node* ctrl);
+			Pair<Node*, I64> anchorOf(Node* ptr);
+			// guarded runs
 			void moveToElse(const Plan& plan, Node* block, Node* elseP, const Check& check);
 			Node* emitGuardCascade(const Plan& plan, Node*& firstIf, Node*& elseP);
 			B32 moveLaterUsers(const GuardedRun& guarded, const Map<const Node*, U32>& runAt);
 		private:
 			Context& cx;
-			// commit adds to both, hasRuns and isFull read the count for the plan, splitBlocks reads the
-			// list after all chains
-			List<GuardedRun> runs;
-			Map<const Node*, U32> perBlock; // block -> its guarded run count
+			// (control, group) -> (anchor, its offset), the first applied plan that uses a key sets it
+			Map<U64, Pair<Node*, I64>> anchors;
+			List<GuardedRun> guardedRuns; // commitGuarded adds one, splitBlocks reads them
 		};
 
 		// the pass on one function, it searches the seeds and packs each through the stage objects
@@ -322,26 +282,22 @@ namespace rat {
 			void apply(Plan& plan); // slp_apply.cpp
 			// chains and sets, slp_chain.cpp
 			U32 packChains(const List<Chain>& chains, List<B32>& packed);
+			B32 isDisjointSet(const Chain& chain, U32 first, U32 last, Map<U64, U16>& written);
 			MemMergeNode* mergeStretch(const Chain& chain, U32 first, U32 last);
 			B32 windowAt(const Chain& chain, U32 start, U32 bytes, Window& window);
 			U32 packWindows(const Chain& chain);
-			U32 packSet(MemMergeNode* set);
+			U32 packSet(const Chain& chain, U32 first, U32 last);
 			U32 packRunAt(const Chain& chain, U32 start, U32 bytes);
-			void extendRun(const Chain& chain, const Window& first, U32 bytes, Seed& seed);
 			// reductions, slp_reduce.cpp
 			U32 packReductions();
 			B32 isReductionRoot(const Node* n);
 			U32 packReduction(Node* root);
 		private:
 			Context cx;
-			// packRunAt, extendRun and packReduction count windows, packRunAt and pack count rejects,
-			// apply counts packs
-			SlpStats& stats;
+			SlpStats& stats; // the search and pack count windows and rejects, apply counts packs
 			// the stages, pack runs a seed through them
-			LoadFacts facts;				 // the plan queries it
-			Check check;						 // pack checks a plan, GuardedRuns::commit asks which lanes die
-			Emitter emitter;				 // apply emits a plan, GuardedRuns::commit its wide stores
-			GuardedRuns guardedRuns; // apply commits, the plan asks hasRuns and isFull, run splits
+			Check check;		 // pack checks a plan, Emitter::commitGuarded asks which lanes die
+			Emitter emitter; // apply emits a plan, run splits the guarded blocks
 		};
 	} // namespace slp
 } // namespace rat

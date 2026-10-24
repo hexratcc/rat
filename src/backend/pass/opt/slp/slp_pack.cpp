@@ -29,13 +29,18 @@ namespace rat {
 			return n->getType();
 		}
 
+		U32 Context::guardedRunsIn(const Node* block) const {
+			auto it = guardedRunsPerBlock.find(block);
+			if(it == guardedRunsPerBlock.end())
+				return 0;
+			return it->second;
+		}
+
 		Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats)
 		: cx(fn, target),
 			stats(stats),
-			facts(cx),
 			check(fn),
-			emitter(cx),
-			guardedRuns(cx) {}
+			emitter(cx) {}
 
 		U32 Slp::run() {
 			Handoff h = takeHandoff(cx.fn);
@@ -43,7 +48,7 @@ namespace rat {
 			List<B32> packed; // per chain
 			U32 changed = packChains(h.chains, packed);
 			unhoistLoads(h.hoists, packed);
-			guardedRuns.splitBlocks();
+			emitter.splitBlocks();
 			cx.fn.eliminateDeadNodes(); // so every reduction root found is live
 			changed += packReductions();
 			cx.fn.eliminateDeadNodes();
@@ -51,7 +56,7 @@ namespace rat {
 		}
 
 		B32 Slp::pack(const Seed& seed) {
-			Plan plan(cx, facts, guardedRuns, seed);
+			Plan plan(cx, seed);
 			I32 margin = -1;
 			if(plan.build())
 				margin = profitMargin(plan);
@@ -86,7 +91,8 @@ namespace rat {
 		I64 blockEnd(I64 from, I64 end) { return std::min(end, (from | (I64)(kVecBytes - 1)) + 1); }
 
 		I32 profitMargin(const Plan& plan) {
-			I32 profit = plan.seed.profit;
+			I32 windows = std::max(1, (I32)plan.seed.lowestStores.size()); // a reduction counts as one
+			I32 profit = plan.seed.profit - kMinProfit * windows;
 			for(const Vector& vec : plan.vectors)
 				profit += vec.profit;
 			static const B32 noGuardCost = std::getenv("RAT_SLP_NO_GUARD_COST") != nullptr;
@@ -98,11 +104,9 @@ namespace rat {
 		// the state before a run, valid until commitRun clears the stores
 		Node* memIn(const Seed& seed) { return seed.stores[0]->getMemory(); }
 
+		// state is a run store before the last, only runs ask, so stores is not empty
 		B32 isInner(const Seed& seed, const Node* state) {
-			for(U32 j = 0; j + 1 < seed.stores.size(); ++j)
-				if(seed.stores[j] == state)
-					return true;
-			return false;
+			return std::count(seed.stores.begin(), seed.stores.end() - 1, state) != 0;
 		}
 
 		// the set of a run of set members, their only user, null for a run of a chain

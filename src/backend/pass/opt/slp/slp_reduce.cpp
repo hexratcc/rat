@@ -70,8 +70,8 @@ namespace rat {
 				seed.tuples[i].assign(terms.data() + i * laneCount, terms.data() + (i + 1) * laneCount);
 			seed.scalarTerms.assign(terms.begin() + vectorCount * laneCount, terms.end());
 			I32 finishOps = 2 * (I32)(laneCount / 2) + 1; // shuffle and op per round, then the extract
-			seed.profit = (I32)termCount - 1 - (I32)seed.scalarTerms.size() -
-										((I32)vectorCount - 1 + finishOps) - kMinProfit;
+			seed.profit =
+					(I32)termCount - 1 - (I32)seed.scalarTerms.size() - ((I32)vectorCount - 1 + finishOps);
 			return pack(seed);
 		}
 

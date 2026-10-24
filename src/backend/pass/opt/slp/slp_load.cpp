@@ -35,8 +35,7 @@ namespace rat {
 			vec.offset = firstAddr.offset;
 			for(U32 i = 0; i < laneCount; ++i) {
 				LoadNode* l = dyn_cast<LoadNode>(lanes[i]);
-				if(!l || l->isVolatile() || l->getType() != firstLoad->getType() ||
-					 l->getControl() != firstLoad->getControl())
+				if(!l || l->isVolatile() || l->getControl() != firstLoad->getControl())
 					return false;
 				Addr a = cx.addrs.get(l->getPointer());
 				if(a.group != firstAddr.group)
@@ -75,7 +74,7 @@ namespace rat {
 				B32 covered = true;
 				for(U32 element = 0; element < vec.wideLoads * laneCount; ++element)
 					if(!(readElements >> element & 1))
-						covered &= facts.bytesRead(group, start + (I64)(element * laneSize), laneSize, ctrl);
+						covered &= cx.bytesRead(group, start + (I64)(element * laneSize), laneSize, ctrl);
 				if(covered) {
 					vec.offset = start;
 					return true;
@@ -93,7 +92,7 @@ namespace rat {
 				return shared; // a reduction has no memIn and adds no guard
 			// in a block with a guarded run, a run reads memIn, as loads of an earlier state would stay
 			// live across that guard
-			if(shared && !guardedRuns.hasRuns(vec.lowestLoad->getControl()) && !isInner(seed, vec.mem))
+			if(shared && !cx.guardedRunsIn(vec.lowestLoad->getControl()) && !isInner(seed, vec.mem))
 				return true;
 			vec.mem = memIn(seed);
 			Addr runAddr = cx.addrs.get(seed.lowestStores[0]->getPointer());
@@ -130,6 +129,19 @@ namespace rat {
 			return true;
 		}
 
+		// add the bytes of vec's lanes to the runtime check of their group
+		void Plan::addGuard(const Vector& vec) {
+			Addr lowest = cx.addrs.get(vec.lowestLoad->getPointer());
+			for(GuardRange& range : guards)
+				if(range.group == lowest.group) {
+					if(lowest.offset < range.begin)
+						range = {range.group, vec.lowestLoad->getPointer(), lowest.offset, range.end};
+					range.end = std::max(range.end, vec.end);
+					return;
+				}
+			guards.push_back({lowest.group, vec.lowestLoad->getPointer(), lowest.offset, vec.end});
+		}
+
 		// a wide load forwards only from one older store that holds all its bytes, else it waits about
 		// 11 cycles on Zen 3 until the stores commit, so each youngest writer must hold all its bytes
 		B32 Plan::forwardBlocked(const Vector& vec) {
@@ -137,8 +149,8 @@ namespace rat {
 			Access load{cx.addrs.get(vec.lowestLoad->getPointer()), bytes};
 			for(U32 k = 0; k < vec.wideLoads; ++k) {
 				load.addr.offset = vec.offset + (I64)(k * bytes);
-				SmallList<Node*, kMaxStlfHops> walk = {vec.mem};
-				for(U32 i = 0; i < walk.size() && i < kMaxStlfHops; ++i)
+				SmallList<Node*, kMaxHops> walk = {vec.mem};
+				for(U32 i = 0; i < walk.size() && i < kMaxHops; ++i)
 					if(splitsLoad(walk[i], load, walk))
 						return true;
 			}
@@ -147,7 +159,7 @@ namespace rat {
 
 		// whether state writes some but not all bytes of load, or is a call that writes them, and else
 		// add to walk the states before it, which may hold the youngest writer
-		B32 Plan::splitsLoad(Node* state, const Access& load, SmallList<Node*, kMaxStlfHops>& walk) {
+		B32 Plan::splitsLoad(Node* state, const Access& load, SmallList<Node*, kMaxHops>& walk) {
 			if(PhiNode* phi = dyn_cast<PhiNode>(state)) {
 				// a backedge brings stores of the previous iteration, whose addresses the walk cannot
 				// compare, so a loop header gives only its entry, input 0
@@ -181,7 +193,7 @@ namespace rat {
 		// its bytes from the calls that take its address, with stores the walk cannot see, and a
 		// callee writes a struct field by field
 		B32 Plan::callWrites(const CallNode* call, const Addr& addr) {
-			if(!addr.object || facts.storesTo(addr.object))
+			if(!addr.object || cx.storesTo(addr.object))
 				return false;
 			for(U32 i = 0; i < call->getArgCount(); ++i) {
 				Node* arg = call->getArg(i);
@@ -191,11 +203,8 @@ namespace rat {
 			return false;
 		}
 
-		LoadFacts::LoadFacts(Context& cx)
-		: cx(cx) {}
-
 		// some load at ctrl reads each 4-byte piece of [offset, offset + size) of group
-		B32 LoadFacts::bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl) {
+		B32 Context::bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl) {
 			if(!readsIndexed)
 				indexReads();
 			auto it = reads.find(pairKey(ctrl->getId(), group));
@@ -205,33 +214,35 @@ namespace rat {
 			return true;
 		}
 
-		void LoadFacts::indexReads() {
+		void Context::indexReads() {
 			readsIndexed = true;
-			for(Node* n : cx.fn) {
+			for(Node* n : fn) {
 				LoadNode* load = dyn_cast<LoadNode>(n);
 				if(!load || load->isVolatile())
 					continue;
-				U32 size = load->getType()->byteSize(cx.ptrBytes);
+				U32 size = load->getType()->byteSize(ptrBytes);
 				if(!size || size % kReadPiece != 0)
 					continue;
-				Addr addr = cx.addrs.get(load->getPointer());
+				Addr addr = addrs.get(load->getPointer());
 				Set<I64>& pieces = reads[pairKey(load->getControl()->getId(), addr.group)];
 				for(U32 piece = 0; piece < size; piece += kReadPiece)
 					pieces.insert(addr.offset + (I64)piece);
 			}
 		}
 
-		B32 LoadFacts::storesTo(U32 object) {
+		B32 Context::storesTo(U32 object) {
 			if(!storesIndexed)
 				indexStores();
 			return storedObjects.count(object) != 0;
 		}
 
-		void LoadFacts::indexStores() {
+		void Context::indexStores() {
 			storesIndexed = true;
-			for(Node* n : cx.fn)
-				if(StoreNode* st = dyn_cast<StoreNode>(n))
-					storedObjects.insert(cx.addrs.get(st->getPointer()).object);
+			for(Node* n : fn) {
+				StoreNode* st = dyn_cast<StoreNode>(n);
+				if(st && st->getInputCount()) // a store commitRun packed has no inputs
+					storedObjects.insert(addrs.get(st->getPointer()).object);
+			}
 		}
 	} // namespace slp
 } // namespace rat

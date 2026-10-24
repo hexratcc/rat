@@ -48,11 +48,9 @@ namespace rat {
 			// clang-format on
 		} // namespace detail
 
-		Plan::Plan(Context& cx, LoadFacts& facts, const GuardedRuns& guardedRuns, const Seed& seed)
+		Plan::Plan(Context& cx, const Seed& seed)
 		: seed(seed),
-			cx(cx),
-			facts(facts),
-			guardedRuns(guardedRuns) {
+			cx(cx) {
 			vectors.reserve(4 * seed.tuples.size());
 		}
 
@@ -67,11 +65,14 @@ namespace rat {
 			for(const Vector& vec : vectors)
 				if(vec.needsGuard)
 					addGuard(vec);
-			if(guards.empty())
-				return true;
 			// a guarded run splits its block, and the loads above its guard stay live across the splits
-			return guards.size() <= kMaxGuards && !guardedRuns.isFull(seed.stores.back()->getControl());
+			return guards.empty() ||
+						 (guards.size() <= kMaxGuards &&
+							cx.guardedRunsIn(seed.stores.back()->getControl()) < kMaxGuardedRuns);
 		}
+
+		// the node apply emitted for seed tuple
+		Node* Plan::tupleNode(U32 tuple) const { return vectors[tupleVectors[tuple]].node; }
 
 		U32 Plan::planVector(const Lanes& lanes) {
 			for(const Vector& vec : vectors)
@@ -125,15 +126,14 @@ namespace rat {
 			LaneOps ops;
 			if(!budget || !readLaneOps(lanes, ops) || !hasRuleForOps(ops, lanes[0]))
 				return kNoVector;
-			Lanes tuples[kMaxInputs];
-			U32 tupleCount = operandTuples(lanes, ops, tuples);
+			U32 tupleCount = operandTuples(lanes, ops);
 			if(!tupleCount)
 				return kNoVector;
 			--budget;
 			Vector vec{lanes, VectorKind::Op};
 			U32 firstNew = (U32)vectors.size();
 			for(U32 i = 0; i < tupleCount; ++i) {
-				vec.operands[i] = planVector(tuples[i]);
+				vec.operands[i] = planVector(ops.operands[i]);
 				if(vec.operands[i] == kNoVector) {
 					vectors.resize(firstNew);
 					return kNoVector;
@@ -160,19 +160,19 @@ namespace rat {
 				if(!isArithmeticOpcode(ops.opcode[i]) && ops.opcode[i] != Opcode::Select)
 					return false;
 				for(U32 k = 0; k < lane->getInputCount(); ++k)
-					ops.input[i][k] = lane->getInput(k);
+					ops.operands[k].push_back(lane->getInput(k));
 				if(ops.opcode[i] == Opcode::Neg) {
 					// made even when planOp rejects the lanes, dropping it shifts later node ids
 					if(!zero)
 						zero = cx.fn.create<ConstantNode>(lane->getType(), 0);
 					ops.opcode[i] = Opcode::Sub;
-					ops.input[i][1] = ops.input[i][0];
-					ops.input[i][0] = zero;
+					ops.operands[1].push_back(ops.operands[0].back());
+					ops.operands[0].back() = zero;
 				} else if(ops.opcode[i] == Opcode::Not) {
 					if(!ones)
 						ones = cx.fn.create<ConstantNode>(lane->getType(), -1);
 					ops.opcode[i] = Opcode::Xor;
-					ops.input[i][1] = ones;
+					ops.operands[1].push_back(ones);
 				}
 			}
 			return pickOpcodes(ops, lanes.size());
@@ -212,31 +212,26 @@ namespace rat {
 			return false;
 		}
 
-		// one operand tuple per vector input, or 0 when the lanes do not fit one vector op
-		U32 Plan::operandTuples(const Lanes& lanes, const LaneOps& ops, Lanes* tuples) {
+		// the number of operand tuples, one per vector input, or 0 when they do not fit one vector op
+		U32 Plan::operandTuples(const Lanes& lanes, LaneOps& ops) {
 			U32 tupleCount = (U32)getOpcodeInfo(ops.mainOp).minInputs;
 			if(isShiftOpcode(ops.mainOp))
 				tupleCount = 1;
-			for(U32 i = 0; i < lanes.size(); ++i) {
-				if(lanes[i]->getType() != lanes[0]->getType())
-					return 0;
-				for(U32 input = 0; input < tupleCount; ++input) {
-					if(ops.input[i][input]->getType() != ops.input[0][input]->getType())
+			for(U32 input = 0; input < tupleCount; ++input)
+				for(Node* n : ops.operands[input])
+					if(n->getType() != ops.operands[input][0]->getType())
 						return 0;
-					tuples[input].push_back(ops.input[i][input]);
-				}
-			}
 			for(U32 input = 0; input < tupleCount; ++input) {
-				U32 bytes = lanes.size() * cx.laneType(tuples[input][0])->byteSize(cx.ptrBytes);
+				U32 bytes = lanes.size() * cx.laneType(ops.operands[input][0])->byteSize(cx.ptrBytes);
 				if(bytes > kVecBytes || bytes < 4) // at most a vector, at least a movd
 					return 0;
 			}
 			if(isShiftOpcode(ops.mainOp) && !isUniformShift(lanes))
 				return 0;
-			if(ops.mainOp == Opcode::Select && cx.laneType(tuples[0][0]) != lanes[0]->getType())
+			if(ops.mainOp == Opcode::Select && cx.laneType(ops.operands[0][0]) != lanes[0]->getType())
 				return 0;
 			if(tupleCount == 2)
-				orientOperands(ops, tuples);
+				orientOperands(ops);
 			return tupleCount;
 		}
 
@@ -259,16 +254,16 @@ namespace rat {
 		}
 
 		// swap the operands of a commutative lane when they match lane 0's in reverse order
-		void Plan::orientOperands(const LaneOps& ops, Lanes* tuples) {
-			auto key0 = operandKey(tuples[0][0]);
-			auto key1 = operandKey(tuples[1][0]);
-			for(U32 i = 1; i < tuples[0].size() && key0 != key1; ++i) {
+		void Plan::orientOperands(LaneOps& ops) {
+			auto key0 = operandKey(ops.operands[0][0]);
+			auto key1 = operandKey(ops.operands[1][0]);
+			for(U32 i = 1; i < ops.operands[0].size() && key0 != key1; ++i) {
 				if(!getOpcodeInfo(ops.opcode[i]).isCommutative)
 					continue;
-				auto left = operandKey(tuples[0][i]);
-				auto right = operandKey(tuples[1][i]);
+				auto left = operandKey(ops.operands[0][i]);
+				auto right = operandKey(ops.operands[1][i]);
 				if(left != key0 && right == key0 && left == key1)
-					std::swap(tuples[0][i], tuples[1][i]);
+					std::swap(ops.operands[0][i], ops.operands[1][i]);
 			}
 		}
 
