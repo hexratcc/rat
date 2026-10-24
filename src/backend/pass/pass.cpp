@@ -15,7 +15,6 @@ namespace rat {
 		B32 changed = false;
 		for(Function* fn : module)
 			changed |= runFunction(*fn, target);
-		endModule(module);
 		return changed;
 	}
 

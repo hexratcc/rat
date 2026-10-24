@@ -27,7 +27,6 @@ namespace rat {
 
 		// graph: the module's call graph as the run starts
 		virtual void beginModule(Module&, const CallGraph&) {}
-		virtual void endModule(Module&) {}
 		virtual U32 runOnFunction(Function& fn, const TargetInfo& target) = 0;
 		virtual B32 onlyReadsFunction() const { return true; }
 	};
