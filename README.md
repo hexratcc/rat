@@ -14,24 +14,24 @@ $ make test
 $ make bench
 ```
 ### optimization passes
-- [**sccp**](./src/backend/pass/opt/sccp.cpp): sparse conditional constant propagation
-- [**fold**](./src/backend/pass/opt/fold.cpp): constant folding, algebraic simplification
-- [**simplifycfg**](./src/backend/pass/opt/simplify_cfg.cpp): control-flow simplification
-- [**gvn**](./src/backend/pass/opt/gvn.cpp): global value numbering
-- [**memoryopt**](./src/backend/pass/opt/memory_opt.cpp): load/store forwarding
-- [**inline**](./src/backend/pass/opt/inline.cpp): function inlining
-- [**strengthreduce**](./src/backend/pass/opt/strength_reduce.cpp): induction-variable strength reduction
-- [**loadcanon**](./src/backend/pass/opt/load_canon.cpp): moves loads to their canonical memory state
+- [**sccp**](./src/backend/pass/opt/sccp.h): sparse conditional constant propagation
+- [**fold**](./src/backend/pass/opt/fold.h): constant folding, algebraic simplification
+- [**simplifycfg**](./src/backend/pass/opt/simplify_cfg.h): control-flow simplification
+- [**gvn**](./src/backend/pass/opt/gvn.h): global value numbering
+- [**memoryopt**](./src/backend/pass/opt/memory_opt.h): load/store forwarding
+- [**inline**](./src/backend/pass/opt/inline.h): function inlining
+- [**strengthreduce**](./src/backend/pass/opt/strength_reduce.h): induction-variable strength reduction
+- [**loadcanon**](./src/backend/pass/opt/load_canon.h): moves loads to their canonical memory state
 - [**slp**](./src/backend/pass/opt/slp/): scheduling-free SLP vectorization with runtime alias guards
-- [**dfe**](./src/backend/pass/opt/dead_func_elim.cpp): dead function elimination
+- [**dfe**](./src/backend/pass/opt/dead_func_elim.h): dead function elimination
 ### machine passes
-- [**GCM**](./src/backend/codegen/schedule.cpp): global code motion
-- [**x86-lower**](./src/backend/pass/emit/x86/x86_lower.cpp): instruction selection
-- [**regalloc**](./src/backend/codegen/reg_alloc.cpp): bin-packing register allocation
-- [**x86-peephole**](./src/backend/pass/emit/x86/x86_peephole.cpp): copy and spill cleanup
-- [**x86-layout**](./src/backend/pass/emit/x86/x86_layout.cpp): block layout, loop alignment
-- [**x86-encode**](./src/backend/pass/emit/x86/x86_encode.cpp): encoding and object emission
+- [**GCM**](./src/backend/codegen/schedule.h): global code motion
+- [**x86-lower**](./src/backend/pass/emit/x86/x86_lower.h): instruction selection
+- [**regalloc**](./src/backend/codegen/reg_alloc.h): bin-packing register allocation
+- [**x86-peephole**](./src/backend/pass/emit/x86/x86_peephole.h): copy and spill cleanup
+- [**x86-layout**](./src/backend/pass/emit/x86/x86_layout.h): block layout, loop alignment
+- [**x86-encode**](./src/backend/pass/emit/x86/x86_encode.h): encoding and object emission
 ### tool passes
-- [**verify**](./src/backend/pass/verify.cpp): IR invariant checks
-- [**text-emitter**](./src/backend/pass/emit/text_emitter.cpp): IR dumps as Graphviz
-- [**graph-emitter**](./src/backend/pass/emit/graph_emitter.cpp): IR dumps as text
+- [**verify**](./src/backend/pass/verify.h): IR invariant checks
+- [**text-emitter**](./src/backend/pass/emit/text_emitter.h): IR dumps as Graphviz
+- [**graph-emitter**](./src/backend/pass/emit/graph_emitter.h): IR dumps as text
