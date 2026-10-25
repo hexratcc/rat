@@ -97,7 +97,8 @@ namespace rat::cc {
 			String spliced;
 			List<LineMark> marks;
 			splice(text, spliced, marks);
-			LexResult lr = lexAll(spliced, marks, file, interner);
+			PpLexer lx{spliced, marks, file, interner, {}};
+			LexResult lr = lx.run();
 			if(!lr.ok) {
 				fail((file ? *file : String("<fragment>")) + ": " + lr.err);
 				return {};

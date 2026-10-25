@@ -351,14 +351,6 @@ namespace rat::cc {
 				macros.erase(rest[0].text);
 		}
 
-		void Preprocessor::runFile(const String& path, const String& source) {
-			if(!ok)
-				return;
-
-			List<PpToken> toks = lexFragment(source, intern(path));
-			runTokens(path, toks);
-		}
-
 		void Preprocessor::runTokens(const String& path, const List<PpToken>& toks) {
 			if(!ok)
 				return;
@@ -432,7 +424,7 @@ namespace rat::cc {
 			installBuiltins();
 			applyCommandLine();
 			if(ok)
-				runFile(path, source);
+				runTokens(path, lexFragment(source, intern(path)));
 			if(!ok)
 				errOut = err;
 			return ok;

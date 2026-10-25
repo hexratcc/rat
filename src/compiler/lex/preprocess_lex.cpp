@@ -391,12 +391,6 @@ namespace rat::cc {
 			return std::move(r);
 		}
 
-		LexResult
-		lexAll(const String& s, const List<LineMark>& marks, const String* file, Interner& in) {
-			PpLexer lx{s, marks, file, in, {}};
-			return lx.run();
-		}
-
 		I64 parseCharConst(const String& txt) {
 			U64 i = 0;
 			while(i < txt.size() && txt[i] != '\'')

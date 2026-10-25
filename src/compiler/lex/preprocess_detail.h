@@ -126,9 +126,6 @@ namespace rat::cc {
 			LexResult run();
 		};
 
-		LexResult
-		lexAll(const String& s, const List<LineMark>& marks, const String* file, Interner& in);
-
 		using ArgLists = List<List<PpToken>>;
 
 		// macros
@@ -290,7 +287,6 @@ namespace rat::cc {
 
 			// driver
 			B32 run(const String& path, const String& source, String& errOut);
-			void runFile(const String& path, const String& source);
 			void runTokens(const String& path, const List<PpToken>& toks);
 			void installBuiltins();
 			void applyCommandLine();
