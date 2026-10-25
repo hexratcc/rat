@@ -2,7 +2,7 @@
 
 <img align="right" src="./assets/emanuel.png" alt="emanuel" width="210">
 
-rat is a simple, handmade, and *relatively* minimal compiler suite ([**C99 frontend**](./src/compiler/), simple [**linker**](./src/linker/), and a [**Sea of Nodes**](https://en.wikipedia.org/wiki/Sea_of_nodes) [**backend**](./src/backend/)). Some of the features include but are not limited to:
+rat is a simple, [**handmade**](https://handmade.network/manifesto), and *relatively* minimal compiler suite (including a [**C99 frontend**](./src/compiler/), a simple [**linker**](./src/linker/), and a [**Sea of Nodes**](https://en.wikipedia.org/wiki/Sea_of_nodes) [**backend**](./src/backend/)). Some of the features include but are not limited to:
 - `rat -O1` compiles `sqlite3.c` about 17x faster than `clang -O1`)
 - `rat -O1` code runs within 5% of `gcc -O1` and 26% of `clang -O1`.
 - rat is small, readable and easy to hack on.
