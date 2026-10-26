@@ -20,7 +20,11 @@ namespace rat {
 		B32 idLess(const Node* a, const Node* b);
 	} // namespace detail
 
-	enum class AliasResult { NoAlias, MayAlias, MustAlias };
+	enum class AliasResult {
+		NoAlias,
+		MayAlias,
+		MustAlias
+	};
 
 	struct AliasAnalysis {
 		static constexpr U32 kMaxCarryCone = 32; // cone nodes mayCarryRestrict walks per address term

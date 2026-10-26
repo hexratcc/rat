@@ -27,8 +27,7 @@ namespace rat {
 		Emitter::Emitter(Context& cx)
 		: cx(cx) {}
 
-		// a new (control, group) takes the anchorOf base at its lowest offset in the plan, the first on
-		// a tie. Keyed by control, as a group's nsw facts hold only where its accesses run (F3)
+		// a new (control, group) takes the anchorOf base at its lowest offset in the plan, the first on a tie
 		void Emitter::seedAnchors(const Plan& plan) {
 			List<Pair<Node*, const Node*>> ptrs;
 			for(const Vector& vec : plan.vectors)
@@ -48,7 +47,7 @@ namespace rat {
 				anchors.try_emplace(key, anchor);
 		}
 
-		// the base of ptr's constant adds when it shares ptr's group, else ptr, with its offset
+		// the base of ptr's constant adds when it shares ptr's group
 		Pair<Node*, I64> Emitter::anchorOf(Node* ptr) {
 			Node* base = ptr;
 			BinaryNode* add = dyn_cast<BinaryNode>(base);
@@ -276,7 +275,7 @@ namespace rat {
 		}
 
 		// the block's users of the merged state or a later one move below the merge region, so does a
-		// later guarded run of the block. Returns whether there is one
+		// later guarded run of the block
 		B32 Emitter::moveLaterUsers(const GuardedRun& guarded, const Map<const Node*, U32>& runAt) {
 			Node* region = guarded.phi->getRegion();
 			B32 foundLater = false;

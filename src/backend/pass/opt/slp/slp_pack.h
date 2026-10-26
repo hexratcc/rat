@@ -1,5 +1,5 @@
 // SLP vectorization: windows of stores in store chains and sets, and integer reductions, pack
-// into SSE vectors. The internals are in slp_pack_detail.h
+// into SSE vectors
 
 #ifndef RAT_PASS_OPT_SLPPACK_H
 #define RAT_PASS_OPT_SLPPACK_H
@@ -21,9 +21,11 @@ namespace rat {
 		U32 rejected = 0;				 // windows rejected early, and seeds that did not pack
 	};
 
-	// the pass variants: slp, slp-noguardcost prices guards at 0 (a fuzz test mode), slp-noguards
-	// rejects each window with an inner reader, so no run needs a guard (an ablation)
-	enum class SlpGuards : U8 { On, NoCost, Off };
+	enum class SlpGuards : U8 {
+		On,
+		NoCost, // fuzzing
+		Off
+	};
 
 	struct SlpPackPass : FunctionPass {
 		explicit SlpPackPass(SlpGuards guards = SlpGuards::On);

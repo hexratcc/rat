@@ -10,7 +10,10 @@ namespace rat::cc {
 	using Block = Function::Block;
 
 	struct Local {
-		enum class Kind : U8 { Var, Mem };
+		enum class Kind : U8 {
+			Var,
+			Mem
+		};
 		Kind kind = Kind::Var;
 		Function::Var var = 0;
 		Node* addr = nullptr;

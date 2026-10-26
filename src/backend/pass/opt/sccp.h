@@ -27,7 +27,11 @@ namespace rat {
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
 		struct Lattice {
-			enum class Kind : U8 { Top, Constant, Bottom };
+			enum class Kind : U8 {
+				Top,
+				Constant,
+				Bottom
+			};
 
 			Kind kind = Kind::Top;
 			I64 value = 0;

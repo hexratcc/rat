@@ -18,22 +18,22 @@ namespace rat {
 
 			// clang-format off
 			constexpr OpRule kOpRules[] = {
-				{Opcode::Add, Opcode::Sub, kI32I64, 0, false},
-				{Opcode::Mul, Opcode::Mul, kI32, 0, true},							// pmulld, no i64 mul
-				{Opcode::And, Opcode::Xor, kI32I64, 0, false},
-				{Opcode::Shl, Opcode::LShr, kI32I64, 0, false},
-				{Opcode::AShr, Opcode::AShr, kI32, 0, false},						// psrad, no i64 sar
-				{Opcode::FAdd, Opcode::FDiv, kFp, 0, false},
-				{Opcode::FNeg, Opcode::FNeg, kFp, 0, false},
-				{Opcode::Eq, Opcode::Ne, kI32I64, kI32I64, false},			// pcmpeqd, pcmpeqq
-				{Opcode::Slt, Opcode::Ule, kI32, kI32, false},					// pcmpgtd, pminud
-				{Opcode::FEq, Opcode::FGe, kI32I64, kFp, false},				// cmpps, cmppd
-				{Opcode::SExt, Opcode::ZExt, kI32I64, kI8 | kI16 | kI32, true}, // pmovsx/zx
-				{Opcode::SIToFP, Opcode::SIToFP, kFp, kI32, false},			// cvtdq2ps/pd
-				{Opcode::FPToSI, Opcode::FPToSI, kI32, kFp, false},			// cvttps2dq/pd2dq
-				{Opcode::FPExt, Opcode::FPExt, kF64, kF32, false},			// cvtps2pd
-				{Opcode::FPTrunc, Opcode::FPTrunc, kF32, kF64, false},	// cvtpd2ps
-				{Opcode::Select, Opcode::Select, kI32I64, 0, true},			// blendv
+				{Opcode::Add,     Opcode::Sub,     Int32Int64, 0,                    false},
+				{Opcode::Mul,     Opcode::Mul,     Int32,      0,                    true }, // pmulld, no i64 mul
+				{Opcode::And,     Opcode::Xor,     Int32Int64, 0,                    false},
+				{Opcode::Shl,     Opcode::LShr,    Int32Int64, 0,                    false},
+				{Opcode::AShr,    Opcode::AShr,    Int32,      0,                    false}, // psrad, no i64 sar
+				{Opcode::FAdd,    Opcode::FDiv,    Float,      0,                    false},
+				{Opcode::FNeg,    Opcode::FNeg,    Float,      0,                    false},
+				{Opcode::Eq,      Opcode::Ne,      Int32Int64, Int32Int64,           false}, // pcmpeqd, pcmpeqq
+				{Opcode::Slt,     Opcode::Ule,     Int32,      Int32,                false}, // pcmpgtd, pminud
+				{Opcode::FEq,     Opcode::FGe,     Int32Int64, Float,                false}, // cmpps, cmppd
+				{Opcode::SExt,    Opcode::ZExt,    Int32Int64, Int8 | Int16 | Int32, true }, // pmovsx/zx
+				{Opcode::SIToFP,  Opcode::SIToFP,  Float,      Int32,                false}, // cvtdq2ps/pd
+				{Opcode::FPToSI,  Opcode::FPToSI,  Int32,      Float,                false}, // cvttps2dq/pd2dq
+				{Opcode::FPExt,   Opcode::FPExt,   Float64,    Float32,              false}, // cvtps2pd
+				{Opcode::FPTrunc, Opcode::FPTrunc, Float32,    Float64,              false}, // cvtpd2ps
+				{Opcode::Select,  Opcode::Select,  Int32Int64, 0, true},			// blendv
 			};
 			static_assert((I32)Opcode::Sub - (I32)Opcode::Add == 1 &&
 										(I32)Opcode::Xor - (I32)Opcode::And == 2 &&
@@ -105,7 +105,7 @@ namespace rat {
 		}
 
 		U32 Plan::planGather(const Lanes& lanes) {
-			if(!(typeBits(lanes[0]->getType()) & kElem))
+			if(!(typeBits(lanes[0]->getType()) & Elem))
 				return kNoVector;
 			Vector vec{lanes, VectorKind::Gather};
 			vec.profit = -gatherCost(lanes, seed.root != nullptr);

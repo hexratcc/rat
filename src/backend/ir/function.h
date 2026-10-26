@@ -17,7 +17,10 @@ namespace rat {
 	struct Module;
 
 	// symbol linkage, shared by functions and globals
-	enum class Linkage { External, Internal };
+	enum class Linkage {
+		External,
+		Internal
+	};
 
 	constexpr U32 kMaxRestrictParams = 64;
 

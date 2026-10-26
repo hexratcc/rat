@@ -277,7 +277,12 @@ namespace rat::cc {
 
 	B32 Emitter::emitFpClassBuiltin(Function& fn, const Expr* e, Value& out) {
 		const String& b = *e->call.callee;
-		enum Kind : U8 { Sign, IsInf, IsNan, IsFinite } kind;
+		enum Kind : U8 {
+			Sign,
+			IsInf,
+			IsNan,
+			IsFinite
+		} kind;
 		if(bitBuiltinSuffix(b, "signbit"))
 			kind = Sign;
 		else if(bitBuiltinSuffix(b, "isinf"))

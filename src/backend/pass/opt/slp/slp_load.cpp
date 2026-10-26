@@ -26,7 +26,7 @@ namespace rat {
 			U32 laneSize = firstLoad->getType()->byteSize(cx.ptrBytes);
 			Addr firstAddr = cx.addrs.get(firstLoad->getPointer());
 			// i8 and i16 lanes, the source of a convert, load only adjacent
-			B32 elem = (typeBits(firstLoad->getType()) & kElem) != 0;
+			B32 elem = (typeBits(firstLoad->getType()) & Elem) != 0;
 			B32 adjacent = true;
 			B32 equal = elem;
 			vec.end = firstAddr.offset + (I64)laneSize;
@@ -131,7 +131,7 @@ namespace rat {
 			return true;
 		}
 
-		// L4: l may read memIn when its edge to the run is none or weak, a weak edge sets needsGuard
+		// l may read memIn when its edge to the run is none or weak, a weak edge sets needsGuard
 		B32 Plan::canReadMemIn(LoadNode* l, const Addr& runAddr, B32& needsGuard) {
 			Addr loadAddr = cx.addrs.get(l->getPointer());
 			B32 inner = isInner(seed, l->getMemory());
@@ -157,7 +157,7 @@ namespace rat {
 			return true;
 		}
 
-		// a wide load forwards only from one store with all its bytes, else stalls ~11 cycles (Zen 3)
+		// a wide load forwards only from one store with all its bytes, else stalls
 		B32 Plan::forwardBlocked(const Vector& vec) {
 			U32 bytes = (U32)vec.lanes.size() * vec.lowestLoad->getType()->byteSize(cx.ptrBytes);
 			Access load{cx.addrs.get(vec.lowestLoad->getPointer()), bytes};
@@ -201,8 +201,7 @@ namespace rat {
 			return store.addr.group == load.addr.group && !holdsAll;
 		}
 
-		// call takes the address of an object no store of fn writes, an out parameter or a struct
-		// return. The callee writes it field by field, which the walk cannot see
+		// call takes the address of an object no store of fn writes, an out parameter or a struct return
 		B32 Plan::callWrites(const CallNode* call, const Addr& addr) {
 			if(!addr.object || cx.storesTo(addr.object))
 				return false;

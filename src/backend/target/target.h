@@ -12,8 +12,13 @@ namespace rat {
 	using PhysReg = U32;
 	constexpr PhysReg kNoReg = 0;
 
-	enum class Arch : U32 { X86_64 };
-	enum class OS : U32 { Linux, Windows };
+	enum class Arch : U32 {
+		X86_64
+	};
+	enum class OS : U32 {
+		Linux,
+		Windows
+	};
 
 	struct TargetTriple {
 		Arch arch = Arch::X86_64;

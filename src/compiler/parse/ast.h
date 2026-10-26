@@ -71,7 +71,11 @@ namespace rat::cc {
 	struct Expr;
 
 	struct CType {
-		enum class Base : U8 { Int, Float, Void };
+		enum class Base : U8 {
+			Int,
+			Float,
+			Void
+		};
 		enum Mods : U8 {
 			Unsigned = 1u << 0,	 // unsigned integer
 			PlainChar = 1u << 1, // 'char' spelled without an explicit sign

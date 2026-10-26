@@ -14,18 +14,22 @@ namespace rat {
 	namespace slp {
 		namespace detail {
 			// kLane a Load or Op lane, kSink a run store or reduction step, 0 other nodes and kept lanes
-			enum Role : U8 { kLane = 1, kSink = 2 };
+			enum Role : U8 {
+				kLane = 1,
+				kSink = 2
+			};
 		} // namespace detail
 
 		U8 typeBits(const Type* t) {
 			if(!t || !(t->isInt() || t->isFloat() || t->isPtr()))
 				return 0;
 			if(t->isPtr())
-				return kPtr;
+				return Ptr;
 			if(t->isFloat())
-				return (t->getFloatWidth() == 32) * kF32 | (t->getFloatWidth() == 64) * kF64;
+				return (t->getFloatWidth() == 32) * Float32 | (t->getFloatWidth() == 64) * Float64;
 			U32 bits = t->getIntWidth();
-			return (bits == 8) * kI8 | (bits == 16) * kI16 | (bits == 32) * kI32 | (bits == 64) * kI64;
+			return (bits == 8) * Int8 | (bits == 16) * Int16 | (bits == 32) * Int32 |
+						 (bits == 64) * Int64;
 		}
 
 		U64 pairKey(U32 high, I64 low) { return (U64)high << 32 | (U32)low; }
@@ -120,7 +124,7 @@ namespace rat {
 				roles[n->getId()] = sinkRole;
 		}
 
-		// L3: the wide stores make no inner state, so every load of one must die
+		// the wide stores make no inner state, so every load of one must die
 		B32 Check::innerReadersDie(const Seed& seed) const {
 			for(U32 j = 0; j + 1 < seed.stores.size(); ++j)
 				for(Node* u : seed.stores[j]->getUsers())
@@ -182,7 +186,6 @@ namespace rat {
 	SlpPackPass::SlpPackPass(SlpGuards guards)
 	: guards(guards) {}
 
-	// the registry name, so a variant keeps its own clean marks and timing
 	const C8* SlpPackPass::name() const {
 		if(guards == SlpGuards::NoCost)
 			return "slp-noguardcost";

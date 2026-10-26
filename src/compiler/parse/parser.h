@@ -123,7 +123,11 @@ namespace rat::cc {
 
 		// declarators
 		struct DeclOp {
-			enum class Kind : U8 { Pointer, Array, Func };
+			enum class Kind : U8 {
+				Pointer,
+				Array,
+				Func
+			};
 			Kind kind = Kind::Pointer;
 			U64 count = 0;						// Pointer: star count; Array: element count, 0 when not constant
 			Expr* bound = nullptr;		// Array: the bound as written

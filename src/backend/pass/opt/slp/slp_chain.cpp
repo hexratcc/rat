@@ -124,7 +124,7 @@ namespace rat {
 			if(start >= chain.size())
 				return false;
 			Type* type = chain[start]->getValue()->getType();
-			if(!(typeBits(type) & kElem))
+			if(!(typeBits(type) & Elem))
 				return false;
 			U32 elemSize = type->byteSize(cx.ptrBytes);
 			U32 laneCount = bytes / elemSize;
@@ -183,7 +183,7 @@ namespace rat {
 			Chain consecutive;
 			for(U32 i = 1; i < set->getInputCount(); ++i) {
 				StoreNode* st = dyn_cast<StoreNode>(set->getInput(i));
-				if(!st || !(typeBits(st->getValue()->getType()) & kElem))
+				if(!st || !(typeBits(st->getValue()->getType()) & Elem))
 					continue; // a slot a pack emptied, or a narrow or vector store
 				Type* type = st->getValue()->getType();
 				I64 elemSize = type->byteSize(cx.ptrBytes);
@@ -204,7 +204,7 @@ namespace rat {
 			return changed;
 		}
 
-		// every store of the stretch reads the state before the stretch, a MemMerge joins them (F1)
+		// every store of the stretch reads the state before the stretch, a MemMerge joins them
 		MemMergeNode* Slp::mergeStretch(const Chain& chain, U32 first, U32 last) {
 			Node* before = chain[first]->getMemory();
 			StoreNode* lastStore = chain[last];

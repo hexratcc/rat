@@ -58,7 +58,10 @@ namespace rat::cc {
 			Node* hi = nullptr;
 		};
 		struct LValue {
-			enum class Kind : U8 { Var, Addr };
+			enum class Kind : U8 {
+				Var,
+				Addr
+			};
 			Kind kind = Kind::Addr;
 			Function::Var var = 0;
 			Node* addr = nullptr;

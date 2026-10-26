@@ -83,7 +83,10 @@ namespace rat {
 
 	// external symbol from a shared lib
 	struct Import {
-		enum Kind { Func, Data } kind;
+		enum Kind {
+			Func,
+			Data
+		} kind;
 		U32 dynIndex = 0; // index in .dynsym
 		U64 addr = 0;			// PLT stub (Func) or .bss COPY (Data)
 		U64 size = 0;

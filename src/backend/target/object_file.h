@@ -14,14 +14,22 @@ namespace rat {
 		Plt32 = 4, // 32-bit pc-relative call       (L + A - P), call to a function
 	};
 
-	enum class ObjectFormat : U32 { Coff, Elf };
+	enum class ObjectFormat : U32 {
+		Coff,
+		Elf
+	};
 
 	constexpr ObjectFormat objectFormatFor(OS os) {
 		return os == OS::Windows ? ObjectFormat::Coff : ObjectFormat::Elf;
 	}
 
 	struct ObjectFile {
-		enum Section { Text, Rodata, Data, Bss };
+		enum Section {
+			Text,
+			Rodata,
+			Data,
+			Bss
+		};
 
 		explicit ObjectFile(ObjectFormat fmt = ObjectFormat::Elf);
 

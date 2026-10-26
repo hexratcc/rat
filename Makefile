@@ -72,4 +72,8 @@ bench: all
 clean:
 	rm -rf build bin
 
-.PHONY: all test bench clean FORCE
+format:
+	@find src \( -name test -o -path src/compiler/headers \) -prune -o \
+		\( -name '*.cpp' -o -name '*.h' \) -print | xargs clang-format -i
+
+.PHONY: all test bench clean format FORCE

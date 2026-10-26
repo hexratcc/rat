@@ -15,7 +15,7 @@ namespace rat {
 		List<String> libPaths; // -L dirs
 		List<String> libs;		 // -l names
 		String interp;
-		List<String> rpaths;	 // DT_RUNPATH dirs
+		List<String> rpaths; // DT_RUNPATH dirs
 		String entry = "main";
 		LinkTarget target = LinkTarget::LinuxX64;
 	};

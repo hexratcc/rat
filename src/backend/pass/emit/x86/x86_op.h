@@ -142,7 +142,11 @@ namespace rat {
 		Prefetch, // prefetch [use0 + imm], imm2 = hint (0 = nta, 1 = t0, 2 = t1, 3 = t2)
 	};
 
-	enum class VaArgKind : I64 { Int = 0, Sse = 1, X87 = 2 };
+	enum class VaArgKind : I64 {
+		Int = 0,
+		Sse = 1,
+		X87 = 2
+	};
 
 	struct X86OpInfo {
 		const C8* mnemonic;

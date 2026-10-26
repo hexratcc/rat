@@ -25,7 +25,7 @@ namespace rat {
 				return false;
 			U8 typeClass = typeBits(n->getType());
 			// a Mul packs only as SSE4.1 pmulld on i32
-			if(!(typeClass & kI32I64) || (op == Opcode::Mul && (typeClass != kI32 || !cx.sse41)))
+			if(!(typeClass & Int32Int64) || (op == Opcode::Mul && (typeClass != Int32 || !cx.sse41)))
 				return false;
 			B32 root = false;
 			for(U32 i = 0; i < n->getInputCount(); ++i)

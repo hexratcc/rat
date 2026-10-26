@@ -31,3 +31,6 @@ BinPackParameters: false
 # constructor initializers
 PackConstructorInitializers: Never
 ConstructorInitializerIndentWidth: 0
+
+# enums, one enumerator per line
+AllowShortEnumsOnASingleLine: false

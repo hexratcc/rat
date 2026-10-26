@@ -24,7 +24,11 @@ using namespace rat::cc;
 namespace detail {
 	using PhaseClock = std::chrono::steady_clock;
 
-	enum struct Emit { Tok, Ast, X86 };
+	enum struct Emit {
+		Tok,
+		Ast,
+		X86
+	};
 
 	struct Options {
 		String input;						 // root input file ("" => stdin)
