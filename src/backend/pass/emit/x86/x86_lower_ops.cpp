@@ -1038,9 +1038,14 @@ namespace rat {
 		case Opcode::FPTrunc:
 			fstpSse(vregFor(n), opWidth(n->getType()), x);
 			return;
-		case Opcode::SIToFP:
-			fild(x87SlotOf(n), s);
+		case Opcode::SIToFP: {
+			// fild reads all 64 bits, a narrower source loaded from memory is zero extended
+			VReg wide = fresh(detail::kGp);
+			mov(wide, s);
+			signExtBits(wide, intBits(st));
+			fild(x87SlotOf(n), wide);
 			return;
+		}
 		case Opcode::UIToFP:
 			emitUIntToX87(n, s, intBits(st));
 			return;
