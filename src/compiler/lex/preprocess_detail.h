@@ -41,10 +41,16 @@ namespace rat::cc {
 			const String* file = nullptr;	 // interned file name
 			const HideSet* hide = nullptr; // interned hide set
 			U32 line = 0;
+			U16 col = 1; // 1-based column in its physical line, saturating
 			Pk kind = Pk::Eof;
-			U8 spaceBefore = false; // had white space before it
-			U8 bol = false;					// first token on its logical line
+			U8 spaceBefore : 1; // had white space before it
+			U8 bol : 1;					// first token on its logical line
+
+			PpToken()
+			: spaceBefore(false),
+				bol(false) {}
 		};
+		static_assert(sizeof(PpToken) == 32, "PpToken size is hot in expansion");
 
 		constexpr U32 kMaxIncludeDepth = 200;
 
@@ -113,6 +119,7 @@ namespace rat::cc {
 			LexResult r;
 			U64 mi = 0;
 			U32 line = 1;
+			U64 lineStart = 0; // offset of the current physical line
 			B32 bolPending = true;
 			B32 spacePending = false;
 

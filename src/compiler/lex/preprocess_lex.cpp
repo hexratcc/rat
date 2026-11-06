@@ -2,6 +2,7 @@
 
 #include "lex/char_class.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include "hash.h"
@@ -215,6 +216,7 @@ namespace rat::cc {
 		inline void PpLexer::advanceTo(U64 p) {
 			while(mi < marks.size() && marks[mi].off <= p) {
 				line = marks[mi].line;
+				lineStart = marks[mi].off;
 				++mi;
 			}
 		}
@@ -242,6 +244,7 @@ namespace rat::cc {
 			t.spaceBefore = spacePending;
 			t.bol = bolPending;
 			t.line = line;
+			t.col = (U16)std::min<U64>(start - lineStart + 1, 0xFFFF);
 			t.file = file;
 			r.toks.push_back(t);
 			bolPending = false;
@@ -261,6 +264,7 @@ namespace rat::cc {
 					bolPending = true;
 					advanceTo(i);
 					++line;
+					lineStart = i + 1;
 				}
 				++i;
 			}
@@ -364,6 +368,7 @@ namespace rat::cc {
 					bolPending = true;
 					spacePending = true;
 					++line;
+					lineStart = i + 1;
 					++i;
 					continue;
 				}

@@ -117,7 +117,7 @@ namespace rat::cc {
 		TokKind kind = TokKind::Eof;
 		U32 offset = 0; // index of the token in its stream
 		U32 line = 1;		// 1-based line of the first character
-		U16 col = 1;		// 1-based column of the first character
+		U16 col = 1;		// 1-based column of the first character, saturating
 		U16 file = 0;		// index into TokenStream::files
 	};
 	static_assert(sizeof(Token) == 16, "Token is copied by value in the parser");
