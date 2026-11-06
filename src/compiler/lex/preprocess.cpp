@@ -258,8 +258,10 @@ namespace rat::cc {
 				return;
 			List<PpToken> e = expand(text);
 			e = applyPragmaOperators(e, fileName);
+			const String* file = intern(fileName);
 			for(PpToken& t : e) {
 				// report lines through any #line adjustment
+				t.file = file;
 				I64 adj = (I64)t.line + lineDelta;
 				t.line = adj >= 1 ? (U32)adj : 1;
 				out.push_back(std::move(t));
