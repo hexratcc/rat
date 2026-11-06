@@ -41,10 +41,19 @@ namespace rat::cc {
 			const String* file = nullptr;	 // interned file name
 			const HideSet* hide = nullptr; // interned hide set
 			U32 line = 0;
+			U16 col = 1; // 1-based column in its physical line, saturating
 			Pk kind = Pk::Eof;
-			U8 spaceBefore = false; // had white space before it
-			U8 bol = false;					// first token on its logical line
+			U8 spaceBefore : 1; // had white space before it
+			U8 bol : 1;					// first token on its logical line
+			// shortcut: saturates at 63, a #line ending more lines later shifts the lines after it
+			U8 trailingLines : 6; // more physical lines until the newline that ends its line
+
+			PpToken()
+			: spaceBefore(false),
+				bol(false),
+				trailingLines(0) {}
 		};
+		static_assert(sizeof(PpToken) == 32, "PpToken size is hot in expansion");
 
 		constexpr U32 kMaxIncludeDepth = 200;
 
@@ -113,7 +122,9 @@ namespace rat::cc {
 			LexResult r;
 			U64 mi = 0;
 			U32 line = 1;
+			U64 lineStart = 0; // offset of the current physical line
 			B32 bolPending = true;
+			B32 lineOpen = false; // a token was pushed since the last newline
 			B32 spacePending = false;
 
 			void advanceTo(U64 p);

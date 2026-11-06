@@ -168,10 +168,11 @@ namespace detail {
 		return opt;
 	}
 
-	// dump the pp token stream the parser sees: source line, kind, spelling
+	// dump the pp token stream the parser sees, with file, line, column, kind and spelling of each token
 	I32 emitTokens(const TokenStream& ts, std::ostream& os) {
 		for(const Token& tok : ts.toks) {
-			os << tok.line << "\t" << tokKindName(tok.kind);
+			os << ts.files[tok.file] << ":" << tok.line << ":" << tok.col << "\t"
+				 << tokKindName(tok.kind);
 			if(tok.kind == TokKind::Error)
 				return os << "\t" << ts.error() << "\n", 1;
 			if(tok.kind == TokKind::Eof)

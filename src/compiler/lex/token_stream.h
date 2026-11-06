@@ -13,6 +13,7 @@ namespace rat::cc {
 		List<Token> toks;							// always ends with Eof
 		List<const String*> texts;		// parallel to toks
 		std::deque<String> ownedText; // storage backing texts
+		List<String> files;						// effective file names, Token::file indexes it
 		String fileName;
 		String errMsg; // first conversion error
 		U64 pos = 0;
@@ -35,7 +36,8 @@ namespace rat::cc {
 	namespace detail {
 		struct PpToken;
 
-		void pushToken(TokenStream& ts, TokKind kind, const String* text, U32 line);
+		void pushToken(TokenStream& ts, Token tok, const String* text);
+		U16 fileIndex(TokenStream& ts, const String* file, Map<const String*, U16>& indexOfFile);
 		TokKind tokKindOf(const PpToken& t, const Map<const String*, TokKind>& kw, TokenStream& ts);
 	} // namespace detail
 
