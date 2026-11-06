@@ -42,6 +42,33 @@ namespace rat {
 			if(b.size() < to)
 				b.insert(b.end(), to - b.size(), 0);
 		}
+
+		inline void patch32(List<U8>& b, U32 at, U32 v) { wr(&b[at], v, 4); }
+
+		inline void uleb(List<U8>& b, U64 v) {
+			do {
+				U8 low = v & 0x7f;
+				v >>= 7;
+				b.push_back(v ? low | 0x80 : low);
+			} while(v);
+		}
+
+		inline void sleb(List<U8>& b, I64 v) {
+			for(;;) {
+				U8 low = v & 0x7f;
+				v >>= 7;
+				B32 done = (v == 0 && !(low & 0x40)) || (v == -1 && (low & 0x40));
+				b.push_back(done ? low : low | 0x80);
+				if(done)
+					return;
+			}
+		}
+
+		// nul terminated
+		inline void putString(List<U8>& b, const String& s) {
+			b.insert(b.end(), s.begin(), s.end());
+			b.push_back(0);
+		}
 	} // namespace le
 } // namespace rat
 
