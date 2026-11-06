@@ -247,6 +247,7 @@ namespace rat::cc {
 			t.col = (U16)std::min<U64>(start - lineStart + 1, 0xFFFF);
 			t.file = file;
 			r.toks.push_back(t);
+			lineOpen = true;
 			bolPending = false;
 			spacePending = false;
 		}
@@ -365,6 +366,11 @@ namespace rat::cc {
 				advanceTo(i);
 				C8 c = s[i];
 				if(c == '\n') {
+					if(lineOpen) { // comments and splices may end the line of the last token later
+						PpToken& last = r.toks.back();
+						last.trailingLines = (U8)std::min<U32>(line - last.line, 63);
+						lineOpen = false;
+					}
 					bolPending = true;
 					spacePending = true;
 					++line;

@@ -45,10 +45,13 @@ namespace rat::cc {
 			Pk kind = Pk::Eof;
 			U8 spaceBefore : 1; // had white space before it
 			U8 bol : 1;					// first token on its logical line
+			// shortcut: saturates at 63, a #line ending more lines later shifts the lines after it
+			U8 trailingLines : 6; // more physical lines until the newline that ends its line
 
 			PpToken()
 			: spaceBefore(false),
-				bol(false) {}
+				bol(false),
+				trailingLines(0) {}
 		};
 		static_assert(sizeof(PpToken) == 32, "PpToken size is hot in expansion");
 
@@ -121,6 +124,7 @@ namespace rat::cc {
 			U32 line = 1;
 			U64 lineStart = 0; // offset of the current physical line
 			B32 bolPending = true;
+			B32 lineOpen = false; // a token was pushed since the last newline
 			B32 spacePending = false;
 
 			void advanceTo(U64 p);
