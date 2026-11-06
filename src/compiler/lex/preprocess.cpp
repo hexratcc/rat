@@ -382,7 +382,8 @@ namespace rat::cc {
 				textStart = j;
 				if(start + 1 == j) // null directive
 					continue;
-				U32 phys = j < n ? toks[j].line : toks[start + 1].line + 1;
+				// blank lines after the directive still count, a comment closing it does not
+				U32 phys = toks[j - 1].line + toks[j - 1].trailingLines + 1;
 				doDirective(PpSpan(toks.data() + start + 1, toks.data() + j), phys, path, stack);
 			}
 
