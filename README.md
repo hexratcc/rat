@@ -35,3 +35,4 @@ $ make bench
 - [**verify**](./src/backend/pass/verify.h): IR invariant checks
 - [**text-emitter**](./src/backend/pass/emit/text_emitter.h): IR dumps as Graphviz
 - [**graph-emitter**](./src/backend/pass/emit/graph_emitter.h): IR dumps as text
+- [**x86-cfg-emitter**](./src/backend/pass/emit/x86/x86_cfg_emitter.h): CFG dumps as Graphviz

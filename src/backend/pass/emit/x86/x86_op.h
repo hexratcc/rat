@@ -155,6 +155,18 @@ namespace rat {
 
 	const X86OpInfo& x86OpInfo(X86Op op);
 
+	namespace detail {
+		String dispText(I64 disp);
+		String operandText(const MachineOperand& operand);
+		String addressText(const MachineInstr& instr, U32 width, U32 indexUse, U32 scaleLog2);
+		String memoryOperandText(const MachineInstr& instr);
+		B32 immIsCc(const MachineInstr& instr);
+		B32 immIsOperand(X86Op op);
+		B32 repeatsDef(const MachineInstr& instr);
+	} // namespace detail
+
+	String x86InstrText(const MachineInstr& instr);
+
 	// operand shorthands, for the cases where a raw type would be ambiguous with VReg
 	struct Imm {
 		I64 v;

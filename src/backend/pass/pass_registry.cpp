@@ -11,6 +11,7 @@
 #include "codegen/reg_alloc.h"
 #include "pass/emit/graph_emitter.h"
 #include "pass/emit/text_emitter.h"
+#include "pass/emit/x86/x86_cfg_emitter.h"
 #include "pass/emit/x86/x86_encode.h"
 #include "pass/emit/x86/x86_layout.h"
 #include "pass/emit/x86/x86_lower.h"
@@ -83,6 +84,7 @@ namespace rat {
 				{"x86-peephole", "post-RA copy and spill-slot cleanup", &mk<MachinePass, X86PeepholePass>},
 				{"x86-layout", "block ordering and frame layout", &mk<MachinePass, X86LayoutPass>},
 				{"x86-encode", "instruction encoding and object emission", &mk<MachinePass, X86EncodePass>},
+				{"x86-cfg-emitter", "Graphviz DOT CFG visualization", &mk<MachinePass, X86CfgEmitterPass>},
 		};
 
 		// the -O1 pipeline, run function by function, callees first; a repeat skips functions
