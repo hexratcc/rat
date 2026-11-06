@@ -73,7 +73,7 @@ namespace rat::cc {
 				file = detail::fileIndex(ts, t.file, indexOfFile);
 				lastFile = t.file;
 			}
-			detail::pushToken(ts, {detail::tokKindOf(t, kindOf, ts), 0, t.line, 1, file}, t.text);
+			detail::pushToken(ts, {detail::tokKindOf(t, kindOf, ts), 0, t.line, t.col, file}, t.text);
 		}
 		if(ts.files.empty())
 			ts.files.push_back(path);
