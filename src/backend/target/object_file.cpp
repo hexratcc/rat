@@ -35,8 +35,8 @@ namespace rat {
 	}
 
 	U32 ObjectFile::align(Section sec, U32 a) {
-		if(a > secAlign[sec])
-			secAlign[sec] = a;
+		if(a > requestedAlign[sec])
+			requestedAlign[sec] = a;
 		U32 sz = sectionSize(sec);
 		U32 pad = (a - (sz % a)) % a;
 		if(pad)
@@ -66,6 +66,13 @@ namespace rat {
 		const Sym t = syms[it->second];
 		defineSymbol(name, t.sec, t.offset, global, t.isFunc);
 		return true;
+	}
+
+	String ObjectFile::sectionSymbol(Section sec) {
+		String name = detail::kElfSections[sec].name;
+		U32 idx = symbolIndex(name);
+		syms[idx] = {name, sec, 0, true, false, false, true};
+		return name;
 	}
 
 	void
