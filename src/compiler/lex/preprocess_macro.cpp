@@ -356,9 +356,13 @@ namespace rat::cc {
 				PpToken n = at;
 				n.text = idAliasMark;
 				os.push_back(n);
-				os.push_back(makePunct("("));
+				PpToken lp = makePunct("(");
+				PpToken rp = makePunct(")");
+				lp.line = rp.line = at.line;
+				lp.col = rp.col = at.col;
+				os.push_back(lp);
 				os.push_back(*aliasTarget);
-				os.push_back(makePunct(")"));
+				os.push_back(rp);
 			}
 		}
 
@@ -367,6 +371,11 @@ namespace rat::cc {
 			if(!r.empty()) {
 				r.front().spaceBefore = invoker.spaceBefore;
 				r.front().bol = invoker.bol;
+			}
+			// expanded tokens report the invocation site
+			for(PpToken& t : r) {
+				t.line = invoker.line;
+				t.col = invoker.col;
 			}
 			// push first result token last so it is read next
 			for(auto rit = r.rbegin(); rit != r.rend(); ++rit)
@@ -384,6 +393,8 @@ namespace rat::cc {
 			} else {
 				return false;
 			}
+			n.line = t.line;
+			n.col = t.col;
 			n.spaceBefore = t.spaceBefore;
 			n.bol = t.bol;
 			os.push_back(n);
