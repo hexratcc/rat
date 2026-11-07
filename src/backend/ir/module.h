@@ -2,6 +2,7 @@
 #define RAT_IR_MODULE_H
 
 #include "core.h"
+#include "ir/debug_info.h"
 #include "ir/function.h"
 #include "ir/type.h"
 
@@ -60,6 +61,9 @@ namespace rat {
 
 		const List<Global*>& globals() const;
 
+		DebugInfo* getDebugInfo() const;
+		void setDebugInfo(UniquePtr<DebugInfo> d);
+
 		struct FunctionIterator {
 			List<Function*>::const_iterator it;
 			Function* operator*() const { return *it; }
@@ -77,6 +81,7 @@ namespace rat {
 		String name;
 		List<Function*> funcs;
 		List<Global*> globs;
+		UniquePtr<DebugInfo> debug;
 
 		mutable Map<String, Function*> funcIndex;
 		mutable Map<String, Global*> globIndex;

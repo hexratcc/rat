@@ -509,8 +509,12 @@ namespace rat {
 			mb = &block;
 			if(i == 0)
 				emitPrologue();
-			for(Node* n : sched->nodes(b))
+			for(Node* n : sched->nodes(b)) {
+				curLoc = n->getLoc();
 				emitNode(n);
+			}
+			Node* term = sched->block(b).termNode;
+			curLoc = term ? term->getLoc() : 0;
 			emitTerminator(b);
 		}
 		for(I32 b : order)
@@ -544,6 +548,7 @@ namespace rat {
 		mb = nullptr;
 		vregOf.assign(f.idBound(), kNoVReg);
 		x87Slot.assign(f.idBound(), kNoSlot);
+		curLoc = 0;
 		allocOff.assign(f.idBound(), kNoSlot);
 		lowerBlocks();
 		mf.aux = std::make_unique<X86FrameLayout>(frame); // the layout rides along on mf.aux

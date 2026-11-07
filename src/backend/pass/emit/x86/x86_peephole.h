@@ -61,7 +61,7 @@ namespace rat {
 		static B32 isRegCopy(const MachineInstr& in);
 		static B32 isSlotStore(const MachineInstr& in);
 		static B32 isSlotLoad(const MachineInstr& in);
-		static MachineInstr makeCopy(PhysReg dst, PhysReg src, U32 cls, U32 width);
+		static MachineInstr makeCopy(PhysReg dst, PhysReg src, const MachineInstr& at, U32 width);
 		static B32 writesUntrackedSlot(const MachineInstr& in);
 		U32 foldRegCopy(MachineInstr& in, B32& keep);
 		U32 foldSlotStore(MachineInstr& in, B32& keep);

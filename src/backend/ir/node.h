@@ -46,6 +46,10 @@ namespace rat {
 		Type* getType() const { return ty; }
 		U32 getId() const { return id; }
 
+		// index into the function's DebugBody locs, 0 = none
+		U32 getLoc() const { return loc; }
+		void setLoc(U32 l) { loc = l; }
+
 		U32 getInputCount() const { return inputCount; }
 		Node* getInput(U32 index) const { return inputs[index]; }
 
@@ -81,8 +85,8 @@ namespace rat {
 		void growInputs(U32 needed);
 
 		Opcode op;
-		Type* ty;
 		U32 id; // unique per function
+		Type* ty;
 		Function* fn;
 		Node** inputs = nullptr;	// ordered defs; may contain null placeholders
 		Node** users = nullptr;		// reverse edges; one entry per using operand
@@ -92,6 +96,7 @@ namespace rat {
 		U32 inputCap = 0;
 		U32 userCount = 0;
 		U32 userCap = 0;
+		U32 loc = 0;
 	};
 
 	// function entry
