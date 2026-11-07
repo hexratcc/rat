@@ -27,6 +27,7 @@ namespace rat {
 		constexpr U32 SHT_INIT_ARRAY = 14;
 		constexpr U32 SHT_FINI_ARRAY = 15;
 		constexpr U32 SHT_GROUP = 17;
+		constexpr U32 SHT_X86_64_UNWIND = 0x70000001;
 
 		// section flags
 		constexpr U64 SHF_WRITE = 0x1;
@@ -46,6 +47,7 @@ namespace rat {
 		constexpr U8 STT_NOTYPE = 0;
 		constexpr U8 STT_OBJECT = 1; // data import -> COPY; else PLT
 		constexpr U8 STT_FUNC = 2;
+		constexpr U8 STT_SECTION = 3;
 		constexpr U8 STT_TLS = 6;
 		constexpr U8 STT_GNU_IFUNC = 10;
 		constexpr U16 SHN_UNDEF = 0;
@@ -118,6 +120,53 @@ namespace rat {
 		inline void wr32(List<U8>& b, U32 v) { le::put32(b, v); }
 		inline void wr64(List<U8>& b, U64 v) { le::put64(b, v); }
 		inline void wrPad(List<U8>& b, U64 to) { le::padTo(b, to); }
+
+		// Elf64_Shdr
+		struct SectionHeader {
+			U32 name = 0, type = SHT_NULL;
+			U64 flags = 0, addr = 0, offset = 0, size = 0;
+			U32 link = 0, info = 0;
+			U64 align = 0, entSize = 0;
+		};
+
+		// fixed facts of one output section kind
+		struct SectionInfo {
+			const C8* name;
+			U32 type;
+			U64 flags, align, entSize;
+		};
+
+		// header-only, the backend links no linker objects
+		inline void putSectionHeader(List<U8>& out, const SectionHeader& sh) {
+			le::put32(out, sh.name);
+			le::put32(out, sh.type);
+			le::put64(out, sh.flags);
+			le::put64(out, sh.addr);
+			le::put64(out, sh.offset);
+			le::put64(out, sh.size);
+			le::put32(out, sh.link);
+			le::put32(out, sh.info);
+			le::put64(out, sh.align);
+			le::put64(out, sh.entSize);
+		}
+
+		// offset of name in a string table
+		inline U32 appendName(List<U8>& names, const String& name) {
+			U32 offset = (U32)names.size();
+			le::putString(names, name);
+			return offset;
+		}
+
+		// header for info, its name appended to names, placement left to the caller
+		inline SectionHeader headerOf(const SectionInfo& info, List<U8>& names) {
+			SectionHeader sh;
+			sh.name = appendName(names, info.name);
+			sh.type = info.type;
+			sh.flags = info.flags;
+			sh.align = info.align;
+			sh.entSize = info.entSize;
+			return sh;
+		}
 
 		// sysv symbol hash
 		inline U32 sysvHash(const C8* name) {

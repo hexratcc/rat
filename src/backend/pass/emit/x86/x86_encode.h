@@ -5,6 +5,7 @@
 
 #include "pass/emit/x86/x86_op.h"
 #include "pass/pass.h"
+#include "target/dwarf.h"
 #include "target/x86/x86_asm.h"
 
 #include <iosfwd>
@@ -95,12 +96,15 @@ namespace rat {
 		void emitBr(const MachineInstr& in, I32 fallthrough);
 		void emitInst(const MachineInstr& in, I32 fallthrough);
 		void prologue();
+		void markCfi(CfiOp::Kind kind, PhysReg reg, I32 value);
 	private:
 		std::ostream* os;
 		UniquePtr<ObjectFile> obj;
 		List<U8> code;
 		List<AsmReloc> relocs; // text, every function so far
 		List<PlacedFunc> placed;
+		List<EncodedFunc> encoded;					// elf only, one per placed function
+		EncodedFunc* encodedFunc = nullptr; // the function being encoded, null on coff
 		const X86CallConv* conv = &abi::kSysV;
 		const MachineFunc* fn = nullptr;
 		const X86FrameLayout* fl = nullptr;

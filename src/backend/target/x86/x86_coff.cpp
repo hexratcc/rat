@@ -30,6 +30,9 @@ namespace rat {
 		constexpr U32 kRelocEntSize = 10;
 		constexpr U32 kSymEntSize = 18;
 
+		constexpr U32 kCoffSections = 4;		 // Text..Bss
+		constexpr U32 kCoffByteSections = 3; // the ones with raw data, all but Bss
+
 		constexpr const C8* kCoffSecNames[] = {".text", ".rdata", ".data", ".bss"};
 		constexpr U32 kCoffSecFlags[] = {
 				IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_16BYTES,
@@ -56,7 +59,7 @@ namespace rat {
 
 	List<U8> ObjectFile::coffSymtab(const RelBuckets rels, List<U8>& strtab, List<U32>& index) const {
 		List<U8> symtab;
-		for(U32 s = 0; s < kSections; ++s) {
+		for(U32 s = 0; s < detail::kCoffSections; ++s) {
 			detail::coffName(symtab, strtab, detail::kCoffSecNames[s]);
 			le::put32(symtab, 0);						 // value
 			le::put16(symtab, (U16)(s + 1)); // section number (1-based)
@@ -92,11 +95,10 @@ namespace rat {
 	}
 
 	void ObjectFile::writeCoff(std::ostream& os) {
-		constexpr U32 kNumSections = kSections;
-		List<const Rel*> relBySec[kNumSections];
+		RelBuckets relBySec;
 		partitionRelocs(relBySec);
 
-		for(U32 s = 0; s < kByteSections; ++s)
+		for(U32 s = 0; s < detail::kCoffByteSections; ++s)
 			for(const Rel* r : relBySec[s]) {
 				U8* patch = &bytesOf(r->sec)[r->offset];
 				if(r->kind == RelocKind::Abs64)
@@ -115,15 +117,15 @@ namespace rat {
 		// patch the string table size prefix
 		le::wr(strtab.data(), (U32)strtab.size(), 4);
 
-		U32 off = detail::kFileHeaderSize + kNumSections * detail::kSectionHeaderSize;
-		U32 rawOff[kNumSections] = {};
-		for(U32 s = 0; s + 1 < kNumSections; ++s) { // .bss has no raw data
+		U32 off = detail::kFileHeaderSize + detail::kCoffSections * detail::kSectionHeaderSize;
+		U32 rawOff[detail::kCoffSections] = {};
+		for(U32 s = 0; s < detail::kCoffByteSections; ++s) {
 			off = (off + 15u) & ~15u;
 			rawOff[s] = raw[s].empty() ? 0 : off;
 			off += (U32)raw[s].size();
 		}
-		U32 relOff[kNumSections] = {};
-		for(U32 s = 0; s < kNumSections; ++s) {
+		U32 relOff[detail::kCoffSections] = {};
+		for(U32 s = 0; s < detail::kCoffSections; ++s) {
 			relOff[s] = relBySec[s].empty() ? 0 : off;
 			off += (U32)relBySec[s].size() * detail::kRelocEntSize;
 		}
@@ -132,14 +134,14 @@ namespace rat {
 		List<U8> out;
 		out.reserve((U64)symOff + symtab.size() + strtab.size());
 		le::put16(out, detail::IMAGE_FILE_MACHINE_AMD64);
-		le::put16(out, (U16)kNumSections);
+		le::put16(out, (U16)detail::kCoffSections);
 		le::put32(out, 0); // timestamp
 		le::put32(out, symOff);
 		le::put32(out, symEntries);
 		le::put16(out, 0); // optional header size
 		le::put16(out, 0); // characteristics
 
-		for(U32 s = 0; s < kNumSections; ++s) {
+		for(U32 s = 0; s < detail::kCoffSections; ++s) {
 			detail::coffName(out, strtab, detail::kCoffSecNames[s]);
 			le::put32(out, 0); // virtual size
 			le::put32(out, 0); // virtual address
@@ -152,7 +154,7 @@ namespace rat {
 			le::put32(out, detail::kCoffSecFlags[s]);
 		}
 
-		for(U32 s = 0; s + 1 < kNumSections; ++s) {
+		for(U32 s = 0; s < detail::kCoffByteSections; ++s) {
 			if(raw[s].empty())
 				continue;
 			le::padTo(out, rawOff[s]);
@@ -161,13 +163,13 @@ namespace rat {
 
 		// pad out to the first relocation block
 		U32 firstTail = symOff;
-		for(U32 s = 0; s < kNumSections; ++s)
+		for(U32 s = 0; s < detail::kCoffSections; ++s)
 			if(relOff[s]) {
 				firstTail = relOff[s];
 				break;
 			}
 		le::padTo(out, firstTail);
-		for(U32 s = 0; s < kNumSections; ++s) {
+		for(U32 s = 0; s < detail::kCoffSections; ++s) {
 			for(const Rel* r : relBySec[s]) {
 				le::put32(out, r->offset);
 				le::put32(out, symCoffIndex[r->symIndex]);
