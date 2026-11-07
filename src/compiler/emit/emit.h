@@ -46,6 +46,8 @@ namespace rat::cc {
 		Emitter(Module& module, const TargetLayout& layout);
 
 		B32 emit(const TransUnit& unit);
+		// describe the unit for debuggers, locations come from ts
+		void enableDebug(const TokenStream& ts);
 
 		const String& error() const { return diag.message; }
 		const List<String>& warnings() const { return diag.warnings; }
@@ -338,6 +340,11 @@ namespace rat::cc {
 		void defineGlobal(const Declarator& d, const String& sym, Type* ty, List<U8>&& img);
 		void bindGlobal(const Declarator& d, const String& sym, Function* fn, B32 arr, U32 n);
 
+		// debug info, the hooks do nothing without -g
+		SrcLoc debugLoc(U32 tok);
+		void debugFunction(Function& fn, const FuncDef* def);
+		void debugSetLoc(Function& fn, U32 tok);
+
 		// initializers
 		static const Expr* peelAggregateCompound(const Expr* el);
 		Expr* wrapNested(const Designator* sub, const Expr* val);
@@ -370,6 +377,7 @@ namespace rat::cc {
 		FunctionState func;
 		Symbols syms;
 		GlobalData data;
+		DebugState dbg;
 	};
 } // namespace rat::cc
 

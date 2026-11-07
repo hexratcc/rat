@@ -548,6 +548,7 @@ namespace rat::cc {
 		func.scopes.push();
 		func.sp = stmtHasVla(def->body) ? fn->stackSave() : nullptr;
 		bindFunctionParams(*fn, def, paramBase, regs);
+		debugFunction(*fn, def);
 		for(const Param& p : def->params) {
 			if(!p.vlaBound)
 				continue;
@@ -572,6 +573,7 @@ namespace rat::cc {
 			else
 				fn->ret(fn->constInt(irType(func.returnType), 0));
 		}
+		fn->setLoc(0); // nodes later passes create carry no line
 		// statements emitted into unreachable blocks leave anchored nodes with a
 		// null control input behind; drop them so every backend sees a graph
 		// where the anchor invariant holds even without any opt passes

@@ -43,6 +43,7 @@ namespace detail {
 		B32 preprocessOnly = false;
 		B32 noStdInc = false;	 // -nostdinc: skip builtin headers
 		B32 noPredefs = false; // -undef: skip predefs
+		U32 debugLevel = 0;
 		String targetSpec;
 		PpOptions pp;
 	};
@@ -140,6 +141,8 @@ namespace detail {
 							setFlag(arg, "-ftime-passes", opt.timePasses) ||
 							setFlag(arg, "-fpass-stats", opt.passStats))
 				;
+			else if(arg == "-g")
+				opt.debugLevel = 2;
 			else if(String spec; cli::value(kTool, argc, argv, i, "-emit", spec))
 				parseEmit(spec, opt.emits);
 			else if(cli::value(kTool, argc, argv, i, "-target", opt.targetSpec) ||
@@ -212,6 +215,8 @@ namespace detail {
 
 		Module& mod = *new Module;
 		Emitter emitter(mod, TargetLayout::forTriple(hostTargetTriple()));
+		if(opt.debugLevel)
+			emitter.enableDebug(ts);
 		t0 = PhaseClock::now();
 		B32 emitOk = emitter.emit(*unit);
 		F64 emitMs = msSince(t0);

@@ -94,6 +94,7 @@ namespace rat::cc {
 			fn.jmp(condB);
 
 		fn.enterBlock(condB);
+		debugSetLoc(fn, s->expr->offset);
 		if(!emitCondBranch(fn, s->expr, bodyB, exitB))
 			return false;
 
@@ -140,6 +141,8 @@ namespace rat::cc {
 			fn.jmp(postB);
 
 		fn.enterBlock(postB);
+		if(s->forPost)
+			debugSetLoc(fn, s->forPost->offset); // not the last body line
 		if(s->forPost && !emitExpr(fn, s->forPost).node)
 			return false;
 		if(!fn.blockFinished())
@@ -394,6 +397,7 @@ namespace rat::cc {
 
 	B32 Emitter::emitStmt(Function& fn, const Stmt* s) {
 		diag.offset = s->offset;
+		debugSetLoc(fn, s->offset);
 		switch(s->kind) {
 		case StmtKind::Compound:
 			return emitCompound(fn, s);
