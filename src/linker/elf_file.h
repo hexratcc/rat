@@ -37,6 +37,7 @@ namespace rat {
 		constexpr U64 SHF_INFO_LINK = 0x40;
 		constexpr U64 SHF_TLS = 0x400;
 		constexpr U64 SHF_COMPRESSED = 0x800;
+		constexpr U32 ELFCOMPRESS_ZLIB = 1; // Elf64_Chdr ch_type
 
 		// group flags
 		constexpr U32 GRP_COMDAT = 0x1;

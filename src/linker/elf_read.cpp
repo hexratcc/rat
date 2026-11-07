@@ -1,7 +1,10 @@
 #include "elf_read.h"
 
+#include "inflate.h"
+
 #include <cstdlib>
 #include <fstream>
+#include <iostream>
 #include <sys/stat.h>
 
 namespace rat {
@@ -82,6 +85,29 @@ namespace rat {
 		return (B32)f.good() || f.eof();
 	}
 
+	namespace detail {
+		// zlib Elf64_Chdr section, inflated bytes appended to obj.image
+		B32 inflateDebug(InObject& obj, const SectionHeader& sh, InSection& s) {
+			if(sh.size < 24 || sh.offset > obj.image.size() || sh.size > obj.image.size() - sh.offset)
+				return false;
+			const U8* chdr = &obj.image[sh.offset];
+			if(rd32(chdr) != ELFCOMPRESS_ZLIB)
+				return false;
+			U64 rawSize = rd64(chdr + 8);
+			U64 rawAlign = rd64(chdr + 16);
+			if(rawAlign & (rawAlign - 1))
+				return false;
+			List<U8> raw;
+			if(!zlibInflate(chdr + 24, sh.size - 24, raw, rawSize) || raw.size() != rawSize)
+				return false;
+			s.fileOff = obj.image.size();
+			s.size = rawSize;
+			s.align = rawAlign ? rawAlign : 1;
+			obj.image.insert(obj.image.end(), raw.begin(), raw.end());
+			return true;
+		}
+	} // namespace detail
+
 	B32 loadObject(
 			List<U8> img, const String& path, InObject& obj, Set<String>& seenGroups, String& err) {
 		List<SectionHeader> shdrs;
@@ -113,15 +139,18 @@ namespace rat {
 			s.keep = s.bucket != BNone;
 		}
 
-		// compressed debug sections are not read, drop all of the object's debug info
-		B32 debugCompressed = false;
+		// shstr may dangle past here, inflateDebug grows the image
+		B32 debugOk = true;
 		for(U32 i = 0; i < shdrs.size(); ++i)
 			if(obj.sections[i].bucket == BDebug && (shdrs[i].flags & SHF_COMPRESSED))
-				debugCompressed = true;
-		if(debugCompressed)
+				debugOk = detail::inflateDebug(obj, shdrs[i], obj.sections[i]) && debugOk;
+		if(!debugOk) {
+			std::cerr << "ratl: warning: '" << path
+								<< "': cannot decompress debug sections (zstd or corrupt), debug info dropped\n";
 			for(InSection& s : obj.sections)
 				if(s.bucket == BDebug)
 					s.keep = false;
+		}
 
 		U32 symSec = 0;
 		for(U32 i = 0; i < shdrs.size(); ++i)
