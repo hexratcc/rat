@@ -13,6 +13,28 @@ namespace rat {
 		constexpr U64 kPage = 0x1000;
 		constexpr U64 kPltEntSize = 16;
 
+		// the alloc sections gdb, objdump and readelf look at, in address order
+		struct OutSectionInfo {
+			Linker::OutSec sec;
+			SectionInfo info;
+		};
+		// clang-format off
+		constexpr OutSectionInfo kShdrSections[] = {
+				// section            name           type            flags                            align entsize
+				{Linker::ODynstr,    {".dynstr",     SHT_STRTAB,     SHF_ALLOC,                       1,  0}},
+				{Linker::OText,      {".text",       SHT_PROGBITS,   SHF_ALLOC | SHF_EXECINSTR,       16, 0}},
+				{Linker::ORodata,    {".rodata",     SHT_PROGBITS,   SHF_ALLOC,                       16, 0}},
+				{Linker::OEhFrame,   {".eh_frame",   SHT_PROGBITS,   SHF_ALLOC,                       8,  0}},
+				{Linker::OInitArray, {".init_array", SHT_INIT_ARRAY, SHF_ALLOC | SHF_WRITE,           8,  8}},
+				{Linker::OFiniArray, {".fini_array", SHT_FINI_ARRAY, SHF_ALLOC | SHF_WRITE,           8,  8}},
+				{Linker::OData,      {".data",       SHT_PROGBITS,   SHF_ALLOC | SHF_WRITE,           16, 0}},
+				{Linker::OTdata,     {".tdata",      SHT_PROGBITS,   SHF_ALLOC | SHF_WRITE | SHF_TLS, 16, 0}},
+				{Linker::ODynamic,   {".dynamic",    SHT_DYNAMIC,    SHF_ALLOC | SHF_WRITE,           8,  16}},
+				{Linker::OBss,       {".bss",        SHT_NOBITS,     SHF_ALLOC | SHF_WRITE,           16, 0}},
+				{Linker::OTbss,      {".tbss",       SHT_NOBITS,     SHF_ALLOC | SHF_WRITE | SHF_TLS, 16, 0}},
+		};
+		// clang-format on
+
 		// ':'-join for DT_RUNPATH
 		String joinColon(const List<String>& v) {
 			String s;
@@ -600,6 +622,51 @@ namespace rat {
 		return true;
 	}
 
+	// headers for kShdrSections and the debug sections, debug bytes go last
+	void Linker::emitShdrs(List<U8>& out) {
+		List<SectionHeader> shdrs(1); // null entry
+		List<U8> names(1, 0);
+		for(const detail::OutSectionInfo& kind : detail::kShdrSections) {
+			if(!size[kind.sec])
+				continue;
+			SectionHeader sh = headerOf(kind.info, names);
+			sh.addr = vaddr[kind.sec];
+			sh.offset = vaddr[kind.sec] - detail::kImageBase; // identity mapped, also for nobits
+			sh.size = size[kind.sec];
+			if(kind.sec == ODynamic)
+				sh.link = 1; // .dynstr, never empty
+			shdrs.push_back(sh);
+		}
+		for(const DebugOut& d : debugOuts) {
+			wrPad(out, (out.size() + d.align - 1) & ~(d.align - 1));
+			SectionHeader sh = headerOf({d.name.c_str(), SHT_PROGBITS, 0, d.align, 0}, names);
+			sh.offset = out.size();
+			sh.size = d.bytes.size();
+			shdrs.push_back(sh);
+			out.insert(out.end(), d.bytes.begin(), d.bytes.end());
+		}
+		detail::emitShdrTable(out, shdrs, names);
+	}
+
+	namespace detail {
+		// .shstrtab + header table at file end, patches the ehdr
+		void emitShdrTable(List<U8>& out, List<SectionHeader>& shdrs, List<U8>& names) {
+			SectionHeader strtab = headerOf({".shstrtab", SHT_STRTAB, 0, 1, 0}, names);
+			strtab.offset = out.size();
+			strtab.size = names.size();
+			shdrs.push_back(strtab);
+			out.insert(out.end(), names.begin(), names.end());
+
+			wrPad(out, (out.size() + 7) & ~7ull);
+			U64 shoff = out.size();
+			for(const SectionHeader& sh : shdrs)
+				putSectionHeader(out, sh);
+			le::wr(&out[40], shoff, 8);
+			le::wr(&out[60], shdrs.size(), 2);
+			le::wr(&out[62], shdrs.size() - 1, 2);
+		}
+	} // namespace detail
+
 	B32 Linker::write() {
 		// .dynstr
 		List<U8> dynstr;
@@ -802,7 +869,7 @@ namespace rat {
 		wr16(out, 64);
 		wr16(out, 56);
 		wr16(out, phnum);
-		wr16(out, 0);
+		wr16(out, 64); // e_shentsize, the rest patched by emitShdrTable
 		wr16(out, 0);
 		wr16(out, 0);
 
@@ -870,6 +937,8 @@ namespace rat {
 		emitAt(foff[OGot], got);
 		emitAt(foff[OGotPlt], gotPlt);
 		emitAt(foff[ODynamic], dyn);
+
+		emitShdrs(out);
 
 		std::ofstream os(opt.output, std::ios::binary | std::ios::trunc);
 		if(!os) {

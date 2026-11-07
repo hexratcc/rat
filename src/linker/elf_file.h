@@ -22,6 +22,7 @@ namespace rat {
 		constexpr U32 SHT_SYMTAB = 2;
 		constexpr U32 SHT_STRTAB = 3;
 		constexpr U32 SHT_RELA = 4;
+		constexpr U32 SHT_DYNAMIC = 6;
 		constexpr U32 SHT_NOBITS = 8;
 		constexpr U32 SHT_DYNSYM = 11;
 		constexpr U32 SHT_INIT_ARRAY = 14;

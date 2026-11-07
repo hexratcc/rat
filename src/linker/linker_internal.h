@@ -12,6 +12,8 @@ namespace rat {
 		I64 readSleb(const U8* p, U64& i);
 		U32 encSize(U8 enc);
 
+		void emitShdrTable(List<U8>& out, List<elf::SectionHeader>& shdrs, List<U8>& names);
+
 		// linker.cpp
 		B32 isLinkerSym(const String& n);
 		B32 isGotReloc(U32 t);
@@ -127,6 +129,7 @@ namespace rat {
 		void applyDebugReloc(const InObject& obj, const InRel& r);
 		U64 placedAddr(const InSection& sec, U64 value, B32 isTls) const;
 		B32 symbolTarget(const InObject& obj, U32 symIdx, U64& addr, B32& isFunc, B32& isTls);
+		void emitShdrs(List<U8>& out);
 		B32 write();
 
 		static OutSec outSecOf(U8 bucket) {
