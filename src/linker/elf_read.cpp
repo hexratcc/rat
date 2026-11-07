@@ -108,8 +108,20 @@ namespace rat {
 			s.bucket = detail::classify(sh.type, sh.flags);
 			if(s.bucket == BRodata && s.name == ".eh_frame")
 				s.bucket = BEhFrame;
+			if(s.bucket == BNone && sh.type == SHT_PROGBITS && s.name.rfind(".debug_", 0) == 0)
+				s.bucket = BDebug;
 			s.keep = s.bucket != BNone;
 		}
+
+		// compressed debug sections are not read, drop all of the object's debug info
+		B32 debugCompressed = false;
+		for(U32 i = 0; i < shdrs.size(); ++i)
+			if(obj.sections[i].bucket == BDebug && (shdrs[i].flags & SHF_COMPRESSED))
+				debugCompressed = true;
+		if(debugCompressed)
+			for(InSection& s : obj.sections)
+				if(s.bucket == BDebug)
+					s.keep = false;
 
 		U32 symSec = 0;
 		for(U32 i = 0; i < shdrs.size(); ++i)

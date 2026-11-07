@@ -109,6 +109,8 @@ namespace rat {
 			for(const InObject& obj : objs)
 				for(const InRel& r : obj.rels) {
 					const InSym& s = obj.syms[r.sym];
+					if(obj.sections[r.secIdx].bucket == BDebug)
+						continue; // debug refs never pull
 					if(s.undef && !s.name.empty() && !def.count(s.name))
 						undef.insert(s.name);
 				}
@@ -231,6 +233,8 @@ namespace rat {
 		for(const InObject& obj : objs) {
 			for(const InRel& r : obj.rels) {
 				const InSym& s = obj.syms[r.sym];
+				if(obj.sections[r.secIdx].bucket == BDebug)
+					continue; // unresolved debug refs read as 0
 				if(!s.undef || globals.count(s.name))
 					continue;
 				if(s.name.empty() || detail::isLinkerSym(s.name))

@@ -189,6 +189,22 @@ namespace rat {
 		}
 	}
 
+	// append s to its same-named debug output, keep input align
+	void Linker::mergeDebug(const InObject& obj, InSection& s) {
+		s.debugOut = 0;
+		while(s.debugOut < debugOuts.size() && debugOuts[s.debugOut].name != s.name)
+			++s.debugOut;
+		if(s.debugOut == debugOuts.size())
+			debugOuts.push_back({s.name, {}, 1});
+		DebugOut& d = debugOuts[s.debugOut];
+		if(s.align > d.align)
+			d.align = s.align;
+		wrPad(d.bytes, (d.bytes.size() + s.align - 1) & ~(s.align - 1));
+		s.outOff = d.bytes.size();
+		const U8* p = &obj.image[s.fileOff];
+		d.bytes.insert(d.bytes.end(), p, p + s.size);
+	}
+
 	void Linker::layout() {
 		// 1. concat kept sections into buckets, assign offsets; _start last in .text
 		auto padTo = [](List<U8>& v, U64 a) {
@@ -200,6 +216,10 @@ namespace rat {
 			for(InSection& s : obj.sections) {
 				if(!s.keep)
 					continue;
+				if(s.bucket == BDebug) {
+					mergeDebug(obj, s);
+					continue;
+				}
 				U8 b = s.bucket;
 				if(s.align > bucketAlign[b])
 					bucketAlign[b] = s.align;
@@ -378,10 +398,7 @@ namespace rat {
 			const InObject& obj = objs[d.obj];
 			const InSym& s = obj.syms[d.sym];
 			const InSection& sec = obj.sections[s.shndx];
-			if(d.isTls)
-				d.addr = sec.outOff + s.value; // tls block offset
-			else
-				d.addr = bucketVaddr[sec.bucket] + sec.outOff + s.value;
+			d.addr = placedAddr(sec, s.value, d.isTls);
 		}
 
 		// synthesized linker/crt symbols
@@ -407,6 +424,37 @@ namespace rat {
 		linkerSyms["__TMC_END__"] = vaddr[OData];
 	}
 
+	// discarded or undefined targets read as 0, never an error
+	void Linker::applyDebugReloc(const InObject& obj, const InRel& r) {
+		const InSection& rsec = obj.sections[r.secIdx];
+		U8* patch = &debugOuts[rsec.debugOut].bytes[rsec.outOff + r.offset];
+		U64 S = 0;
+		B32 isFunc = false, isTls = false;
+		U64 value = 0;
+		if(symbolTarget(obj, r.sym, S, isFunc, isTls))
+			value = (U64)((I64)S + r.addend);
+		else
+			err.clear();
+		// other types left as is
+		switch(r.type) {
+		case R_X86_64_64:
+		case R_X86_64_DTPOFF64:
+			le::wr(patch, value, 8);
+			break;
+		case R_X86_64_32:
+		case R_X86_64_DTPOFF32:
+			le::wr(patch, value, 4);
+			break;
+		}
+	}
+
+	// tls is block-relative, debug sits at vaddr 0
+	U64 Linker::placedAddr(const InSection& sec, U64 value, B32 isTls) const {
+		if(isTls || sec.bucket == BDebug)
+			return sec.outOff + value;
+		return bucketVaddr[sec.bucket] + sec.outOff + value;
+	}
+
 	B32 Linker::symbolTarget(const InObject& obj, U32 symIdx, U64& addr, B32& isFunc, B32& isTls) {
 		const InSym& s = obj.syms[symIdx];
 		isTls = s.type == STT_TLS;
@@ -417,10 +465,7 @@ namespace rat {
 		}
 		if(!s.undef && s.bind == STB_LOCAL && !s.common) {
 			const InSection& sec = obj.sections[s.shndx];
-			if(isTls)
-				addr = sec.outOff + s.value;
-			else
-				addr = bucketVaddr[sec.bucket] + sec.outOff + s.value;
+			addr = placedAddr(sec, s.value, isTls);
 			isFunc = s.type == STT_FUNC || s.type == STT_GNU_IFUNC;
 			return true;
 		}
@@ -464,6 +509,10 @@ namespace rat {
 				U8 b = rsec.bucket;
 				if(b == BBss || b == BTbss)
 					continue; // nobits carries no relocs
+				if(b == BDebug) {
+					applyDebugReloc(obj, r);
+					continue;
+				}
 				U64 patchOff = rsec.outOff + r.offset;
 				U8* patch = &merged[b][patchOff];
 				U64 P = bucketVaddr[b] + patchOff;

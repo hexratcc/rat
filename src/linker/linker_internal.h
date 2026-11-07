@@ -70,6 +70,14 @@ namespace rat {
 		List<U8> ehFrameHdr;
 		U32 ehFdeCount = 0;
 
+		// merged .debug_* sections, first-seen order
+		struct DebugOut {
+			String name;
+			List<U8> bytes;
+			U64 align = 1;
+		};
+		List<DebugOut> debugOuts;
+
 		U64 vaddr[24] = {0};
 		U64 foff[24] = {0};
 		U64 size[24] = {0};
@@ -113,8 +121,11 @@ namespace rat {
 		void buildStart();
 		U32 countFdes();
 		void buildEhFrameHdr();
+		void mergeDebug(const InObject& obj, InSection& s);
 		void layout();
 		B32 applyRelocs();
+		void applyDebugReloc(const InObject& obj, const InRel& r);
+		U64 placedAddr(const InSection& sec, U64 value, B32 isTls) const;
 		B32 symbolTarget(const InObject& obj, U32 symIdx, U64& addr, B32& isFunc, B32& isTls);
 		B32 write();
 

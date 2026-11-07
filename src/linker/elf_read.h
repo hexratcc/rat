@@ -26,6 +26,7 @@ namespace rat {
 		BTdata, // tls progbits
 		BTbss,	// tls nobits
 		BucketCount,
+		BDebug = 0xfe, // non-alloc .debug_*, merged per name
 		BNone = 0xff
 	};
 
@@ -35,7 +36,8 @@ namespace rat {
 		U64 fileOff = 0; // offset in image
 		U64 size = 0;
 		U8 bucket = BNone;
-		U64 outOff = 0; // offset in bucket, filled at layout
+		U64 outOff = 0;		// offset in bucket, filled at layout
+		U32 debugOut = 0; // index in Linker::debugOuts
 		B32 keep = false;
 	};
 
