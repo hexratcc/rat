@@ -12,6 +12,8 @@
 namespace rat::cc {
 	namespace detail {
 		U32 alignedChunkWidth(U32 offset, U32 size);
+		AbiClass mergeAbiClass(AbiClass a, AbiClass b);
+		void classifyBits(AbiClass (&cls)[2], U64 bitOffset, U64 bits, AbiClass c);
 
 		// shared child traversal for AST scans
 		struct AstWalk {
@@ -89,6 +91,17 @@ namespace rat::cc {
 			B32 direct = false;
 			B32 prototyped = false;
 		};
+		// argument registers still free, sysv
+		struct ArgRegs {
+			U32 gp = rat::abi::kSysV.gpArgCount;
+			U32 sse = rat::abi::kSysV.sseArgCount;
+		};
+		// the ir arguments of a call being built
+		struct CallArgs {
+			List<Node*> nodes;
+			CallAbi abi;
+			ArgRegs free;
+		};
 
 		// initializer sinks
 		struct InitSink {
@@ -131,7 +144,10 @@ namespace rat::cc {
 
 		// functions
 		B32 emitFunctionBody(const FuncDef* def);
-		void bindFunctionParams(Function& fn, const FuncDef* def, U32 paramBase);
+		List<AbiRegs> lowerParams(const FuncDef* def, List<Type*>& paramTypes, CallAbi& abi);
+		void
+		bindFunctionParams(Function& fn, const FuncDef* def, U32 paramBase, const List<AbiRegs>& regs);
+		Node* bindEightbytes(Function& fn, CType t, const AbiRegs& regs, U32& index);
 		void markRestrictParam(Function& fn, Function::Var v, U32 index);
 		void dropRestrictParam(Function& fn, Function::Var v);
 		B32 checkAliases();
@@ -265,7 +281,20 @@ namespace rat::cc {
 		// calls
 		Value emitCall(Function& fn, const Expr* expr);
 		B32 resolveCallee(Function& fn, const Expr* e, Callee& out);
-		B32 emitArgs(Function& fn, const Expr* e, const Callee& c, U32 n, List<Node*>& args);
+		B32 emitArgs(Function& fn, const Expr* e, const Callee& c, U32 n, CallArgs& args);
+		void pushAggregateArg(Function& fn, Node* src, CType t, CallArgs& args);
+		Value emitVaArgAggregate(Function& fn, Node* ap, CType t);
+
+		// x86-64 aggregate abi
+		AbiRegs abiRegs(CType t) const;
+		AbiRegs returnRegs(CType t) const;
+		void classifyEightbytes(CType t, U64 offset, AbiClass (&cls)[2]) const;
+		void classifyFields(const StructType* st, U64 offset, AbiClass (&cls)[2]) const;
+		AbiRegs takeArgRegs(CType t, ArgRegs& free) const;
+		ArgRegs freeArgRegs(CType ret) const;
+		void markByval(CallAbi& abi, U32 index, CType t) const;
+		Type* eightbyteType(AbiClass c);
+		Node* eightbyteSlot(Function& fn, CType t);
 
 		// builtins
 		B32 emitBuiltinCall(Function& fn, const Expr* expr, Value& out);

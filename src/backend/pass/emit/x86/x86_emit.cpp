@@ -405,10 +405,12 @@ namespace rat {
 		m.clobbers = scratchBits();
 	}
 
-	void X86LowerPass::vaArg(MachineOperand def, VReg ptr, VaArgKind kind, I64 desc, U32 cls) {
+	MachineInstr&
+	X86LowerPass::vaArg(MachineOperand def, VReg ptr, VaArgKind kind, I64 desc, U32 cls) {
 		MachineInstr& m = put(X86Op::VaArg, {std::move(def)}, {vr(ptr)}, (I64)kind, desc);
 		m.regClass = cls;
 		m.clobbers = scratchBits();
+		return m;
 	}
 
 	void X86LowerPass::ud2() { put(X86Op::Ud2, {}, {}); }

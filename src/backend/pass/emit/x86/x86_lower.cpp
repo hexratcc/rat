@@ -109,10 +109,7 @@ namespace rat {
 			return;
 		needScratch(); // va_arg fetch sequences stash through the scratch slot
 		X86ArgAssigner as(*conv);
-		if(conv->x87ByRef && isX87Ty(fn->getReturnType()))
-			as.next(Kind::Int); // hidden sret pointer
-		for(U32 i = 0; i < fn->getParamCount(); ++i)
-			as.next(argKind(fn->getParamType(i)));
+		paramLocs(as);
 		if(conv->vaList == X86VaList::CharPtr) {
 			fl->namedGp = as.slot;
 			fl->overflowOff = conv->homeOff + 8 * (I32)as.slot;

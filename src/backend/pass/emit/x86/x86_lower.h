@@ -196,7 +196,7 @@ namespace rat {
 		void br(VReg pred, I32 thenB, I32 elseB);
 		void switchJump(VReg sel, const List<I32>& targets);
 		void vaStart(VReg ptr, U32 namedGp, U32 namedFp);
-		void vaArg(MachineOperand def, VReg ptr, VaArgKind kind, I64 desc, U32 cls);
+		MachineInstr& vaArg(MachineOperand def, VReg ptr, VaArgKind kind, I64 desc, U32 cls);
 		void ud2();
 		void prefetch(VReg addr, U8 hint);
 
@@ -217,6 +217,7 @@ namespace rat {
 		void emitStore(StoreNode* s);
 		void emitLoad(LoadNode* l);
 		VReg frameAddr(I64 disp);
+		static AddrParts baseDisp(VReg base, I32 disp);
 		void maskBits(VReg d, U32 bits);
 		void signExtBits(VReg d, U32 bits);
 		void emitDivLike(BinaryNode* n, X86Op op);
@@ -271,16 +272,26 @@ namespace rat {
 		B32 emitBuiltin(CallNode* c);
 		void emitCall(CallNode* c);
 		Ops callUses(CallNode* c, const List<CallArg>& args, U32 sseUsed);
+		void pushCallArgs(CallNode* c, X86ArgAssigner& as, List<CallArg>& args);
+		void byvalArgs(Node* arg, ByvalArg byval, X86ArgAssigner& as, List<CallArg>& args);
 		CallArg callArg(Node* arg, X86ArgAssigner& as);
 		MachineOperand argToReg(const CallArg& a);
 		void callResult(Node* vp, const Type* rt, B32 sret, I32 retTemp);
+		static MachineOperand returnReg(AbiClass c, U32& gp, U32& sse);
+		void storeRegReturn(Node* vp, VReg retSlot, const AbiRegs& regs);
+		Ops loadRegReturn(Node* v, const AbiRegs& regs);
+		void storeX87Return(Node* vp, VReg retSlot, U32 count);
+		void loadX87Return(VReg retSlot, U32 count);
+		VReg x87PartAddr(VReg base, U32 index);
 		void emitAsm(AsmNode* a);
 		B32 emitMathIntrinsic(CallNode* c);
 		void emitPrologue();
-		void lowerParam(ProjNode* p, Type* t, X86ArgAssigner& as);
+		List<X86ArgAssigner::Loc> paramLocs(X86ArgAssigner& as);
+		void lowerParam(U32 index, X86ArgAssigner::Loc l);
 		void x87Param(ProjNode* p, X86ArgAssigner::Loc l);
 		VReg stackParamAddr(U32 off);
 		void emitVaArg(CallNode* c);
+		void vaArgAggregate(CallNode* c);
 		void emitNode(Node* n);
 		void emitReturn(ReturnNode* r);
 		void moveValue(VReg dst, VReg src, U32 cls, U32 w);

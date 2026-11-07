@@ -142,6 +142,7 @@ namespace rat {
 		: conv(c) {}
 
 		Loc next(Kind k);
+		Loc nextMem(U32 bytes, U32 align);
 
 		const X86CallConv& conv;
 		U32 gpUsed = 0, sseUsed = 0; // split-slot counters (sysv)
@@ -268,6 +269,7 @@ namespace rat {
 		void bswap(Reg r, B32 wide);
 		void prefetch(U8 hint, Reg base, I32 disp);
 		void ud2();
+		void repMovsq();
 
 		void leaMem(Reg dst, Reg base, I32 disp);
 		// lea dst, [base + index*(1<<scaleLog2) + disp]

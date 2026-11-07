@@ -271,6 +271,10 @@ namespace rat {
 		hasReturnValue(returnsValue),
 		indirect(indirect) {}
 
+	ByvalArg CallAbi::byvalAt(U32 index) const {
+		return index < byval.size() ? byval[index] : ByvalArg{};
+	}
+
 	const String& CallNode::getCallee() const { return callee; }
 	void CallNode::setCallee(String name) { callee = std::move(name); }
 	Node* CallNode::getControl() const { return getInput(0); }
@@ -437,7 +441,10 @@ namespace rat {
 		}
 		case Opcode::Call: {
 			const CallNode* c = cast<CallNode>(n);
-			return into.create<CallNode>(t, c->getCallee(), c->returnsValue(), nulls, c->isIndirect());
+			CallNode* clone =
+					into.create<CallNode>(t, c->getCallee(), c->returnsValue(), nulls, c->isIndirect());
+			clone->setAbi(c->getAbi());
+			return clone;
 		}
 		case Opcode::Asm: {
 			const AsmNode* a = cast<AsmNode>(n);

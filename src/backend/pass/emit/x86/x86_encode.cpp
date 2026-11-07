@@ -38,6 +38,8 @@ namespace rat {
 	// kind in imm, width and sign in imm2; the value address is in r11
 	void X86EncodePass::vaLoadResult(const MachineInstr& in) {
 		VaArgKind kind = (VaArgKind)in.imm;
+		if(kind == VaArgKind::Aggregate)
+			return a->movRR(gpOf(in.defs[0]), R11);
 		U32 width = (U32)(in.imm2 & 0xffffffff);
 		if(kind == VaArgKind::X87) {
 			a->fldT(R11, 0);
@@ -92,6 +94,56 @@ namespace rat {
 		a->patchRel32(done, a->here());
 	}
 
+	// jumps to the overflow path when the class offset is past limit
+	U32 X86EncodePass::vaNoRoom(I32 offDisp, U32 limit) {
+		a->loadExt(R11, R10, offDisp, 4, false);
+		a->cmpRegImm32(R11, (I32)limit);
+		return a->jccRel32(CC_A);
+	}
+
+	// [rbp + disp] = the next saved register of the class, then advance its offset
+	void X86EncodePass::vaCopyEightbyte(I32 offDisp, I32 regStep, I32 disp) {
+		a->loadExt(R11, R10, offDisp, 4, false);
+		a->addRegMem(R11, R10, 16);
+		a->load64(R11, R11, 0);
+		a->storeMem(RBP, disp, R11, 8);
+		a->loadExt(R11, R10, offDisp, 4, false);
+		a->addRegImm32(R11, regStep);
+		a->storeMem(R10, offDisp, R11, 4);
+	}
+
+	// all eightbytes from the save area into the frame temp in use 1, or none of them
+	void X86EncodePass::vaFetchAggregate(const MachineInstr& in) {
+		VaAggregate agg = detail::unpackVaAggregate(in.imm2);
+		I32 step = (I32)((agg.bytes + 7u) & ~7u);
+		if(!agg.regs.count)
+			return vaFetchOverflow(step, agg.align);
+		U32 gp = 0;
+		U32 sse = 0;
+		for(U32 k = 0; k < agg.regs.count; ++k) {
+			gp += agg.regs.cls[k] == AbiClass::Integer;
+			sse += agg.regs.cls[k] == AbiClass::Sse;
+		}
+		List<U32> toStack;
+		if(gp)
+			toStack.push_back(vaNoRoom(0, conv->gpSaveBytes - 8 * gp));
+		if(sse)
+			toStack.push_back(vaNoRoom(4, conv->regSaveBytes - conv->sseSlotBytes * sse));
+		I32 tmp = in.uses[1].slot;
+		for(U32 k = 0; k < agg.regs.count; ++k) {
+			if(agg.regs.cls[k] == AbiClass::Sse)
+				vaCopyEightbyte(4, (I32)conv->sseSlotBytes, tmp + 8 * (I32)k);
+			else if(agg.regs.cls[k] == AbiClass::Integer)
+				vaCopyEightbyte(0, 8, tmp + 8 * (I32)k);
+		}
+		a->leaMem(R11, RBP, tmp);
+		U32 done = a->jmpRel32();
+		for(U32 jump : toStack)
+			a->patchRel32(jump, a->here());
+		vaFetchOverflow(step, agg.align);
+		a->patchRel32(done, a->here());
+	}
+
 	void X86EncodePass::emitVaArg(const MachineInstr& in) {
 		readGp(in.uses[0], R10);
 		VaArgKind kind = (VaArgKind)in.imm;
@@ -101,15 +153,35 @@ namespace rat {
 			a->addRegImm32(R11, 8);
 			a->storeMem(R10, 0, R11, 8);
 			unstash(R11);
-			if(kind == VaArgKind::X87)
+			B32 byRef = kind == VaArgKind::X87 ||
+									(kind == VaArgKind::Aggregate && !detail::unpackVaAggregate(in.imm2).regs.count);
+			if(byRef)
 				a->load64(R11, R11, 0); // slot holds a pointer to the value
 		} else if(kind == VaArgKind::X87)
 			vaFetchOverflow(16, 16);
+		else if(kind == VaArgKind::Aggregate)
+			vaFetchAggregate(in);
 		else if(kind == VaArgKind::Sse)
 			vaFetch(4, conv->regSaveBytes, (I32)conv->sseSlotBytes);
 		else
 			vaFetch(0, conv->gpSaveBytes, 8);
 		vaLoadResult(in);
+	}
+
+	// rep movsq into the outgoing area, rsi rdi and rcx wait in scratch registers
+	void X86EncodePass::copyByvalBlock(const MachineOperand& src, U32 bytes, I32 off) {
+		U32 keepRsi = conv->sseVolatileCount - 1;
+		U32 keepRdi = conv->sseVolatileCount - 2;
+		a->movdXmmGp(keepRsi, RSI, true);
+		a->movdXmmGp(keepRdi, RDI, true);
+		a->movRR(R10, RCX);
+		readGp(src, RSI);
+		a->leaMem(RDI, RSP, off);
+		a->movRegImm32(RCX, (bytes + 7u) / 8u);
+		a->repMovsq();
+		a->movRR(RCX, R10);
+		a->movGpXmm(RDI, keepRdi, true);
+		a->movGpXmm(RSI, keepRsi, true);
 	}
 
 	void X86EncodePass::emitCall(const MachineInstr& in) {
@@ -129,6 +201,12 @@ namespace rat {
 		I32 off = (I32)conv->shadowBytes;
 		for(U32 i = targetIdx + 1; i < in.uses.size(); ++i) {
 			const MachineOperand& u = in.uses[i];
+			if(i + 1 < in.uses.size() && in.uses[i + 1].kind == MachineOperand::Kind::Imm) {
+				U32 bytes = (U32)in.uses[++i].imm;
+				copyByvalBlock(u, bytes, off);
+				off += (I32)((bytes + 7u) & ~7u);
+				continue;
+			}
 			if(u.kind == MachineOperand::Kind::FrameSlot) {
 				if(u.width == 16) { // by-value x87
 					off = (off + 15) & ~15;
