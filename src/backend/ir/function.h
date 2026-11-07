@@ -30,6 +30,7 @@ namespace rat {
 		B32 variadic = false;
 		B32 noInline = false;
 		U64 restrictParams = 0;
+		CallAbi abi; // aggregate params and return
 
 		B32 isInternal() const { return linkage == Linkage::Internal; }
 	};
@@ -123,8 +124,16 @@ namespace rat {
 		Node* stackSave();
 		void stackRestore(Node* saved);
 
-		Node* call(const String& callee, Type* retType, const Nodes& args, B32 varArgs = true);
-		Node* callIndirect(Node* target, Type* retType, const Nodes& args, B32 varArgs = true);
+		Node* call(const String& callee,
+							 Type* retType,
+							 const Nodes& args,
+							 B32 varArgs = true,
+							 const CallAbi& abi = {});
+		Node* callIndirect(Node* target,
+											 Type* retType,
+											 const Nodes& args,
+											 B32 varArgs = true,
+											 const CallAbi& abi = {});
 
 		List<Node*> inlineAsm(const String& text, const List<Type*>& outs, const Nodes& args);
 
@@ -214,7 +223,8 @@ namespace rat {
 
 		// calls
 		void bindEffects(Node* n);
-		Node* emitCall(const String& sym, const Nodes& ins, Type* ret, B32 indirect, B32 va);
+		Node* emitCall(
+				const String& sym, const Nodes& ins, Type* ret, B32 indirect, B32 va, const CallAbi& abi);
 
 		// signature
 		Module* mod;

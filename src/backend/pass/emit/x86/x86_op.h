@@ -4,6 +4,7 @@
 #include "core.h"
 
 #include "codegen/machine_function.h"
+#include "ir/node.h"
 #include "target/x86/x86_asm.h"
 
 namespace rat {
@@ -145,7 +146,15 @@ namespace rat {
 	enum class VaArgKind : I64 {
 		Int = 0,
 		Sse = 1,
-		X87 = 2
+		X87 = 2,
+		Aggregate = 3
+	};
+
+	// a va_arg aggregate, packed into the VaArg imm2
+	struct VaAggregate {
+		U32 bytes = 0;
+		U32 align = 0;
+		AbiRegs regs;
 	};
 
 	struct X86OpInfo {
@@ -156,6 +165,8 @@ namespace rat {
 	const X86OpInfo& x86OpInfo(X86Op op);
 
 	namespace detail {
+		I64 packVaAggregate(const VaAggregate& agg);
+		VaAggregate unpackVaAggregate(I64 desc);
 		String dispText(I64 disp);
 		String operandText(const MachineOperand& operand);
 		String addressText(const MachineInstr& instr, U32 width, U32 indexUse, U32 scaleLog2);

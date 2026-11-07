@@ -140,29 +140,33 @@ namespace rat {
 		set(memVar, proj(n, CallNode::memoryProjIndex(), memTy(), "mem"));
 	}
 
-	Node* Function::emitCall(const String& sym, const Nodes& ins, Type* ret, B32 indirect, B32 va) {
+	Node* Function::emitCall(
+			const String& sym, const Nodes& ins, Type* ret, B32 indirect, B32 va, const CallAbi& abi) {
 		List<Type*> elems{ctrlTy(), memTy()};
 		if(ret)
 			elems.push_back(ret);
 		CallNode* c = create<CallNode>(mod->getTuple(elems), sym, ret != nullptr, ins, indirect);
 		c->setVarArgs(va);
+		c->setAbi(abi);
 		bindEffects(c);
 		if(ret)
 			return proj(c, CallNode::valueProjIndex(), ret, "ret");
 		return nullptr;
 	}
 
-	Node* Function::call(const String& callee, Type* retType, const Nodes& args, B32 varArgs) {
+	Node* Function::call(
+			const String& callee, Type* retType, const Nodes& args, B32 varArgs, const CallAbi& abi) {
 		List<Node*> ins{control(), mem()};
 		ins.insert(ins.end(), args.begin(), args.end());
-		return emitCall(callee, ins, retType, false, varArgs);
+		return emitCall(callee, ins, retType, false, varArgs, abi);
 	}
 
-	Node* Function::callIndirect(Node* target, Type* retType, const Nodes& args, B32 varArgs) {
+	Node* Function::callIndirect(
+			Node* target, Type* retType, const Nodes& args, B32 varArgs, const CallAbi& abi) {
 		// inputs: control, memory, target pointer, then the call arguments
 		List<Node*> ins{control(), mem(), target};
 		ins.insert(ins.end(), args.begin(), args.end());
-		return emitCall(String(), ins, retType, true, varArgs);
+		return emitCall(String(), ins, retType, true, varArgs, abi);
 	}
 
 	List<Node*> Function::inlineAsm(const String& text, const List<Type*>& outs, const Nodes& args) {

@@ -17,6 +17,8 @@
 #include "ir/opcode.h"
 #include "ir/type.h"
 
+#include <optional>
+
 namespace rat {
 	struct Function;
 	struct ProjNode;
@@ -249,6 +251,33 @@ namespace rat {
 		B32 volatileAccess = false;
 	};
 
+	enum class AbiClass : U8 {
+		None,
+		Integer,
+		Sse,
+		Memory,
+		X87
+	};
+
+	struct AbiRegs {
+		U8 count = 0;
+		AbiClass cls[2] = {};
+
+		U32 countOf(AbiClass c) const;
+	};
+
+	struct ByvalArg {
+		U32 bytes = 0;
+		U32 align = 0;
+	};
+
+	struct CallAbi {
+		List<std::optional<ByvalArg>> byval;
+		AbiRegs ret;
+
+		std::optional<ByvalArg> byvalAt(U32 index) const;
+	};
+
 	struct CallNode : Node {
 		// control, memory, [target if indirect,] args..
 		CallNode(Function& fn,
@@ -272,6 +301,9 @@ namespace rat {
 		B32 isVarArgs() const { return varArgs; }
 		void setVarArgs(B32 v) { varArgs = v; }
 
+		const CallAbi& getAbi() const { return abi; }
+		void setAbi(CallAbi a) { abi = std::move(a); }
+
 		// psot-call
 		static constexpr U32 controlProjIndex() { return 0; }
 		static constexpr U32 memoryProjIndex() { return 1; }
@@ -281,6 +313,7 @@ namespace rat {
 		B32 hasReturnValue;
 		B32 varArgs = true;
 		B32 indirect;
+		CallAbi abi;
 	};
 
 	// inline assembly

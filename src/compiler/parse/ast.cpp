@@ -46,7 +46,7 @@ namespace rat::cc {
 	} // namespace detail
 
 	CType defaultArgPromote(CType t) {
-		if(t.isFloat() && t.ptr == 0 && t.bits < 64) {
+		if(isFloating(t) && t.bits < 64) {
 			CType r = t;
 			r.bits = 64;
 			return r;

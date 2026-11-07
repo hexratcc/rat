@@ -35,7 +35,10 @@ namespace rat::cc {
 
 	Type* Emitter::byteArrayType(U32 n) { return mod.getArray(mod.getInt(8), n); }
 
-	Node* Emitter::allocBytes(Function& fn, U32 size) { return fn.alloc(byteArrayType(size)); }
+	// whole eightbytes, so register halves of an aggregate can be stored and loaded
+	Node* Emitter::allocBytes(Function& fn, U32 size, U32 align) {
+		return fn.alloc(byteArrayType((size + 7) & ~7u), align);
+	}
 
 	Node* Emitter::declSlot(Function& fn, const Declarator& d, Type* ty, U32 size) {
 		if(d.align <= 16)
@@ -445,12 +448,41 @@ namespace rat::cc {
 		return true;
 	}
 
-	void Emitter::bindFunctionParams(Function& fn, const FuncDef* def, U32 paramBase) {
+	// the ir params of each parameter, an aggregate in registers spreads over its eightbytes
+	List<AbiRegs> Emitter::lowerParams(const FuncDef* def, List<Type*>& paramTypes, CallAbi& abi) {
+		ArgRegs free = freeArgRegs(def->retType);
+		List<AbiRegs> regs;
+		for(const Param& p : def->params) {
+			AbiRegs r = takeArgRegs(p.type, free);
+			regs.push_back(r);
+			if(!isAggregate(p.type)) {
+				paramTypes.push_back(irType(p.type));
+			} else if(!r.count) {
+				paramTypes.push_back(mod.getPtr());
+				markByval(abi, (U32)paramTypes.size() - 1, p.type);
+			}
+			for(U32 k = 0; k < r.count; ++k)
+				paramTypes.push_back(eightbyteType(r.cls[k]));
+		}
+		return regs;
+	}
+
+	void Emitter::bindFunctionParams(Function& fn,
+																	 const FuncDef* def,
+																	 U32 paramBase,
+																	 const List<AbiRegs>& regs) {
+		U32 index = paramBase;
 		for(U32 i = 0; i < def->params.size(); ++i) {
 			const Param& p = def->params[i];
+			if(isAggregate(p.type) && regs[i].count) {
+				Node* slot = bindEightbytes(fn, p.type, regs[i], index);
+				if(p.name)
+					func.scopes.declare(*p.name, Local::mem(slot, p.type));
+				continue;
+			}
+			Node* arg = fn.param(index++);
 			if(!p.name)
 				continue;
-			Node* arg = fn.param(paramBase + i);
 			if(isAggregate(p.type)) {
 				func.scopes.declare(*p.name, Local::mem(arg, p.type));
 			} else if(func.addrTaken.count(*p.name) || isTopVolatile(p.type)) {
@@ -461,9 +493,16 @@ namespace rat::cc {
 				Function::Var v = fn.declareLocal(*p.name, arg);
 				func.scopes.declare(*p.name, Local::inVar(v, p.type));
 				if(isPointer(p.type) && isTopRestrict(p.type))
-					markRestrictParam(fn, v, paramBase + i);
+					markRestrictParam(fn, v, index - 1);
 			}
 		}
+	}
+
+	Node* Emitter::bindEightbytes(Function& fn, CType t, const AbiRegs& regs, U32& index) {
+		Node* slot = allocBytes(fn, (U32)byteSize(t), alignOf(t));
+		for(U32 k = 0; k < regs.count; ++k)
+			fn.store(offsetPtr(fn, slot, 8 * k), fn.param(index++));
+		return slot;
 	}
 
 	void Emitter::markRestrictParam(Function& fn, Function::Var v, U32 index) {
@@ -483,10 +522,12 @@ namespace rat::cc {
 		diag.function = def->name;
 		B32 sretReturn = isAggregate(def->retType);
 		List<Type*> paramTypes;
-		if(sretReturn)
+		CallAbi abi;
+		if(sretReturn) {
 			paramTypes.push_back(mod.getPtr());
-		for(const Param& p : def->params)
-			paramTypes.push_back(isAggregate(p.type) ? mod.getPtr() : irType(p.type));
+			abi.ret = returnRegs(def->retType);
+		}
+		List<AbiRegs> regs = lowerParams(def, paramTypes, abi);
 		Type* retTy = sretReturn								 ? mod.getPtr()
 									: isVoidType(def->retType) ? nullptr
 																						 : irType(def->retType);
@@ -496,6 +537,7 @@ namespace rat::cc {
 		attrs.noInline = def->isNoInline || syms.functions[def->name].noInline;
 		attrs.align = syms.functions[def->name].align;
 		attrs.linkage = def->isStatic ? Linkage::Internal : Linkage::External;
+		attrs.abi = std::move(abi);
 
 		func.reset();
 		func.returnType = def->retType;
@@ -505,7 +547,7 @@ namespace rat::cc {
 		collectLabels(*fn, def->body);
 		func.scopes.push();
 		func.sp = stmtHasVla(def->body) ? fn->stackSave() : nullptr;
-		bindFunctionParams(*fn, def, paramBase);
+		bindFunctionParams(*fn, def, paramBase, regs);
 		for(const Param& p : def->params) {
 			if(!p.vlaBound)
 				continue;

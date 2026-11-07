@@ -13,6 +13,7 @@ import lib
 CORPUS = ("c99", "c-testsuite", "custom", "gcc-torture")
 HOST_OS = "linux"
 TIMEOUT = 20
+HOST_CC = "cc"
 
 # the wrapper reports what main returned through a file, because an exit status only carries 8 bits 
 # bin/link -e makes libc call it instead of main
@@ -67,6 +68,7 @@ class Directives:
         self.output = None
         self.skip = False
         self.incs = []
+        self.host_side = False
         pinned = False
         in_output = False
         for line in case.read_text(errors="replace").splitlines():
@@ -97,6 +99,8 @@ class Directives:
                 self.skip = True
             elif key == "include-dir":
                 self.incs.append(val)
+            elif key == "host-side":
+                self.host_side = True
 
     def cc_flags(self, case):
         if self.passes is None:
@@ -127,7 +131,13 @@ def run_case(case):
     compiled = subprocess.run([str(ratcc), *exp.cc_flags(case), "-o", str(work / "case.o"), str(case)], capture_output=True, text=True)
     if compiled.returncode != 0:
         return fail(first_line(compiled))
-    linked = subprocess.run([str(ratlink), "-e", "__ratcc_entry", str(out / "wrap.o"), str(work / "case.o"), "-o", str(work / "case")], capture_output=True, text=True)
+    objs = [str(out / "wrap.o"), str(work / "case.o")]
+    if exp.host_side:  # the other side of an abi boundary, the same file built by the host cc
+        built = subprocess.run([HOST_CC, "-O2", "-w", "-c", "-fno-pie", "-DRAT_HOST_SIDE", "-o", str(work / "host.o"), str(case)], capture_output=True, text=True)
+        if built.returncode != 0:
+            return fail(f"host-side compile failed: {first_line(built)}")
+        objs.append(str(work / "host.o"))
+    linked = subprocess.run([str(ratlink), "-e", "__ratcc_entry", *objs, "-o", str(work / "case")], capture_output=True, text=True)
     if linked.returncode != 0:
         return fail(f"link failed: {first_line(linked)}")
 

@@ -297,8 +297,10 @@ namespace rat::cc {
 			Node* ap = vaListRef(fn, e->vaArg.ap);
 			if(!ap)
 				return {};
-			Type* fetched = isStruct(e->vaArg.type) ? mod.getPtr() : irType(e->vaArg.type);
-			Node* r = fn.call("__builtin_va_arg", fetched, {ap});
+			CType fetched = completeComplex(e->vaArg.type);
+			if(isAggregate(fetched))
+				return emitVaArgAggregate(fn, ap, fetched);
+			Node* r = fn.call("__builtin_va_arg", irType(e->vaArg.type), {ap});
 			return {r, e->vaArg.type};
 		}
 		case ExprKind::StmtExpr:

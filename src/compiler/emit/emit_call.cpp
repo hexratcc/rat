@@ -56,31 +56,50 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::emitArgs(Function& fn, const Expr* e, const Callee& c, U32 n, List<Node*>& args) {
+	B32 Emitter::emitArgs(Function& fn, const Expr* e, const Callee& c, U32 n, CallArgs& args) {
 		for(U32 i = 0; i < e->args.size(); ++i) {
 			Value a = emitExpr(fn, e->args[i]);
 			if(!a.node)
 				return false;
 			CType pt;
-			if(i < n) {
+			if(i < n)
 				pt = c.direct ? c.sig.params[i] : c.ft->params[i].type;
-			} else {
-				pt = defaultArgPromote(a.type);
-				if(isComplexType(pt)) {
-					pt.strukt = nullptr;
-					pt = completeComplex(pt);
-				}
-			}
+			else
+				pt = completeComplex(defaultArgPromote(a.type));
 			if(isAggregate(pt)) {
 				Node* src = isComplexType(pt) ? toComplex(fn, a, pt).node : a.node;
-				Node* tmp = allocBytes(fn, pt.strukt->size);
-				emitMemCopy(fn, tmp, src, pt.strukt->size);
-				args.push_back(tmp);
+				pushAggregateArg(fn, src, pt, args);
 			} else {
-				args.push_back(convert(fn, a.node, a.type, pt));
+				takeArgRegs(pt, args.free);
+				args.nodes.push_back(convert(fn, a.node, a.type, pt));
 			}
 		}
 		return true;
+	}
+
+	// a copy whose eightbytes go in registers when they all fit, else on the stack whole
+	void Emitter::pushAggregateArg(Function& fn, Node* src, CType t, CallArgs& args) {
+		Node* tmp = allocBytes(fn, (U32)byteSize(t), alignOf(t));
+		emitMemCopy(fn, tmp, src, (U32)byteSize(t));
+		AbiRegs regs = takeArgRegs(t, args.free);
+		if(!regs.count) {
+			args.nodes.push_back(tmp);
+			markByval(args.abi, (U32)args.nodes.size() - 1, t);
+			return;
+		}
+		for(U32 k = 0; k < regs.count; ++k)
+			args.nodes.push_back(fn.load(eightbyteType(regs.cls[k]), offsetPtr(fn, tmp, 8 * k)));
+	}
+
+	// the backend fetches the aggregate by size, alignment and eightbyte classes
+	Emitter::Value Emitter::emitVaArgAggregate(Function& fn, Node* ap, CType t) {
+		CallAbi fetch;
+		fetch.ret = argRegs(t);
+		List<Node*> args = {ap, constSize(fn, byteSize(t)), constSize(fn, alignOf(t))};
+		Node* src = fn.call("__builtin_va_arg_aggregate", mod.getPtr(), args, true, fetch);
+		Node* tmp = allocBytes(fn, (U32)byteSize(t), alignOf(t));
+		emitMemCopy(fn, tmp, src, (U32)byteSize(t));
+		return {tmp, t};
 	}
 
 	Emitter::Value Emitter::emitCall(Function& fn, const Expr* e) {
@@ -114,11 +133,13 @@ namespace rat::cc {
 			if(sym.empty())
 				sym = *e->call.callee;
 		}
-		List<Node*> args;
+		CallArgs args;
+		args.free = freeArgRegs(ret);
 		Node* resultSlot = nullptr;
 		if(isAggregate(ret)) {
-			resultSlot = allocBytes(fn, ret.strukt->size);
-			args.push_back(resultSlot);
+			resultSlot = allocBytes(fn, (U32)byteSize(ret), alignOf(ret));
+			args.nodes.push_back(resultSlot);
+			args.abi.ret = returnRegs(ret);
 		}
 		if(!emitArgs(fn, e, c, nparams, args))
 			return {};
@@ -129,9 +150,9 @@ namespace rat::cc {
 			retTy = irType(ret);
 		Node* call;
 		if(c.direct)
-			call = fn.call(sym, retTy, args, va);
+			call = fn.call(sym, retTy, args.nodes, va, args.abi);
 		else
-			call = fn.callIndirect(c.target, retTy, args, va);
+			call = fn.callIndirect(c.target, retTy, args.nodes, va, args.abi);
 		if(resultSlot)
 			return {resultSlot, ret};
 		if(isVoidType(ret))

@@ -10,12 +10,8 @@ namespace rat {
 	}
 
 	X86ArgAssigner::Loc X86ArgAssigner::next(Kind k) {
-		if(k == Kind::X87) {
-			stackBytes = (stackBytes + 15u) & ~15u;
-			Loc l{-1, stackBytes};
-			stackBytes += 16;
-			return l;
-		}
+		if(k == Kind::X87)
+			return nextMem(16, 16);
 		if(conv.sharedSlots) {
 			Loc l{slot < conv.gpArgCount ? (I32)slot : -1, stackBytes};
 			if(l.reg < 0)
@@ -29,6 +25,14 @@ namespace rat {
 			return {(I32)used++, 0};
 		Loc l{-1, stackBytes};
 		stackBytes += 8;
+		return l;
+	}
+
+	X86ArgAssigner::Loc X86ArgAssigner::nextMem(U32 bytes, U32 align) {
+		U32 slotAlign = std::clamp(align, 8u, 16u);
+		stackBytes = (stackBytes + slotAlign - 1) & ~(slotAlign - 1);
+		Loc l{-1, stackBytes};
+		stackBytes += (bytes + 7u) & ~7u;
 		return l;
 	}
 
@@ -337,6 +341,12 @@ namespace rat {
 	void Asm::ud2() {
 		b(0x0f);
 		b(0x0b);
+	}
+
+	void Asm::repMovsq() {
+		b(0xf3);
+		rex(true, 0, 0, 0);
+		b(0xa5);
 	}
 
 	void Asm::movzxByte(Reg dst, Reg src) {
