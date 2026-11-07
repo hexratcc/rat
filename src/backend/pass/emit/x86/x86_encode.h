@@ -92,7 +92,7 @@ namespace rat {
 		void vaCopyEightbyte(I32 offDisp, I32 regStep, I32 disp);
 		void vaFetchAggregate(const MachineInstr& in);
 		void emitVaArg(const MachineInstr& in);
-		void copyByvalBlock(const MachineOperand& src, U32 bytes, I32 off);
+		void copyByval(const MachineOperand& src, U32 bytes, I32 off);
 		void emitCall(const MachineInstr& in);
 		void emitRet();
 		void emitSwitchJump(const MachineInstr& in);

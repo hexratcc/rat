@@ -12,6 +12,10 @@
 #include <functional>
 
 namespace rat {
+	namespace detail {
+		constexpr U32 kByvalInlineBytes = 64;
+	} // namespace detail
+
 	Reg X86EncodePass::toGp(PhysReg p) { return (Reg)(p - X86Target::kGpBase); }
 	Reg X86EncodePass::gpOf(const MachineOperand& o) { return toGp(o.phys); }
 	U32 X86EncodePass::xmmOf(const MachineOperand& o) { return o.phys - X86Target::kXmmBase; }
@@ -80,10 +84,8 @@ namespace rat {
 	}
 
 	void X86EncodePass::vaFetch(I32 offDisp, U32 limit, I32 regStep) {
-		a->loadExt(R11, R10, offDisp, 4, false); // R11 = cur offset
-		a->cmpRegImm32(R11, (I32)limit);				 // offset vs limit
-		U32 toStack = a->jccRel32(CC_AE);				 // offset >= limit -> overflow path
-		stash(R11);															 // stash original offset
+		U32 toStack = vaNoRoom(offDisp, limit - (U32)regStep);
+		stash(R11); // stash original offset
 		a->addRegImm32(R11, regStep);
 		a->storeMem(R10, offDisp, R11, 4); // write advanced offset
 		unstash(R11);											 // R11 = original offset
@@ -118,12 +120,8 @@ namespace rat {
 		I32 step = (I32)((agg.bytes + 7u) & ~7u);
 		if(!agg.regs.count)
 			return vaFetchOverflow(step, agg.align);
-		U32 gp = 0;
-		U32 sse = 0;
-		for(U32 k = 0; k < agg.regs.count; ++k) {
-			gp += agg.regs.cls[k] == AbiClass::Integer;
-			sse += agg.regs.cls[k] == AbiClass::Sse;
-		}
+		U32 gp = agg.regs.countOf(AbiClass::Integer);
+		U32 sse = agg.regs.countOf(AbiClass::Sse);
 		List<U32> toStack;
 		if(gp)
 			toStack.push_back(vaNoRoom(0, conv->gpSaveBytes - 8 * gp));
@@ -133,7 +131,7 @@ namespace rat {
 		for(U32 k = 0; k < agg.regs.count; ++k) {
 			if(agg.regs.cls[k] == AbiClass::Sse)
 				vaCopyEightbyte(4, (I32)conv->sseSlotBytes, tmp + 8 * (I32)k);
-			else if(agg.regs.cls[k] == AbiClass::Integer)
+			else
 				vaCopyEightbyte(0, 8, tmp + 8 * (I32)k);
 		}
 		a->leaMem(R11, RBP, tmp);
@@ -168,8 +166,18 @@ namespace rat {
 		vaLoadResult(in);
 	}
 
-	// rep movsq into the outgoing area, rsi rdi and rcx wait in scratch registers
-	void X86EncodePass::copyByvalBlock(const MachineOperand& src, U32 bytes, I32 off) {
+	// a by-value aggregate into the outgoing area, a small one through the xmm scratch
+	// a large one with rep movsq, rsi rdi and rcx wait in scratch registers
+	void X86EncodePass::copyByval(const MachineOperand& src, U32 bytes, I32 off) {
+		if(bytes <= detail::kByvalInlineBytes) {
+			U32 chunk = conv->sseVolatileCount - 1;
+			readGp(src, R10);
+			for(U32 k = 0; k < bytes; k += 8) {
+				a->loadXmm(chunk, R10, (I32)k, 8);
+				a->storeXmm(chunk, RSP, off + (I32)k, 8);
+			}
+			return;
+		}
 		U32 keepRsi = conv->sseVolatileCount - 1;
 		U32 keepRdi = conv->sseVolatileCount - 2;
 		a->movdXmmGp(keepRsi, RSI, true);
@@ -202,8 +210,10 @@ namespace rat {
 		for(U32 i = targetIdx + 1; i < in.uses.size(); ++i) {
 			const MachineOperand& u = in.uses[i];
 			if(i + 1 < in.uses.size() && in.uses[i + 1].kind == MachineOperand::Kind::Imm) {
-				U32 bytes = (U32)in.uses[++i].imm;
-				copyByvalBlock(u, bytes, off);
+				U64 byval = (U64)in.uses[++i].imm; // stack offset in the high half, bytes in the low
+				U32 bytes = (U32)byval;
+				off = (I32)conv->shadowBytes + (I32)(byval >> 32);
+				copyByval(u, bytes, off);
 				off += (I32)((bytes + 7u) & ~7u);
 				continue;
 			}

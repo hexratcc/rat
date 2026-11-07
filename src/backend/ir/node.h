@@ -17,6 +17,8 @@
 #include "ir/opcode.h"
 #include "ir/type.h"
 
+#include <optional>
+
 namespace rat {
 	struct Function;
 	struct ProjNode;
@@ -260,6 +262,8 @@ namespace rat {
 	struct AbiRegs {
 		U8 count = 0;
 		AbiClass cls[2] = {};
+
+		U32 countOf(AbiClass c) const;
 	};
 
 	struct ByvalArg {
@@ -268,10 +272,10 @@ namespace rat {
 	};
 
 	struct CallAbi {
-		List<ByvalArg> byval;
+		List<std::optional<ByvalArg>> byval;
 		AbiRegs ret;
 
-		ByvalArg byvalAt(U32 index) const;
+		std::optional<ByvalArg> byvalAt(U32 index) const;
 	};
 
 	struct CallNode : Node {

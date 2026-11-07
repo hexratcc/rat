@@ -271,8 +271,10 @@ namespace rat {
 		hasReturnValue(returnsValue),
 		indirect(indirect) {}
 
-	ByvalArg CallAbi::byvalAt(U32 index) const {
-		return index < byval.size() ? byval[index] : ByvalArg{};
+	U32 AbiRegs::countOf(AbiClass c) const { return (U32)std::count(cls, cls + count, c); }
+
+	std::optional<ByvalArg> CallAbi::byvalAt(U32 index) const {
+		return index < byval.size() ? byval[index] : std::nullopt;
 	}
 
 	const String& CallNode::getCallee() const { return callee; }

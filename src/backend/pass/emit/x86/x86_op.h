@@ -12,7 +12,6 @@ namespace rat {
 		constexpr U32 kGp = X86Target::kGpClass;
 		constexpr U32 kFp = X86Target::kFpClass;
 		constexpr U32 kX87 = X86Target::kX87Class;
-		constexpr U32 kByvalChunkBytes = 64;
 
 		inline PhysReg gpPhys(Reg r) { return X86Target::kGpBase + (PhysReg)r; }
 		inline PhysReg xmmPhys(U32 n) { return X86Target::kXmmBase + n; }

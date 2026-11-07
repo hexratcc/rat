@@ -1,4 +1,4 @@
-// expect: 290283120
+// expect: 491617737
 // host-side:
 #ifdef RAT_HOST_SIDE
 #define SIDE(x) g_##x

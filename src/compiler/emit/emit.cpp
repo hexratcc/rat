@@ -35,7 +35,10 @@ namespace rat::cc {
 
 	Type* Emitter::byteArrayType(U32 n) { return mod.getArray(mod.getInt(8), n); }
 
-	Node* Emitter::allocBytes(Function& fn, U32 size) { return fn.alloc(byteArrayType(size)); }
+	// whole eightbytes, so register halves of an aggregate can be stored and loaded
+	Node* Emitter::allocBytes(Function& fn, U32 size, U32 align) {
+		return fn.alloc(byteArrayType((size + 7) & ~7u), align);
+	}
 
 	Node* Emitter::declSlot(Function& fn, const Declarator& d, Type* ty, U32 size) {
 		if(d.align <= 16)
@@ -459,8 +462,7 @@ namespace rat::cc {
 				markByval(abi, (U32)paramTypes.size() - 1, p.type);
 			}
 			for(U32 k = 0; k < r.count; ++k)
-				if(r.cls[k] != AbiClass::None)
-					paramTypes.push_back(eightbyteType(r.cls[k]));
+				paramTypes.push_back(eightbyteType(r.cls[k]));
 		}
 		return regs;
 	}
@@ -496,12 +498,10 @@ namespace rat::cc {
 		}
 	}
 
-	// the eightbyte params stored back into one aggregate
 	Node* Emitter::bindEightbytes(Function& fn, CType t, const AbiRegs& regs, U32& index) {
-		Node* slot = eightbyteSlot(fn, t);
+		Node* slot = allocBytes(fn, (U32)byteSize(t), alignOf(t));
 		for(U32 k = 0; k < regs.count; ++k)
-			if(regs.cls[k] != AbiClass::None)
-				fn.store(offsetPtr(fn, slot, 8 * k), fn.param(index++));
+			fn.store(offsetPtr(fn, slot, 8 * k), fn.param(index++));
 		return slot;
 	}
 

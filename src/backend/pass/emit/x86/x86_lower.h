@@ -65,6 +65,10 @@ namespace rat {
 			Kind cls;
 			I32 reg;
 		};
+		enum class ReturnMove : U8 {
+			IntoSlot,
+			OutOfSlot
+		};
 
 		void lowerFn(const Function& f, MachineFunc& mf, const TargetInfo& target);
 		void lowerBlocks();
@@ -273,14 +277,12 @@ namespace rat {
 		void emitCall(CallNode* c);
 		Ops callUses(CallNode* c, const List<CallArg>& args, U32 sseUsed);
 		void pushCallArgs(CallNode* c, X86ArgAssigner& as, List<CallArg>& args);
-		void byvalArgs(Node* arg, ByvalArg byval, X86ArgAssigner& as, List<CallArg>& args);
 		CallArg callArg(Node* arg, X86ArgAssigner& as);
 		MachineOperand argToReg(const CallArg& a);
 		void callResult(Node* vp, const Type* rt, B32 sret, I32 retTemp);
 		static MachineOperand returnReg(AbiClass c, U32& gp, U32& sse);
-		void storeRegReturn(Node* vp, VReg retSlot, const AbiRegs& regs);
-		Ops loadRegReturn(Node* v, const AbiRegs& regs);
-		void storeX87Return(Node* vp, VReg retSlot, U32 count);
+		Ops moveRegReturn(VReg retSlot, const AbiRegs& regs, ReturnMove move);
+		void storeX87Return(VReg retSlot, U32 count);
 		void loadX87Return(VReg retSlot, U32 count);
 		VReg x87PartAddr(VReg base, U32 index);
 		void emitAsm(AsmNode* a);

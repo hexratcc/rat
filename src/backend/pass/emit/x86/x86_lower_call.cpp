@@ -154,39 +154,25 @@ namespace rat {
 			mov(R11, target);
 		}
 		mb->insts.push_back(std::move(call));
-		if(retRegs.count)
-			storeRegReturn(vp, retSlot, retRegs);
-		else
-			callResult(vp, rt, sret, retTemp);
+		if(!retRegs.count)
+			return callResult(vp, rt, sret, retTemp);
+		moveRegReturn(retSlot, retRegs, ReturnMove::IntoSlot);
+		if(vp)
+			mov(vregFor(vp), retSlot);
 	}
 
 	void X86LowerPass::pushCallArgs(CallNode* c, X86ArgAssigner& as, List<CallArg>& args) {
 		const CallAbi& abi = c->getAbi();
 		for(U32 i = abi.ret.count ? 1 : 0; i < c->getArgCount(); ++i) {
-			ByvalArg byval = abi.byvalAt(i);
-			if(byval.bytes)
-				byvalArgs(c->getArg(i), byval, as, args);
-			else
+			std::optional<ByvalArg> byval = abi.byvalAt(i);
+			if(!byval) {
 				args.push_back(callArg(c->getArg(i), as));
-		}
-	}
-
-	// the copy as 8-byte stack chunks, after a padding chunk when its alignment needs one
-	// a large copy is its address and then its size, the call copies it as a block
-	void X86LowerPass::byvalArgs(Node* arg, ByvalArg byval, X86ArgAssigner& as, List<CallArg>& args) {
-		VReg base = gpValue(arg);
-		U32 unaligned = as.stackBytes;
-		if(as.nextMem(byval.bytes, byval.align).stackOff != unaligned)
-			args.push_back({MachineOperand::vr(base), Kind::Int, -1});
-		if(byval.bytes > detail::kByvalChunkBytes) {
-			args.push_back({MachineOperand::vr(base), Kind::Int, -1});
-			args.push_back({MachineOperand::immVal(byval.bytes), Kind::Int, -1});
-			return;
-		}
-		for(U32 k = 0; k < byval.bytes; k += 8) {
-			VReg chunk = fresh(detail::kGp);
-			ld(chunk, 8, baseDisp(base, (I32)k), false);
-			args.push_back({MachineOperand::vr(chunk), Kind::Int, -1});
+				continue;
+			}
+			U32 stackOff = as.nextMem(byval->bytes, byval->align).stackOff;
+			I64 placement = (I64)stackOff << 32 | byval->bytes;
+			args.push_back({MachineOperand::vr(gpValue(c->getArg(i))), Kind::Int, -1});
+			args.push_back({MachineOperand::immVal(placement), Kind::Int, -1});
 		}
 	}
 
@@ -277,63 +263,51 @@ namespace rat {
 		return MachineOperand::fixed(gpReg(gp++ ? RDX : RAX));
 	}
 
-	// the eightbytes back into the result slot, which is the call's value
-	void X86LowerPass::storeRegReturn(Node* vp, VReg retSlot, const AbiRegs& regs) {
-		if(regs.cls[0] == AbiClass::X87)
-			return storeX87Return(vp, retSlot, regs.count);
-		U32 gp = 0;
-		U32 sse = 0;
-		for(U32 k = 0; k < regs.count; ++k) {
-			if(regs.cls[k] == AbiClass::None)
-				continue;
-			MachineOperand reg = returnReg(regs.cls[k], gp, sse);
-			U32 cls = regs.cls[k] == AbiClass::Sse ? detail::kFp : detail::kGp;
-			VReg v = fresh(cls);
-			mov(MachineOperand::vr(v), reg, cls);
-			if(cls == detail::kFp)
-				stf(baseDisp(retSlot, (I32)(8 * k)), v, 8);
-			else
-				st(baseDisp(retSlot, (I32)(8 * k)), MachineOperand::vr(v));
-		}
-		if(vp)
-			mov(vregFor(vp), retSlot);
-	}
-
-	// the eightbytes of the returned slot into their registers
-	X86LowerPass::Ops X86LowerPass::loadRegReturn(Node* v, const AbiRegs& regs) {
-		VReg retSlot = gpValue(v);
+	// the return registers into the slot after a call, or out of it before a ret
+	X86LowerPass::Ops
+	X86LowerPass::moveRegReturn(VReg retSlot, const AbiRegs& regs, ReturnMove move) {
 		if(regs.cls[0] == AbiClass::X87) {
-			loadX87Return(retSlot, regs.count);
+			if(move == ReturnMove::IntoSlot)
+				storeX87Return(retSlot, regs.count);
+			else
+				loadX87Return(retSlot, regs.count);
 			return {};
 		}
 		Ops uses;
 		U32 gp = 0;
 		U32 sse = 0;
 		for(U32 k = 0; k < regs.count; ++k) {
-			if(regs.cls[k] == AbiClass::None)
+			if(regs.cls[k] == AbiClass::None) // an empty aggregate
 				continue;
 			MachineOperand reg = returnReg(regs.cls[k], gp, sse);
 			U32 cls = regs.cls[k] == AbiClass::Sse ? detail::kFp : detail::kGp;
-			VReg t = fresh(cls);
+			AddrParts at = baseDisp(retSlot, (I32)(8 * k));
+			VReg v = fresh(cls);
+			if(move == ReturnMove::IntoSlot) {
+				mov(MachineOperand::vr(v), reg, cls);
+				if(cls == detail::kFp)
+					stf(at, v, 8);
+				else
+					st(at, MachineOperand::vr(v));
+				continue;
+			}
 			if(cls == detail::kFp)
-				ldf(t, 8, baseDisp(retSlot, (I32)(8 * k)));
+				ldf(v, 8, at);
 			else
-				ld(t, 8, baseDisp(retSlot, (I32)(8 * k)), false);
-			mov(reg, MachineOperand::vr(t), cls);
+				ld(v, 8, at, false);
+			mov(reg, MachineOperand::vr(v), cls);
 			uses.push_back(reg);
 		}
 		return uses;
 	}
 
 	// st0 then st1 into the slot, 16 bytes per value
-	void X86LowerPass::storeX87Return(Node* vp, VReg retSlot, U32 count) {
+	void X86LowerPass::storeX87Return(VReg retSlot, U32 count) {
 		for(U32 k = 0; k < count; ++k) {
 			Slot value = slot(reserve(16, 16));
 			fstp(value);
 			fstp(x87PartAddr(retSlot, k), value);
 		}
-		if(vp)
-			mov(vregFor(vp), retSlot);
 	}
 
 	// the value at 0 ends in st0, the one at 16 in st1
@@ -375,11 +349,11 @@ namespace rat {
 			as.next(Kind::Int); // the hidden sret pointer comes first
 		List<X86ArgAssigner::Loc> locs;
 		for(U32 i = 0; i < fn->getParamCount(); ++i) {
-			ByvalArg byval = abi.byvalAt(i);
+			std::optional<ByvalArg> byval = abi.byvalAt(i);
 			if(i == 0 && abi.ret.count)
 				locs.push_back({-1, 0});
-			else if(byval.bytes)
-				locs.push_back(as.nextMem(byval.bytes, byval.align));
+			else if(byval)
+				locs.push_back(as.nextMem(byval->bytes, byval->align));
 			else
 				locs.push_back(as.next(argKind(fn->getParamType(i))));
 		}
@@ -405,7 +379,7 @@ namespace rat {
 			leaFrame(vregFor(p), reserve(abi.ret.cls[0] == AbiClass::X87 ? 32 : 16, 16));
 			return;
 		}
-		if(abi.byvalAt(index).bytes) {
+		if(abi.byvalAt(index)) {
 			mov(vregFor(p), stackParamAddr(l.stackOff));
 			return;
 		}
@@ -493,7 +467,7 @@ namespace rat {
 			Node* v = r->getValue();
 			const AbiRegs& retRegs = fn->getAttrs().abi.ret;
 			if(retRegs.count) {
-				m.uses = loadRegReturn(v, retRegs);
+				m.uses = moveRegReturn(gpValue(v), retRegs, ReturnMove::OutOfSlot);
 			} else if(isX87Ty(v->getType()) && conv->x87ByRef) {
 				// write the value through the hidden sret pointer and return it in rax
 				Slot s = x87Value(v);

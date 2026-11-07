@@ -21,8 +21,9 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
-	// sysv psABI 3.2.3, win64 passes only sizes 1, 2, 4 and 8 in a register
-	AbiRegs Emitter::abiRegs(CType t) const {
+	// sysv psABI 3.2.3, trailing padding eightbytes take no register
+	// win64 passes only sizes 1, 2, 4 and 8 in a register
+	AbiRegs Emitter::classify(CType t) const {
 		U64 size = byteSize(t);
 		AbiRegs regs;
 		if(lay.win64VaList) {
@@ -32,32 +33,38 @@ namespace rat::cc {
 		}
 		if(size > 16)
 			return regs;
-		// an empty aggregate travels as one eightbyte that takes no register
-		if(size == 0)
-			return {1, {}};
 		classifyEightbytes(t, 0, regs.cls);
-		for(AbiClass c : regs.cls)
-			if(c == AbiClass::Memory || c == AbiClass::X87)
-				return {};
 		regs.count = (U8)((size + 7) / 8);
+		while(regs.count && regs.cls[regs.count - 1] == AbiClass::None)
+			--regs.count;
+		// an earlier one holds an unnamed bitfield, which is not a field
+		if(regs.cls[0] == AbiClass::None && regs.count)
+			regs.cls[0] = AbiClass::Integer;
+		return regs;
+	}
+
+	AbiRegs Emitter::argRegs(CType t) const {
+		AbiRegs regs = classify(t);
+		if(regs.countOf(AbiClass::Memory) || regs.countOf(AbiClass::X87))
+			return {};
 		return regs;
 	}
 
 	// a long double, alone or as the parts of a complex, returns on the x87 stack
+	// an empty aggregate returns in no register
 	AbiRegs Emitter::returnRegs(CType t) const {
 		if(lay.win64VaList)
-			return abiRegs(t);
-		AbiRegs x87 = {1, {AbiClass::X87, AbiClass::X87}};
-		if(isComplexType(t) && complexElem(t).bits == 128) {
-			x87.count = 2;
-			return x87;
-		}
-		AbiClass cls[2] = {};
-		if(byteSize(t) == 16)
-			classifyEightbytes(t, 0, cls);
-		if(cls[0] == AbiClass::X87 && cls[1] == AbiClass::X87)
-			return x87;
-		return abiRegs(t);
+			return argRegs(t);
+		if(isComplexType(t) && complexElem(t).bits == 128)
+			return {2, {AbiClass::X87, AbiClass::X87}};
+		if(!byteSize(t))
+			return {1, {}};
+		AbiRegs regs = classify(t);
+		if(regs.cls[0] == AbiClass::X87 && regs.cls[1] == AbiClass::X87)
+			regs.count = 1;
+		else if(regs.countOf(AbiClass::Memory) || regs.countOf(AbiClass::X87))
+			return {};
+		return regs;
 	}
 
 	void Emitter::classifyEightbytes(CType t, U64 offset, AbiClass (&cls)[2]) const {
@@ -106,11 +113,9 @@ namespace rat::cc {
 		U32 gp = 0;
 		U32 sse = 0;
 		if(isAggregate(t)) {
-			regs = abiRegs(t);
-			for(U32 k = 0; k < regs.count; ++k) {
-				gp += regs.cls[k] == AbiClass::Integer;
-				sse += regs.cls[k] == AbiClass::Sse;
-			}
+			regs = argRegs(t);
+			gp = regs.countOf(AbiClass::Integer);
+			sse = regs.countOf(AbiClass::Sse);
 		} else if(!isFloating(t)) {
 			gp = 1;
 		} else if(t.bits != 128) {
@@ -138,16 +143,10 @@ namespace rat::cc {
 		if(lay.win64VaList)
 			return;
 		abi.byval.resize(index + 1);
-		abi.byval[index] = {(U32)byteSize(t), alignOf(t)};
+		abi.byval[index] = ByvalArg{(U32)byteSize(t), alignOf(t)};
 	}
 
 	Type* Emitter::eightbyteType(AbiClass c) {
 		return c == AbiClass::Sse ? mod.getFloat(64) : mod.getInt(64);
-	}
-
-	// whole eightbytes, so register halves can be stored and loaded
-	Node* Emitter::eightbyteSlot(Function& fn, CType t) {
-		U32 size = (U32)((byteSize(t) + 7) & ~7ull);
-		return fn.alloc(byteArrayType(size), alignOf(t));
 	}
 } // namespace rat::cc

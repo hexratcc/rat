@@ -96,7 +96,6 @@ namespace rat::cc {
 			U32 gp = rat::abi::kSysV.gpArgCount;
 			U32 sse = rat::abi::kSysV.sseArgCount;
 		};
-		// the ir arguments of a call being built
 		struct CallArgs {
 			List<Node*> nodes;
 			CallAbi abi;
@@ -170,7 +169,7 @@ namespace rat::cc {
 
 		// memory and conversions
 		Node* constSize(Function& fn, U64 value);
-		Node* allocBytes(Function& fn, U32 size);
+		Node* allocBytes(Function& fn, U32 size, U32 align = 0);
 		Node* declSlot(Function& fn, const Declarator& d, Type* ty, U32 size);
 		Node* emitArrayElemCount(Function& fn, CType t);
 		Node* emitArrayByteSize(Function& fn, CType t);
@@ -286,7 +285,8 @@ namespace rat::cc {
 		Value emitVaArgAggregate(Function& fn, Node* ap, CType t);
 
 		// x86-64 aggregate abi
-		AbiRegs abiRegs(CType t) const;
+		AbiRegs classify(CType t) const;
+		AbiRegs argRegs(CType t) const;
 		AbiRegs returnRegs(CType t) const;
 		void classifyEightbytes(CType t, U64 offset, AbiClass (&cls)[2]) const;
 		void classifyFields(const StructType* st, U64 offset, AbiClass (&cls)[2]) const;
@@ -294,7 +294,6 @@ namespace rat::cc {
 		ArgRegs freeArgRegs(CType ret) const;
 		void markByval(CallAbi& abi, U32 index, CType t) const;
 		Type* eightbyteType(AbiClass c);
-		Node* eightbyteSlot(Function& fn, CType t);
 
 		// builtins
 		B32 emitBuiltinCall(Function& fn, const Expr* expr, Value& out);

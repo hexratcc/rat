@@ -62,6 +62,10 @@ typedef union {
 } ULX; // int int
 typedef struct {
 } E; // nothing
+typedef struct {
+	long : 64;
+	long x;
+} UB; // int int, the first eightbyte only an unnamed bitfield
 
 #define MIX(h, v) ((h) * 1000003u + (unsigned long)(v))
 #define MIXF(h, v) MIX(h, (long)((v) * 4))
@@ -129,6 +133,7 @@ static int fold(unsigned long h) { return (int)(h ^ h >> 32); }
 	unsigned long F(spillMixed)(long a, long b, long c, long d, long e, long f, LD s, double t);     \
 	unsigned long F(stackAlign)(int a, int b, int c, int d, int e, int f, long x, A16 s, long y);    \
 	unsigned long F(emptyArg)(int a, E e, int b);                                                    \
+	unsigned long F(unnamed)(long a, long b, long c, long d, long e, UB s, long g);                  \
 	unsigned long F(complex)(float _Complex a, double _Complex b, int n);                            \
 	unsigned long F(big)(int a, L9 s, L9 t, long b);                                                 \
 	unsigned long F(target)(LD a, V4 b, V2 c);                                                       \
@@ -190,6 +195,10 @@ unsigned long SIDE(stackAlign)(int a, int b, int c, int d, int e, int f, long x,
 }
 
 unsigned long SIDE(emptyArg)(int a, E e, int b) { return MIX(MIX(8, a), b); }
+
+unsigned long SIDE(unnamed)(long a, long b, long c, long d, long e, UB s, long g) {
+	return MIX(MIX(MIX(MIX(MIX(MIX(MIX(12, a), b), c), d), e), s.x), g);
+}
 
 unsigned long SIDE(complex)(float _Complex a, double _Complex b, int n) {
 	return MIX(MIXF(MIXF(MIXF(MIXF(9, __real__ a), __imag__ a), __real__ b), __imag__ b), n);
@@ -331,6 +340,7 @@ static unsigned long SIDE(argCalls)(void) {
 	h = MIX(h, OTHER(spillMixed)(1, 2, 3, 4, 5, 6, kLD, -1.25));
 	h = MIX(h, OTHER(stackAlign)(1, 2, 3, 4, 5, 6, 70, kA16, 80));
 	h = MIX(h, OTHER(emptyArg)(11, kE, 12));
+	h = MIX(h, OTHER(unnamed)(1, 2, 3, 4, 5, (UB){.x = 6}, 7));
 	h = MIX(h, OTHER(complex)(1.5f + 2.5fi, -3.25 + 4.75i, 13));
 	L9 l9 = kL9;
 	h = MIX(h, OTHER(big)(1, l9, kL9, 2));
@@ -393,4 +403,6 @@ static unsigned long SIDE(vaCalls)(void) {
 	return sumL3(sumLD(h, &ld), &l3);
 }
 
-unsigned long SIDE(calls)(void) { return MIX(MIX(SIDE(argCalls)(), SIDE(retCalls)()), SIDE(vaCalls)()); }
+unsigned long SIDE(calls)(void) {
+	return MIX(MIX(SIDE(argCalls)(), SIDE(retCalls)()), SIDE(vaCalls)());
+}

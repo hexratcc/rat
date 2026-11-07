@@ -79,7 +79,7 @@ namespace rat::cc {
 
 	// a copy whose eightbytes go in registers when they all fit, else on the stack whole
 	void Emitter::pushAggregateArg(Function& fn, Node* src, CType t, CallArgs& args) {
-		Node* tmp = eightbyteSlot(fn, t);
+		Node* tmp = allocBytes(fn, (U32)byteSize(t), alignOf(t));
 		emitMemCopy(fn, tmp, src, (U32)byteSize(t));
 		AbiRegs regs = takeArgRegs(t, args.free);
 		if(!regs.count) {
@@ -88,17 +88,16 @@ namespace rat::cc {
 			return;
 		}
 		for(U32 k = 0; k < regs.count; ++k)
-			if(regs.cls[k] != AbiClass::None)
-				args.nodes.push_back(fn.load(eightbyteType(regs.cls[k]), offsetPtr(fn, tmp, 8 * k)));
+			args.nodes.push_back(fn.load(eightbyteType(regs.cls[k]), offsetPtr(fn, tmp, 8 * k)));
 	}
 
 	// the backend fetches the aggregate by size, alignment and eightbyte classes
 	Emitter::Value Emitter::emitVaArgAggregate(Function& fn, Node* ap, CType t) {
 		CallAbi fetch;
-		fetch.ret = abiRegs(t);
+		fetch.ret = argRegs(t);
 		List<Node*> args = {ap, constSize(fn, byteSize(t)), constSize(fn, alignOf(t))};
 		Node* src = fn.call("__builtin_va_arg_aggregate", mod.getPtr(), args, true, fetch);
-		Node* tmp = eightbyteSlot(fn, t);
+		Node* tmp = allocBytes(fn, (U32)byteSize(t), alignOf(t));
 		emitMemCopy(fn, tmp, src, (U32)byteSize(t));
 		return {tmp, t};
 	}
@@ -138,7 +137,7 @@ namespace rat::cc {
 		args.free = freeArgRegs(ret);
 		Node* resultSlot = nullptr;
 		if(isAggregate(ret)) {
-			resultSlot = eightbyteSlot(fn, ret);
+			resultSlot = allocBytes(fn, (U32)byteSize(ret), alignOf(ret));
 			args.nodes.push_back(resultSlot);
 			args.abi.ret = returnRegs(ret);
 		}
