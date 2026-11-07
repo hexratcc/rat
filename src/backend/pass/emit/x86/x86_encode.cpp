@@ -175,8 +175,11 @@ namespace rat {
 			for(U32 i = (U32)saved.size(); i-- > 0;)
 				a->pop(toGp(saved[i]));
 		}
+		// the cfa falls back to rsp once leave drops the frame, code after ret is still framed
 		a->leave();
+		markCfi(CfiOp::Kind::DefCfa, detail::gpPhys(RSP), 8);
 		a->ret();
+		markCfi(CfiOp::Kind::DefCfa, detail::gpPhys(RBP), detail::kCfaFromRbp);
 	}
 
 	void X86EncodePass::emitSwitchJump(const MachineInstr& in) {
@@ -410,7 +413,10 @@ namespace rat {
 		if(omitFrame)
 			return; // frameless leaf: no frame pointer
 		a->push(RBP);
+		markCfi(CfiOp::Kind::DefCfa, detail::gpPhys(RSP), detail::kCfaFromRbp);
+		markCfi(CfiOp::Kind::Offset, detail::gpPhys(RBP), -detail::kCfaFromRbp);
 		a->movRR(RBP, RSP);
+		markCfi(CfiOp::Kind::DefCfa, detail::gpPhys(RBP), detail::kCfaFromRbp);
 		if(conv->probeStack && frameSize > 4096) {
 			// touch each page in order so the guard page is grown correctly
 			U32 remaining = frameSize;
@@ -425,8 +431,12 @@ namespace rat {
 			a->subRegImm32(RSP, (I32)frameSize);
 		}
 		// callee saves below the frame slots, via push/pop
-		for(PhysReg r : fn->usedCalleeSaved)
+		I32 saveAt = -detail::kCfaFromRbp - (I32)frameSize;
+		for(PhysReg r : fn->usedCalleeSaved) {
 			a->push(toGp(r));
+			saveAt -= 8;
+			markCfi(CfiOp::Kind::Offset, r, saveAt);
+		}
 		if(!fl->variadic)
 			return;
 		// spill the positional register arguments into their home slots
@@ -441,6 +451,11 @@ namespace rat {
 		for(U32 i = 0; i < conv->sseArgCount; ++i)
 			a->storeXmm(i, RBP, fl->saveArea + (I32)conv->gpSaveBytes + (I32)(i * conv->sseSlotBytes), 8);
 		a->patchRel32(skip, a->here());
+	}
+
+	void X86EncodePass::markCfi(CfiOp::Kind kind, PhysReg reg, I32 value) {
+		if(encodedFunc)
+			encodedFunc->cfi.push_back({a->here(), kind, detail::kDwarfRegs[reg], value});
 	}
 
 	U32 X86EncodePass::blockIdBound(const MachineFunc& f) {
@@ -560,6 +575,11 @@ namespace rat {
 		conv = &x86CallConv(target.getTriple().os);
 		if(!obj)
 			obj = createObjectFile(target.getTriple().os);
+		encodedFunc = nullptr;
+		if(objectFormatFor(target.getTriple().os) == ObjectFormat::Elf) {
+			encodedFunc = &encoded.emplace_back();
+			encodedFunc->fn = &f;
+		}
 		code.clear();
 		Asm a(code, relocs);
 		encodeFunction(mf, a);
@@ -569,6 +589,10 @@ namespace rat {
 			align = std::max(align, blk.align);
 		obj->align(ObjectFile::Text, align);
 		U32 off = obj->append(ObjectFile::Text, code.data(), (U32)code.size());
+		if(encodedFunc) {
+			encodedFunc->textOff = off;
+			encodedFunc->size = (U32)code.size();
+		}
 		placed.push_back({&f, off, (U32)relocs.size()});
 		return false;
 	}
@@ -593,6 +617,9 @@ namespace rat {
 				emitGlobal(*obj, g, target.getPointerSizeInBytes());
 		defineFunctions();
 
+		if(objectFormatFor(target.getTriple().os) == ObjectFormat::Elf)
+			writeDwarf(encoded, *obj);
+
 		// aliases label storage that some other symbol owns
 		for(const Global* g : mod.globals()) {
 			if(!g->isAlias())
@@ -606,5 +633,6 @@ namespace rat {
 		obj = nullptr;
 		relocs.clear();
 		placed.clear();
+		encoded.clear();
 	}
 } // namespace rat
