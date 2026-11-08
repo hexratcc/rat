@@ -402,9 +402,11 @@ namespace rat::cc {
 		case StmtKind::Compound:
 			return emitCompound(fn, s);
 		case StmtKind::Decl:
-			for(const Declarator& d : s->decls)
+			for(const Declarator& d : s->decls) {
 				if(!emitOneDecl(fn, d))
 					return false;
+				debugLocal(fn, d);
+			}
 			return true;
 		case StmtKind::If:
 			return emitIf(fn, s);

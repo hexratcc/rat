@@ -49,6 +49,7 @@ namespace rat {
 		constexpr U32 DW_FORM_flag_present = 0x19;
 
 		constexpr U8 DW_OP_addr = 0x03;
+		constexpr U8 DW_OP_fbreg = 0x91;
 		constexpr U8 DW_OP_call_frame_cfa = 0x9c;
 
 		constexpr U8 DW_LNS_copy = 1;
@@ -274,6 +275,11 @@ namespace rat {
 				info.push_back(0);
 		}
 
+		// a static whose storage was never emitted gets no die
+		B32 DieWriter::hasStorage(const DebugVar& v) {
+			return v.symbol.empty() || mod.getGlobal(v.symbol);
+		}
+
 		void DieWriter::globalDie(const DebugVar& v) {
 			const Global* g = mod.getGlobal(v.symbol);
 			if(!g)
@@ -286,14 +292,38 @@ namespace rat {
 			emit(DW_TAG_variable, false, d);
 		}
 
-		void DieWriter::funcDie(const EncodedFunc& func) {
-			const DebugFunc& f = *func.fn->getDebug()->func;
+		// a variable, without a location gdb reports it as optimized out
+		void DieWriter::instDie(const EncodedFunc& func, U32 inst) {
+			const DebugVar& v = *func.fn->getDebug()->vars[inst].var;
+			if(!hasStorage(v))
+				return;
 			Die d;
-			describeFunc(d, func.fn->getName(), f, !func.fn->getAttrs().isInternal());
+			describeVar(d, v);
+			I32 frameOff = func.varFrameOff[inst];
+			if(!v.symbol.empty()) {
+				d.reloc(DW_AT_location, DW_FORM_exprloc, v.symbol, 0);
+			} else if(frameOff != kNoFrameSlot) {
+				List<U8> expr = {DW_OP_fbreg};
+				le::sleb(expr, frameOff);
+				d.exprloc(DW_AT_location, expr);
+			}
+			emit(v.isParam ? DW_TAG_formal_parameter : DW_TAG_variable, false, d);
+		}
+
+		void DieWriter::funcDie(const EncodedFunc& func) {
+			const DebugBody& body = *func.fn->getDebug();
+			Die d;
+			describeFunc(d, func.fn->getName(), *body.func, !func.fn->getAttrs().isInternal());
 			pcRanges(d, {{0, func.size}}, func.textOff);
 			d.exprloc(DW_AT_frame_base, {DW_OP_call_frame_cfa});
-			emit(DW_TAG_subprogram, f.variadic, d);
-			endChildren(f.variadic, f.variadic);
+			B32 variadic = body.func->variadic;
+			B32 children = variadic;
+			for(const DebugVarInst& v : body.vars)
+				children |= hasStorage(*v.var);
+			emit(DW_TAG_subprogram, children, d);
+			for(U32 i = 0; i < body.vars.size(); ++i)
+				instDie(func, i);
+			endChildren(variadic, children);
 		}
 
 		void DieWriter::unit(const List<EncodedFunc>& funcs) {

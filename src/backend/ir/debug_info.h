@@ -5,6 +5,8 @@
 #include "core.h"
 
 namespace rat {
+	struct AllocNode;
+
 	struct SrcLoc {
 		U32 file = 0; // DebugInfo::files
 		U32 line = 0;
@@ -45,12 +47,13 @@ namespace rat {
 		B32 incomplete = false; // declared struct without a body
 	};
 
-	// a source variable
+	// a source variable, shared by every copy of its function's code
 	struct DebugVar {
 		String name;
 		DebugType* type;
 		SrcLoc decl;
 		String symbol; // static storage, else empty
+		B32 isParam = false;
 	};
 
 	// a source function, outlives its IR function so inlined copies can still name it
@@ -60,16 +63,24 @@ namespace rat {
 		DebugType* ret = nullptr;
 		B32 external = false;
 		B32 variadic = false;
+		List<UniquePtr<DebugVar>> vars; // params first
 	};
 
 	struct DebugLoc {
 		SrcLoc src;
 	};
 
+	// one copy of a variable in a function's code
+	struct DebugVarInst {
+		const DebugVar* var;
+		AllocNode* slot = nullptr; // frame storage
+	};
+
 	// debug state of one IR function
 	struct DebugBody {
 		DebugFunc* func;
 		List<DebugLoc> locs = List<DebugLoc>(1); // 0 = no location
+		List<DebugVarInst> vars;
 
 		U32 addLoc(SrcLoc src);
 	};

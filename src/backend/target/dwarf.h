@@ -33,12 +33,15 @@ namespace rat {
 		U32 end;
 	};
 
+	constexpr I32 kNoFrameSlot = INT32_MIN;
+
 	struct EncodedFunc {
 		const Function* fn;
 		U32 textOff;
 		U32 size;
 		List<CfiOp> cfi;
 		List<LineRow> lines;
+		List<I32> varFrameOff; // per DebugBody var, its frame slot from the cfa or kNoFrameSlot
 	};
 
 	// .eh_frame always, the .debug_* sections when the module carries debug info
@@ -85,7 +88,9 @@ namespace rat {
 			void typeDie(const DebugType* t);
 			void typeChildren(const DebugType* t);
 			void endChildren(B32 variadic, B32 children);
+			B32 hasStorage(const DebugVar& v);
 			void globalDie(const DebugVar& v);
+			void instDie(const EncodedFunc& func, U32 inst);
 			void funcDie(const EncodedFunc& func);
 			void unit(const List<EncodedFunc>& funcs);
 		};

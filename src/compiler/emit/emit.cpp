@@ -485,7 +485,7 @@ namespace rat::cc {
 				continue;
 			if(isAggregate(p.type)) {
 				func.scopes.declare(*p.name, Local::mem(arg, p.type));
-			} else if(func.addrTaken.count(*p.name) || isTopVolatile(p.type)) {
+			} else if(func.addrTaken.count(*p.name) || isTopVolatile(p.type) || dbg.keepLocals) {
 				Node* slot = fn.alloc(irType(p.type));
 				fn.store(slot, arg, isTopVolatile(p.type));
 				func.scopes.declare(*p.name, Local::mem(slot, p.type));

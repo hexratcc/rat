@@ -47,7 +47,7 @@ namespace rat::cc {
 
 		B32 emit(const TransUnit& unit);
 		// describe the unit for debuggers, locations come from ts
-		void enableDebug(const TokenStream& ts, B32 describeVars);
+		void enableDebug(const TokenStream& ts, B32 keepLocalsInMemory, B32 describeVars);
 
 		const String& error() const { return diag.message; }
 		const List<String>& warnings() const { return diag.warnings; }
@@ -349,6 +349,8 @@ namespace rat::cc {
 		DebugType* debugWrap(DebugType::Kind kind, DebugType* elem);
 		void debugFunction(Function& fn, const FuncDef* def);
 		void debugSetLoc(Function& fn, U32 tok);
+		void debugVar(Function& fn, DebugVar v, const Local& l);
+		void debugLocal(Function& fn, const Declarator& d);
 		void debugGlobal(const Declarator& d);
 
 		// initializers

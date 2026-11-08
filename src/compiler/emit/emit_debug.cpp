@@ -6,7 +6,7 @@
 #include <filesystem>
 
 namespace rat::cc {
-	void Emitter::enableDebug(const TokenStream& ts, B32 describeVars) {
+	void Emitter::enableDebug(const TokenStream& ts, B32 keepLocalsInMemory, B32 describeVars) {
 		UniquePtr<DebugInfo> info = std::make_unique<DebugInfo>();
 		info->producer = String("ratcc ") + GIT_HASH;
 		std::error_code ec;
@@ -14,6 +14,7 @@ namespace rat::cc {
 		info->files.push_back(ts.file());
 		dbg.toks = &ts;
 		dbg.info = info.get();
+		dbg.keepLocals = keepLocalsInMemory;
 		dbg.describeVars = describeVars;
 		mod.setDebugInfo(std::move(info));
 	}
@@ -127,11 +128,34 @@ namespace rat::cc {
 		df.variadic = def->isVarArgs;
 		fn.setDebug(std::make_unique<DebugBody>());
 		fn.getDebug()->func = &df;
+		for(const Param& p : def->params) {
+			Local l;
+			if(!dbg.describeVars || !p.name || !func.scopes.lookup(*p.name, l))
+				continue;
+			debugVar(fn, {*p.name, debugType(p.type), debugLoc(p.offset), "", true}, l);
+		}
 	}
 
 	void Emitter::debugSetLoc(Function& fn, U32 tok) {
 		if(dbg.info)
 			fn.setLoc(fn.getDebug()->addLoc(debugLoc(tok)));
+	}
+
+	// records v with the frame slot l lives in, if any
+	void Emitter::debugVar(Function& fn, DebugVar v, const Local& l) {
+		DebugBody& body = *fn.getDebug();
+		body.func->vars.push_back(std::make_unique<DebugVar>(std::move(v)));
+		AllocNode* slot = !l.staticSymbol && l.inMem() ? dyn_cast<AllocNode>(l.addr) : nullptr;
+		body.vars.push_back({body.func->vars.back().get(), slot});
+	}
+
+	void Emitter::debugLocal(Function& fn, const Declarator& d) {
+		Local l;
+		if(!dbg.describeVars || d.isExtern || !func.scopes.lookup(*d.name, l))
+			return;
+		String symbol = l.staticSymbol ? *l.staticSymbol : "";
+		DebugVar v{*d.name, debugObjectType(d.type, d.isArray, l.count), debugLoc(d.offset), symbol};
+		debugVar(fn, std::move(v), l);
 	}
 
 	void Emitter::debugGlobal(const Declarator& d) {

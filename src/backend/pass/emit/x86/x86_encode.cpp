@@ -564,6 +564,15 @@ namespace rat {
 			encodedFunc->lines.push_back({a->here(), src});
 	}
 
+	void X86EncodePass::recordVars(const Function& f) {
+		if(!f.getDebug())
+			return;
+		for(const DebugVarInst& v : f.getDebug()->vars) {
+			I32 off = v.slot ? fl->allocOff[v.slot->getId()] : kNoSlot;
+			encodedFunc->varFrameOff.push_back(off == kNoSlot ? kNoFrameSlot : off - detail::kCfaFromRbp);
+		}
+	}
+
 	U32 X86EncodePass::blockIdBound(const MachineFunc& f) {
 		I32 maxId = -1;
 		for(const MachineBlock& blk : f.blocks)
@@ -702,6 +711,7 @@ namespace rat {
 		if(encodedFunc) {
 			encodedFunc->textOff = off;
 			encodedFunc->size = (U32)code.size();
+			recordVars(f);
 		}
 		placed.push_back({&f, off, (U32)relocs.size()});
 		return false;
