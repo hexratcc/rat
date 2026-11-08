@@ -72,23 +72,31 @@ namespace rat {
 		List<UniquePtr<DebugVar>> vars; // params first
 	};
 
+	// a lexical block, scope 0 is the function body
+	struct DebugScope {
+		U32 parent = 0;
+	};
+
 	struct DebugLoc {
 		SrcLoc src;
+		U32 scope = 0;
 	};
 
 	// one copy of a variable in a function's code
 	struct DebugVarInst {
 		const DebugVar* var;
+		U32 scope = 0;
 		AllocNode* slot = nullptr; // frame storage
 	};
 
 	// debug state of one IR function
 	struct DebugBody {
 		DebugFunc* func;
-		List<DebugLoc> locs = List<DebugLoc>(1); // 0 = no location
+		List<DebugLoc> locs = List<DebugLoc>(1);			 // 0 = no location
+		List<DebugScope> scopes = List<DebugScope>(1); // 0 = the body
 		List<DebugVarInst> vars;
 
-		U32 addLoc(SrcLoc src);
+		U32 addLoc(SrcLoc src, U32 scope);
 	};
 
 	struct DebugInfo {

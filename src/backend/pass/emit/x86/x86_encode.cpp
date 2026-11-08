@@ -564,6 +564,22 @@ namespace rat {
 			encodedFunc->lines.push_back({a->here(), src});
 	}
 
+	// [start, end) belongs to the instr's scope and its ancestors, located instrs carry the scope on
+	void X86EncodePass::markScope(U32 loc, U32 start, U32 end) {
+		if(!encodedFunc || encodedFunc->scopes.empty() || start == end)
+			return;
+		const DebugBody& body = *encodedFunc->fn->getDebug();
+		if(loc)
+			scope = body.locs[loc].scope;
+		for(U32 s = scope; s != 0; s = body.scopes[s].parent) {
+			List<PcRange>& r = encodedFunc->scopes[s];
+			if(!r.empty() && r.back().end == start)
+				r.back().end = end;
+			else
+				r.push_back({start, end});
+		}
+	}
+
 	void X86EncodePass::recordVars(const Function& f) {
 		if(!f.getDebug())
 			return;
@@ -642,8 +658,10 @@ namespace rat {
 			blockOffset[blk.id] = a->here();
 			I32 fallthrough = (bi + 1 < f.blocks.size()) ? (I32)f.blocks[bi + 1].id : -1;
 			for(const MachineInstr& in : blk.insts) {
+				U32 at = a->here();
 				markLine(in.loc);
 				emitInst(in, fallthrough);
+				markScope(in.loc, at, a->here());
 			}
 		}
 		// jump tables: 4-byte offsets from the table base, emitted after the code
@@ -696,8 +714,11 @@ namespace rat {
 		if(objectFormatFor(target.getTriple().os) == ObjectFormat::Elf) {
 			encodedFunc = &encoded.emplace_back();
 			encodedFunc->fn = &f;
-			if(f.getDebug())
+			if(f.getDebug()) {
 				encodedFunc->lines.push_back({0, f.getDebug()->func->decl});
+				encodedFunc->scopes.resize(f.getDebug()->scopes.size());
+			}
+			scope = 0;
 		}
 		code.clear();
 		Asm a(code, relocs);

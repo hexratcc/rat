@@ -11,12 +11,12 @@ namespace rat {
 	}
 
 	// consecutive nodes mostly share a location, reuse the last entry then
-	U32 DebugBody::addLoc(SrcLoc src) {
+	U32 DebugBody::addLoc(SrcLoc src, U32 scope) {
 		const DebugLoc& last = locs.back();
-		if(locs.size() > 1 && last.src.file == src.file && last.src.line == src.line &&
-			 last.src.col == src.col)
+		if(locs.size() > 1 && last.scope == scope && last.src.file == src.file &&
+			 last.src.line == src.line && last.src.col == src.col)
 			return (U32)locs.size() - 1;
-		locs.push_back({src});
+		locs.push_back({src, scope});
 		return (U32)locs.size() - 1;
 	}
 } // namespace rat

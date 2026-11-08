@@ -8,6 +8,7 @@ namespace rat {
 		constexpr U32 DW_TAG_array_type = 0x01;
 		constexpr U32 DW_TAG_enumeration_type = 0x04;
 		constexpr U32 DW_TAG_formal_parameter = 0x05;
+		constexpr U32 DW_TAG_lexical_block = 0x0b;
 		constexpr U32 DW_TAG_member = 0x0d;
 		constexpr U32 DW_TAG_pointer_type = 0x0f;
 		constexpr U32 DW_TAG_compile_unit = 0x11;
@@ -44,6 +45,7 @@ namespace rat {
 		constexpr U32 DW_AT_external = 0x3f;
 		constexpr U32 DW_AT_frame_base = 0x40;
 		constexpr U32 DW_AT_type = 0x49;
+		constexpr U32 DW_AT_ranges = 0x55;
 		constexpr U32 DW_AT_data_bit_offset = 0x6b;
 
 		constexpr U32 DW_FORM_addr = 0x01;
@@ -58,6 +60,9 @@ namespace rat {
 		constexpr U8 DW_OP_addr = 0x03;
 		constexpr U8 DW_OP_fbreg = 0x91;
 		constexpr U8 DW_OP_call_frame_cfa = 0x9c;
+
+		constexpr U8 DW_LE_end_of_list = 0;
+		constexpr U8 DW_LE_offset_pair = 4; // same in rnglists and loclists
 
 		constexpr U8 DW_LNS_copy = 1;
 		constexpr U8 DW_LNS_advance_pc = 2;
@@ -219,12 +224,22 @@ namespace rat {
 			return at;
 		}
 
-		// one range as low and high pc
+		// one range as low and high pc, several as a .debug_rnglists list. list offsets are from the
+		// unit base, .text
 		void DieWriter::pcRanges(Die& d, const List<PcRange>& r, U32 textOff) {
-			assert(r.size() == 1 && "split ranges need .debug_rnglists");
-			d.reloc(
-					DW_AT_low_pc, DW_FORM_addr, obj.sectionSymbol(ObjectFile::Text), textOff + r[0].start);
-			d.udata(DW_AT_high_pc, r[0].end - r[0].start);
+			if(r.size() == 1) {
+				d.reloc(
+						DW_AT_low_pc, DW_FORM_addr, obj.sectionSymbol(ObjectFile::Text), textOff + r[0].start);
+				return d.udata(DW_AT_high_pc, r[0].end - r[0].start);
+			}
+			String listSym = obj.sectionSymbol(ObjectFile::DebugRnglists);
+			d.reloc(DW_AT_ranges, DW_FORM_sec_offset, listSym, (I64)rnglists.size());
+			for(const PcRange& p : r) {
+				rnglists.push_back(DW_LE_offset_pair);
+				le::uleb(rnglists, textOff + p.start);
+				le::uleb(rnglists, textOff + p.end);
+			}
+			rnglists.push_back(DW_LE_end_of_list);
 		}
 
 		void DieWriter::typeDie(const DebugType* t) {
@@ -314,13 +329,13 @@ namespace rat {
 		}
 
 		// a variable, without a location gdb reports it as optimized out
-		void DieWriter::instDie(const EncodedFunc& func, U32 inst) {
-			const DebugVar& v = *func.fn->getDebug()->vars[inst].var;
+		void DieWriter::instDie(const ScopeTree& tree, U32 inst) {
+			const DebugVar& v = *tree.body.vars[inst].var;
 			if(!hasStorage(v))
 				return;
 			Die d;
 			describeVar(d, v);
-			I32 frameOff = func.varFrameOff[inst];
+			I32 frameOff = tree.func.varFrameOff[inst];
 			if(!v.symbol.empty()) {
 				d.reloc(DW_AT_location, DW_FORM_exprloc, v.symbol, 0);
 			} else if(frameOff != kNoFrameSlot) {
@@ -331,19 +346,61 @@ namespace rat {
 			emit(v.isParam ? DW_TAG_formal_parameter : DW_TAG_variable, false, d);
 		}
 
-		void DieWriter::funcDie(const EncodedFunc& func) {
-			const DebugBody& body = *func.fn->getDebug();
+		void DieWriter::scopeDie(const ScopeTree& tree, U32 scope) {
 			Die d;
-			describeFunc(d, func.fn->getName(), *body.func, !func.fn->getAttrs().isInternal());
+			pcRanges(d, tree.func.scopes[scope], tree.func.textOff);
+			B32 children = hasDies(tree, scope);
+			emit(DW_TAG_lexical_block, children, d);
+			scopeChildren(tree, scope);
+			if(children)
+				info.push_back(0);
+		}
+
+		// lexical blocks without code hand their vars and children to the parent
+		void DieWriter::scopeChildren(const ScopeTree& tree, U32 scope) {
+			for(U32 inst : tree.vars[scope])
+				instDie(tree, inst);
+			for(U32 kid : tree.kids[scope]) {
+				B32 hasCode = !tree.func.scopes[kid].empty();
+				if(hasCode && hasDies(tree, kid))
+					scopeDie(tree, kid);
+				else
+					scopeChildren(tree, kid);
+			}
+		}
+
+		// whether scopeChildren emits anything
+		B32 DieWriter::hasDies(const ScopeTree& tree, U32 scope) {
+			for(U32 inst : tree.vars[scope])
+				if(hasStorage(*tree.body.vars[inst].var))
+					return true;
+			for(U32 kid : tree.kids[scope])
+				if(hasDies(tree, kid))
+					return true;
+			return false;
+		}
+
+		ScopeTree DieWriter::indexScopes(const EncodedFunc& func) {
+			const DebugBody& body = *func.fn->getDebug();
+			U32 n = (U32)body.scopes.size();
+			ScopeTree tree{func, body, List<List<U32>>(n), List<List<U32>>(n)};
+			for(U32 s = 1; s < n; ++s)
+				tree.kids[body.scopes[s].parent].push_back(s);
+			for(U32 i = 0; i < body.vars.size(); ++i)
+				tree.vars[body.vars[i].scope].push_back(i);
+			return tree;
+		}
+
+		void DieWriter::funcDie(const EncodedFunc& func) {
+			ScopeTree tree = indexScopes(func);
+			Die d;
+			describeFunc(d, func.fn->getName(), *tree.body.func, !func.fn->getAttrs().isInternal());
 			pcRanges(d, {{0, func.size}}, func.textOff);
 			d.exprloc(DW_AT_frame_base, {DW_OP_call_frame_cfa});
-			B32 variadic = body.func->variadic;
-			B32 children = variadic;
-			for(const DebugVarInst& v : body.vars)
-				children |= hasStorage(*v.var);
+			B32 variadic = tree.body.func->variadic;
+			B32 children = variadic || hasDies(tree, 0);
 			emit(DW_TAG_subprogram, children, d);
-			for(U32 i = 0; i < body.vars.size(); ++i)
-				instDie(func, i);
+			scopeChildren(tree, 0);
 			endChildren(variadic, children);
 		}
 
@@ -363,6 +420,7 @@ namespace rat {
 			cu.reloc(DW_AT_stmt_list, DW_FORM_sec_offset, obj.sectionSymbol(ObjectFile::DebugLine), 0);
 			emit(DW_TAG_compile_unit, true, cu);
 
+			unitHeader(rnglists);
 			for(const DebugVar& g : di.globals)
 				globalDie(g);
 			for(const EncodedFunc& func : funcs)
@@ -377,6 +435,7 @@ namespace rat {
 			for(const auto& [at, target] : refs)
 				le::patch32(info, at, dieOff[target]);
 			le::patch32(info, 0, (U32)info.size() - 4);
+			le::patch32(rnglists, 0, (U32)rnglists.size() - 4);
 		}
 
 		// unit_length, version 5, address_size, segment_selector_size, then the line table's
@@ -499,6 +558,7 @@ namespace rat {
 		w.unit(funcs);
 		obj.append(ObjectFile::DebugInfo, w.info.data(), (U32)w.info.size());
 		obj.append(ObjectFile::DebugAbbrev, w.abbrev.data(), (U32)w.abbrev.size());
+		obj.append(ObjectFile::DebugRnglists, w.rnglists.data(), (U32)w.rnglists.size());
 		detail::writeLineTable(*di, funcs, obj);
 	}
 } // namespace rat
