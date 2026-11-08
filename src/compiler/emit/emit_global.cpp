@@ -331,6 +331,7 @@ namespace rat::cc {
 			}
 			if(!registerGlobal(d, *d.name, nullptr))
 				return false;
+			debugGlobal(d);
 		}
 		return true;
 	}

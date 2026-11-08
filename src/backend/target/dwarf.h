@@ -48,17 +48,22 @@ namespace rat {
 		struct Die {
 			List<U8> decl; // attr and form pairs
 			List<U8> body;
-			List<AsmReloc> relocs; // offsets in body
+			List<Pair<U32, const void*>> refs; // ref4 slots in body to the die of a type
+			List<const DebugType*> types;			 // referenced types, emitted later
+			List<AsmReloc> relocs;						 // offsets in body
 
 			void attr(U32 name, U32 form);
 			void string(U32 name, const String& s);
 			void udata(U32 name, U64 v);
-			// an addr or a sec_offset
+			// an addr, a sec_offset or an exprloc naming a static
 			void reloc(U32 name, U32 form, const String& symbol, I64 addend);
 			void exprloc(U32 name, const List<U8>& expr);
+			void ref(U32 name, const void* target);
+			void type(U32 name, const DebugType* t);
 			void srcLoc(U32 fileAttr, SrcLoc loc);
 		};
 
+		void describeVar(Die& d, const DebugVar& v);
 		void describeFunc(Die& d, const String& name, const DebugFunc& f, B32 external);
 
 		struct DieWriter {
@@ -70,11 +75,17 @@ namespace rat {
 			ObjectFile& obj;
 			List<U8> info;
 			List<U8> abbrev;
-			Map<String, U32> abbrevCode; // encoded declaration -> code
+			Map<String, U32> abbrevCode;			 // encoded declaration -> code
+			Map<const void*, U32> dieOff;			 // type -> its die, 0 = queued
+			List<Pair<U32, const void*>> refs; // ref4 slots in info to patch
+			List<const DebugType*> pendingTypes;
 
 			U32 emit(U32 tag, B32 children, const Die& d);
 			void pcRanges(Die& d, const List<PcRange>& r, U32 textOff);
+			void typeDie(const DebugType* t);
+			void typeChildren(const DebugType* t);
 			void endChildren(B32 variadic, B32 children);
+			void globalDie(const DebugVar& v);
 			void funcDie(const EncodedFunc& func);
 			void unit(const List<EncodedFunc>& funcs);
 		};

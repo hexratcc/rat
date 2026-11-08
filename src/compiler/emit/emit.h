@@ -342,8 +342,14 @@ namespace rat::cc {
 
 		// debug info, the hooks do nothing without -g
 		SrcLoc debugLoc(U32 tok);
+		DebugType* debugType(CType t);
+		DebugType* debugObjectType(CType t, B32 isArray, U64 count);
+		DebugType* debugBase(CType t);
+		DebugType* debugRecord(const StructType* st);
+		DebugType* debugWrap(DebugType::Kind kind, DebugType* elem);
 		void debugFunction(Function& fn, const FuncDef* def);
 		void debugSetLoc(Function& fn, U32 tok);
+		void debugGlobal(const Declarator& d);
 
 		// initializers
 		static const Expr* peelAggregateCompound(const Expr* el);

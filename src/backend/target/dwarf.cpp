@@ -5,11 +5,24 @@
 
 namespace rat {
 	namespace detail {
+		constexpr U32 DW_TAG_array_type = 0x01;
+		constexpr U32 DW_TAG_formal_parameter = 0x05;
+		constexpr U32 DW_TAG_member = 0x0d;
+		constexpr U32 DW_TAG_pointer_type = 0x0f;
 		constexpr U32 DW_TAG_compile_unit = 0x11;
+		constexpr U32 DW_TAG_structure_type = 0x13;
+		constexpr U32 DW_TAG_subroutine_type = 0x15;
+		constexpr U32 DW_TAG_union_type = 0x17;
 		constexpr U32 DW_TAG_unspecified_parameters = 0x18;
+		constexpr U32 DW_TAG_subrange_type = 0x21;
+		constexpr U32 DW_TAG_base_type = 0x24;
 		constexpr U32 DW_TAG_subprogram = 0x2e;
+		constexpr U32 DW_TAG_variable = 0x34;
 
+		constexpr U32 DW_AT_location = 0x02;
 		constexpr U32 DW_AT_name = 0x03;
+		constexpr U32 DW_AT_byte_size = 0x0b;
+		constexpr U32 DW_AT_bit_size = 0x0d;
 		constexpr U32 DW_AT_stmt_list = 0x10;
 		constexpr U32 DW_AT_low_pc = 0x11;
 		constexpr U32 DW_AT_high_pc = 0x12;
@@ -17,17 +30,25 @@ namespace rat {
 		constexpr U32 DW_AT_comp_dir = 0x1b;
 		constexpr U32 DW_AT_producer = 0x25;
 		constexpr U32 DW_AT_prototyped = 0x27;
+		constexpr U32 DW_AT_count = 0x37;
+		constexpr U32 DW_AT_data_member_location = 0x38;
 		constexpr U32 DW_AT_decl_file = 0x3a;
+		constexpr U32 DW_AT_declaration = 0x3c;
+		constexpr U32 DW_AT_encoding = 0x3e;
 		constexpr U32 DW_AT_external = 0x3f;
 		constexpr U32 DW_AT_frame_base = 0x40;
+		constexpr U32 DW_AT_type = 0x49;
+		constexpr U32 DW_AT_data_bit_offset = 0x6b;
 
 		constexpr U32 DW_FORM_addr = 0x01;
 		constexpr U32 DW_FORM_string = 0x08;
 		constexpr U32 DW_FORM_udata = 0x0f;
+		constexpr U32 DW_FORM_ref4 = 0x13;
 		constexpr U32 DW_FORM_sec_offset = 0x17;
 		constexpr U32 DW_FORM_exprloc = 0x18;
 		constexpr U32 DW_FORM_flag_present = 0x19;
 
+		constexpr U8 DW_OP_addr = 0x03;
 		constexpr U8 DW_OP_call_frame_cfa = 0x9c;
 
 		constexpr U8 DW_LNS_copy = 1;
@@ -53,6 +74,41 @@ namespace rat {
 
 		constexpr U8 DW_UT_compile = 1;
 
+		constexpr U8 DW_ATE_boolean = 0x02;
+		constexpr U8 DW_ATE_complex_float = 0x03;
+		constexpr U8 DW_ATE_float = 0x04;
+		constexpr U8 DW_ATE_signed = 0x05;
+		constexpr U8 DW_ATE_signed_char = 0x06;
+		constexpr U8 DW_ATE_unsigned = 0x07;
+		constexpr U8 DW_ATE_unsigned_char = 0x08;
+
+		// per base DebugType kind
+		constexpr U8 kBaseEncoding[] = {
+				DW_ATE_signed,
+				DW_ATE_unsigned,
+				DW_ATE_signed_char,
+				DW_ATE_unsigned_char,
+				DW_ATE_boolean,
+				DW_ATE_float,
+				DW_ATE_complex_float,
+		};
+
+		// die tag per DebugType kind
+		constexpr U32 kTypeTag[] = {
+				DW_TAG_base_type,
+				DW_TAG_base_type,
+				DW_TAG_base_type,
+				DW_TAG_base_type,
+				DW_TAG_base_type,
+				DW_TAG_base_type,
+				DW_TAG_base_type,
+				DW_TAG_pointer_type,
+				DW_TAG_structure_type,
+				DW_TAG_union_type,
+				DW_TAG_array_type,
+				DW_TAG_subroutine_type,
+		};
+
 		// x86-64, rsp and the return address column
 		constexpr U8 kPtrBytes = 8;
 		constexpr U32 kDwarfSp = 7;
@@ -75,6 +131,8 @@ namespace rat {
 
 		void Die::reloc(U32 name, U32 form, const String& symbol, I64 addend) {
 			attr(name, form);
+			if(form == DW_FORM_exprloc) // the address of a static
+				body.insert(body.end(), {1 + kPtrBytes, DW_OP_addr});
 			RelocKind kind = form == DW_FORM_sec_offset ? RelocKind::Abs32 : RelocKind::Abs64;
 			relocs.push_back({(U32)body.size(), symbol, kind, addend});
 			body.insert(body.end(), kind == RelocKind::Abs64 ? 8 : 4, 0);
@@ -86,6 +144,17 @@ namespace rat {
 			body.insert(body.end(), expr.begin(), expr.end());
 		}
 
+		void Die::ref(U32 name, const void* target) {
+			attr(name, DW_FORM_ref4);
+			refs.push_back({(U32)body.size(), target});
+			le::put32(body, 0);
+		}
+
+		void Die::type(U32 name, const DebugType* t) {
+			ref(name, t);
+			types.push_back(t);
+		}
+
 		// line follows the file attr and column precedes it
 		void Die::srcLoc(U32 fileAttr, SrcLoc loc) {
 			udata(fileAttr, loc.file);
@@ -94,10 +163,18 @@ namespace rat {
 				udata(fileAttr - 1, loc.col);
 		}
 
+		void describeVar(Die& d, const DebugVar& v) {
+			d.string(DW_AT_name, v.name);
+			d.srcLoc(DW_AT_decl_file, v.decl);
+			d.type(DW_AT_type, v.type);
+		}
+
 		void describeFunc(Die& d, const String& name, const DebugFunc& f, B32 external) {
 			d.string(DW_AT_name, name);
 			d.srcLoc(DW_AT_decl_file, f.decl);
 			d.attr(DW_AT_prototyped, DW_FORM_flag_present);
+			if(f.ret)
+				d.type(DW_AT_type, f.ret);
 			if(external)
 				d.attr(DW_AT_external, DW_FORM_flag_present);
 		}
@@ -119,6 +196,11 @@ namespace rat {
 			U32 at = (U32)info.size();
 			le::uleb(info, it->second);
 			U32 bodyAt = (U32)info.size();
+			for(const auto& [off, target] : d.refs)
+				refs.push_back({bodyAt + off, target});
+			for(const DebugType* t : d.types)
+				if(dieOff.emplace(t, 0).second)
+					pendingTypes.push_back(t);
 			for(const AsmReloc& r : d.relocs)
 				obj.addReloc(ObjectFile::DebugInfo, bodyAt + r.offset, r.symbol, r.kind, r.addend);
 			info.insert(info.end(), d.body.begin(), d.body.end());
@@ -133,12 +215,75 @@ namespace rat {
 			d.udata(DW_AT_high_pc, r[0].end - r[0].start);
 		}
 
-		// ends the children of a function
+		void DieWriter::typeDie(const DebugType* t) {
+			using Kind = DebugType::Kind;
+			Kind k = t->kind;
+			Die d;
+			if(!t->name.empty())
+				d.string(DW_AT_name, t->name);
+			if(k <= Kind::ComplexFloat)
+				d.udata(DW_AT_encoding, kBaseEncoding[(U32)k]);
+			if(t->incomplete)
+				d.attr(DW_AT_declaration, DW_FORM_flag_present);
+			else if(k <= Kind::Union)
+				d.udata(DW_AT_byte_size, t->size);
+			if(k == Kind::Function)
+				d.attr(DW_AT_prototyped, DW_FORM_flag_present);
+			if(t->elem)
+				d.type(DW_AT_type, t->elem);
+			B32 children = !t->members.empty() || k == Kind::Array || !t->params.empty() || t->variadic;
+			dieOff[t] = emit(kTypeTag[(U32)k], children, d);
+			if(children)
+				typeChildren(t);
+		}
+
+		// members, the array subrange or params
+		void DieWriter::typeChildren(const DebugType* t) {
+			for(const DebugType::Member& m : t->members) {
+				Die member;
+				if(!m.name.empty())
+					member.string(DW_AT_name, m.name);
+				member.type(DW_AT_type, m.type);
+				if(m.bitSize) {
+					member.udata(DW_AT_data_bit_offset, (U64)m.offset * 8 + m.bitOffset);
+					member.udata(DW_AT_bit_size, m.bitSize);
+				} else {
+					member.udata(DW_AT_data_member_location, m.offset);
+				}
+				emit(DW_TAG_member, false, member);
+			}
+			if(t->kind == DebugType::Kind::Array) {
+				Die range;
+				if(t->count)
+					range.udata(DW_AT_count, t->count);
+				emit(DW_TAG_subrange_type, false, range);
+			}
+			for(const DebugType* p : t->params) {
+				Die param;
+				param.type(DW_AT_type, p);
+				emit(DW_TAG_formal_parameter, false, param);
+			}
+			endChildren(t->variadic, true);
+		}
+
+		// ends the children of a function or type
 		void DieWriter::endChildren(B32 variadic, B32 children) {
 			if(variadic)
 				emit(DW_TAG_unspecified_parameters, false, {});
 			if(children)
 				info.push_back(0);
+		}
+
+		void DieWriter::globalDie(const DebugVar& v) {
+			const Global* g = mod.getGlobal(v.symbol);
+			if(!g)
+				return;
+			Die d;
+			describeVar(d, v);
+			if(!g->isInternal())
+				d.attr(DW_AT_external, DW_FORM_flag_present);
+			d.reloc(DW_AT_location, DW_FORM_exprloc, v.symbol, 0);
+			emit(DW_TAG_variable, false, d);
 		}
 
 		void DieWriter::funcDie(const EncodedFunc& func) {
@@ -167,12 +312,19 @@ namespace rat {
 			cu.reloc(DW_AT_stmt_list, DW_FORM_sec_offset, obj.sectionSymbol(ObjectFile::DebugLine), 0);
 			emit(DW_TAG_compile_unit, true, cu);
 
+			for(const DebugVar& g : di.globals)
+				globalDie(g);
 			for(const EncodedFunc& func : funcs)
 				if(func.fn->getDebug())
 					funcDie(func);
+			// types last, emitting one may queue more
+			for(U32 i = 0; i < pendingTypes.size(); ++i)
+				typeDie(pendingTypes[i]);
 			info.push_back(0);
 			abbrev.push_back(0);
 
+			for(const auto& [at, target] : refs)
+				le::patch32(info, at, dieOff[target]);
 			le::patch32(info, 0, (U32)info.size() - 4);
 		}
 
