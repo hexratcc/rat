@@ -8,5 +8,6 @@ pkgs.mkShell {
 		pkgs.mimalloc
 		pkgs.clang-tools
 		pkgs.python3
+		pkgs.gdb
 	];
 }

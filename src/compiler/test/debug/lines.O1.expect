@@ -1,0 +1,6 @@
+Breakpoint 1, twice () at
+lines.c:
+#1  0x
+ in main () at
+lines.c:7
+No symbol "w" in current context.
