@@ -6,18 +6,23 @@
 namespace rat {
 	namespace detail {
 		constexpr U32 DW_TAG_array_type = 0x01;
+		constexpr U32 DW_TAG_enumeration_type = 0x04;
 		constexpr U32 DW_TAG_formal_parameter = 0x05;
 		constexpr U32 DW_TAG_member = 0x0d;
 		constexpr U32 DW_TAG_pointer_type = 0x0f;
 		constexpr U32 DW_TAG_compile_unit = 0x11;
 		constexpr U32 DW_TAG_structure_type = 0x13;
 		constexpr U32 DW_TAG_subroutine_type = 0x15;
+		constexpr U32 DW_TAG_typedef = 0x16;
 		constexpr U32 DW_TAG_union_type = 0x17;
 		constexpr U32 DW_TAG_unspecified_parameters = 0x18;
 		constexpr U32 DW_TAG_subrange_type = 0x21;
 		constexpr U32 DW_TAG_base_type = 0x24;
+		constexpr U32 DW_TAG_const_type = 0x26;
+		constexpr U32 DW_TAG_enumerator = 0x28;
 		constexpr U32 DW_TAG_subprogram = 0x2e;
 		constexpr U32 DW_TAG_variable = 0x34;
+		constexpr U32 DW_TAG_volatile_type = 0x35;
 
 		constexpr U32 DW_AT_location = 0x02;
 		constexpr U32 DW_AT_name = 0x03;
@@ -28,6 +33,7 @@ namespace rat {
 		constexpr U32 DW_AT_high_pc = 0x12;
 		constexpr U32 DW_AT_language = 0x13;
 		constexpr U32 DW_AT_comp_dir = 0x1b;
+		constexpr U32 DW_AT_const_value = 0x1c;
 		constexpr U32 DW_AT_producer = 0x25;
 		constexpr U32 DW_AT_prototyped = 0x27;
 		constexpr U32 DW_AT_count = 0x37;
@@ -42,6 +48,7 @@ namespace rat {
 
 		constexpr U32 DW_FORM_addr = 0x01;
 		constexpr U32 DW_FORM_string = 0x08;
+		constexpr U32 DW_FORM_sdata = 0x0d;
 		constexpr U32 DW_FORM_udata = 0x0f;
 		constexpr U32 DW_FORM_ref4 = 0x13;
 		constexpr U32 DW_FORM_sec_offset = 0x17;
@@ -108,6 +115,10 @@ namespace rat {
 				DW_TAG_union_type,
 				DW_TAG_array_type,
 				DW_TAG_subroutine_type,
+				DW_TAG_typedef,
+				DW_TAG_enumeration_type,
+				DW_TAG_const_type,
+				DW_TAG_volatile_type,
 		};
 
 		// x86-64, rsp and the return address column
@@ -226,19 +237,22 @@ namespace rat {
 				d.udata(DW_AT_encoding, kBaseEncoding[(U32)k]);
 			if(t->incomplete)
 				d.attr(DW_AT_declaration, DW_FORM_flag_present);
-			else if(k <= Kind::Union)
+			else if(k <= Kind::Union || k == Kind::Enum)
 				d.udata(DW_AT_byte_size, t->size);
 			if(k == Kind::Function)
 				d.attr(DW_AT_prototyped, DW_FORM_flag_present);
+			if(k == Kind::Typedef || k == Kind::Enum)
+				d.srcLoc(DW_AT_decl_file, t->decl);
 			if(t->elem)
 				d.type(DW_AT_type, t->elem);
-			B32 children = !t->members.empty() || k == Kind::Array || !t->params.empty() || t->variadic;
+			B32 children = !t->members.empty() || k == Kind::Array || !t->params.empty() || t->variadic ||
+										 !t->enumerators.empty();
 			dieOff[t] = emit(kTypeTag[(U32)k], children, d);
 			if(children)
 				typeChildren(t);
 		}
 
-		// members, the array subrange or params
+		// members, the array subrange, params or enumerators
 		void DieWriter::typeChildren(const DebugType* t) {
 			for(const DebugType::Member& m : t->members) {
 				Die member;
@@ -263,6 +277,13 @@ namespace rat {
 				Die param;
 				param.type(DW_AT_type, p);
 				emit(DW_TAG_formal_parameter, false, param);
+			}
+			for(const auto& [name, value] : t->enumerators) {
+				Die e;
+				e.string(DW_AT_name, name);
+				e.attr(DW_AT_const_value, DW_FORM_sdata);
+				le::sleb(e.body, value);
+				emit(DW_TAG_enumerator, false, e);
 			}
 			endChildren(t->variadic, true);
 		}

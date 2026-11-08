@@ -84,7 +84,9 @@ namespace rat::cc {
 				fail(peek(), "expected typedef name");
 				return false;
 			}
-			typedefs.set(*r.name, r.type);
+			CType named = r.type;
+			named.named = arena.make<NamedType>(NamedType{*r.name, r.type, {}, r.offset});
+			typedefs.set(*r.name, named);
 			if(!accept(TokKind::Comma))
 				break;
 		}

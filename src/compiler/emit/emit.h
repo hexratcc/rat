@@ -346,6 +346,7 @@ namespace rat::cc {
 		DebugType* debugObjectType(CType t, B32 isArray, U64 count);
 		DebugType* debugBase(CType t);
 		DebugType* debugRecord(const StructType* st);
+		DebugType* debugNamed(const NamedType* n);
 		DebugType* debugWrap(DebugType::Kind kind, DebugType* elem);
 		void debugFunction(Function& fn, const FuncDef* def);
 		void debugSetLoc(Function& fn, U32 tok);

@@ -85,7 +85,7 @@ namespace rat::cc {
 			unitStart = l.bitPos / unitBits * unitBytes;
 		}
 		if(w > 0 && f.name) {
-			f.type.bitPrec = (U32)w; // the field's values wrap at this width
+			f.type.bitPrec = (U8)w; // the field's values wrap at this width
 			f.set(Field::Bitfield);
 			f.bitWidth = (U32)w;
 			f.bitOffset = isUnion ? 0 : l.bitPos % unitBits;
@@ -270,8 +270,9 @@ namespace rat::cc {
 
 	// [ enumerator [, enumerator]... [,] ] }
 	// enumerator: name [= const-expr]
-	B32 Parser::parseEnumerators(B32& anyNegative) {
+	B32 Parser::parseEnumerators(NamedType& e) {
 		I64 next = 0;
+		B32 anyNegative = false;
 		while(!check(TokKind::RBrace) && !check(TokKind::Eof)) {
 			if(!check(TokKind::Identifier)) {
 				fail(peek(), "expected enumerator name");
@@ -293,16 +294,18 @@ namespace rat::cc {
 			if(value < 0)
 				anyNegative = true;
 			enumConstants.set(lex.text(name), value);
+			e.enumerators.push_back({lex.text(name), value});
 			next = value + 1;
 			if(!accept(TokKind::Comma))
 				break;
 		}
+		e.type.set(CType::Unsigned, !anyNegative);
 		return expect(TokKind::RBrace, "'}'");
 	}
 
 	// enum [alignas]... [tag] [ { enumerators ]
 	B32 Parser::parseEnumSpec(CType& out) {
-		advance(); // enum
+		Token kw = advance(); // enum
 		String tag;
 		U32 ignored = 0; // an enum's alignment is its underlying type's
 		if(!acceptTrailingAlignas(ignored))
@@ -310,20 +313,20 @@ namespace rat::cc {
 		if(check(TokKind::Identifier))
 			tag = lex.text(advance());
 
-		B32 anyNegative = false;
-		B32 haveList = accept(TokKind::LBrace);
-		if(haveList && !parseEnumerators(anyNegative))
-			return false;
-		if(!tag.empty()) {
-			if(haveList)
-				enumSignedTags.set(tag, anyNegative);
-			else {
-				if(const B32* seen = enumSignedTags.get(tag))
-					anyNegative = *seen;
-			}
+		const NamedType* e = nullptr;
+		if(accept(TokKind::LBrace)) {
+			NamedType* defined = arena.make<NamedType>(NamedType{tag, ctInt(), {}, kw.offset, true});
+			if(!parseEnumerators(*defined))
+				return false;
+			if(!tag.empty())
+				enumTags.set(tag, defined);
+			e = defined;
+		} else if(const NamedType* const* seen = enumTags.get(tag)) {
+			e = *seen;
 		}
-		out = ctInt();
-		if(!anyNegative)
+		out = e ? e->type : ctInt();
+		out.named = e;
+		if(!e)
 			out.set(CType::Unsigned);
 		return true;
 	}

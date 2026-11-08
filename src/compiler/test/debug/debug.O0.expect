@@ -1,0 +1,34 @@
+Breakpoint 1, leaf (a=53) at
+#1  0x
+ in deep (n=0, acc=53) at
+debug.c:16
+#4  0x
+ in deep (n=3, acc=1) at
+#5  0x
+ in main () at
+debug.c:38
+$1 = 53
+Value returned is $2 = 160
+Breakpoint 2, scale (p=0x
+k=5) at
+debug.c:24
+$3 = {x = 1, y = 2.5, flag = 5, name = "hi\000\000\000\000\000"}
+$4 = 5
+$5 = "hi\000\000\000\000\000"
+$6 = 5
+$7 = 7
+ in main () at
+debug.c:39
+$8 = {4, 5, 6}
+$9 = 97 'a'
+Line 2 of
+debug.h" starts at address
+Breakpoint 3, span (q=..., bias=2) at
+$12 = 2
+Value returned is $13 = 8
+type = Tagged
+type = struct {
+    Color c;
+    const char *s;
+= Green
+= Blue

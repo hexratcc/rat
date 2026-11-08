@@ -68,6 +68,7 @@ namespace rat::cc {
 	struct StructType;
 	struct ArrayType;
 	struct FuncType;
+	struct NamedType;
 	struct Expr;
 
 	struct CType {
@@ -85,17 +86,18 @@ namespace rat::cc {
 		};
 
 		U32 bits = 32;
-		U32 bitPrec = 0; // bitfield width, 0 when the type is not a bitfield's
 		U32 ptr = 0;
 		U32 quals = 0;
 		U32 vquals = 0;
 		U32 rquals = 0;
 		Base base = Base::Int;
 		U8 mods = 0;
+		U8 bitPrec = 0; // bitfield width, 0 when the type is not a bitfield's
 		const StructType* strukt = nullptr;
 		const ArrayType* array = nullptr;
 		const FuncType* func = nullptr;
 		const Expr* typeofExpr = nullptr;
+		const NamedType* named = nullptr; // typedef or enum spelled, see outerNamedType
 
 		constexpr B32 has(Mods m) const { return (mods & (U8)m) != 0; }
 		constexpr void set(Mods m, B32 on = true) {
@@ -134,6 +136,26 @@ namespace rat::cc {
 	constexpr B32 isVoidType(CType t) { return t.isVoid() && t.ptr == 0; }
 	constexpr B32 isInteger(CType t) {
 		return t.ptr == 0 && t.base == CType::Base::Int && !t.isComplex() && t.strukt == nullptr;
+	}
+
+	// a typedef name or an enum
+	struct NamedType {
+		String name; // empty for an anonymous enum
+		CType type;	 // aliased type, or the enum's underlying int
+		List<Pair<String, I64>> enumerators;
+		U32 offset = 0; // token of the name, or of the enum keyword
+		B32 isEnum = false;
+	};
+
+	// the typedef or enum t spells at its outer level, null once a derived type wraps it
+	constexpr const NamedType* outerNamedType(CType t) {
+		const NamedType* n = t.named;
+		if(!n)
+			return nullptr;
+		CType a = n->type;
+		B32 same = t.ptr == a.ptr && t.array == a.array && t.func == a.func && t.strukt == a.strukt &&
+							 t.base == a.base && t.bits == a.bits && t.mods == a.mods;
+		return same ? n : nullptr;
 	}
 
 	struct Field {

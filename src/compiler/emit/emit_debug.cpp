@@ -33,6 +33,20 @@ namespace rat::cc {
 
 	DebugType* Emitter::debugType(CType t) {
 		using Kind = DebugType::Kind;
+		const NamedType* named = outerNamedType(t);
+		// qualifiers a typedef carries belong to its own description
+		CType own = named ? named->type : CType{};
+		U32 top = 1u << t.ptr;
+		if(t.vquals & ~own.vquals & top) {
+			clearTopVolatile(t);
+			return debugWrap(Kind::Volatile, debugType(t));
+		}
+		if(t.quals & ~own.quals & top) {
+			clearTopConst(t);
+			return debugWrap(Kind::Const, debugType(t));
+		}
+		if(named)
+			return debugNamed(named);
 		if(t.ptr > 0)
 			return debugWrap(Kind::Pointer, debugType(pointee(t)));
 		if(isArrayType(t))
@@ -105,6 +119,18 @@ namespace rat::cc {
 			rec->members.push_back({*f.name, type, (U32)f.offset, bits, f.bitOffset});
 		}
 		return rec;
+	}
+
+	DebugType* Emitter::debugNamed(const NamedType* n) {
+		DebugType::Kind kind = n->isEnum ? DebugType::Kind::Enum : DebugType::Kind::Typedef;
+		DebugType*& d = dbg.types[{kind, n}];
+		if(d)
+			return d;
+		d = dbg.info->makeType(kind, n->name, n->isEnum ? (U32)byteSize(n->type) : 0);
+		d->decl = debugLoc(n->offset);
+		d->enumerators = n->enumerators;
+		d->elem = debugType(n->type);
+		return d;
 	}
 
 	DebugType* Emitter::debugWrap(DebugType::Kind kind, DebugType* elem) {

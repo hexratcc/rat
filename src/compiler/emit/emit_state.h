@@ -136,7 +136,7 @@ namespace rat::cc {
 		B32 describeVars = false;			 // types and variables, else lines only
 		Map<U16, U32> files;					 // token file index to DebugInfo file
 		Map<String, DebugType*> bases; // by name
-		std::map<Pair<DebugType::Kind, const void*>, DebugType*> types; // records and wrappers
+		std::map<Pair<DebugType::Kind, const void*>, DebugType*> types; // records, named and wrappers
 	};
 
 	struct GlobalData {

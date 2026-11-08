@@ -346,7 +346,7 @@ namespace rat::cc {
 	void Parser::pushScope() {
 		typedefs.push();
 		enumConstants.push();
-		enumSignedTags.push();
+		enumTags.push();
 		structTypes.push();
 		++scopeDepth;
 	}
@@ -355,7 +355,7 @@ namespace rat::cc {
 		--scopeDepth;
 		typedefs.pop();
 		enumConstants.pop();
-		enumSignedTags.pop();
+		enumTags.pop();
 		structTypes.pop();
 	}
 

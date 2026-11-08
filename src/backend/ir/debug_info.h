@@ -26,7 +26,11 @@ namespace rat {
 			Struct,
 			Union,
 			Array,
-			Function
+			Function,
+			Typedef,
+			Enum,
+			Const,
+			Volatile
 		};
 		struct Member {
 			String name;
@@ -39,12 +43,14 @@ namespace rat {
 		Kind kind;
 		String name;
 		U32 size = 0;
-		DebugType* elem = nullptr; // pointee, element or return type, null = void
+		DebugType* elem = nullptr; // pointee, element, return, aliased or underlying type, null = void
 		U64 count = 0;						 // array length, 0 = unknown
 		List<Member> members;
 		List<DebugType*> params;
 		B32 variadic = false;
 		B32 incomplete = false; // declared struct without a body
+		List<Pair<String, I64>> enumerators;
+		SrcLoc decl; // typedef and enum
 	};
 
 	// a source variable, shared by every copy of its function's code
