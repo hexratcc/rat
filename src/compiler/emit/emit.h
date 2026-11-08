@@ -47,7 +47,7 @@ namespace rat::cc {
 
 		B32 emit(const TransUnit& unit);
 		// describe the unit for debuggers, locations come from ts
-		void enableDebug(const TokenStream& ts);
+		void enableDebug(const TokenStream& ts, B32 describeVars);
 
 		const String& error() const { return diag.message; }
 		const List<String>& warnings() const { return diag.warnings; }

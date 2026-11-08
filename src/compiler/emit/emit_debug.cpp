@@ -6,7 +6,7 @@
 #include <filesystem>
 
 namespace rat::cc {
-	void Emitter::enableDebug(const TokenStream& ts) {
+	void Emitter::enableDebug(const TokenStream& ts, B32 describeVars) {
 		UniquePtr<DebugInfo> info = std::make_unique<DebugInfo>();
 		info->producer = String("ratcc ") + GIT_HASH;
 		std::error_code ec;
@@ -14,6 +14,7 @@ namespace rat::cc {
 		info->files.push_back(ts.file());
 		dbg.toks = &ts;
 		dbg.info = info.get();
+		dbg.describeVars = describeVars;
 		mod.setDebugInfo(std::move(info));
 	}
 

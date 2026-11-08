@@ -130,7 +130,8 @@ namespace rat::cc {
 	struct DebugState {
 		const TokenStream* toks = nullptr;
 		DebugInfo* info = nullptr;
-		Map<U16, U32> files; // token file index to DebugInfo file
+		B32 describeVars = false; // types and variables, else lines only
+		Map<U16, U32> files;			// token file index to DebugInfo file
 	};
 
 	struct GlobalData {
