@@ -52,7 +52,7 @@ namespace rat {
 		struct Die {
 			List<U8> decl; // attr and form pairs
 			List<U8> body;
-			List<Pair<U32, const void*>> refs; // ref4 slots in body to the die of a type
+			List<Pair<U32, const void*>> refs; // ref4 slots in body to the die of a type, func or var
 			List<const DebugType*> types;			 // referenced types, emitted later
 			List<AsmReloc> relocs;						 // offsets in body
 
@@ -75,6 +75,7 @@ namespace rat {
 			const DebugBody& body;
 			List<List<U32>> kids; // scope -> child scopes
 			List<List<U32>> vars; // scope -> var insts
+			List<U32> inlinedIn;	// scope -> its nearest inlined scope, 0 = none
 		};
 
 		struct DieWriter {
@@ -87,9 +88,10 @@ namespace rat {
 			List<U8> info;
 			List<U8> abbrev;
 			Map<String, U32> abbrevCode;			 // encoded declaration -> code
-			Map<const void*, U32> dieOff;			 // type -> its die, 0 = queued
+			Map<const void*, U32> dieOff;			 // type, func or var -> its die, 0 = queued
 			List<Pair<U32, const void*>> refs; // ref4 slots in info to patch
 			List<const DebugType*> pendingTypes;
+			List<const DebugFunc*> pendingFuncs; // abstract instances of inlined funcs
 			List<U8> rnglists;
 
 			U32 emit(U32 tag, B32 children, const Die& d);
@@ -105,6 +107,7 @@ namespace rat {
 			B32 hasDies(const ScopeTree& tree, U32 scope);
 			ScopeTree indexScopes(const EncodedFunc& func);
 			void funcDie(const EncodedFunc& func);
+			void abstractDie(const DebugFunc* f);
 			void unit(const List<EncodedFunc>& funcs);
 		};
 

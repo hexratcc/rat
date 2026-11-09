@@ -33,6 +33,8 @@ namespace rat {
 	}
 
 	Node* InlinePass::mapped(Node* key) const {
+		if(!key)
+			return nullptr;
 		U32 id = key->getId();
 		return id < cloneMap.size() ? cloneMap[id] : nullptr;
 	}
@@ -128,9 +130,46 @@ namespace rat {
 		caller.removeNode(call);
 	}
 
+	// the callee scopes and locs move under a new inlined scope of the caller, callee scope k lands at
+	// scopeBase + k and loc l at locBase + l, the clones take the moved locs
+	void InlinePass::inlineScopes(Function& caller, CallNode* call, const Function& callee) {
+		DebugBody& to = *caller.getDebug();
+		const DebugBody& from = *callee.getDebug();
+		U32 scopeBase = (U32)to.scopes.size();
+		U32 locBase = (U32)to.locs.size() - 1;
+		to.scopes.push_back({to.locs[call->getLoc()].scope, from.func, call->getLoc()});
+		for(U32 k = 1; k < from.scopes.size(); ++k) {
+			DebugScope s = from.scopes[k];
+			s.parent += scopeBase;
+			s.callLoc = s.callLoc ? locBase + s.callLoc : 0;
+			to.scopes.push_back(s);
+		}
+		for(U32 l = 1; l < from.locs.size(); ++l)
+			to.locs.push_back({from.locs[l].src, scopeBase + from.locs[l].scope});
+		for(Node* n : callee)
+			if(Node* c = mapped(n); c && n->getLoc() && !isStartProj(callee, n))
+				c->setLoc(locBase + n->getLoc());
+	}
+
+	// after inlineScopes, the callee scopes end the caller list
+	void InlinePass::inlineVars(Function& caller, const Function& callee) {
+		DebugBody& to = *caller.getDebug();
+		U32 scopeBase = (U32)(to.scopes.size() - callee.getDebug()->scopes.size());
+		for(const DebugVarInst& v : callee.getDebug()->vars) {
+			DebugVarInst copy = v;
+			copy.scope = scopeBase + v.scope;
+			copy.slot = dyn_cast<AllocNode>(mapped(v.slot));
+			to.vars.push_back(copy);
+		}
+	}
+
 	B32 InlinePass::inlineCallSite(Function& caller, CallNode* call, Function& callee) {
 		if(!cloneBody(caller, call, callee))
 			return false;
+		if(caller.getDebug() && callee.getDebug()) {
+			inlineScopes(caller, call, callee);
+			inlineVars(caller, callee);
+		}
 		wireClones(callee);
 		Merged m = mergeReturns(caller, callee);
 		if(!m.ctrl)

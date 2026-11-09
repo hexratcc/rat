@@ -72,9 +72,11 @@ namespace rat {
 		List<UniquePtr<DebugVar>> vars; // params first
 	};
 
-	// a lexical block, scope 0 is the function body
+	// a lexical block, or an inlined call when inlined is set, scope 0 is the function body
 	struct DebugScope {
 		U32 parent = 0;
+		const DebugFunc* inlined = nullptr;
+		U32 callLoc = 0;
 	};
 
 	struct DebugLoc {
@@ -89,7 +91,7 @@ namespace rat {
 		AllocNode* slot = nullptr; // frame storage
 	};
 
-	// debug state of one IR function
+	// debug state of one IR function, inlining copies it into the caller
 	struct DebugBody {
 		DebugFunc* func;
 		List<DebugLoc> locs = List<DebugLoc>(1);			 // 0 = no location

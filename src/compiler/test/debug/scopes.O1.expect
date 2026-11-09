@@ -1,0 +1,5 @@
+Breakpoint 1, square (x=
+#1  work (n=
+scopes.c:17
+#2  0x
+ in main () at
