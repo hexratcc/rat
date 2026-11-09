@@ -127,13 +127,14 @@ namespace rat {
 		return (X86Op)in.op == X86Op::Load && in.regClass == detail::kGp && isAnySlotLoad(in);
 	}
 
-	// replaces at, keeping its debug location
+	// replaces at, keeping its debug location and records
 	MachineInstr
 	X86PeepholePass::makeCopy(PhysReg dst, PhysReg src, const MachineInstr& at, U32 width) {
 		MachineInstr m;
 		m.op = (MachineOpcode)X86Op::Copy;
 		m.regClass = at.regClass;
 		m.loc = at.loc;
+		m.dbg = at.dbg;
 		m.defs = {MachineOperand::fixed(dst, width)};
 		m.uses = {MachineOperand::fixed(src, width)};
 		return m;
@@ -210,9 +211,10 @@ namespace rat {
 			st.killReg((PhysReg)countTrailingZeros64(m));
 	}
 
-	U32 X86PeepholePass::runOnBlock(MachineBlock& b) {
+	U32 X86PeepholePass::runOnBlock(MachineFunc& mf, MachineBlock& b) {
 		U32 changed = 0;
 		U32 kept = 0; // compacts in place, a fold never adds instructions
+		U32 dbg = 0;	// records of dropped instrs, for the next kept one
 		st.reset();
 		for(U32 i = 0; i < (U32)b.insts.size(); ++i) {
 			MachineInstr& in = b.insts[i];
@@ -225,13 +227,18 @@ namespace rat {
 				changed += foldSlotLoad(in, keep);
 			else
 				stepOther(in);
-			if(!keep)
+			if(!keep) {
+				dbg = mf.joinDbg(dbg, in.dbg);
 				continue;
+			}
+			in.dbg = mf.joinDbg(dbg, in.dbg);
+			dbg = 0;
 			slots.note(in, (U32)b.id);
 			if(kept != i)
 				b.insts[kept] = std::move(in);
 			++kept;
 		}
+		b.dbgEnd = mf.joinDbg(dbg, b.dbgEnd);
 		b.insts.erase(b.insts.begin() + kept, b.insts.end());
 		return changed;
 	}
@@ -451,21 +458,33 @@ namespace rat {
 			}
 			dropped += here;
 			if(here)
-				eraseMarked(b, drop);
+				eraseMarked(mf, b);
 		}
 		return dropped;
 	}
 
-	// drop the flagged instructions
-	void X86PeepholePass::eraseMarked(MachineBlock& b, const List<B32>& drop) {
+	// drop the flagged instructions, their debug records go to the next kept one. with records, each
+	// drop seeds the debug taint at its place
+	void X86PeepholePass::eraseMarked(MachineFunc& mf, MachineBlock& b) {
 		U32 kept = 0;
+		U32 dbg = 0;
 		for(U32 i = 0; i < (U32)b.insts.size(); ++i) {
-			if(drop[i])
+			MachineInstr& in = b.insts[i];
+			if(drop[i]) {
+				dbg = mf.joinDbg(dbg, in.dbg);
+				if(mf.dbg.size() > 1 && in.defs.empty()) // a store leaves its slot stale
+					dbgSeeds.push_back({(U32)b.id, kept, in.uses[0], 0});
+				else if(mf.dbg.size() > 1) // a normalize leaves its imm low bits right
+					dbgSeeds.push_back({(U32)b.id, kept, in.defs[0], (U32)in.imm});
 				continue;
+			}
+			in.dbg = mf.joinDbg(dbg, in.dbg);
+			dbg = 0;
 			if(kept != i)
-				b.insts[kept] = std::move(b.insts[i]);
+				b.insts[kept] = std::move(in);
 			++kept;
 		}
+		b.dbgEnd = mf.joinDbg(dbg, b.dbgEnd);
 		b.insts.erase(b.insts.begin() + kept, b.insts.end());
 	}
 
@@ -671,7 +690,7 @@ namespace rat {
 			}
 			removed += here;
 			if(here)
-				eraseMarked(b, drop);
+				eraseMarked(mf, b);
 		}
 		return removed;
 	}
@@ -679,13 +698,15 @@ namespace rat {
 	B32 X86PeepholePass::run(Module&, const Function&, MachineFunc& mf, const TargetInfo&) {
 		seedQueued.clear();
 		U32 changed = elimRedundantExt(mf);
+		killTainted(mf);
 		st.begin(mf.frameBytes / 8 + 1);
 		slots.begin(mf);
 		for(MachineBlock& b : mf.blocks)
 			if(b.id >= 0)
-				changed += runOnBlock(b);
+				changed += runOnBlock(mf, b);
 		slots.finish();
 		changed += elimDeadSlotStores(mf);
+		killTainted(mf);
 		return changed != 0;
 	}
 } // namespace rat
