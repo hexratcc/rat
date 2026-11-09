@@ -171,6 +171,8 @@ namespace rat {
 		Var declareLocal(String name, Node* init);
 		Node* get(Var var);
 		void set(Var var, Node* value);
+		void bindVar(Var var, U32 inst);
+		void bindDebug(U32 inst, Node* value);
 
 		// terminators
 		void ret(Node* value);
@@ -219,6 +221,7 @@ namespace rat {
 		// them without scanning every block
 		void cacheDef(Block* block, Var var, Node* val);
 		static Node** findDef(Block* block, Var var);
+		void noteBinding(Var var, Node* value, Node* anchor, Node* after);
 		Node* addPhiOperands(Var var, PhiNode* phi, Block* block);
 		Node* tryRemoveTrivialPhi(PhiNode* phi);
 		void replacePhiEverywhere(PhiNode* phi, Node* with);
@@ -259,6 +262,8 @@ namespace rat {
 		List<Type*> varTypes;
 		Var memVar = 0; // reserved variable carrying the memory token
 		Map<PhiNode*, List<Pair<Block*, Var>>> phiDefSites;
+		List<U32> varInst;					// var -> its debug var inst + 1
+		Node* lastEffect = nullptr; // store or call last made, for debug bindings
 	};
 } // namespace rat
 

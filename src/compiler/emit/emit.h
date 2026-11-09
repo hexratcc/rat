@@ -351,7 +351,7 @@ namespace rat::cc {
 		void debugFunction(Function& fn, const FuncDef* def);
 		void debugSetLoc(Function& fn, U32 tok);
 		U32 debugEnterScope(Function& fn, const Stmt* s);
-		void debugVar(Function& fn, DebugVar v, const Local& l);
+		void debugVar(Function& fn, DebugVar v, const Local& l, B32 hasValue);
 		void debugLocal(Function& fn, const Declarator& d);
 		void debugGlobal(const Declarator& d);
 

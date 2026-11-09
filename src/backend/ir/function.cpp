@@ -121,6 +121,7 @@ namespace rat {
 		StoreNode* s = create<StoreNode>(memTy(), control(), mem(), pointer, value);
 		s->setVolatile(isVolatile);
 		set(memVar, s);
+		lastEffect = s;
 	}
 
 	Node* Function::global(const String& name) { return create<GlobalNode>(ptrTy(), name); }
@@ -138,6 +139,7 @@ namespace rat {
 	}
 
 	void Function::bindEffects(Node* n) {
+		lastEffect = n;
 		Node* ctrlProj = proj(n, CallNode::controlProjIndex(), ctrlTy(), "ctrl");
 		if(cur->ctrl)
 			cur->ctrl = ctrlProj;
@@ -288,7 +290,28 @@ namespace rat {
 	}
 
 	Node* Function::get(Var var) { return read(var, cur); }
-	void Function::set(Var var, Node* value) { cacheDef(cur, var, value); }
+	void Function::set(Var var, Node* value) {
+		cacheDef(cur, var, value);
+		noteBinding(var, value, cur->ctrl, lastEffect);
+	}
+
+	void Function::bindVar(Var var, U32 inst) {
+		if(varInst.size() <= var)
+			varInst.resize(var + 1, 0);
+		varInst[var] = inst + 1;
+	}
+
+	void Function::bindDebug(U32 inst, Node* value) {
+		if(cur->ctrl)
+			debug->bind(inst, value, cur->ctrl, lastEffect);
+	}
+
+	// for a debug bound var, a phi binds after no effect as it holds from its block start
+	void Function::noteBinding(Var var, Node* value, Node* anchor, Node* after) {
+		if(var < varInst.size() && varInst[var] && anchor)
+			debug->bind(varInst[var] - 1, value, anchor, after);
+	}
+
 	Node* Function::mem() { return get(memVar); }
 
 	Node** Function::findDef(Block* block, Var var) {
@@ -320,12 +343,14 @@ namespace rat {
 			// unsealed (loop header): an incomplete phi, completed at seal()
 			PhiNode* p = phi(varTypes[var], block->region, {});
 			block->incompletePhis.push_back({var, p});
+			noteBinding(var, p, block->ctrl, nullptr);
 			val = p;
 		} else if(block->preds.size() == 1) {
 			val = read(var, block->predBlocks[0]);
 		} else {
 			PhiNode* p = phi(varTypes[var], block->region, {});
 			cacheDef(block, var, p); // break cycles before reading predecessors
+			noteBinding(var, p, block->ctrl, nullptr);
 			val = addPhiOperands(var, p, block);
 		}
 		cacheDef(block, var, val);
@@ -423,6 +448,8 @@ namespace rat {
 		for(Node* n : nodes)
 			if(!mark[n->getId()])
 				nodes[kept++] = n;
+			else if(debug)
+				debug->retarget(n, nullptr);
 		U32 removed = (U32)nodes.size() - kept;
 		nodes.resize(kept);
 		return removed;
@@ -487,6 +514,8 @@ namespace rat {
 
 	void Function::removeNode(Node* n) {
 		touch();
+		if(debug)
+			debug->retarget(n, nullptr);
 		n->clearInputs();
 		auto it = std::find(nodes.begin(), nodes.end(), n);
 		if(it != nodes.end())

@@ -6,6 +6,7 @@
 
 namespace rat {
 	struct AllocNode;
+	struct Node;
 
 	struct SrcLoc {
 		U32 file = 0; // DebugInfo::files
@@ -91,14 +92,37 @@ namespace rat {
 		AllocNode* slot = nullptr; // frame storage
 	};
 
+	// var inst holds value from where control reaches anchor on, past the store or call after, a null
+	// value is optimized out
+	struct DebugBinding {
+		U32 inst;
+		Node* value;
+		Node* anchor;
+		Node* after; // the last effect made before it, null = none
+	};
+
 	// debug state of one IR function, inlining copies it into the caller
 	struct DebugBody {
 		DebugFunc* func;
 		List<DebugLoc> locs = List<DebugLoc>(1);			 // 0 = no location
 		List<DebugScope> scopes = List<DebugScope>(1); // 0 = the body
 		List<DebugVarInst> vars;
+		List<DebugBinding> bindings;
+		// bindings naming a node, linked per node id, constants are never relinked
+		struct Ref {
+			U32 binding;
+			U32 next; // + 1, 0 ends
+		};
+		List<U32> refHead; // node id -> first ref + 1
+		List<Ref> refs;
 
 		U32 addLoc(SrcLoc src, U32 scope);
+		void bind(U32 inst, Node* value, Node* anchor, Node* after);
+		// moves the bindings of from onto to, null drops them
+		void retarget(Node* from, Node* to);
+		// bindings anchored at a branch arm merged into to hold on one path only, they lose their value
+		void mergeArm(Node* arm, Node* to);
+		void link(Node* n, U32 binding);
 	};
 
 	struct DebugInfo {

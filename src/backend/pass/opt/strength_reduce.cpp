@@ -149,6 +149,10 @@ namespace rat {
 		List<Node*> users(p->getUsers().begin(), p->getUsers().end());
 		for(Node* u : users)
 			detail::widenUse(fn, u, p, q, cmp, bound);
+		if(DebugBody* dbg = fn.getDebug()) {
+			dbg->retarget(p->getValue(recIdx), q->getValue(recIdx));
+			dbg->retarget(p, q);
+		}
 		p->setInput(1 + recIdx, init); // p and its step are dead, cut their cycle
 		return 1;
 	}
