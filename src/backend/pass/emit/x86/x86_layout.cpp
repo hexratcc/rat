@@ -34,9 +34,15 @@ namespace rat {
 				if(b.id < 0 || !isPureTestBlock(b))
 					continue;
 
-				// replace the jmp with a copy of the test block's instructions
+				// replace the jmp with a copy of the test block's instructions, debug records copied along
+				U32 dbg = mf.joinDbg(term.dbg, p.dbgEnd);
 				p.insts.pop_back();
+				U32 first = (U32)p.insts.size();
 				p.insts.insert(p.insts.end(), b.insts.begin(), b.insts.end());
+				for(U32 i = first; i < (U32)p.insts.size(); ++i)
+					p.insts[i].dbg = mf.copyDbg(p.insts[i].dbg);
+				p.insts[first].dbg = mf.joinDbg(dbg, p.insts[first].dbg);
+				p.dbgEnd = mf.copyDbg(b.dbgEnd);
 
 				// p's successor edge moves from b to b's successors
 				p.succs.erase(std::remove(p.succs.begin(), p.succs.end(), t), p.succs.end());
@@ -174,6 +180,9 @@ namespace rat {
 				I32 id = mf.blocks[i].id;
 				if(id >= 0 && !placed[(U32)id]) {
 					MachineBlock stub = std::move(mf.blocks[i]);
+					// debug records stay, the successor lists still route through a skipped jump
+					for(U32 k = (U32)stub.insts.size(); k-- > 0;) // backward, each join walks one instr chain
+						stub.dbgEnd = mf.joinDbg(stub.insts[k].dbg, stub.dbgEnd);
 					stub.insts.clear();
 					arranged.push_back(std::move(stub));
 				}

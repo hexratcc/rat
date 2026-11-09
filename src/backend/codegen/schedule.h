@@ -58,6 +58,7 @@ namespace rat {
 		const List<Node*>& allocNodes() const;
 
 		I32 blockOf(const Node* n) const;
+		I32 anchorBlock(const Node* ctrl) const;
 
 		U32 succCount(I32 b) const;
 		I32 succAt(I32 b, U32 i) const;

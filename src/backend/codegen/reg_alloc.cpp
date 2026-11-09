@@ -45,8 +45,13 @@ namespace rat {
 		number();
 		liveness();
 		buildIntervals();
+		B32 dbg = f.dbg.size() > 1;
+		if(dbg)
+			checkDebugLive();
 		coalesce();
 		assignRegs();
+		if(dbg)
+			rewriteDebug();
 		rewrite();
 		fn->usedCalleeSaved.clear();
 		for(U64 m = usedCallee; m; m &= m - 1)
@@ -249,6 +254,46 @@ namespace rat {
 		chunk.assign((busy.size() + 63) / 64, 0);
 		for(U64 s = 0; s < busy.size(); ++s)
 			chunk[s >> 6] |= busy[s];
+	}
+
+	B32 RegAllocPass::covers(VReg v, I32 pos) const {
+		const List<Seg>& segs = iv[v].segs;
+		auto it = std::upper_bound(segs.begin(), segs.end(), Seg{pos, INT32_MAX});
+		return it != segs.begin() && (it - 1)->second >= pos;
+	}
+
+	// a record holds when its vreg is live right before the instr, or was just written by the one ahead,
+	// before bundles merge. stack resident vregs keep their slot
+	B32 RegAllocPass::liveAt(const MachineOperand& o, U32 b, U32 k) const {
+		I32 u = 2 * (I32)(blockFirst[b] + k);
+		B32 last = k == fn->blocks[b].insts.size();
+		return cross[o.vreg] || (!last && covers(o.vreg, u)) || (k > 0 && covers(o.vreg, u - 1));
+	}
+
+	void RegAllocPass::checkDebugLive() {
+		for(U32 b = 0; b < fn->blocks.size(); ++b) {
+			MachineBlock& blk = fn->blocks[b];
+			for(U32 k = 0; k <= blk.insts.size(); ++k) {
+				for(U32 r = blk.dbgBefore(k); r; r = fn->dbg[r].next) {
+					MachineOperand& o = fn->dbg[r].loc;
+					if(o.isVReg() && !liveAt(o, b, k))
+						o = MachineOperand::none(o.width);
+				}
+			}
+		}
+	}
+
+	// spilled bundles are found in their slot
+	void RegAllocPass::rewriteDebug() {
+		for(DbgRec& r : fn->dbg) {
+			if(!r.loc.isVReg())
+				continue;
+			const Interval& t = bundle(r.loc.vreg);
+			if(t.reg != kNoReg)
+				r.loc = MachineOperand::fixed(t.reg, r.loc.width);
+			else
+				r.loc = MachineOperand::frameSlot(t.slot, r.loc.width);
+		}
 	}
 
 	// path halving
@@ -485,21 +530,29 @@ namespace rat {
 		return bundle(o.vreg).reg;
 	}
 
-	// copies inside a bundle vanish
+	// copies inside a bundle vanish, debug records move to the first instr standing for theirs
 	void RegAllocPass::rewrite() {
 		List<MachineInstr> out;
 		for(U32 b = 0; b < fn->blocks.size(); ++b) {
-			List<MachineInstr>& insts = fn->blocks[b].insts;
+			MachineBlock& blk = fn->blocks[b];
 			out.clear();
-			out.reserve(insts.size());
-			for(U32 k = 0; k < insts.size(); ++k) {
-				MachineInstr& in = insts[k];
+			out.reserve(blk.insts.size());
+			U32 dbg = 0;
+			for(U32 k = 0; k < blk.insts.size(); ++k) {
+				MachineInstr& in = blk.insts[k];
 				U32 i = blockFirst[b] + k;
-				if(copyAt[i] && (sameBundle(in.defs[0], in.uses[0]) || rewriteCopy(out, in, i)))
-					continue;
-				rewriteInstr(out, in, i);
+				U32 first = (U32)out.size();
+				dbg = fn->joinDbg(dbg, in.dbg);
+				in.dbg = 0;
+				if(!copyAt[i] || !(sameBundle(in.defs[0], in.uses[0]) || rewriteCopy(out, in, i)))
+					rewriteInstr(out, in, i);
+				if(out.size() > first) {
+					out[first].dbg = dbg;
+					dbg = 0;
+				}
 			}
-			insts.swap(out);
+			blk.dbgEnd = fn->joinDbg(dbg, blk.dbgEnd);
+			blk.insts.swap(out);
 		}
 	}
 

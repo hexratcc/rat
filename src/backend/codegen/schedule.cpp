@@ -602,6 +602,14 @@ namespace rat {
 
 	I32 Schedule::blockOf(const Node* n) const { return n ? nodeBlock[n->getId()] : -1; }
 
+	// a head starts its block, a call or asm control proj follows its producer
+	I32 Schedule::anchorBlock(const Node* ctrl) const {
+		if(I32 b = blockOfHead(ctrl); b >= 0)
+			return b;
+		const ProjNode* p = dyn_cast<ProjNode>(ctrl);
+		return p ? blockOf(p->getProducer()) : -1;
+	}
+
 	NodeSpan Schedule::phis(I32 b) const {
 		return NodeSpan{phiFlat.data() + phiStart[b], (U32)(phiStart[b + 1] - phiStart[b])};
 	}

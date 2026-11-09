@@ -46,10 +46,18 @@ namespace rat {
 		static MachineOperand frameSlot(I32 s, U32 w = 8);
 		static MachineOperand symbol(const String& s);
 		static MachineOperand blockRef(I32 b);
+		static MachineOperand none(U32 w = 8);
 		static MachineOperand make(Kind k, U32 w, U32 v);
 
 		B32 isVReg() const { return kind == Kind::VReg; }
 		B32 isPhys() const { return kind == Kind::Phys; }
+	};
+
+	// a debug var inst lives in loc from here on, a None loc is optimized out
+	struct DbgRec {
+		U32 inst;
+		MachineOperand loc;
+		U32 next; // in MachineFunc::dbg, 0 ends the chain
 	};
 
 	using MachineDefs = SmallList<MachineOperand, 2>;
@@ -65,6 +73,7 @@ namespace rat {
 		I64 imm = 0;					// backend-defined small immediate
 		I64 imm2 = 0;					// second backend-defined immediate
 		U32 loc = 0;					// DebugBody loc id
+		U32 dbg = 0;					// DbgRec chain applied before this instr
 	};
 
 	struct MachineBlock {
@@ -74,6 +83,9 @@ namespace rat {
 		SmallList<I32, 2> preds;
 		SmallList<I32, 2> succs;
 		List<MachineInstr> insts;
+		U32 dbgEnd = 0; // DbgRec chain applied past the last instr
+
+		U32& dbgBefore(U32 k); // the chain applied before instr k, dbgEnd past the last
 	};
 
 	struct MachineFuncAux {
@@ -87,8 +99,13 @@ namespace rat {
 		U32 frameBytes = 0;
 		List<PhysReg> usedCalleeSaved;
 		UniquePtr<MachineFuncAux> aux;
+		List<DbgRec> dbg; // chain storage, 0 unused
 
 		VReg newVReg(U32 cls);
+		// a chain is its head index in dbg, 0 empty. addDbg appends in place, joinDbg returns first then second
+		void addDbg(U32& chain, U32 inst, MachineOperand loc);
+		U32 joinDbg(U32 first, U32 second);
+		U32 copyDbg(U32 chain);
 		void reset(); // keeps the block storage
 	};
 } // namespace rat

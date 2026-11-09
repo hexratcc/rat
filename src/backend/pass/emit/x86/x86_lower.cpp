@@ -498,6 +498,10 @@ namespace rat {
 		layout();
 		const List<I32>& order = sched->rpo();
 		out->blocks.resize(sched->numBlocks());
+		BindingPlan plan;
+		B32 bind = fn->getDebug() && !fn->getDebug()->bindings.empty();
+		if(bind)
+			planBindings(plan);
 		for(U32 i = 0; i < order.size(); ++i) {
 			I32 b = order[i];
 			MachineBlock& block = out->blocks[b];
@@ -507,15 +511,21 @@ namespace rat {
 			block.succs.reserve(sched->succCount(b));
 			block.preds.reserve(sched->predCount(b));
 			mb = &block;
-			if(i == 0)
+			if(i == 0) {
 				emitPrologue();
+				plan.prologueEnd = (U32)block.insts.size();
+			}
 			for(Node* n : sched->nodes(b)) {
 				curLoc = n->getLoc();
 				emitNode(n);
+				if(bind)
+					plan.nodeEnd[n->getId()] = (U32)block.insts.size();
 			}
 			Node* term = sched->block(b).termNode;
 			curLoc = term ? term->getLoc() : 0;
 			emitTerminator(b);
+			if(bind)
+				placeBindings(b, plan);
 		}
 		for(I32 b : order)
 			for(U32 i = 0, e = sched->succCount(b); i < e; ++i) {
