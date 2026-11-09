@@ -33,6 +33,27 @@ namespace rat {
 		U32 end;
 	};
 
+	// where a variable lives over a pc range
+	struct VarLoc {
+		enum class Kind : U8 {
+			None,
+			Reg,	 // in register reg
+			Frame, // at the cfa + value
+			Const	 // is value
+		};
+		Kind kind = Kind::None;
+		U32 reg = 0;
+		I64 value = 0;
+
+		B32 operator==(const VarLoc& o) const;
+	};
+
+	struct VarRange {
+		U32 start;
+		U32 end;
+		VarLoc loc; // reg is a dwarf number
+	};
+
 	constexpr I32 kNoFrameSlot = INT32_MIN;
 
 	struct EncodedFunc {
@@ -43,6 +64,7 @@ namespace rat {
 		List<LineRow> lines;
 		List<List<PcRange>> scopes; // per DebugBody scope, 0 unused
 		List<I32> varFrameOff;			// per DebugBody var, its frame slot from the cfa or kNoFrameSlot
+		List<List<VarRange>> varRanges; // per DebugBody var without a frame slot
 	};
 
 	// .eh_frame always, the .debug_* sections when the module carries debug info
@@ -69,6 +91,7 @@ namespace rat {
 
 		void describeVar(Die& d, const DebugVar& v);
 		void describeFunc(Die& d, const String& name, const DebugFunc& f, B32 external);
+		void locExpr(List<U8>& out, const VarLoc& loc);
 
 		struct ScopeTree {
 			const EncodedFunc& func;
@@ -93,12 +116,14 @@ namespace rat {
 			List<const DebugType*> pendingTypes;
 			List<const DebugFunc*> pendingFuncs; // abstract instances of inlined funcs
 			List<U8> rnglists;
+			List<U8> loclists;
 
 			U32 emit(U32 tag, B32 children, const Die& d);
 			void pcRanges(Die& d, const List<PcRange>& r, U32 textOff);
 			void typeDie(const DebugType* t);
 			void typeChildren(const DebugType* t);
 			void endChildren(B32 variadic, B32 children);
+			U32 locList(const List<VarRange>& r, U32 textOff);
 			B32 hasStorage(const DebugVar& v);
 			void globalDie(const DebugVar& v);
 			void instDie(const ScopeTree& tree, U32 inst);

@@ -62,8 +62,11 @@ namespace rat {
 		constexpr U32 DW_FORM_flag_present = 0x19;
 
 		constexpr U8 DW_OP_addr = 0x03;
+		constexpr U8 DW_OP_consts = 0x11;
+		constexpr U8 DW_OP_regx = 0x90;
 		constexpr U8 DW_OP_fbreg = 0x91;
 		constexpr U8 DW_OP_call_frame_cfa = 0x9c;
+		constexpr U8 DW_OP_stack_value = 0x9f;
 
 		constexpr U8 DW_LE_end_of_list = 0;
 		constexpr U8 DW_LE_offset_pair = 4; // same in rnglists and loclists
@@ -136,7 +139,13 @@ namespace rat {
 		constexpr U8 kPtrBytes = 8;
 		constexpr U32 kDwarfSp = 7;
 		constexpr U32 kDwarfRa = 16;
+	} // namespace detail
 
+	B32 VarLoc::operator==(const VarLoc& o) const {
+		return kind == o.kind && reg == o.reg && value == o.value;
+	}
+
+	namespace detail {
 		void Die::attr(U32 name, U32 form) {
 			le::uleb(decl, name);
 			le::uleb(decl, form);
@@ -200,6 +209,19 @@ namespace rat {
 				d.type(DW_AT_type, f.ret);
 			if(external)
 				d.attr(DW_AT_external, DW_FORM_flag_present);
+		}
+
+		void locExpr(List<U8>& out, const VarLoc& loc) {
+			if(loc.kind == VarLoc::Kind::Const) {
+				out.push_back(DW_OP_consts);
+				le::sleb(out, loc.value);
+				out.push_back(DW_OP_stack_value);
+			} else if(loc.kind == VarLoc::Kind::Frame) {
+				out.push_back(DW_OP_fbreg);
+				le::sleb(out, loc.value);
+			} else {
+				out.insert(out.end(), {DW_OP_regx, (U8)loc.reg});
+			}
 		}
 
 		// appends d to .debug_info under its abbreviation code, declaring it once. a die that may have
@@ -317,6 +339,22 @@ namespace rat {
 				info.push_back(0);
 		}
 
+		// returns the list's offset in .debug_loclists, list offsets are from the unit base, .text
+		U32 DieWriter::locList(const List<VarRange>& r, U32 textOff) {
+			U32 at = (U32)loclists.size();
+			for(const VarRange& v : r) {
+				loclists.push_back(DW_LE_offset_pair);
+				le::uleb(loclists, textOff + v.start);
+				le::uleb(loclists, textOff + v.end);
+				List<U8> expr;
+				locExpr(expr, v.loc);
+				le::uleb(loclists, expr.size());
+				loclists.insert(loclists.end(), expr.begin(), expr.end());
+			}
+			loclists.push_back(DW_LE_end_of_list);
+			return at;
+		}
+
 		// a static whose storage was never emitted gets no die
 		B32 DieWriter::hasStorage(const DebugVar& v) {
 			return v.symbol.empty() || mod.getGlobal(v.symbol);
@@ -347,12 +385,17 @@ namespace rat {
 			else
 				describeVar(d, v);
 			I32 frameOff = tree.func.varFrameOff[inst];
+			const List<VarRange>& r = tree.func.varRanges[inst];
 			if(!v.symbol.empty()) {
 				d.reloc(DW_AT_location, DW_FORM_exprloc, v.symbol, 0);
 			} else if(frameOff != kNoFrameSlot) {
-				List<U8> expr = {DW_OP_fbreg};
-				le::sleb(expr, frameOff);
+				List<U8> expr;
+				locExpr(expr, {VarLoc::Kind::Frame, 0, frameOff});
 				d.exprloc(DW_AT_location, expr);
+			} else if(!r.empty()) {
+				U32 at = locList(r, tree.func.textOff);
+				d.reloc(
+						DW_AT_location, DW_FORM_sec_offset, obj.sectionSymbol(ObjectFile::DebugLoclists), at);
 			}
 			emit(v.isParam ? DW_TAG_formal_parameter : DW_TAG_variable, false, d);
 		}
@@ -463,6 +506,7 @@ namespace rat {
 			emit(DW_TAG_compile_unit, true, cu);
 
 			unitHeader(rnglists);
+			unitHeader(loclists);
 			for(const DebugVar& g : di.globals)
 				globalDie(g);
 			for(const EncodedFunc& func : funcs)
@@ -480,6 +524,7 @@ namespace rat {
 				le::patch32(info, at, dieOff[target]);
 			le::patch32(info, 0, (U32)info.size() - 4);
 			le::patch32(rnglists, 0, (U32)rnglists.size() - 4);
+			le::patch32(loclists, 0, (U32)loclists.size() - 4);
 		}
 
 		// unit_length, version 5, address_size, segment_selector_size, then the line table's
@@ -603,6 +648,7 @@ namespace rat {
 		obj.append(ObjectFile::DebugInfo, w.info.data(), (U32)w.info.size());
 		obj.append(ObjectFile::DebugAbbrev, w.abbrev.data(), (U32)w.abbrev.size());
 		obj.append(ObjectFile::DebugRnglists, w.rnglists.data(), (U32)w.rnglists.size());
+		obj.append(ObjectFile::DebugLoclists, w.loclists.data(), (U32)w.loclists.size());
 		detail::writeLineTable(*di, funcs, obj);
 	}
 } // namespace rat
