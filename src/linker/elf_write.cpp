@@ -855,23 +855,7 @@ namespace rat {
 
 		U64 startVaddr = vaddr[OText] + (size[OText] - startCode.size());
 		U16 phnum = 8;
-		const U8 ident[16] = {
-				0x7f, 'E', 'L', 'F', ELFCLASS64, ELFDATA2LSB, EV_CURRENT, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-		for(U8 c : ident)
-			out.push_back(c);
-		wr16(out, ET_EXEC);
-		wr16(out, EM_X86_64);
-		wr32(out, EV_CURRENT);
-		wr64(out, startVaddr);
-		wr64(out, 64);
-		wr64(out, 0);
-		wr32(out, 0);
-		wr16(out, 64);
-		wr16(out, 56);
-		wr16(out, phnum);
-		wr16(out, 64); // e_shentsize, the rest patched by emitShdrTable
-		wr16(out, 0);
-		wr16(out, 0);
+		putFileHeader(out, ET_EXEC, startVaddr, phnum);
 
 		U64 rxFilesz = foff[OEhFrameHdr] + size[OEhFrameHdr];
 		if(!rxFilesz)

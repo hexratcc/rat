@@ -140,7 +140,25 @@ namespace rat {
 			U64 flags, align, entSize;
 		};
 
-		// header-only, the backend links no linker objects
+		// header-only, the backend links no linker objects. e_shoff, e_shnum and e_shstrndx are left to
+		// the caller
+		inline void putFileHeader(List<U8>& out, U16 type, U64 entry, U16 phnum) {
+			const U8 ident[16] = {0x7f, 'E', 'L', 'F', ELFCLASS64, ELFDATA2LSB, EV_CURRENT};
+			out.insert(out.end(), ident, ident + 16);
+			le::put16(out, type);
+			le::put16(out, EM_X86_64);
+			le::put32(out, EV_CURRENT);
+			le::put64(out, entry);
+			le::put64(out, phnum ? 64 : 0); // e_phoff
+			le::put64(out, 0);
+			le::put32(out, 0);							// e_flags
+			le::put16(out, 64);							// e_ehsize
+			le::put16(out, phnum ? 56 : 0); // e_phentsize
+			le::put16(out, phnum);
+			le::put16(out, 64); // e_shentsize
+			le::put32(out, 0);
+		}
+
 		inline void putSectionHeader(List<U8>& out, const SectionHeader& sh) {
 			le::put32(out, sh.name);
 			le::put32(out, sh.type);

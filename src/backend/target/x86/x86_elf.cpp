@@ -5,7 +5,6 @@
 
 namespace rat {
 	namespace detail {
-		constexpr U8 kElfMag[4] = {0x7f, 'E', 'L', 'F'};
 		constexpr U64 kEhSize = 64;			 // Elf64_Ehdr
 		constexpr U64 kShEntSize = 64;	 // Elf64_Shdr
 		constexpr U64 kSymEntSize = 24;	 // Elf64_Sym
@@ -15,30 +14,6 @@ namespace rat {
 		constexpr elf::SectionInfo kStrtab = {".strtab", elf::SHT_STRTAB, 0, 1, 0};
 		constexpr elf::SectionInfo kShstrtab = {".shstrtab", elf::SHT_STRTAB, 0, 1, 0};
 		constexpr elf::SectionInfo kNoteStack = {".note.GNU-stack", elf::SHT_PROGBITS, 0, 1, 0};
-
-		void writeElfHeader(List<U8>& out, U64 offSh, U16 shCount, U16 shstrIndex) {
-			for(U8 c : kElfMag)
-				le::put8(out, c);
-			le::put8(out, elf::ELFCLASS64);
-			le::put8(out, elf::ELFDATA2LSB);
-			le::put8(out, elf::EV_CURRENT);
-			le::put8(out, 0); // System V
-			for(U32 i = 0; i < 8; ++i)
-				le::put8(out, 0); // ABIVERSION + padding
-			le::put16(out, elf::ET_REL);
-			le::put16(out, elf::EM_X86_64);
-			le::put32(out, elf::EV_CURRENT);
-			le::put64(out, 0);							 // e_entry
-			le::put64(out, 0);							 // e_phoff
-			le::put64(out, offSh);					 // e_shoff
-			le::put32(out, 0);							 // e_flags
-			le::put16(out, (U16)kEhSize);		 // e_ehsize
-			le::put16(out, 0);							 // e_phentsize
-			le::put16(out, 0);							 // e_phnum
-			le::put16(out, (U16)kShEntSize); // e_shentsize
-			le::put16(out, shCount);				 // e_shnum
-			le::put16(out, shstrIndex);			 // e_shstrndx
-		}
 	} // namespace detail
 
 	U32 ObjectFile::elfSymtab(List<U8>& symtab,
@@ -170,7 +145,10 @@ namespace rat {
 
 			List<U8> out;
 			out.reserve(offSh + secs.size() * kShEntSize);
-			writeElfHeader(out, offSh, (U16)secs.size(), shstrIndex);
+			elf::putFileHeader(out, elf::ET_REL, 0, 0);
+			le::wr(&out[40], offSh, 8);
+			le::wr(&out[60], secs.size(), 2);
+			le::wr(&out[62], shstrIndex, 2);
 			for(const ElfSection& s : secs)
 				if(s.bytes) {
 					le::padTo(out, s.header.offset);

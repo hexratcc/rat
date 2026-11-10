@@ -119,7 +119,6 @@ namespace rat {
 			elf::SectionHeader header;
 			const List<U8>* bytes; // null = no file data
 		};
-		void writeElfHeader(List<U8>& out, U64 offSh, U16 shCount, U16 shstrIndex);
 		void writeElfImage(std::ostream& os, List<ElfSection>& secs, U16 shstrIndex);
 		void coffName(List<U8>& out, List<U8>& strtab, const String& n);
 	} // namespace detail
