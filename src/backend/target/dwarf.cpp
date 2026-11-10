@@ -8,6 +8,7 @@ namespace rat {
 		constexpr U32 DW_TAG_array_type = 0x01;
 		constexpr U32 DW_TAG_enumeration_type = 0x04;
 		constexpr U32 DW_TAG_formal_parameter = 0x05;
+		constexpr U32 DW_TAG_lexical_block = 0x0b;
 		constexpr U32 DW_TAG_member = 0x0d;
 		constexpr U32 DW_TAG_pointer_type = 0x0f;
 		constexpr U32 DW_TAG_compile_unit = 0x11;
@@ -16,6 +17,7 @@ namespace rat {
 		constexpr U32 DW_TAG_typedef = 0x16;
 		constexpr U32 DW_TAG_union_type = 0x17;
 		constexpr U32 DW_TAG_unspecified_parameters = 0x18;
+		constexpr U32 DW_TAG_inlined_subroutine = 0x1d;
 		constexpr U32 DW_TAG_subrange_type = 0x21;
 		constexpr U32 DW_TAG_base_type = 0x24;
 		constexpr U32 DW_TAG_const_type = 0x26;
@@ -34,8 +36,10 @@ namespace rat {
 		constexpr U32 DW_AT_language = 0x13;
 		constexpr U32 DW_AT_comp_dir = 0x1b;
 		constexpr U32 DW_AT_const_value = 0x1c;
+		constexpr U32 DW_AT_inline = 0x20;
 		constexpr U32 DW_AT_producer = 0x25;
 		constexpr U32 DW_AT_prototyped = 0x27;
+		constexpr U32 DW_AT_abstract_origin = 0x31;
 		constexpr U32 DW_AT_count = 0x37;
 		constexpr U32 DW_AT_data_member_location = 0x38;
 		constexpr U32 DW_AT_decl_file = 0x3a;
@@ -44,6 +48,8 @@ namespace rat {
 		constexpr U32 DW_AT_external = 0x3f;
 		constexpr U32 DW_AT_frame_base = 0x40;
 		constexpr U32 DW_AT_type = 0x49;
+		constexpr U32 DW_AT_ranges = 0x55;
+		constexpr U32 DW_AT_call_file = 0x58;
 		constexpr U32 DW_AT_data_bit_offset = 0x6b;
 
 		constexpr U32 DW_FORM_addr = 0x01;
@@ -58,6 +64,9 @@ namespace rat {
 		constexpr U8 DW_OP_addr = 0x03;
 		constexpr U8 DW_OP_fbreg = 0x91;
 		constexpr U8 DW_OP_call_frame_cfa = 0x9c;
+
+		constexpr U8 DW_LE_end_of_list = 0;
+		constexpr U8 DW_LE_offset_pair = 4; // same in rnglists and loclists
 
 		constexpr U8 DW_LNS_copy = 1;
 		constexpr U8 DW_LNS_advance_pc = 2;
@@ -81,6 +90,8 @@ namespace rat {
 		constexpr U8 DW_LANG_C99 = 0x0c;
 
 		constexpr U8 DW_UT_compile = 1;
+
+		constexpr U8 DW_INL_inlined = 1;
 
 		constexpr U8 DW_ATE_boolean = 0x02;
 		constexpr U8 DW_ATE_complex_float = 0x03;
@@ -167,7 +178,7 @@ namespace rat {
 			types.push_back(t);
 		}
 
-		// line follows the file attr and column precedes it
+		// line follows the file attr and column precedes it, for decl_* and call_* alike
 		void Die::srcLoc(U32 fileAttr, SrcLoc loc) {
 			udata(fileAttr, loc.file);
 			udata(fileAttr + 1, loc.line);
@@ -219,12 +230,22 @@ namespace rat {
 			return at;
 		}
 
-		// one range as low and high pc
+		// one range as low and high pc, several as a .debug_rnglists list. list offsets are from the
+		// unit base, .text
 		void DieWriter::pcRanges(Die& d, const List<PcRange>& r, U32 textOff) {
-			assert(r.size() == 1 && "split ranges need .debug_rnglists");
-			d.reloc(
-					DW_AT_low_pc, DW_FORM_addr, obj.sectionSymbol(ObjectFile::Text), textOff + r[0].start);
-			d.udata(DW_AT_high_pc, r[0].end - r[0].start);
+			if(r.size() == 1) {
+				d.reloc(
+						DW_AT_low_pc, DW_FORM_addr, obj.sectionSymbol(ObjectFile::Text), textOff + r[0].start);
+				return d.udata(DW_AT_high_pc, r[0].end - r[0].start);
+			}
+			String listSym = obj.sectionSymbol(ObjectFile::DebugRnglists);
+			d.reloc(DW_AT_ranges, DW_FORM_sec_offset, listSym, (I64)rnglists.size());
+			for(const PcRange& p : r) {
+				rnglists.push_back(DW_LE_offset_pair);
+				le::uleb(rnglists, textOff + p.start);
+				le::uleb(rnglists, textOff + p.end);
+			}
+			rnglists.push_back(DW_LE_end_of_list);
 		}
 
 		void DieWriter::typeDie(const DebugType* t) {
@@ -313,14 +334,19 @@ namespace rat {
 			emit(DW_TAG_variable, false, d);
 		}
 
-		// a variable, without a location gdb reports it as optimized out
-		void DieWriter::instDie(const EncodedFunc& func, U32 inst) {
-			const DebugVar& v = *func.fn->getDebug()->vars[inst].var;
+		// a variable copy, named by its abstract die when it sits in inlined code. without a location
+		// gdb reports it as optimized out
+		void DieWriter::instDie(const ScopeTree& tree, U32 inst) {
+			const DebugVarInst& vi = tree.body.vars[inst];
+			const DebugVar& v = *vi.var;
 			if(!hasStorage(v))
 				return;
 			Die d;
-			describeVar(d, v);
-			I32 frameOff = func.varFrameOff[inst];
+			if(tree.inlinedIn[vi.scope])
+				d.ref(DW_AT_abstract_origin, &v);
+			else
+				describeVar(d, v);
+			I32 frameOff = tree.func.varFrameOff[inst];
 			if(!v.symbol.empty()) {
 				d.reloc(DW_AT_location, DW_FORM_exprloc, v.symbol, 0);
 			} else if(frameOff != kNoFrameSlot) {
@@ -331,20 +357,93 @@ namespace rat {
 			emit(v.isParam ? DW_TAG_formal_parameter : DW_TAG_variable, false, d);
 		}
 
-		void DieWriter::funcDie(const EncodedFunc& func) {
-			const DebugBody& body = *func.fn->getDebug();
+		void DieWriter::scopeDie(const ScopeTree& tree, U32 scope) {
+			const DebugScope& s = tree.body.scopes[scope];
 			Die d;
-			describeFunc(d, func.fn->getName(), *body.func, !func.fn->getAttrs().isInternal());
+			if(s.inlined)
+				d.ref(DW_AT_abstract_origin, s.inlined);
+			pcRanges(d, tree.func.scopes[scope], tree.func.textOff);
+			if(s.inlined)
+				d.srcLoc(DW_AT_call_file, tree.body.locs[s.callLoc].src);
+			B32 children = hasDies(tree, scope);
+			emit(s.inlined ? DW_TAG_inlined_subroutine : DW_TAG_lexical_block, children, d);
+			scopeChildren(tree, scope);
+			if(children)
+				info.push_back(0);
+		}
+
+		// lexical blocks without code hand their vars and children to the parent, an inlined call
+		// without code shows nothing
+		void DieWriter::scopeChildren(const ScopeTree& tree, U32 scope) {
+			for(U32 inst : tree.vars[scope])
+				instDie(tree, inst);
+			for(U32 kid : tree.kids[scope]) {
+				B32 hasCode = !tree.func.scopes[kid].empty();
+				if(tree.body.scopes[kid].inlined) {
+					if(hasCode)
+						scopeDie(tree, kid);
+				} else if(hasCode && hasDies(tree, kid)) {
+					scopeDie(tree, kid);
+				} else {
+					scopeChildren(tree, kid);
+				}
+			}
+		}
+
+		// whether scopeChildren emits anything
+		B32 DieWriter::hasDies(const ScopeTree& tree, U32 scope) {
+			for(U32 inst : tree.vars[scope])
+				if(hasStorage(*tree.body.vars[inst].var))
+					return true;
+			for(U32 kid : tree.kids[scope])
+				if(tree.body.scopes[kid].inlined ? !tree.func.scopes[kid].empty() : hasDies(tree, kid))
+					return true;
+			return false;
+		}
+
+		ScopeTree DieWriter::indexScopes(const EncodedFunc& func) {
+			const DebugBody& body = *func.fn->getDebug();
+			U32 n = (U32)body.scopes.size();
+			ScopeTree tree{func, body, List<List<U32>>(n), List<List<U32>>(n), List<U32>(n, 0)};
+			for(U32 s = 1; s < n; ++s) {
+				const DebugScope& sc = body.scopes[s];
+				tree.kids[sc.parent].push_back(s);
+				tree.inlinedIn[s] = sc.inlined ? s : tree.inlinedIn[sc.parent]; // parents come first
+				// every inlined func gets its abstract die
+				if(sc.inlined && dieOff.emplace(sc.inlined, 0).second)
+					pendingFuncs.push_back(sc.inlined);
+			}
+			for(U32 i = 0; i < body.vars.size(); ++i)
+				tree.vars[body.vars[i].scope].push_back(i);
+			return tree;
+		}
+
+		void DieWriter::funcDie(const EncodedFunc& func) {
+			ScopeTree tree = indexScopes(func);
+			Die d;
+			describeFunc(d, func.fn->getName(), *tree.body.func, !func.fn->getAttrs().isInternal());
 			pcRanges(d, {{0, func.size}}, func.textOff);
 			d.exprloc(DW_AT_frame_base, {DW_OP_call_frame_cfa});
-			B32 variadic = body.func->variadic;
-			B32 children = variadic;
-			for(const DebugVarInst& v : body.vars)
-				children |= hasStorage(*v.var);
+			B32 variadic = tree.body.func->variadic;
+			B32 children = variadic || hasDies(tree, 0);
 			emit(DW_TAG_subprogram, children, d);
-			for(U32 i = 0; i < body.vars.size(); ++i)
-				instDie(func, i);
+			scopeChildren(tree, 0);
 			endChildren(variadic, children);
+		}
+
+		// what inlined copies point at, names and types without code
+		void DieWriter::abstractDie(const DebugFunc* f) {
+			Die d;
+			describeFunc(d, f->name, *f, f->external);
+			d.udata(DW_AT_inline, DW_INL_inlined);
+			B32 children = !f->vars.empty() || f->variadic;
+			dieOff[f] = emit(DW_TAG_subprogram, children, d);
+			for(const UniquePtr<DebugVar>& v : f->vars) {
+				Die var;
+				describeVar(var, *v);
+				dieOff[v.get()] = emit(v->isParam ? DW_TAG_formal_parameter : DW_TAG_variable, false, var);
+			}
+			endChildren(f->variadic, children);
 		}
 
 		void DieWriter::unit(const List<EncodedFunc>& funcs) {
@@ -363,11 +462,14 @@ namespace rat {
 			cu.reloc(DW_AT_stmt_list, DW_FORM_sec_offset, obj.sectionSymbol(ObjectFile::DebugLine), 0);
 			emit(DW_TAG_compile_unit, true, cu);
 
+			unitHeader(rnglists);
 			for(const DebugVar& g : di.globals)
 				globalDie(g);
 			for(const EncodedFunc& func : funcs)
 				if(func.fn->getDebug())
 					funcDie(func);
+			for(U32 i = 0; i < pendingFuncs.size(); ++i)
+				abstractDie(pendingFuncs[i]);
 			// types last, emitting one may queue more
 			for(U32 i = 0; i < pendingTypes.size(); ++i)
 				typeDie(pendingTypes[i]);
@@ -377,6 +479,7 @@ namespace rat {
 			for(const auto& [at, target] : refs)
 				le::patch32(info, at, dieOff[target]);
 			le::patch32(info, 0, (U32)info.size() - 4);
+			le::patch32(rnglists, 0, (U32)rnglists.size() - 4);
 		}
 
 		// unit_length, version 5, address_size, segment_selector_size, then the line table's
@@ -499,6 +602,7 @@ namespace rat {
 		w.unit(funcs);
 		obj.append(ObjectFile::DebugInfo, w.info.data(), (U32)w.info.size());
 		obj.append(ObjectFile::DebugAbbrev, w.abbrev.data(), (U32)w.abbrev.size());
+		obj.append(ObjectFile::DebugRnglists, w.rnglists.data(), (U32)w.rnglists.size());
 		detail::writeLineTable(*di, funcs, obj);
 	}
 } // namespace rat

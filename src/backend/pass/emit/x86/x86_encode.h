@@ -102,6 +102,7 @@ namespace rat {
 		void prologue();
 		void markCfi(CfiOp::Kind kind, PhysReg reg, I32 value);
 		void markLine(U32 loc);
+		void markScope(U32 loc, U32 start, U32 end);
 		void recordVars(const Function& f);
 	private:
 		std::ostream* os;
@@ -111,6 +112,7 @@ namespace rat {
 		List<PlacedFunc> placed;
 		List<EncodedFunc> encoded;					// elf only, one per placed function
 		EncodedFunc* encodedFunc = nullptr; // the function being encoded, null on coff
+		U32 scope = 0;											// of the last located instr
 		const X86CallConv* conv = &abi::kSysV;
 		const MachineFunc* fn = nullptr;
 		const X86FrameLayout* fl = nullptr;

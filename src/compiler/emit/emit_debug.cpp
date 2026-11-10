@@ -154,6 +154,8 @@ namespace rat::cc {
 		df.variadic = def->isVarArgs;
 		fn.setDebug(std::make_unique<DebugBody>());
 		fn.getDebug()->func = &df;
+		dbg.scope = 0;
+		dbg.funcBody = def->body;
 		for(const Param& p : def->params) {
 			Local l;
 			if(!dbg.describeVars || !p.name || !func.scopes.lookup(*p.name, l))
@@ -164,15 +166,32 @@ namespace rat::cc {
 
 	void Emitter::debugSetLoc(Function& fn, U32 tok) {
 		if(dbg.info)
-			fn.setLoc(fn.getDebug()->addLoc(debugLoc(tok)));
+			fn.setLoc(fn.getDebug()->addLoc(debugLoc(tok), dbg.scope));
 	}
 
-	// records v with the frame slot l lives in, if any
+	// a nested block gets a scope when it declares something, so shadowed names resolve right
+	U32 Emitter::debugEnterScope(Function& fn, const Stmt* s) {
+		U32 outer = dbg.scope;
+		B32 declares = false;
+		if(dbg.info && s->kind == StmtKind::For)
+			declares = s->forInit && s->forInit->kind == StmtKind::Decl;
+		else if(dbg.info && s != dbg.funcBody)
+			for(const Stmt* child : s->body)
+				declares |= child->kind == StmtKind::Decl;
+		if(declares) {
+			List<DebugScope>& scopes = fn.getDebug()->scopes;
+			scopes.push_back({outer});
+			dbg.scope = (U32)scopes.size() - 1;
+		}
+		return outer;
+	}
+
+	// records v in the current scope with the frame slot l lives in, if any
 	void Emitter::debugVar(Function& fn, DebugVar v, const Local& l) {
 		DebugBody& body = *fn.getDebug();
 		body.func->vars.push_back(std::make_unique<DebugVar>(std::move(v)));
 		AllocNode* slot = !l.staticSymbol && l.inMem() ? dyn_cast<AllocNode>(l.addr) : nullptr;
-		body.vars.push_back({body.func->vars.back().get(), slot});
+		body.vars.push_back({body.func->vars.back().get(), dbg.scope, slot});
 	}
 
 	void Emitter::debugLocal(Function& fn, const Declarator& d) {

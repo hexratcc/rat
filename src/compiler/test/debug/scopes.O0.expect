@@ -1,0 +1,10 @@
+Breakpoint 1, square (x=0) at
+#1  0x
+ in work (n=3) at
+scopes.c:10
+ in main () at
+$1 = 1
+acc = 1
+i = 0
+acc = 0
+$2 = 99

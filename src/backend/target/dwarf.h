@@ -41,7 +41,8 @@ namespace rat {
 		U32 size;
 		List<CfiOp> cfi;
 		List<LineRow> lines;
-		List<I32> varFrameOff; // per DebugBody var, its frame slot from the cfa or kNoFrameSlot
+		List<List<PcRange>> scopes; // per DebugBody scope, 0 unused
+		List<I32> varFrameOff;			// per DebugBody var, its frame slot from the cfa or kNoFrameSlot
 	};
 
 	// .eh_frame always, the .debug_* sections when the module carries debug info
@@ -51,7 +52,7 @@ namespace rat {
 		struct Die {
 			List<U8> decl; // attr and form pairs
 			List<U8> body;
-			List<Pair<U32, const void*>> refs; // ref4 slots in body to the die of a type
+			List<Pair<U32, const void*>> refs; // ref4 slots in body to the die of a type, func or var
 			List<const DebugType*> types;			 // referenced types, emitted later
 			List<AsmReloc> relocs;						 // offsets in body
 
@@ -69,6 +70,14 @@ namespace rat {
 		void describeVar(Die& d, const DebugVar& v);
 		void describeFunc(Die& d, const String& name, const DebugFunc& f, B32 external);
 
+		struct ScopeTree {
+			const EncodedFunc& func;
+			const DebugBody& body;
+			List<List<U32>> kids; // scope -> child scopes
+			List<List<U32>> vars; // scope -> var insts
+			List<U32> inlinedIn;	// scope -> its nearest inlined scope, 0 = none
+		};
+
 		struct DieWriter {
 			DieWriter(const Module& m, ObjectFile& o)
 			: mod(m),
@@ -79,9 +88,11 @@ namespace rat {
 			List<U8> info;
 			List<U8> abbrev;
 			Map<String, U32> abbrevCode;			 // encoded declaration -> code
-			Map<const void*, U32> dieOff;			 // type -> its die, 0 = queued
+			Map<const void*, U32> dieOff;			 // type, func or var -> its die, 0 = queued
 			List<Pair<U32, const void*>> refs; // ref4 slots in info to patch
 			List<const DebugType*> pendingTypes;
+			List<const DebugFunc*> pendingFuncs; // abstract instances of inlined funcs
+			List<U8> rnglists;
 
 			U32 emit(U32 tag, B32 children, const Die& d);
 			void pcRanges(Die& d, const List<PcRange>& r, U32 textOff);
@@ -90,8 +101,13 @@ namespace rat {
 			void endChildren(B32 variadic, B32 children);
 			B32 hasStorage(const DebugVar& v);
 			void globalDie(const DebugVar& v);
-			void instDie(const EncodedFunc& func, U32 inst);
+			void instDie(const ScopeTree& tree, U32 inst);
+			void scopeDie(const ScopeTree& tree, U32 scope);
+			void scopeChildren(const ScopeTree& tree, U32 scope);
+			B32 hasDies(const ScopeTree& tree, U32 scope);
+			ScopeTree indexScopes(const EncodedFunc& func);
 			void funcDie(const EncodedFunc& func);
+			void abstractDie(const DebugFunc* f);
 			void unit(const List<EncodedFunc>& funcs);
 		};
 

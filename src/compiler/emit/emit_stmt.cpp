@@ -105,7 +105,9 @@ namespace rat::cc {
 
 	B32 Emitter::emitFor(Function& fn, const Stmt* s) {
 		func.scopes.push();
+		U32 outerScope = debugEnterScope(fn, s);
 		B32 ok = emitForScoped(fn, s);
+		dbg.scope = outerScope;
 		func.scopes.pop();
 		return ok;
 	}
@@ -346,6 +348,7 @@ namespace rat::cc {
 
 	B32 Emitter::emitCompound(Function& fn, const Stmt* s) {
 		func.scopes.push();
+		U32 outerScope = debugEnterScope(fn, s);
 		Node* mark = nullptr;
 		Node* outerSp = func.sp;
 		if(blockDeclaresVla(s)) {
@@ -375,6 +378,7 @@ namespace rat::cc {
 		restoreStack(fn, mark);
 		func.sp = mark ? mark : outerSp;
 		func.scopes.pop();
+		dbg.scope = outerScope;
 		return true;
 	}
 
