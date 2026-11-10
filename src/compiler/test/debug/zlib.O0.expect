@@ -1,7 +1,0 @@
-Breakpoint 1, unbox (box=0x
-zlib.gcc.c:9
-$1 = {a = 4, b = 5}
-$2 = 3
- in main () at
-zlib.c:10
-Value returned is $3 = 27

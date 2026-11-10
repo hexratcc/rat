@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-# each <name>.c is built with -g (or the flags of a leading "// flags:" line) and linked by bin/link,
-# together with <name>.gcc.c built by the host cc into zlib compressed debug sections when present.
+# each <name>.c is built with -g (or the flags of a leading "// flags:" line) and linked by bin/link.
 # gdb then runs <name>.gdb, and each line of <name>.<level>.expect must show up in its output, in
 # order, several may share one output line
 import shutil
@@ -38,14 +37,6 @@ def build(name):
     s.flags = flags_of(src)
     s.compile(name, [src])
     objs = [s.dir / name / f"{name}.o"]
-    helper = s.here / f"{name}.gcc.c"
-    if helper.is_file():
-        obj = s.dir / name / f"{name}.gcc.o"
-        result = subprocess.run([s.hostcc, "-g", "-gz=zlib", "-O0", "-c", str(helper), "-o", str(obj)], capture_output=True, text=True)
-        s.log(result.stdout + result.stderr)
-        if result.returncode != 0:
-            return None  # the host toolchain cannot compress
-        objs.append(obj)
     exe = s.dir / name / name
     result = subprocess.run([str(ratlink), *map(str, objs), "-o", str(exe)], capture_output=True, text=True)
     s.log(result.stdout + result.stderr)
@@ -59,9 +50,6 @@ def check(name):
         exe = build(name)
     except lib.BuildError:
         return s.fail(name, f"build failed, see {s.dir}/build.log")
-    if exe is None:
-        print(f"SKIP  debug/{s.level}/{name}: host cc has no -gz=zlib", flush=True)
-        return
     # one -ex per command, so an optimized-out value does not stop the script
     cmds = [arg for line in (s.here / f"{name}.gdb").read_text().splitlines() for arg in ("-ex", line)]
     result = subprocess.run([gdb, "-nx", "-batch", *cmds, str(exe)], capture_output=True, text=True)

@@ -21,7 +21,7 @@ INC := -iquote src/base -iquote src/backend -iquote src/linker -iquote src/compi
 base_srcs := src/base/test_harness.cpp
 rat_srcs := $(shell find src/backend/analysis src/backend/codegen src/backend/ir \
 	src/backend/pass src/backend/target -name '*.cpp')
-link_srcs := src/linker/linker.cpp src/linker/elf_write.cpp src/linker/elf_read.cpp src/linker/inflate.cpp
+link_srcs := src/linker/linker.cpp src/linker/elf_write.cpp src/linker/elf_read.cpp
 cc_srcs := $(filter-out src/compiler/main.cpp,$(wildcard src/compiler/*.cpp)) \
 	$(shell find src/compiler/emit src/compiler/lex src/compiler/parse -name '*.cpp')
 

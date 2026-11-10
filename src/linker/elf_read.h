@@ -100,10 +100,6 @@ namespace rat {
 
 	B32 readWhole(const String& path, List<U8>& out);
 
-	namespace detail {
-		B32 inflateDebug(InObject& obj, const elf::SectionHeader& sh, InSection& s);
-	} // namespace detail
-
 	B32 loadObject(
 			List<U8> img, const String& path, InObject& obj, Set<String>& seenGroups, String& err);
 
