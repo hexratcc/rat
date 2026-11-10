@@ -5,8 +5,6 @@
 
 namespace rat {
 	namespace detail {
-		constexpr U64 kEhSize = 64;			 // Elf64_Ehdr
-		constexpr U64 kShEntSize = 64;	 // Elf64_Shdr
 		constexpr U64 kSymEntSize = 24;	 // Elf64_Sym
 		constexpr U64 kRelaEntSize = 24; // Elf64_Rela
 
@@ -76,7 +74,7 @@ namespace rat {
 		partitionRelocs(relBySec);
 
 		// the classic sections always, the others only when used, each followed by its rela
-		List<detail::ElfSection> secs(1);
+		List<elf::OutSection> secs(1);
 		List<U8> shstr(1, 0);
 		List<U32> shIndex(SectionCount, 0), relaIndex(SectionCount, 0);
 		for(U32 s = 0; s < SectionCount; ++s) {
@@ -109,55 +107,21 @@ namespace rat {
 			if(!relaIndex[s])
 				continue;
 			rela[s] = elfRela(relBySec[s], remap);
-			detail::ElfSection& r = secs[relaIndex[s]];
-			r.bytes = &rela[s];
-			r.header.size = rela[s].size();
-			r.header.link = shSymtab;
+			secs[relaIndex[s]].bytes = &rela[s];
+			secs[relaIndex[s]].header.link = shSymtab;
 		}
 
 		elf::SectionHeader symtabHeader = elf::headerOf(detail::kSymtab, shstr);
-		symtabHeader.size = symtab.size();
 		symtabHeader.link = shSymtab + 1;
 		symtabHeader.info = firstGlobal;
-		elf::SectionHeader strtabHeader = elf::headerOf(detail::kStrtab, shstr);
-		strtabHeader.size = strtab.size();
-		elf::SectionHeader shstrtabHeader = elf::headerOf(detail::kShstrtab, shstr);
-		elf::SectionHeader noteStackHeader = elf::headerOf(detail::kNoteStack, shstr);
-		shstrtabHeader.size = shstr.size();
 		secs.push_back({symtabHeader, &symtab});
-		secs.push_back({strtabHeader, &strtab});
-		U32 shShstrtab = (U32)secs.size();
-		secs.push_back({shstrtabHeader, &shstr});
-		secs.push_back({noteStackHeader, nullptr});
-		detail::writeElfImage(os, secs, (U16)shShstrtab);
+		secs.push_back({elf::headerOf(detail::kStrtab, shstr), &strtab});
+		U16 shShstrtab = (U16)secs.size();
+		secs.push_back({elf::headerOf(detail::kShstrtab, shstr), &shstr});
+		secs.push_back({elf::headerOf(detail::kNoteStack, shstr), nullptr});
+		List<U8> out;
+		elf::putFileHeader(out, elf::ET_REL, 0, 0);
+		elf::appendSections(out, secs, shShstrtab);
+		os.write(reinterpret_cast<const C8*>(out.data()), (std::streamsize)out.size());
 	}
-
-	namespace detail {
-		void writeElfImage(std::ostream& os, List<ElfSection>& secs, U16 shstrIndex) {
-			U64 off = kEhSize;
-			for(ElfSection& s : secs)
-				if(s.bytes) {
-					off = (off + s.header.align - 1) & ~(s.header.align - 1);
-					s.header.offset = off;
-					off += s.header.size;
-				}
-			U64 offSh = (off + 7) & ~7ull; // section header table
-
-			List<U8> out;
-			out.reserve(offSh + secs.size() * kShEntSize);
-			elf::putFileHeader(out, elf::ET_REL, 0, 0);
-			le::wr(&out[40], offSh, 8);
-			le::wr(&out[60], secs.size(), 2);
-			le::wr(&out[62], shstrIndex, 2);
-			for(const ElfSection& s : secs)
-				if(s.bytes) {
-					le::padTo(out, s.header.offset);
-					out.insert(out.end(), s.bytes->begin(), s.bytes->end());
-				}
-			le::padTo(out, offSh);
-			for(const ElfSection& s : secs)
-				elf::putSectionHeader(out, s.header);
-			os.write(reinterpret_cast<const C8*>(out.data()), (std::streamsize)out.size());
-		}
-	} // namespace detail
 } // namespace rat

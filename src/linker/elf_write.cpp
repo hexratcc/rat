@@ -624,7 +624,7 @@ namespace rat {
 
 	// headers for kShdrSections and the debug sections, debug bytes go last
 	void Linker::emitShdrs(List<U8>& out) {
-		List<SectionHeader> shdrs(1); // null entry
+		List<OutSection> secs(1); // null entry
 		List<U8> names(1, 0);
 		for(const detail::OutSectionInfo& kind : detail::kShdrSections) {
 			if(!size[kind.sec])
@@ -635,37 +635,13 @@ namespace rat {
 			sh.size = size[kind.sec];
 			if(kind.sec == ODynamic)
 				sh.link = 1; // .dynstr, never empty
-			shdrs.push_back(sh);
+			secs.push_back({sh});
 		}
-		for(const DebugOut& d : debugOuts) {
-			wrPad(out, (out.size() + d.align - 1) & ~(d.align - 1));
-			SectionHeader sh = headerOf({d.name.c_str(), SHT_PROGBITS, 0, d.align, 0}, names);
-			sh.offset = out.size();
-			sh.size = d.bytes.size();
-			shdrs.push_back(sh);
-			out.insert(out.end(), d.bytes.begin(), d.bytes.end());
-		}
-		detail::emitShdrTable(out, shdrs, names);
+		for(const DebugOut& d : debugOuts)
+			secs.push_back({headerOf({d.name.c_str(), SHT_PROGBITS, 0, d.align, 0}, names), &d.bytes});
+		secs.push_back({headerOf({".shstrtab", SHT_STRTAB, 0, 1, 0}, names), &names});
+		appendSections(out, secs, (U16)(secs.size() - 1));
 	}
-
-	namespace detail {
-		// .shstrtab + header table at file end, patches the ehdr
-		void emitShdrTable(List<U8>& out, List<SectionHeader>& shdrs, List<U8>& names) {
-			SectionHeader strtab = headerOf({".shstrtab", SHT_STRTAB, 0, 1, 0}, names);
-			strtab.offset = out.size();
-			strtab.size = names.size();
-			shdrs.push_back(strtab);
-			out.insert(out.end(), names.begin(), names.end());
-
-			wrPad(out, (out.size() + 7) & ~7ull);
-			U64 shoff = out.size();
-			for(const SectionHeader& sh : shdrs)
-				putSectionHeader(out, sh);
-			le::wr(&out[40], shoff, 8);
-			le::wr(&out[60], shdrs.size(), 2);
-			le::wr(&out[62], shdrs.size() - 1, 2);
-		}
-	} // namespace detail
 
 	B32 Linker::write() {
 		// .dynstr

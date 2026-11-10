@@ -115,11 +115,6 @@ namespace rat {
 		static_assert(sizeof(kElfSections) / sizeof(kElfSections[0]) == ObjectFile::SectionCount,
 									"one entry per Section");
 
-		struct ElfSection {
-			elf::SectionHeader header;
-			const List<U8>* bytes; // null = no file data
-		};
-		void writeElfImage(std::ostream& os, List<ElfSection>& secs, U16 shstrIndex);
 		void coffName(List<U8>& out, List<U8>& strtab, const String& n);
 	} // namespace detail
 } // namespace rat

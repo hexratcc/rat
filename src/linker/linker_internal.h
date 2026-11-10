@@ -12,8 +12,6 @@ namespace rat {
 		I64 readSleb(const U8* p, U64& i);
 		U32 encSize(U8 enc);
 
-		void emitShdrTable(List<U8>& out, List<elf::SectionHeader>& shdrs, List<U8>& names);
-
 		// linker.cpp
 		B32 isLinkerSym(const String& n);
 		B32 isGotReloc(U32 t);

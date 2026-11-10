@@ -165,14 +165,17 @@ namespace rat {
 		return (I64)((x ^ m) - m);
 	}
 
+	// a is a power of two
+	constexpr U64 alignUp(U64 v, U64 a) { return (v + a - 1) & ~(a - 1); }
+
 	namespace detail {
 		constexpr U64 kDefaultChunk = 4096;
 
-		inline C8* alignUp(C8* p, U64 align) {
-			U64 v = reinterpret_cast<U64>(p);
-			U64 a = align;
-			return reinterpret_cast<C8*>((v + (a - 1)) & ~(a - 1));
+		inline C8* alignPtr(C8* p, U64 a) {
+			return reinterpret_cast<C8*>(alignUp(reinterpret_cast<U64>(p), a));
 		}
+
+		template <typename T> void destroy(void* p) { static_cast<T*>(p)->~T(); }
 	} // namespace detail
 
 	struct Arena {
@@ -189,7 +192,7 @@ namespace rat {
 			void* mem = allocate(sizeof(T), alignof(T));
 			T* obj = ::new (mem) T(std::forward<Args>(args)...);
 			if constexpr(!std::is_trivially_destructible_v<T>)
-				registerDtor(obj, [](void* p) { static_cast<T*>(p)->~T(); });
+				registerDtor(obj, detail::destroy<T>);
 			return obj;
 		}
 
@@ -209,13 +212,13 @@ namespace rat {
 		}
 	private:
 		void* allocate(U64 size, U64 align) {
-			C8* aligned = cur ? detail::alignUp(cur, align) : nullptr;
+			C8* aligned = cur ? detail::alignPtr(cur, align) : nullptr;
 			if(!aligned || aligned + size > end) {
 				U64 chunkSize = size + align > detail::kDefaultChunk ? size + align : detail::kDefaultChunk;
 				chunks.push_back(UniquePtr<C8[]>(new C8[chunkSize]));
 				cur = chunks.back().get();
 				end = cur + chunkSize;
-				aligned = detail::alignUp(cur, align);
+				aligned = detail::alignPtr(cur, align);
 			}
 			cur = aligned + size;
 			return aligned;

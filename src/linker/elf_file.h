@@ -141,7 +141,7 @@ namespace rat {
 		};
 
 		// header-only, the backend links no linker objects. e_shoff, e_shnum and e_shstrndx are left to
-		// the caller
+		// appendSections
 		inline void putFileHeader(List<U8>& out, U16 type, U64 entry, U16 phnum) {
 			const U8 ident[16] = {0x7f, 'E', 'L', 'F', ELFCLASS64, ELFDATA2LSB, EV_CURRENT};
 			out.insert(out.end(), ident, ident + 16);
@@ -170,6 +170,29 @@ namespace rat {
 			le::put32(out, sh.info);
 			le::put64(out, sh.align);
 			le::put64(out, sh.entSize);
+		}
+
+		struct OutSection {
+			SectionHeader header;
+			const List<U8>* bytes = nullptr; // appended to the file, null keeps the header offset
+		};
+
+		// the section bytes and header table at the end of out, the file header patched
+		inline void appendSections(List<U8>& out, List<OutSection>& secs, U16 shstrIndex) {
+			for(OutSection& s : secs) {
+				if(!s.bytes)
+					continue;
+				le::padTo(out, alignUp(out.size(), s.header.align));
+				s.header.offset = out.size();
+				s.header.size = s.bytes->size();
+				out.insert(out.end(), s.bytes->begin(), s.bytes->end());
+			}
+			le::padTo(out, alignUp(out.size(), 8));
+			le::wr(&out[40], out.size(), 8);
+			le::wr(&out[60], secs.size(), 2);
+			le::wr(&out[62], shstrIndex, 2);
+			for(const OutSection& s : secs)
+				putSectionHeader(out, s.header);
 		}
 
 		// offset of name in a string table
