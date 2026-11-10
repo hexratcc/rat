@@ -258,8 +258,10 @@ namespace rat::cc {
 				return;
 			List<PpToken> e = expand(text);
 			e = applyPragmaOperators(e, fileName);
+			const String* file = intern(fileName);
 			for(PpToken& t : e) {
 				// report lines through any #line adjustment
+				t.file = file;
 				I64 adj = (I64)t.line + lineDelta;
 				t.line = adj >= 1 ? (U32)adj : 1;
 				out.push_back(std::move(t));
@@ -380,7 +382,8 @@ namespace rat::cc {
 				textStart = j;
 				if(start + 1 == j) // null directive
 					continue;
-				U32 phys = j < n ? toks[j].line : toks[start + 1].line + 1;
+				// blank lines after the directive still count, a comment closing it does not
+				U32 phys = toks[j - 1].line + toks[j - 1].trailingLines + 1;
 				doDirective(PpSpan(toks.data() + start + 1, toks.data() + j), phys, path, stack);
 			}
 
