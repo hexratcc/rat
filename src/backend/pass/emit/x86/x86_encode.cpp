@@ -546,6 +546,24 @@ namespace rat {
 			encodedFunc->cfi.push_back({a->here(), kind, detail::kDwarfRegs[reg], value});
 	}
 
+	// a row per source line change. the decl row at 0 always gets a second row after it, where gdb puts
+	// the breakpoint past the prologue
+	void X86EncodePass::markLine(U32 loc) {
+		if(!encodedFunc || encodedFunc->lines.empty() || !loc)
+			return;
+		SrcLoc src = encodedFunc->fn->getDebug()->locs[loc].src;
+		if(!src.line)
+			return;
+		LineRow& last = encodedFunc->lines.back();
+		B32 body = encodedFunc->lines.size() > 1;
+		if(body && last.loc.line == src.line && last.loc.file == src.file && last.loc.col == src.col)
+			return;
+		if(body && last.at == a->here())
+			last.loc = src;
+		else
+			encodedFunc->lines.push_back({a->here(), src});
+	}
+
 	U32 X86EncodePass::blockIdBound(const MachineFunc& f) {
 		I32 maxId = -1;
 		for(const MachineBlock& blk : f.blocks)
@@ -614,8 +632,10 @@ namespace rat {
 				a->alignNop(blk.align);
 			blockOffset[blk.id] = a->here();
 			I32 fallthrough = (bi + 1 < f.blocks.size()) ? (I32)f.blocks[bi + 1].id : -1;
-			for(const MachineInstr& in : blk.insts)
+			for(const MachineInstr& in : blk.insts) {
+				markLine(in.loc);
 				emitInst(in, fallthrough);
+			}
 		}
 		// jump tables: 4-byte offsets from the table base, emitted after the code
 		for(const PendingTable& t : tables) {
@@ -667,6 +687,8 @@ namespace rat {
 		if(objectFormatFor(target.getTriple().os) == ObjectFormat::Elf) {
 			encodedFunc = &encoded.emplace_back();
 			encodedFunc->fn = &f;
+			if(f.getDebug())
+				encodedFunc->lines.push_back({0, f.getDebug()->func->decl});
 		}
 		code.clear();
 		Asm a(code, relocs);
@@ -706,7 +728,7 @@ namespace rat {
 		defineFunctions();
 
 		if(objectFormatFor(target.getTriple().os) == ObjectFormat::Elf)
-			writeDwarf(encoded, *obj);
+			writeDwarf(mod, encoded, *obj);
 
 		// aliases label storage that some other symbol owns
 		for(const Global* g : mod.globals()) {

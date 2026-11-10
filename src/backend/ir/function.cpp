@@ -19,6 +19,10 @@ namespace rat {
 	const FunctionAttrs& Function::getAttrs() const { return attrs; }
 	FunctionAttrs& Function::getAttrs() { return attrs; }
 
+	void Function::setLoc(U32 loc) { curLoc = loc; }
+	DebugBody* Function::getDebug() const { return debug.get(); }
+	void Function::setDebug(UniquePtr<DebugBody> d) { debug = std::move(d); }
+
 	StartNode* Function::getStart() const { return start; }
 	StopNode* Function::getStop() const { return stop; }
 

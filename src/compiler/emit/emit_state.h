@@ -7,6 +7,7 @@
 #include "ir/module.h"
 
 namespace rat::cc {
+	struct TokenStream;
 	using Block = Function::Block;
 
 	struct Local {
@@ -123,6 +124,14 @@ namespace rat::cc {
 		Map<String, GlobalVariable> globals;
 		Map<String, String> aliases;
 		Map<U32, StructType*> complexTypes;
+	};
+
+	// -g state, inactive while info is null
+	struct DebugState {
+		const TokenStream* toks = nullptr;
+		DebugInfo* info = nullptr;
+		B32 describeVars = false; // types and variables, else lines only
+		Map<U16, U32> files;			// token file index to DebugInfo file
 	};
 
 	struct GlobalData {

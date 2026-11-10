@@ -6,7 +6,8 @@ namespace rat {
 	Node::Node(Function& fn, Opcode op, Type* type, const List<Node*>& inputs)
 	: op(op),
 		ty(type),
-		fn(&fn) {
+		fn(&fn),
+		loc(fn.curLoc) {
 		id = fn.allocateId();
 		inputCount = (U32)inputs.size();
 		if(inputCount) {

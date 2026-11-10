@@ -43,6 +43,7 @@ namespace detail {
 		B32 preprocessOnly = false;
 		B32 noStdInc = false;	 // -nostdinc: skip builtin headers
 		B32 noPredefs = false; // -undef: skip predefs
+		U32 debugLevel = 0;
 		String targetSpec;
 		PpOptions pp;
 	};
@@ -96,6 +97,8 @@ namespace detail {
 					"  -E                    preprocess only\n"
 					"  -I<dir> -D<m> -U<m>   preprocessor include dir, define, undefine\n"
 					"  -O0 / -O1             optimization level (default -O0)\n"
+					"  -g[0..3]              debug info (DWARF)\n"
+					"                        also -ggdb[0..3], -gline-tables-only, -gdwarf[-5]\n"
 					"  -nostdinc             do not provide the builtin C standard headers\n"
 					"  -undef                do not predefine the builtin target macros\n"
 					"  -target <triple>      x86_64-linux (default) or x86_64-windows\n"
@@ -126,6 +129,19 @@ namespace detail {
 
 	B32 setFlag(const String& arg, const C8* name, B32& out) { return arg == name && (out = true); }
 
+	// the gcc and clang spellings, the last one wins
+	U32 parseDebugLevel(const String& arg) {
+		String g =
+				arg.size() <= 6 && arg.rfind("-ggdb", 0) == 0 ? "-g" + arg.substr(5) : arg; // -ggdbN is -gN
+		if(g == "-g" || g == "-gdwarf" || g == "-gdwarf-5")
+			return 2;
+		if(g == "-gline-tables-only")
+			return 1;
+		if(g.size() != 3 || g[2] < '0' || g[2] > '3')
+			cli::die(kTool, "unknown option '" + arg + "'");
+		return (U32)(g[2] - '0');
+	}
+
 	Options parseArgs(I32 argc, C8** argv) {
 		Options opt;
 		for(I32 i = 1; i < argc; ++i) {
@@ -140,6 +156,8 @@ namespace detail {
 							setFlag(arg, "-ftime-passes", opt.timePasses) ||
 							setFlag(arg, "-fpass-stats", opt.passStats))
 				;
+			else if(arg.rfind("-g", 0) == 0)
+				opt.debugLevel = parseDebugLevel(arg);
 			else if(String spec; cli::value(kTool, argc, argv, i, "-emit", spec))
 				parseEmit(spec, opt.emits);
 			else if(cli::value(kTool, argc, argv, i, "-target", opt.targetSpec) ||
@@ -212,6 +230,8 @@ namespace detail {
 
 		Module& mod = *new Module;
 		Emitter emitter(mod, TargetLayout::forTriple(hostTargetTriple()));
+		if(opt.debugLevel)
+			emitter.enableDebug(ts, opt.debugLevel > 1);
 		t0 = PhaseClock::now();
 		B32 emitOk = emitter.emit(*unit);
 		F64 emitMs = msSince(t0);

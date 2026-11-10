@@ -10,6 +10,7 @@
 #define RAT_IR_FUNCTION_H
 
 #include "core.h"
+#include "ir/debug_info.h"
 #include "ir/node.h"
 #include "ir/type.h"
 
@@ -50,6 +51,11 @@ namespace rat {
 
 		const FunctionAttrs& getAttrs() const;
 		FunctionAttrs& getAttrs();
+
+		// nodes created from here on carry loc
+		void setLoc(U32 loc);
+		DebugBody* getDebug() const;
+		void setDebug(UniquePtr<DebugBody> d);
 
 		StartNode* getStart() const;
 		StopNode* getStop() const;
@@ -232,6 +238,8 @@ namespace rat {
 		List<Type*> paramTypes;
 		Type* retType; // null for a void function
 		FunctionAttrs attrs;
+		UniquePtr<DebugBody> debug;
+		U32 curLoc = 0;
 
 		// graph
 		Arena arena;

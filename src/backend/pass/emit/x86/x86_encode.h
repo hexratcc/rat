@@ -101,6 +101,7 @@ namespace rat {
 		void emitInst(const MachineInstr& in, I32 fallthrough);
 		void prologue();
 		void markCfi(CfiOp::Kind kind, PhysReg reg, I32 value);
+		void markLine(U32 loc);
 	private:
 		std::ostream* os;
 		UniquePtr<ObjectFile> obj;

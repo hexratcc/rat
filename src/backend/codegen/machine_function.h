@@ -64,6 +64,7 @@ namespace rat {
 		U64 clobbers = 0;			// extra phys regs destroyed, by bit
 		I64 imm = 0;					// backend-defined small immediate
 		I64 imm2 = 0;					// second backend-defined immediate
+		U32 loc = 0;					// DebugBody loc id
 	};
 
 	struct MachineBlock {

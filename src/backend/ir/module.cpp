@@ -19,6 +19,9 @@ namespace rat {
 
 	const String& Module::getName() const { return name; }
 
+	DebugInfo* Module::getDebugInfo() const { return debug.get(); }
+	void Module::setDebugInfo(UniquePtr<DebugInfo> d) { debug = std::move(d); }
+
 	void Module::rebuildFuncIndex() const {
 		funcIndex.clear();
 		for(Function* fn : funcs)

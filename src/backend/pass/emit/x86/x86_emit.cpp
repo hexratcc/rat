@@ -45,6 +45,7 @@ namespace rat {
 		m.defs.assign(defs.begin(), defs.end());
 		m.imm = imm;
 		m.imm2 = imm2;
+		m.loc = curLoc;
 		// x87 sequences stage through r10/r11 in the encoder, declare so the
 		// allocator can use them elsewhere
 		if(op >= X86Op::X87LoadMem && op <= X86Op::X87Cmp)

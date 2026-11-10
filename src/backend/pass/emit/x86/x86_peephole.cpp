@@ -127,10 +127,13 @@ namespace rat {
 		return (X86Op)in.op == X86Op::Load && in.regClass == detail::kGp && isAnySlotLoad(in);
 	}
 
-	MachineInstr X86PeepholePass::makeCopy(PhysReg dst, PhysReg src, U32 cls, U32 width) {
+	// replaces at, keeping its debug location
+	MachineInstr
+	X86PeepholePass::makeCopy(PhysReg dst, PhysReg src, const MachineInstr& at, U32 width) {
 		MachineInstr m;
 		m.op = (MachineOpcode)X86Op::Copy;
-		m.regClass = cls;
+		m.regClass = at.regClass;
+		m.loc = at.loc;
 		m.defs = {MachineOperand::fixed(dst, width)};
 		m.uses = {MachineOperand::fixed(src, width)};
 		return m;
@@ -179,7 +182,7 @@ namespace rat {
 				return 1;
 			}
 			if(PhysReg src = st.regHolding(v, d); src != kNoReg) {
-				in = makeCopy(d, src, in.regClass, w);
+				in = makeCopy(d, src, in, w);
 				st.setReg(d, v);
 				return 1;
 			}

@@ -313,6 +313,7 @@ namespace rat {
 		MachineFunc* out = nullptr;
 		X86FrameLayout* fl = nullptr;
 		MachineBlock* mb = nullptr;
+		U32 curLoc = 0;
 		// per node id
 		List<VReg> vregOf;
 		List<I32> x87Slot;
