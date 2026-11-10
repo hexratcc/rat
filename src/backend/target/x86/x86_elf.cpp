@@ -1,8 +1,6 @@
 #include "target/object_file.h"
 
-#include "byte_io.h"
-#include "elf_file.h"
-
+#include <algorithm>
 #include <ostream>
 
 namespace rat {
@@ -13,32 +11,12 @@ namespace rat {
 		constexpr U64 kSymEntSize = 24;	 // Elf64_Sym
 		constexpr U64 kRelaEntSize = 24; // Elf64_Rela
 
-		constexpr U32 shText = 1, shRodata = 3, shData = 5, shBss = 7, shSymtab = 8, shStrtab = 9,
-									shShstrtab = 10;
-		constexpr U32 kSecShIndex[] = {shText, shRodata, shData, shBss};
-		constexpr U32 shCount = 12;
+		constexpr elf::SectionInfo kSymtab = {".symtab", elf::SHT_SYMTAB, 0, 8, kSymEntSize};
+		constexpr elf::SectionInfo kStrtab = {".strtab", elf::SHT_STRTAB, 0, 1, 0};
+		constexpr elf::SectionInfo kShstrtab = {".shstrtab", elf::SHT_STRTAB, 0, 1, 0};
+		constexpr elf::SectionInfo kNoteStack = {".note.GNU-stack", elf::SHT_PROGBITS, 0, 1, 0};
 
-		U32 appendName(List<U8>& tab, const C8* n) {
-			U32 off = (U32)tab.size();
-			for(const C8* p = n; *p; ++p)
-				tab.push_back((U8)*p);
-			tab.push_back(0);
-			return off;
-		}
-
-		U64 place(U64& off, U64 size, U64 a) {
-			off = (off + (a - 1)) & ~(a - 1);
-			U64 here = off;
-			off += size;
-			return here;
-		}
-
-		void emitAt(List<U8>& out, U64 target, const List<U8>& blob) {
-			le::padTo(out, target);
-			out.insert(out.end(), blob.begin(), blob.end());
-		}
-
-		void writeElfHeader(List<U8>& out, U64 offSh) {
+		void writeElfHeader(List<U8>& out, U64 offSh, U16 shCount, U16 shstrIndex) {
 			for(U8 c : kElfMag)
 				le::put8(out, c);
 			le::put8(out, elf::ELFCLASS64);
@@ -58,12 +36,15 @@ namespace rat {
 			le::put16(out, 0);							 // e_phentsize
 			le::put16(out, 0);							 // e_phnum
 			le::put16(out, (U16)kShEntSize); // e_shentsize
-			le::put16(out, (U16)shCount);		 // e_shnum
-			le::put16(out, (U16)shShstrtab); // e_shstrndx
+			le::put16(out, shCount);				 // e_shnum
+			le::put16(out, shstrIndex);			 // e_shstrndx
 		}
 	} // namespace detail
 
-	U32 ObjectFile::elfSymtab(List<U8>& symtab, List<U8>& strtab, List<U32>& remap) const {
+	U32 ObjectFile::elfSymtab(List<U8>& symtab,
+														List<U8>& strtab,
+														List<U32>& remap,
+														const List<U32>& shIndex) const {
 		List<U32> order;
 		order.push_back(0);
 		for(U32 i = 1; i < syms.size(); ++i)
@@ -80,12 +61,8 @@ namespace rat {
 
 		strtab.push_back(0);
 		List<U32> nameOff(syms.size(), 0);
-		for(U32 i = 1; i < syms.size(); ++i) {
-			nameOff[i] = (U32)strtab.size();
-			const String& n = syms[i].name;
-			strtab.insert(strtab.end(), n.begin(), n.end());
-			strtab.push_back(0);
-		}
+		for(U32 i = 1; i < syms.size(); ++i)
+			nameOff[i] = elf::appendName(strtab, syms[i].name);
 
 		for(U32 i = 0; i < order.size(); ++i) {
 			U32 oi = order[i];
@@ -93,7 +70,9 @@ namespace rat {
 			B32 placed = i != 0 && s.defined;
 			U8 bind = (i != 0 && s.global) ? elf::STB_GLOBAL : elf::STB_LOCAL;
 			U8 type = !placed ? elf::STT_NOTYPE : (s.isFunc ? elf::STT_FUNC : elf::STT_OBJECT);
-			U16 shndx = !placed ? elf::SHN_UNDEF : (U16)detail::kSecShIndex[(U32)s.sec];
+			if(placed && s.isSection)
+				type = elf::STT_SECTION;
+			U16 shndx = !placed ? elf::SHN_UNDEF : (U16)shIndex[s.sec];
 
 			le::put32(symtab, i == 0 ? 0u : nameOff[oi]);				// st_name
 			le::put8(symtab, (U8)((bind << 4) | (type & 0xf))); // st_info
@@ -118,102 +97,89 @@ namespace rat {
 	}
 
 	void ObjectFile::writeElf(std::ostream& os) {
-		List<U8> symtab, strtab;
-		List<U32> remap;
-		U32 firstGlobal = elfSymtab(symtab, strtab, remap);
-
-		List<const Rel*> relBySec[kSections];
+		RelBuckets relBySec;
 		partitionRelocs(relBySec);
-		List<U8> relaText = elfRela(relBySec[Text], remap);
-		List<U8> relaRodata = elfRela(relBySec[Rodata], remap);
-		List<U8> relaData = elfRela(relBySec[Data], remap);
 
-		List<U8> shstr;
-		shstr.push_back(0);
-		U32 nText = detail::appendName(shstr, ".text");
-		U32 nRelaText = detail::appendName(shstr, ".rela.text");
-		U32 nRodata = detail::appendName(shstr, ".rodata");
-		U32 nRelaRodata = detail::appendName(shstr, ".rela.rodata");
-		U32 nData = detail::appendName(shstr, ".data");
-		U32 nRelaData = detail::appendName(shstr, ".rela.data");
-		U32 nBss = detail::appendName(shstr, ".bss");
-		U32 nSymtab = detail::appendName(shstr, ".symtab");
-		U32 nStrtab = detail::appendName(shstr, ".strtab");
-		U32 nShstrtab = detail::appendName(shstr, ".shstrtab");
-		U32 nNoteStack = detail::appendName(shstr, ".note.GNU-stack");
-
-		U64 off = detail::kEhSize;
-		U64 offText = detail::place(off, bytesOf(Text).size(), 16);
-		U64 offRodata = detail::place(off, bytesOf(Rodata).size(), 16);
-		U64 offData = detail::place(off, bytesOf(Data).size(), 16);
-		U64 offSymtab = detail::place(off, symtab.size(), 8);
-		U64 offStrtab = detail::place(off, strtab.size(), 1);
-		U64 offRelaText = detail::place(off, relaText.size(), 8);
-		U64 offRelaRodata = detail::place(off, relaRodata.size(), 8);
-		U64 offRelaData = detail::place(off, relaData.size(), 8);
-		U64 offShstr = detail::place(off, shstr.size(), 1);
-		U64 offSh = (off + 7) & ~7ull; // section header table
-
-		List<U8> out;
-		out.reserve(offSh + detail::shCount * detail::kShEntSize);
-		detail::writeElfHeader(out, offSh);
-
-		detail::emitAt(out, offText, bytesOf(Text));
-		detail::emitAt(out, offRodata, bytesOf(Rodata));
-		detail::emitAt(out, offData, bytesOf(Data));
-		detail::emitAt(out, offSymtab, symtab);
-		detail::emitAt(out, offStrtab, strtab);
-		detail::emitAt(out, offRelaText, relaText);
-		detail::emitAt(out, offRelaRodata, relaRodata);
-		detail::emitAt(out, offRelaData, relaData);
-		detail::emitAt(out, offShstr, shstr);
-		le::padTo(out, offSh);
-
-		struct ShDesc {
-			U32 name;
-			U32 type;
-			U64 flags;
-			U64 fileOff;
-			U64 size;
-			U32 link;
-			U32 info;
-			U64 align;
-			U64 entSize;
-		};
-		const U64 alloc = elf::SHF_ALLOC;
-		const U64 rela = elf::SHF_INFO_LINK;
-		const ShDesc headers[] = {
-				// clang-format off
-				// name        type               flags                       offset         size                    link              info              align             entsize
-				{0,           elf::SHT_NULL,     0,                          0,             0,                      0,                0,                0,                0},                    // 0 null
-				{nText,       elf::SHT_PROGBITS, alloc | elf::SHF_EXECINSTR, offText,       bytesOf(Text).size(),   0,                0,                secAlign[Text],   0},                    // 1 .text
-				{nRelaText,   elf::SHT_RELA,     rela,                       offRelaText,   relaText.size(),        detail::shSymtab, detail::shText,   8,                detail::kRelaEntSize}, // 2 .rela.text
-				{nRodata,     elf::SHT_PROGBITS, alloc,                      offRodata,     bytesOf(Rodata).size(), 0,                0,                secAlign[Rodata], 0},                    // 3 .rodata
-				{nRelaRodata, elf::SHT_RELA,     rela,                       offRelaRodata, relaRodata.size(),      detail::shSymtab, detail::shRodata, 8,                detail::kRelaEntSize}, // 4 .rela.rodata
-				{nData,       elf::SHT_PROGBITS, alloc | elf::SHF_WRITE,     offData,       bytesOf(Data).size(),   0,                0,                secAlign[Data],   0},                    // 5 .data
-				{nRelaData,   elf::SHT_RELA,     rela,                       offRelaData,   relaData.size(),        detail::shSymtab, detail::shData,   8,                detail::kRelaEntSize}, // 6 .rela.data
-				{nBss,        elf::SHT_NOBITS,   alloc | elf::SHF_WRITE,     0,             bssSize,                0,                0,                secAlign[Bss],    0},                    // 7 .bss
-				{nSymtab,     elf::SHT_SYMTAB,   0,                          offSymtab,     symtab.size(),          detail::shStrtab, firstGlobal,      8,                detail::kSymEntSize},  // 8 .symtab
-				{nStrtab,     elf::SHT_STRTAB,   0,                          offStrtab,     strtab.size(),          0,                0,                1,                0},                    // 9 .strtab
-				{nShstrtab,   elf::SHT_STRTAB,   0,                          offShstr,      shstr.size(),           0,                0,                1,                0},                    // 10 .shstrtab
-				{nNoteStack,  elf::SHT_PROGBITS, 0,                          0,             0,                      0,                0,                1,                0},                    // 11 .note.GNU-stack
-				// clang-format on
-		};
-		static_assert(sizeof(headers) / sizeof(headers[0]) == detail::shCount,
-									"headers must match shCount");
-		for(const ShDesc& h : headers) {
-			le::put32(out, h.name);
-			le::put32(out, h.type);
-			le::put64(out, h.flags);
-			le::put64(out, 0); // sh_addr: always 0 in a relocatable object
-			le::put64(out, h.fileOff);
-			le::put64(out, h.size);
-			le::put32(out, h.link);
-			le::put32(out, h.info);
-			le::put64(out, h.align);
-			le::put64(out, h.entSize);
+		// the classic sections always, the others only when used, each followed by its rela
+		List<detail::ElfSection> secs(1);
+		List<U8> shstr(1, 0);
+		List<U32> shIndex(SectionCount, 0), relaIndex(SectionCount, 0);
+		for(U32 s = 0; s < SectionCount; ++s) {
+			Section sec = (Section)s;
+			const elf::SectionInfo& info = detail::kElfSections[s];
+			B32 optional = sec >= EhFrame;
+			if(optional && raw[s].empty())
+				continue;
+			shIndex[s] = (U32)secs.size();
+			elf::SectionHeader header = elf::headerOf(info, shstr);
+			header.size = sectionSize(sec);
+			header.align = std::max<U64>(info.align, requestedAlign[s]);
+			secs.push_back({header, sec == Bss ? nullptr : &raw[s]});
+			if(sec == Bss || (optional && relBySec[s].empty()))
+				continue;
+			relaIndex[s] = (U32)secs.size();
+			String relaName = String(".rela") + info.name;
+			elf::SectionHeader rela = elf::headerOf(
+					{relaName.c_str(), elf::SHT_RELA, elf::SHF_INFO_LINK, 8, detail::kRelaEntSize}, shstr);
+			rela.info = shIndex[s];
+			secs.push_back({rela, nullptr});
 		}
 
-		os.write(reinterpret_cast<const C8*>(out.data()), (std::streamsize)out.size());
+		U32 shSymtab = (U32)secs.size();
+		List<U8> symtab, strtab;
+		List<U32> remap;
+		U32 firstGlobal = elfSymtab(symtab, strtab, remap, shIndex);
+		List<U8> rela[SectionCount];
+		for(U32 s = 0; s < SectionCount; ++s) {
+			if(!relaIndex[s])
+				continue;
+			rela[s] = elfRela(relBySec[s], remap);
+			detail::ElfSection& r = secs[relaIndex[s]];
+			r.bytes = &rela[s];
+			r.header.size = rela[s].size();
+			r.header.link = shSymtab;
+		}
+
+		elf::SectionHeader symtabHeader = elf::headerOf(detail::kSymtab, shstr);
+		symtabHeader.size = symtab.size();
+		symtabHeader.link = shSymtab + 1;
+		symtabHeader.info = firstGlobal;
+		elf::SectionHeader strtabHeader = elf::headerOf(detail::kStrtab, shstr);
+		strtabHeader.size = strtab.size();
+		elf::SectionHeader shstrtabHeader = elf::headerOf(detail::kShstrtab, shstr);
+		elf::SectionHeader noteStackHeader = elf::headerOf(detail::kNoteStack, shstr);
+		shstrtabHeader.size = shstr.size();
+		secs.push_back({symtabHeader, &symtab});
+		secs.push_back({strtabHeader, &strtab});
+		U32 shShstrtab = (U32)secs.size();
+		secs.push_back({shstrtabHeader, &shstr});
+		secs.push_back({noteStackHeader, nullptr});
+		detail::writeElfImage(os, secs, (U16)shShstrtab);
 	}
+
+	namespace detail {
+		void writeElfImage(std::ostream& os, List<ElfSection>& secs, U16 shstrIndex) {
+			U64 off = kEhSize;
+			for(ElfSection& s : secs)
+				if(s.bytes) {
+					off = (off + s.header.align - 1) & ~(s.header.align - 1);
+					s.header.offset = off;
+					off += s.header.size;
+				}
+			U64 offSh = (off + 7) & ~7ull; // section header table
+
+			List<U8> out;
+			out.reserve(offSh + secs.size() * kShEntSize);
+			writeElfHeader(out, offSh, (U16)secs.size(), shstrIndex);
+			for(const ElfSection& s : secs)
+				if(s.bytes) {
+					le::padTo(out, s.header.offset);
+					out.insert(out.end(), s.bytes->begin(), s.bytes->end());
+				}
+			le::padTo(out, offSh);
+			for(const ElfSection& s : secs)
+				elf::putSectionHeader(out, s.header);
+			os.write(reinterpret_cast<const C8*>(out.data()), (std::streamsize)out.size());
+		}
+	} // namespace detail
 } // namespace rat
