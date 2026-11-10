@@ -300,7 +300,7 @@ namespace rat::cc {
 			init = fn.constInt(irType(d.type), 0);
 		}
 		// a volatile local lives in memory, so every access stays
-		if(func.addrTaken.count(*d.name) || isTopVolatile(d.type)) {
+		if(func.addrTaken.count(*d.name) || isTopVolatile(d.type) || dbg.keepLocals) {
 			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
 			fn.store(slot, init, isTopVolatile(d.type));
 			func.scopes.declare(*d.name, Local::mem(slot, d.type));

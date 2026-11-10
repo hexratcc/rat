@@ -1,0 +1,23 @@
+Breakpoint 1, leaf (a=
+#1  0x
+ in deep (
+debug.c:16
+#4  0x
+ in deep (
+#5  0x
+ in main () at
+debug.c:38
+Value returned is $2 = 160
+Breakpoint 2, scale (p=
+debug.c:24
+ in main () at
+debug.c:39
+= {4, 5, 6}
+Breakpoint 3, span (q=..., bias=
+Value returned is $10 = 8
+type = Tagged
+type = struct {
+    Color c;
+    const char *s;
+= Green
+= Blue

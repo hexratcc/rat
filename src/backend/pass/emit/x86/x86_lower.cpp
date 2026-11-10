@@ -551,7 +551,9 @@ namespace rat {
 		curLoc = 0;
 		allocOff.assign(f.idBound(), kNoSlot);
 		lowerBlocks();
-		mf.aux = std::make_unique<X86FrameLayout>(frame); // the layout rides along on mf.aux
+		if(f.getDebug())
+			frame.allocOff = std::move(allocOff); // slot offsets for variable locations
+		mf.aux = std::make_unique<X86FrameLayout>(std::move(frame)); // the layout rides along on mf.aux
 	}
 
 	namespace detail {

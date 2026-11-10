@@ -97,7 +97,7 @@ namespace detail {
 					"  -E                    preprocess only\n"
 					"  -I<dir> -D<m> -U<m>   preprocessor include dir, define, undefine\n"
 					"  -O0 / -O1             optimization level (default -O0)\n"
-					"  -g[0..3]              debug info (DWARF)\n"
+					"  -g[0..3]              debug info (DWARF), -g at -O0 keeps locals in memory,\n"
 					"                        also -ggdb[0..3], -gline-tables-only, -gdwarf[-5]\n"
 					"  -nostdinc             do not provide the builtin C standard headers\n"
 					"  -undef                do not predefine the builtin target macros\n"
@@ -231,7 +231,7 @@ namespace detail {
 		Module& mod = *new Module;
 		Emitter emitter(mod, TargetLayout::forTriple(hostTargetTriple()));
 		if(opt.debugLevel)
-			emitter.enableDebug(ts, opt.debugLevel > 1);
+			emitter.enableDebug(ts, opt.debugLevel > 1 && opt.optLevel == 0, opt.debugLevel > 1);
 		t0 = PhaseClock::now();
 		B32 emitOk = emitter.emit(*unit);
 		F64 emitMs = msSince(t0);

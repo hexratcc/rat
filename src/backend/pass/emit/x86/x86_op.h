@@ -205,6 +205,8 @@ namespace rat {
 	inline Slot slot(I32 s, U32 w = 8) { return {s, w}; }
 	inline Xmm xmm(U32 n, U32 w = 8) { return {n, w}; }
 
+	constexpr I32 kNoSlot = INT32_MIN;
+
 	struct X86FrameLayout : MachineFuncAux {
 		I32 ldScratch = 0;
 		I32 vecScratch = 0;
@@ -214,6 +216,7 @@ namespace rat {
 		U32 namedGp = 0;
 		U32 namedFp = 0;
 		I32 sretSlot = 0;
+		List<I32> allocOff;
 	};
 } // namespace rat
 

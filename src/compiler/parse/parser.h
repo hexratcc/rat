@@ -104,7 +104,7 @@ namespace rat::cc {
 		B32 acceptTrailingAlignas(U32& align);
 		B32 parseTypeofSpec(CType& out);
 		B32 parseEnumSpec(CType& out);
-		B32 parseEnumerators(B32& anyNegative);
+		B32 parseEnumerators(NamedType& e);
 		B32 parseStructSpec(CType& out);
 		struct StructLayout {
 			U64 offset = 0; // bytes used so far; the union's widest member
@@ -284,7 +284,7 @@ namespace rat::cc {
 		U32 scopeDepth = 0;
 		ScopeMap<CType> typedefs;
 		ScopeMap<I64> enumConstants;
-		ScopeMap<B32> enumSignedTags;
+		ScopeMap<const NamedType*> enumTags;
 		ScopeMap<TagBinding> structTypes;
 
 		// unit-wide tables

@@ -1,6 +1,15 @@
 #include "ir/debug_info.h"
 
 namespace rat {
+	DebugType* DebugInfo::makeType(DebugType::Kind kind, String name, U32 size) {
+		types.push_back(std::make_unique<DebugType>());
+		DebugType* t = types.back().get();
+		t->kind = kind;
+		t->name = std::move(name);
+		t->size = size;
+		return t;
+	}
+
 	// consecutive nodes mostly share a location, reuse the last entry then
 	U32 DebugBody::addLoc(SrcLoc src) {
 		const DebugLoc& last = locs.back();

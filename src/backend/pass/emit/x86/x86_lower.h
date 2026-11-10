@@ -300,7 +300,6 @@ namespace rat {
 		void emitPhiCopies(I32 targetBlock, I32 predIdx);
 		void emitTerminator(I32 b);
 	private:
-		static constexpr I32 kNoSlot = INT32_MIN;
 		// target
 		const X86CallConv* conv = &abi::kSysV;
 		const RegisterInfo* regs = nullptr;

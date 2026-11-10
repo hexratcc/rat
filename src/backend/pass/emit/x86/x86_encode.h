@@ -102,6 +102,7 @@ namespace rat {
 		void prologue();
 		void markCfi(CfiOp::Kind kind, PhysReg reg, I32 value);
 		void markLine(U32 loc);
+		void recordVars(const Function& f);
 	private:
 		std::ostream* os;
 		UniquePtr<ObjectFile> obj;
