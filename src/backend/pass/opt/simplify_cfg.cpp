@@ -201,6 +201,10 @@ namespace rat {
 		}
 		// splice the merge out of the control chain, then drop the diamond
 		r->replaceAllUsesWith(iff->getControl());
+		if(DebugBody* dbg = fn.getDebug()) {
+			dbg->mergeArm(a, iff->getControl());
+			dbg->mergeArm(b, iff->getControl());
+		}
 		for(PhiNode* phi : phis)
 			if(!phi->hasUsers())
 				fn.removeNode(phi);

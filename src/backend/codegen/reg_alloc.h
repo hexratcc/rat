@@ -50,6 +50,11 @@ namespace rat {
 		void assignSlots(List<Pair<I32, VReg>>& spilled);
 		I32 newSlot(U32 cls);
 		PhysReg pick(VReg v) const;
+		// debug records
+		B32 covers(VReg v, I32 pos) const;
+		B32 liveAt(const MachineOperand& o, U32 b, U32 k) const;
+		void checkDebugLive();
+		void rewriteDebug();
 		// rewrite
 		void rewrite();
 		B32 rewriteCopy(List<MachineInstr>& out, const MachineInstr& in, U32 i);

@@ -116,6 +116,8 @@ namespace rat {
 	void Node::replaceAllUsesWith(Node* value) {
 		if(value == this)
 			return;
+		if(DebugBody* dbg = fn->getDebug())
+			dbg->retarget(this, value);
 		if(userCount)
 			fn->touch();
 		for(U32 u = 0; u < userCount; ++u) {

@@ -48,6 +48,7 @@ namespace rat {
 		static void replaceCall(Function& caller, CallNode* call, const Merged& m);
 		void inlineScopes(Function& caller, CallNode* call, const Function& callee);
 		void inlineVars(Function& caller, const Function& callee);
+		static Node* lastEffect(Node* mem);
 		B32 inlineCallSite(Function& caller, CallNode* call, Function& callee);
 	private:
 		const CallGraph* graph = nullptr; // of the current module run

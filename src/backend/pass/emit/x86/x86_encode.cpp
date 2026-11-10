@@ -648,6 +648,13 @@ namespace rat {
 		a->code.reserve((U64)instCount * 16u + 64u); // cheap upper estimate
 
 		blockOffset.assign(blockIdBound(f), 0);
+		varsIn.clear();
+		// like gcc's max-vartrack-size, huge functions keep their vars without locations
+		const DebugBody* body = encodedFunc ? encodedFunc->fn->getDebug() : nullptr;
+		U64 trackCost = body ? (U64)instCount * body->vars.size() : 0;
+		if(body && f.dbg.size() > 1 && trackCost <= kMaxVarTrackCost)
+			solveVars(f);
+		B32 trackVars = !varsIn.empty();
 		prologue();
 		for(U32 bi = 0; bi < f.blocks.size(); ++bi) {
 			const MachineBlock& blk = f.blocks[bi];
@@ -657,12 +664,21 @@ namespace rat {
 				a->alignNop(blk.align);
 			blockOffset[blk.id] = a->here();
 			I32 fallthrough = (bi + 1 < f.blocks.size()) ? (I32)f.blocks[bi + 1].id : -1;
+			if(trackVars)
+				beginVars(bi);
 			for(const MachineInstr& in : blk.insts) {
 				U32 at = a->here();
 				markLine(in.loc);
+				if(trackVars)
+					applyRecords(liveVars, in.dbg, at);
 				emitInst(in, fallthrough);
 				markScope(in.loc, at, a->here());
+				// a write ends its vars one byte in, so the instr start still shows them but no later pc does
+				if(trackVars)
+					clobber(liveVars, in, std::min(at + 1, a->here()));
 			}
+			if(trackVars)
+				endVars(blk);
 		}
 		// jump tables: 4-byte offsets from the table base, emitted after the code
 		for(const PendingTable& t : tables) {
@@ -717,6 +733,7 @@ namespace rat {
 			if(f.getDebug()) {
 				encodedFunc->lines.push_back({0, f.getDebug()->func->decl});
 				encodedFunc->scopes.resize(f.getDebug()->scopes.size());
+				encodedFunc->varRanges.resize(f.getDebug()->vars.size());
 			}
 			scope = 0;
 		}

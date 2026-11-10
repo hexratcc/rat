@@ -160,7 +160,7 @@ namespace rat::cc {
 			Local l;
 			if(!dbg.describeVars || !p.name || !func.scopes.lookup(*p.name, l))
 				continue;
-			debugVar(fn, {*p.name, debugType(p.type), debugLoc(p.offset), "", true}, l);
+			debugVar(fn, {*p.name, debugType(p.type), debugLoc(p.offset), "", true}, l, true);
 		}
 	}
 
@@ -186,12 +186,23 @@ namespace rat::cc {
 		return outer;
 	}
 
-	// records v in the current scope with the frame slot l lives in, if any
-	void Emitter::debugVar(Function& fn, DebugVar v, const Local& l) {
+	// records v in the current scope and binds where l keeps its value
+	void Emitter::debugVar(Function& fn, DebugVar v, const Local& l, B32 hasValue) {
 		DebugBody& body = *fn.getDebug();
 		body.func->vars.push_back(std::make_unique<DebugVar>(std::move(v)));
 		AllocNode* slot = !l.staticSymbol && l.inMem() ? dyn_cast<AllocNode>(l.addr) : nullptr;
 		body.vars.push_back({body.func->vars.back().get(), dbg.scope, slot});
+		U32 inst = (U32)body.vars.size() - 1;
+		if(l.staticSymbol || slot)
+			return;
+		if(l.inMem()) { // a vla, over-aligned local or by-value aggregate, only its address is known
+			body.vars[inst].indirect = true;
+			fn.bindDebug(inst, l.addr);
+			return;
+		}
+		fn.bindVar(l.var, inst);
+		if(hasValue)
+			fn.bindDebug(inst, fn.get(l.var));
 	}
 
 	void Emitter::debugLocal(Function& fn, const Declarator& d) {
@@ -200,7 +211,7 @@ namespace rat::cc {
 			return;
 		String symbol = l.staticSymbol ? *l.staticSymbol : "";
 		DebugVar v{*d.name, debugObjectType(d.type, d.isArray, l.count), debugLoc(d.offset), symbol};
-		debugVar(fn, std::move(v), l);
+		debugVar(fn, std::move(v), l, d.init != nullptr);
 	}
 
 	void Emitter::debugGlobal(const Declarator& d) {

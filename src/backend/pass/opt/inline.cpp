@@ -155,12 +155,31 @@ namespace rat {
 	void InlinePass::inlineVars(Function& caller, const Function& callee) {
 		DebugBody& to = *caller.getDebug();
 		U32 scopeBase = (U32)(to.scopes.size() - callee.getDebug()->scopes.size());
+		U32 instBase = (U32)to.vars.size();
 		for(const DebugVarInst& v : callee.getDebug()->vars) {
 			DebugVarInst copy = v;
 			copy.scope = scopeBase + v.scope;
 			copy.slot = dyn_cast<AllocNode>(mapped(v.slot));
 			to.vars.push_back(copy);
 		}
+		// clones carry the callee bindings, the params bind the call arguments. a constant may be erased
+		// or from another callee, it is read for its value only
+		for(const DebugBinding& b : callee.getDebug()->bindings) {
+			Node* value = isa<ConstantNode>(b.value) ? b.value : mapped(b.value);
+			if(Node* anchor = mapped(b.anchor))
+				to.bind(instBase + b.inst, value, anchor, mapped(b.after));
+		}
+	}
+
+	// the store, call or asm that made mem, null when none did
+	Node* InlinePass::lastEffect(Node* mem) {
+		if(isa<StoreNode>(mem))
+			return mem;
+		ProjNode* p = dyn_cast<ProjNode>(mem);
+		Node* producer = p ? p->getProducer() : nullptr;
+		if(isa<CallNode>(producer) || isa<AsmNode>(producer))
+			return producer;
+		return nullptr;
 	}
 
 	B32 InlinePass::inlineCallSite(Function& caller, CallNode* call, Function& callee) {
@@ -174,6 +193,9 @@ namespace rat {
 		Merged m = mergeReturns(caller, callee);
 		if(!m.ctrl)
 			return false; // callee never returns
+		// what came after the call comes after the callee effects
+		if(DebugBody* dbg = caller.getDebug())
+			dbg->retarget(call, lastEffect(m.mem));
 		replaceCall(caller, call, m);
 		return true;
 	}

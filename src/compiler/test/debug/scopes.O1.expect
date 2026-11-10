@@ -1,5 +1,5 @@
-Breakpoint 1, square (x=
-#1  work (n=
+Breakpoint 1, square (x=3) at
+#1  work (n=3) at
 scopes.c:17
 #2  0x
  in main () at

@@ -4,6 +4,7 @@
 #include "core.h"
 
 #include "codegen/schedule.h"
+#include "ir/debug_info.h"
 #include "ir/opcode.h"
 #include "pass/emit/x86/x86_op.h"
 #include "pass/pass.h"
@@ -299,6 +300,20 @@ namespace rat {
 		void moveValue(VReg dst, VReg src, U32 cls, U32 w);
 		void emitPhiCopies(I32 targetBlock, I32 predIdx);
 		void emitTerminator(I32 b);
+		// debug bindings of the function, grouped by the block of their anchor
+		struct BindingPlan {
+			List<U32> first;	 // block -> first of its bindings in order
+			List<U32> order;	 // binding indexes
+			List<U32> nodeEnd; // node id -> insts index past its code
+			List<U32> cursor;	 // var inst -> least position left in the block
+			U32 prologueEnd = 0;
+		};
+		void planBindings(BindingPlan& plan) const;
+		U32 endIn(const Node* n, I32 b, const BindingPlan& plan) const;
+		U32 sourcePos(const DebugBinding& bd, I32 b, const BindingPlan& plan) const;
+		U32 valuePos(const DebugBinding& bd, I32 b, const BindingPlan& plan) const;
+		MachineOperand bindingLoc(const Node* value) const;
+		void placeBindings(I32 b, BindingPlan& plan);
 	private:
 		// target
 		const X86CallConv* conv = &abi::kSysV;

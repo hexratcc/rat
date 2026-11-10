@@ -67,7 +67,7 @@ namespace rat {
 		U32 foldSlotStore(MachineInstr& in, B32& keep);
 		U32 foldSlotLoad(MachineInstr& in, B32& keep);
 		void stepOther(const MachineInstr& in);
-		U32 runOnBlock(MachineBlock& b);
+		U32 runOnBlock(MachineFunc& mf, MachineBlock& b);
 
 		// demanded-bits phase
 		static B32 tracked(const MachineOperand& o) { return o.isPhys() && o.phys < kDemRegs; }
@@ -81,7 +81,7 @@ namespace rat {
 		static B32 writesFlags(X86Op op);
 		static B32 flagSafeToDrop(const MachineBlock& b, U32 at);
 		static void transfer(const MachineInstr& in, U64* dem);
-		static void eraseMarked(MachineBlock& b, const List<B32>& drop);
+		void eraseMarked(MachineFunc& mf, MachineBlock& b);
 		static B32 orInto(U64* into, const List<U64>& from);
 		void seedWork(const MachineFunc& mf, List<U32>& work, List<B32>& queued);
 		void postorder(const MachineFunc& mf);
@@ -113,11 +113,35 @@ namespace rat {
 		static void slotStep(const MachineInstr& in, const TrackedSlots& slots, List<U64>& cur);
 		U32 elimDeadSlotStores(MachineFunc& mf);
 
+		struct DbgSeed {
+			U32 block;
+			U32 at; // index of the instr after the drop
+			MachineOperand loc;
+			U32 bits; // low bits still right, 0 none
+		};
+		struct DbgTaint {
+			// low bits right half then wrong half, each regs by phys then slots by slotKey
+			List<U64> marks;
+			U32 keys = 0;
+			U32 rightBits = 64; // low bits every dropped normalize leaves right
+
+			I32 bitOf(const MachineOperand& o) const;
+			U32 level(const MachineOperand& o) const;
+			void set(const MachineOperand& o, U32 lv);
+		};
+
+		static B32 keepsLowBits(X86Op op);
+		static void taintStep(const MachineInstr& in, DbgTaint& t);
+		static void killRecords(MachineFunc& mf, U32 chain, const DbgTaint& t);
+		B32 taintPass(MachineFunc& mf, List<List<U64>>& entry, DbgTaint& t, B32 kill) const;
+		void killTainted(MachineFunc& mf);
+
 		ValueState st;
 		TrackedSlots slots;
-		List<U32> seed;				// block postorder
-		List<B32> seedQueued; // block -> in seed, empty until computed
-		List<B32> drop;				// per instruction of the block being swept
+		List<U32> seed;					// block postorder
+		List<B32> seedQueued;		// block -> in seed, empty until computed
+		List<B32> drop;					// per instruction of the block being swept
+		List<DbgSeed> dbgSeeds; // of the phase just run, by block
 	};
 } // namespace rat
 

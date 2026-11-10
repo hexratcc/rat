@@ -38,6 +38,15 @@ namespace rat {
 			U32 relocEnd; // one past its last reloc
 		};
 
+		// a debug var location not yet closed into a VarRange, lists of them are sorted by inst
+		struct OpenVarRange {
+			U32 inst;
+			VarLoc loc; // reg is a PhysReg
+			U32 start;
+		};
+		static constexpr U32 kNoPc = ~0u;									// solving, no ranges
+		static constexpr U64 kMaxVarTrackCost = 20000000; // instrs times tracked vars
+
 		static void emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes);
 		void defineFunctions();
 
@@ -104,6 +113,18 @@ namespace rat {
 		void markLine(U32 loc);
 		void markScope(U32 loc, U32 start, U32 end);
 		void recordVars(const Function& f);
+		static VarLoc toVarLoc(const MachineOperand& o);
+		static B32 writesSlot(const MachineInstr& in, I64 cfaOff);
+		static B32 instBefore(const OpenVarRange& open, U32 inst);
+		void closeRange(const OpenVarRange& open, U32 end);
+		void setLoc(List<OpenVarRange>& live, U32 inst, VarLoc loc, U32 pc);
+		void applyRecords(List<OpenVarRange>& live, U32 chain, U32 pc);
+		void clobber(List<OpenVarRange>& live, const MachineInstr& in, U32 pc);
+		static void meet(List<OpenVarRange>& into, const List<OpenVarRange>& from);
+		void blockVars(const MachineBlock& blk, List<OpenVarRange>& live);
+		void solveVars(const MachineFunc& f);
+		void beginVars(U32 bi);
+		void endVars(const MachineBlock& blk);
 	private:
 		std::ostream* os;
 		UniquePtr<ObjectFile> obj;
@@ -113,6 +134,8 @@ namespace rat {
 		List<EncodedFunc> encoded;					// elf only, one per placed function
 		EncodedFunc* encodedFunc = nullptr; // the function being encoded, null on coff
 		U32 scope = 0;											// of the last located instr
+		List<List<OpenVarRange>> varsIn; // block index -> var locations at its start, empty untracked
+		List<OpenVarRange> liveVars;		 // in the block being encoded
 		const X86CallConv* conv = &abi::kSysV;
 		const MachineFunc* fn = nullptr;
 		const X86FrameLayout* fl = nullptr;
