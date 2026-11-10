@@ -6,13 +6,9 @@
 
 namespace rat {
 	namespace detail {
-		struct Shdr {
-			U32 name, type, link, info;
-			U64 flags, offset, size, addralign, entsize;
-		};
-
 		U8 classify(U32 type, U64 flags);
-		B32 parseShdrs(const List<U8>& img, List<Shdr>& out, const U8*& shstr, String& err);
+		B32
+		parseShdrs(const List<U8>& img, List<elf::SectionHeader>& out, const U8*& shstr, String& err);
 	} // namespace detail
 
 	enum Bucket {
@@ -26,6 +22,7 @@ namespace rat {
 		BTdata, // tls progbits
 		BTbss,	// tls nobits
 		BucketCount,
+		BDebug = 0xfe, // non-alloc .debug_*, merged per name
 		BNone = 0xff
 	};
 
@@ -35,7 +32,8 @@ namespace rat {
 		U64 fileOff = 0; // offset in image
 		U64 size = 0;
 		U8 bucket = BNone;
-		U64 outOff = 0; // offset in bucket, filled at layout
+		U64 outOff = 0;		// offset in bucket, filled at layout
+		U32 debugOut = 0; // index in Linker::debugOuts
 		B32 keep = false;
 	};
 
@@ -101,6 +99,10 @@ namespace rat {
 	};
 
 	B32 readWhole(const String& path, List<U8>& out);
+
+	namespace detail {
+		B32 inflateDebug(InObject& obj, const elf::SectionHeader& sh, InSection& s);
+	} // namespace detail
 
 	B32 loadObject(
 			List<U8> img, const String& path, InObject& obj, Set<String>& seenGroups, String& err);

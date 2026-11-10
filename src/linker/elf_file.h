@@ -22,6 +22,7 @@ namespace rat {
 		constexpr U32 SHT_SYMTAB = 2;
 		constexpr U32 SHT_STRTAB = 3;
 		constexpr U32 SHT_RELA = 4;
+		constexpr U32 SHT_DYNAMIC = 6;
 		constexpr U32 SHT_NOBITS = 8;
 		constexpr U32 SHT_DYNSYM = 11;
 		constexpr U32 SHT_INIT_ARRAY = 14;
@@ -35,6 +36,8 @@ namespace rat {
 		constexpr U64 SHF_EXECINSTR = 0x4;
 		constexpr U64 SHF_INFO_LINK = 0x40;
 		constexpr U64 SHF_TLS = 0x400;
+		constexpr U64 SHF_COMPRESSED = 0x800;
+		constexpr U32 ELFCOMPRESS_ZLIB = 1; // Elf64_Chdr ch_type
 
 		// group flags
 		constexpr U32 GRP_COMDAT = 0x1;
@@ -104,6 +107,8 @@ namespace rat {
 		constexpr U32 R_X86_64_32 = 10;
 		constexpr U32 R_X86_64_32S = 11;
 		constexpr U32 R_X86_64_16 = 12;
+		constexpr U32 R_X86_64_DTPOFF64 = 17;
+		constexpr U32 R_X86_64_DTPOFF32 = 21;
 		constexpr U32 R_X86_64_GOTTPOFF = 22;
 		constexpr U32 R_X86_64_TPOFF32 = 23;
 		constexpr U32 R_X86_64_PC64 = 24;

@@ -12,6 +12,8 @@ namespace rat {
 		I64 readSleb(const U8* p, U64& i);
 		U32 encSize(U8 enc);
 
+		void emitShdrTable(List<U8>& out, List<elf::SectionHeader>& shdrs, List<U8>& names);
+
 		// linker.cpp
 		B32 isLinkerSym(const String& n);
 		B32 isGotReloc(U32 t);
@@ -70,6 +72,14 @@ namespace rat {
 		List<U8> ehFrameHdr;
 		U32 ehFdeCount = 0;
 
+		// merged .debug_* sections, first-seen order
+		struct DebugOut {
+			String name;
+			List<U8> bytes;
+			U64 align = 1;
+		};
+		List<DebugOut> debugOuts;
+
 		U64 vaddr[24] = {0};
 		U64 foff[24] = {0};
 		U64 size[24] = {0};
@@ -113,9 +123,13 @@ namespace rat {
 		void buildStart();
 		U32 countFdes();
 		void buildEhFrameHdr();
+		void mergeDebug(const InObject& obj, InSection& s);
 		void layout();
 		B32 applyRelocs();
+		void applyDebugReloc(const InObject& obj, const InRel& r);
+		U64 placedAddr(const InSection& sec, U64 value, B32 isTls) const;
 		B32 symbolTarget(const InObject& obj, U32 symIdx, U64& addr, B32& isFunc, B32& isTls);
+		void emitShdrs(List<U8>& out);
 		B32 write();
 
 		static OutSec outSecOf(U8 bucket) {

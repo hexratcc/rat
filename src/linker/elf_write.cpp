@@ -13,6 +13,28 @@ namespace rat {
 		constexpr U64 kPage = 0x1000;
 		constexpr U64 kPltEntSize = 16;
 
+		// the alloc sections gdb, objdump and readelf look at, in address order
+		struct OutSectionInfo {
+			Linker::OutSec sec;
+			SectionInfo info;
+		};
+		// clang-format off
+		constexpr OutSectionInfo kShdrSections[] = {
+				// section            name           type            flags                            align entsize
+				{Linker::ODynstr,    {".dynstr",     SHT_STRTAB,     SHF_ALLOC,                       1,  0}},
+				{Linker::OText,      {".text",       SHT_PROGBITS,   SHF_ALLOC | SHF_EXECINSTR,       16, 0}},
+				{Linker::ORodata,    {".rodata",     SHT_PROGBITS,   SHF_ALLOC,                       16, 0}},
+				{Linker::OEhFrame,   {".eh_frame",   SHT_PROGBITS,   SHF_ALLOC,                       8,  0}},
+				{Linker::OInitArray, {".init_array", SHT_INIT_ARRAY, SHF_ALLOC | SHF_WRITE,           8,  8}},
+				{Linker::OFiniArray, {".fini_array", SHT_FINI_ARRAY, SHF_ALLOC | SHF_WRITE,           8,  8}},
+				{Linker::OData,      {".data",       SHT_PROGBITS,   SHF_ALLOC | SHF_WRITE,           16, 0}},
+				{Linker::OTdata,     {".tdata",      SHT_PROGBITS,   SHF_ALLOC | SHF_WRITE | SHF_TLS, 16, 0}},
+				{Linker::ODynamic,   {".dynamic",    SHT_DYNAMIC,    SHF_ALLOC | SHF_WRITE,           8,  16}},
+				{Linker::OBss,       {".bss",        SHT_NOBITS,     SHF_ALLOC | SHF_WRITE,           16, 0}},
+				{Linker::OTbss,      {".tbss",       SHT_NOBITS,     SHF_ALLOC | SHF_WRITE | SHF_TLS, 16, 0}},
+		};
+		// clang-format on
+
 		// ':'-join for DT_RUNPATH
 		String joinColon(const List<String>& v) {
 			String s;
@@ -189,6 +211,22 @@ namespace rat {
 		}
 	}
 
+	// append s to its same-named debug output, keep input align
+	void Linker::mergeDebug(const InObject& obj, InSection& s) {
+		s.debugOut = 0;
+		while(s.debugOut < debugOuts.size() && debugOuts[s.debugOut].name != s.name)
+			++s.debugOut;
+		if(s.debugOut == debugOuts.size())
+			debugOuts.push_back({s.name, {}, 1});
+		DebugOut& d = debugOuts[s.debugOut];
+		if(s.align > d.align)
+			d.align = s.align;
+		wrPad(d.bytes, (d.bytes.size() + s.align - 1) & ~(s.align - 1));
+		s.outOff = d.bytes.size();
+		const U8* p = &obj.image[s.fileOff];
+		d.bytes.insert(d.bytes.end(), p, p + s.size);
+	}
+
 	void Linker::layout() {
 		// 1. concat kept sections into buckets, assign offsets; _start last in .text
 		auto padTo = [](List<U8>& v, U64 a) {
@@ -200,6 +238,10 @@ namespace rat {
 			for(InSection& s : obj.sections) {
 				if(!s.keep)
 					continue;
+				if(s.bucket == BDebug) {
+					mergeDebug(obj, s);
+					continue;
+				}
 				U8 b = s.bucket;
 				if(s.align > bucketAlign[b])
 					bucketAlign[b] = s.align;
@@ -378,10 +420,7 @@ namespace rat {
 			const InObject& obj = objs[d.obj];
 			const InSym& s = obj.syms[d.sym];
 			const InSection& sec = obj.sections[s.shndx];
-			if(d.isTls)
-				d.addr = sec.outOff + s.value; // tls block offset
-			else
-				d.addr = bucketVaddr[sec.bucket] + sec.outOff + s.value;
+			d.addr = placedAddr(sec, s.value, d.isTls);
 		}
 
 		// synthesized linker/crt symbols
@@ -407,6 +446,37 @@ namespace rat {
 		linkerSyms["__TMC_END__"] = vaddr[OData];
 	}
 
+	// discarded or undefined targets read as 0, never an error
+	void Linker::applyDebugReloc(const InObject& obj, const InRel& r) {
+		const InSection& rsec = obj.sections[r.secIdx];
+		U8* patch = &debugOuts[rsec.debugOut].bytes[rsec.outOff + r.offset];
+		U64 S = 0;
+		B32 isFunc = false, isTls = false;
+		U64 value = 0;
+		if(symbolTarget(obj, r.sym, S, isFunc, isTls))
+			value = (U64)((I64)S + r.addend);
+		else
+			err.clear();
+		// other types left as is
+		switch(r.type) {
+		case R_X86_64_64:
+		case R_X86_64_DTPOFF64:
+			le::wr(patch, value, 8);
+			break;
+		case R_X86_64_32:
+		case R_X86_64_DTPOFF32:
+			le::wr(patch, value, 4);
+			break;
+		}
+	}
+
+	// tls is block-relative, debug sits at vaddr 0
+	U64 Linker::placedAddr(const InSection& sec, U64 value, B32 isTls) const {
+		if(isTls || sec.bucket == BDebug)
+			return sec.outOff + value;
+		return bucketVaddr[sec.bucket] + sec.outOff + value;
+	}
+
 	B32 Linker::symbolTarget(const InObject& obj, U32 symIdx, U64& addr, B32& isFunc, B32& isTls) {
 		const InSym& s = obj.syms[symIdx];
 		isTls = s.type == STT_TLS;
@@ -417,10 +487,7 @@ namespace rat {
 		}
 		if(!s.undef && s.bind == STB_LOCAL && !s.common) {
 			const InSection& sec = obj.sections[s.shndx];
-			if(isTls)
-				addr = sec.outOff + s.value;
-			else
-				addr = bucketVaddr[sec.bucket] + sec.outOff + s.value;
+			addr = placedAddr(sec, s.value, isTls);
 			isFunc = s.type == STT_FUNC || s.type == STT_GNU_IFUNC;
 			return true;
 		}
@@ -464,6 +531,10 @@ namespace rat {
 				U8 b = rsec.bucket;
 				if(b == BBss || b == BTbss)
 					continue; // nobits carries no relocs
+				if(b == BDebug) {
+					applyDebugReloc(obj, r);
+					continue;
+				}
 				U64 patchOff = rsec.outOff + r.offset;
 				U8* patch = &merged[b][patchOff];
 				U64 P = bucketVaddr[b] + patchOff;
@@ -550,6 +621,51 @@ namespace rat {
 		le::wr(&merged[BText][startFileOff + startCallDisp], (U32)callDisp, 4);
 		return true;
 	}
+
+	// headers for kShdrSections and the debug sections, debug bytes go last
+	void Linker::emitShdrs(List<U8>& out) {
+		List<SectionHeader> shdrs(1); // null entry
+		List<U8> names(1, 0);
+		for(const detail::OutSectionInfo& kind : detail::kShdrSections) {
+			if(!size[kind.sec])
+				continue;
+			SectionHeader sh = headerOf(kind.info, names);
+			sh.addr = vaddr[kind.sec];
+			sh.offset = vaddr[kind.sec] - detail::kImageBase; // identity mapped, also for nobits
+			sh.size = size[kind.sec];
+			if(kind.sec == ODynamic)
+				sh.link = 1; // .dynstr, never empty
+			shdrs.push_back(sh);
+		}
+		for(const DebugOut& d : debugOuts) {
+			wrPad(out, (out.size() + d.align - 1) & ~(d.align - 1));
+			SectionHeader sh = headerOf({d.name.c_str(), SHT_PROGBITS, 0, d.align, 0}, names);
+			sh.offset = out.size();
+			sh.size = d.bytes.size();
+			shdrs.push_back(sh);
+			out.insert(out.end(), d.bytes.begin(), d.bytes.end());
+		}
+		detail::emitShdrTable(out, shdrs, names);
+	}
+
+	namespace detail {
+		// .shstrtab + header table at file end, patches the ehdr
+		void emitShdrTable(List<U8>& out, List<SectionHeader>& shdrs, List<U8>& names) {
+			SectionHeader strtab = headerOf({".shstrtab", SHT_STRTAB, 0, 1, 0}, names);
+			strtab.offset = out.size();
+			strtab.size = names.size();
+			shdrs.push_back(strtab);
+			out.insert(out.end(), names.begin(), names.end());
+
+			wrPad(out, (out.size() + 7) & ~7ull);
+			U64 shoff = out.size();
+			for(const SectionHeader& sh : shdrs)
+				putSectionHeader(out, sh);
+			le::wr(&out[40], shoff, 8);
+			le::wr(&out[60], shdrs.size(), 2);
+			le::wr(&out[62], shdrs.size() - 1, 2);
+		}
+	} // namespace detail
 
 	B32 Linker::write() {
 		// .dynstr
@@ -753,7 +869,7 @@ namespace rat {
 		wr16(out, 64);
 		wr16(out, 56);
 		wr16(out, phnum);
-		wr16(out, 0);
+		wr16(out, 64); // e_shentsize, the rest patched by emitShdrTable
 		wr16(out, 0);
 		wr16(out, 0);
 
@@ -821,6 +937,8 @@ namespace rat {
 		emitAt(foff[OGot], got);
 		emitAt(foff[OGotPlt], gotPlt);
 		emitAt(foff[ODynamic], dyn);
+
+		emitShdrs(out);
 
 		std::ofstream os(opt.output, std::ios::binary | std::ios::trunc);
 		if(!os) {
