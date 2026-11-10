@@ -62,9 +62,11 @@ namespace rat {
 		constexpr U32 DW_FORM_flag_present = 0x19;
 
 		constexpr U8 DW_OP_addr = 0x03;
+		constexpr U8 DW_OP_deref = 0x06;
 		constexpr U8 DW_OP_consts = 0x11;
 		constexpr U8 DW_OP_regx = 0x90;
 		constexpr U8 DW_OP_fbreg = 0x91;
+		constexpr U8 DW_OP_bregx = 0x92;
 		constexpr U8 DW_OP_call_frame_cfa = 0x9c;
 		constexpr U8 DW_OP_stack_value = 0x9f;
 
@@ -211,14 +213,19 @@ namespace rat {
 				d.attr(DW_AT_external, DW_FORM_flag_present);
 		}
 
-		void locExpr(List<U8>& out, const VarLoc& loc) {
-			if(loc.kind == VarLoc::Kind::Const) {
+		void locExpr(List<U8>& out, const VarLoc& loc, B32 indirect) {
+			if(loc.kind == VarLoc::Kind::Const) { // a constant address names memory
 				out.push_back(DW_OP_consts);
 				le::sleb(out, loc.value);
-				out.push_back(DW_OP_stack_value);
+				if(!indirect)
+					out.push_back(DW_OP_stack_value);
 			} else if(loc.kind == VarLoc::Kind::Frame) {
 				out.push_back(DW_OP_fbreg);
 				le::sleb(out, loc.value);
+				if(indirect)
+					out.push_back(DW_OP_deref);
+			} else if(indirect) { // a register holding the address names the memory it points at
+				out.insert(out.end(), {DW_OP_bregx, (U8)loc.reg, 0});
 			} else {
 				out.insert(out.end(), {DW_OP_regx, (U8)loc.reg});
 			}
@@ -340,14 +347,14 @@ namespace rat {
 		}
 
 		// returns the list's offset in .debug_loclists, list offsets are from the unit base, .text
-		U32 DieWriter::locList(const List<VarRange>& r, U32 textOff) {
+		U32 DieWriter::locList(const List<VarRange>& r, B32 indirect, U32 textOff) {
 			U32 at = (U32)loclists.size();
 			for(const VarRange& v : r) {
 				loclists.push_back(DW_LE_offset_pair);
 				le::uleb(loclists, textOff + v.start);
 				le::uleb(loclists, textOff + v.end);
 				List<U8> expr;
-				locExpr(expr, v.loc);
+				locExpr(expr, v.loc, indirect);
 				le::uleb(loclists, expr.size());
 				loclists.insert(loclists.end(), expr.begin(), expr.end());
 			}
@@ -390,10 +397,10 @@ namespace rat {
 				d.reloc(DW_AT_location, DW_FORM_exprloc, v.symbol, 0);
 			} else if(frameOff != kNoFrameSlot) {
 				List<U8> expr;
-				locExpr(expr, {VarLoc::Kind::Frame, 0, frameOff});
+				locExpr(expr, {VarLoc::Kind::Frame, 0, frameOff}, false);
 				d.exprloc(DW_AT_location, expr);
 			} else if(!r.empty()) {
-				U32 at = locList(r, tree.func.textOff);
+				U32 at = locList(r, vi.indirect, tree.func.textOff);
 				d.reloc(
 						DW_AT_location, DW_FORM_sec_offset, obj.sectionSymbol(ObjectFile::DebugLoclists), at);
 			}

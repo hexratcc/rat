@@ -24,6 +24,8 @@ $9 = 97 'a'
 Line 2 of
 debug.h" starts at address
 Breakpoint 3, span (q=..., bias=2) at
+$10 = {x = 1, y = 2.5, flag = 5, name = "hi\000\000\000\000\000"}
+$11 = "hi\000\000\000\000\000"
 $12 = 2
 Value returned is $13 = 8
 type = Tagged

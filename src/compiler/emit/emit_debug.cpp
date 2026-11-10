@@ -193,8 +193,13 @@ namespace rat::cc {
 		AllocNode* slot = !l.staticSymbol && l.inMem() ? dyn_cast<AllocNode>(l.addr) : nullptr;
 		body.vars.push_back({body.func->vars.back().get(), dbg.scope, slot});
 		U32 inst = (U32)body.vars.size() - 1;
-		if(l.staticSymbol || l.inMem())
+		if(l.staticSymbol || slot)
 			return;
+		if(l.inMem()) { // a vla, over-aligned local or by-value aggregate, only its address is known
+			body.vars[inst].indirect = true;
+			fn.bindDebug(inst, l.addr);
+			return;
+		}
 		fn.bindVar(l.var, inst);
 		if(hasValue)
 			fn.bindDebug(inst, fn.get(l.var));

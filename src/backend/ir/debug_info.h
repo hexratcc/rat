@@ -90,6 +90,7 @@ namespace rat {
 		const DebugVar* var;
 		U32 scope = 0;
 		AllocNode* slot = nullptr; // frame storage
+		B32 indirect = false;			 // bound values are its address
 	};
 
 	// var inst holds value from where control reaches anchor on, past the store or call after, a null
