@@ -649,8 +649,10 @@ namespace rat {
 
 		blockOffset.assign(blockIdBound(f), 0);
 		varsIn.clear();
+		// like gcc's max-vartrack-size, huge functions keep their vars without locations
 		const DebugBody* body = encodedFunc ? encodedFunc->fn->getDebug() : nullptr;
-		if(body && f.dbg.size() > 1)
+		U64 trackCost = body ? (U64)instCount * body->vars.size() : 0;
+		if(body && f.dbg.size() > 1 && trackCost <= kMaxVarTrackCost)
 			solveVars(f);
 		B32 trackVars = !varsIn.empty();
 		prologue();

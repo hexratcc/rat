@@ -44,7 +44,8 @@ namespace rat {
 			VarLoc loc; // reg is a PhysReg
 			U32 start;
 		};
-		static constexpr U32 kNoPc = ~0u; // solving, no ranges
+		static constexpr U32 kNoPc = ~0u;									// solving, no ranges
+		static constexpr U64 kMaxVarTrackCost = 20000000; // instrs times tracked vars
 
 		static void emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes);
 		void defineFunctions();
