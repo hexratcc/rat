@@ -4,6 +4,8 @@
 #include "core.h"
 #include "elf_file.h"
 
+#include <iosfwd>
+
 namespace rat {
 	namespace detail {
 		U8 classify(U32 type, U64 flags);
@@ -101,6 +103,7 @@ namespace rat {
 	B32 readWhole(const String& path, List<U8>& out);
 
 	namespace detail {
+		B32 readAt(std::ifstream& f, U64 offset, U64 n, List<U8>& out);
 		String probeHostLoader();
 		List<String> probeHostLibDirs();
 	} // namespace detail

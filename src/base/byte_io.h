@@ -48,7 +48,7 @@ namespace rat {
 
 		inline void padTo(List<U8>& b, U64 to) {
 			if(b.size() < to)
-				b.insert(b.end(), to - b.size(), 0);
+				b.resize(to);
 		}
 
 		inline void patch32(List<U8>& b, U32 at, U32 v) { wr(&b[at], v, 4); }

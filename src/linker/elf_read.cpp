@@ -84,6 +84,20 @@ namespace rat {
 		return (B32)f.good() || f.eof();
 	}
 
+	namespace detail {
+		// n bytes at offset of f, false when the file is shorter
+		B32 readAt(std::ifstream& f, U64 offset, U64 n, List<U8>& out) {
+			f.seekg(0, std::ios::end);
+			U64 fileSize = (U64)f.tellg();
+			if(!f || n > fileSize || offset > fileSize - n)
+				return false;
+			out.resize(n);
+			f.seekg((std::streamoff)offset);
+			f.read((C8*)out.data(), (std::streamsize)n);
+			return !f.fail();
+		}
+	} // namespace detail
+
 	B32 loadObject(
 			List<U8> img, const String& path, InObject& obj, Set<String>& seenGroups, String& err) {
 		List<SectionHeader> shdrs;
@@ -223,25 +237,28 @@ namespace rat {
 	}
 
 	B32 loadLibrary(const String& path, Lib& lib, String& err) {
-		List<U8> img;
-		List<SectionHeader> shdrs;
-		const U8* shstr = nullptr;
-		if(!readWhole(path, img)) {
-			err = "cannot read library '" + path + "'";
+		std::ifstream f(path, std::ios::binary);
+		List<U8> header, table;
+		if(!detail::readAt(f, 0, 64, header) || header[0] != 0x7f || header[1] != 'E' ||
+			 header[2] != 'L' || header[3] != 'F' || header[4] != ELFCLASS64 ||
+			 header[5] != ELFDATA2LSB || le::rd16(&header[58]) != 64) {
+			err = "not a 64-bit little-endian ELF library '" + path + "'";
 			return false;
 		}
-		if(!detail::parseShdrs(img, shdrs, shstr, err)) {
-			err += " in '" + path + "'";
+		U64 shnum = le::rd16(&header[60]);
+		if(!detail::readAt(f, le::rd64(&header[40]), shnum * 64, table)) {
+			err = "truncated section headers in '" + path + "'";
 			return false;
 		}
-		for(const SectionHeader& sh : shdrs) {
-			if(sh.type != SHT_DYNSYM || sh.link >= shdrs.size())
+		for(U64 i = 0; i < shnum; ++i) {
+			const U8* sym = &table[i * 64];
+			U32 link = le::rd32(sym + 40);
+			if(le::rd32(sym + 4) != SHT_DYNSYM || link >= shnum)
 				continue;
-			const SectionHeader& str = shdrs[sh.link];
-			if(sh.offset + sh.size > img.size() || str.offset + str.size > img.size())
+			const U8* str = &table[(U64)link * 64];
+			if(!detail::readAt(f, le::rd64(sym + 24), le::rd64(sym + 32), lib.dynsym) ||
+				 !detail::readAt(f, le::rd64(str + 24), le::rd64(str + 32), lib.dynstr))
 				break;
-			lib.dynsym.assign(&img[sh.offset], &img[sh.offset] + sh.size);
-			lib.dynstr.assign(&img[str.offset], &img[str.offset] + str.size);
 			lib.soname = path.substr(path.find_last_of('/') + 1);
 			return true;
 		}
@@ -270,18 +287,17 @@ namespace rat {
 	namespace detail {
 		// loader from ratl's own PT_INTERP, empty on failure
 		String probeHostLoader() {
-			List<U8> img;
-			if(!readWhole("/proc/self/exe", img) || img.size() < 64)
+			std::ifstream f("/proc/self/exe", std::ios::binary);
+			List<U8> header, phdrs, interp;
+			if(!readAt(f, 0, 64, header))
 				return String();
-			U64 phoff = le::rd64(&img[32]);
-			U16 phentsize = le::rd16(&img[54]);
-			for(U16 i = 0; i < le::rd16(&img[56]); ++i) {
-				U64 at = phoff + (U64)i * phentsize;
-				if(at + 56 > img.size())
-					break;
-				U64 off = le::rd64(&img[at + 8]), sz = le::rd64(&img[at + 32]);
-				if(le::rd32(&img[at]) == PT_INTERP && off + sz <= img.size())
-					return String((const C8*)&img[off], strnlen((const C8*)&img[off], sz));
+			U16 phentsize = le::rd16(&header[54]), phnum = le::rd16(&header[56]);
+			if(phentsize < 56 || !readAt(f, le::rd64(&header[32]), (U64)phnum * phentsize, phdrs))
+				return String();
+			for(U16 i = 0; i < phnum; ++i) {
+				const U8* ph = &phdrs[(U64)i * phentsize];
+				if(le::rd32(ph) == PT_INTERP && readAt(f, le::rd64(ph + 8), le::rd64(ph + 32), interp))
+					return String((const C8*)interp.data(), strnlen((const C8*)interp.data(), interp.size()));
 			}
 			return String();
 		}
