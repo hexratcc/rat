@@ -91,11 +91,8 @@ namespace rat {
 		constexpr U8 DW_CFA_def_cfa = 0x0c;
 
 		constexpr U8 DW_EH_PE_pcrel_sdata4 = 0x1b;
-
 		constexpr U8 DW_LANG_C99 = 0x0c;
-
 		constexpr U8 DW_UT_compile = 1;
-
 		constexpr U8 DW_INL_inlined = 1;
 
 		constexpr U8 DW_ATE_boolean = 0x02;
@@ -117,15 +114,8 @@ namespace rat {
 				DW_ATE_complex_float,
 		};
 
-		// die tag per DebugType kind
+		// die tag per DebugType kind from Pointer on
 		constexpr U32 kTypeTag[] = {
-				DW_TAG_base_type,
-				DW_TAG_base_type,
-				DW_TAG_base_type,
-				DW_TAG_base_type,
-				DW_TAG_base_type,
-				DW_TAG_base_type,
-				DW_TAG_base_type,
 				DW_TAG_pointer_type,
 				DW_TAG_structure_type,
 				DW_TAG_union_type,
@@ -213,7 +203,8 @@ namespace rat {
 				d.attr(DW_AT_external, DW_FORM_flag_present);
 		}
 
-		void locExpr(List<U8>& out, const VarLoc& loc, B32 indirect) {
+		List<U8> locExpr(const VarLoc& loc, B32 indirect) {
+			List<U8> out;
 			if(loc.kind == VarLoc::Kind::Const) { // a constant address names memory
 				out.push_back(DW_OP_consts);
 				le::sleb(out, loc.value);
@@ -229,6 +220,13 @@ namespace rat {
 			} else {
 				out.insert(out.end(), {DW_OP_regx, (U8)loc.reg});
 			}
+			return out;
+		}
+
+		void offsetPair(List<U8>& out, U32 start, U32 end) {
+			out.push_back(DW_LE_offset_pair);
+			le::uleb(out, start);
+			le::uleb(out, end);
 		}
 
 		// appends d to .debug_info under its abbreviation code, declaring it once. a die that may have
@@ -269,11 +267,8 @@ namespace rat {
 			}
 			String listSym = obj.sectionSymbol(ObjectFile::DebugRnglists);
 			d.reloc(DW_AT_ranges, DW_FORM_sec_offset, listSym, (I64)rnglists.size());
-			for(const PcRange& p : r) {
-				rnglists.push_back(DW_LE_offset_pair);
-				le::uleb(rnglists, textOff + p.start);
-				le::uleb(rnglists, textOff + p.end);
-			}
+			for(const PcRange& p : r)
+				offsetPair(rnglists, textOff + p.start, textOff + p.end);
 			rnglists.push_back(DW_LE_end_of_list);
 		}
 
@@ -283,8 +278,11 @@ namespace rat {
 			Die d;
 			if(!t->name.empty())
 				d.string(DW_AT_name, t->name);
+			U32 tag = DW_TAG_base_type;
 			if(k <= Kind::ComplexFloat)
 				d.udata(DW_AT_encoding, kBaseEncoding[(U32)k]);
+			else
+				tag = kTypeTag[(U32)k - (U32)Kind::Pointer];
 			if(t->incomplete)
 				d.attr(DW_AT_declaration, DW_FORM_flag_present);
 			else if(k <= Kind::Union || k == Kind::Enum)
@@ -297,13 +295,7 @@ namespace rat {
 				d.type(DW_AT_type, t->elem);
 			B32 children = !t->members.empty() || k == Kind::Array || !t->params.empty() || t->variadic ||
 										 !t->enumerators.empty();
-			dieOff[t] = emit(kTypeTag[(U32)k], children, d);
-			if(children)
-				typeChildren(t);
-		}
-
-		// members, the array subrange, params or enumerators
-		void DieWriter::typeChildren(const DebugType* t) {
+			dieOff[t] = emit(tag, children, d);
 			for(const DebugType::Member& m : t->members) {
 				Die member;
 				if(!m.name.empty())
@@ -317,7 +309,7 @@ namespace rat {
 				}
 				emit(DW_TAG_member, false, member);
 			}
-			if(t->kind == DebugType::Kind::Array) {
+			if(k == Kind::Array) {
 				Die range;
 				if(t->count)
 					range.udata(DW_AT_count, t->count);
@@ -335,7 +327,7 @@ namespace rat {
 				le::sleb(e.body, value);
 				emit(DW_TAG_enumerator, false, e);
 			}
-			endChildren(t->variadic, true);
+			endChildren(t->variadic, children);
 		}
 
 		// ends the children of a function or type
@@ -344,22 +336,6 @@ namespace rat {
 				emit(DW_TAG_unspecified_parameters, false, {});
 			if(children)
 				info.push_back(0);
-		}
-
-		// returns the list's offset in .debug_loclists, list offsets are from the unit base, .text
-		U32 DieWriter::locList(const List<VarRange>& r, B32 indirect, U32 textOff) {
-			U32 at = (U32)loclists.size();
-			for(const VarRange& v : r) {
-				loclists.push_back(DW_LE_offset_pair);
-				le::uleb(loclists, textOff + v.start);
-				le::uleb(loclists, textOff + v.end);
-				List<U8> expr;
-				locExpr(expr, v.loc, indirect);
-				le::uleb(loclists, expr.size());
-				loclists.insert(loclists.end(), expr.begin(), expr.end());
-			}
-			loclists.push_back(DW_LE_end_of_list);
-			return at;
 		}
 
 		// a static whose storage was never emitted gets no die
@@ -396,13 +372,18 @@ namespace rat {
 			if(!v.symbol.empty()) {
 				d.reloc(DW_AT_location, DW_FORM_exprloc, v.symbol, 0);
 			} else if(frameOff != kNoFrameSlot) {
-				List<U8> expr;
-				locExpr(expr, {VarLoc::Kind::Frame, 0, frameOff}, false);
-				d.exprloc(DW_AT_location, expr);
+				d.exprloc(DW_AT_location, locExpr({VarLoc::Kind::Frame, 0, frameOff}, false));
 			} else if(!r.empty()) {
-				U32 at = locList(r, vi.indirect, tree.func.textOff);
-				d.reloc(
-						DW_AT_location, DW_FORM_sec_offset, obj.sectionSymbol(ObjectFile::DebugLoclists), at);
+				// list offsets are from the unit base, .text
+				String listSym = obj.sectionSymbol(ObjectFile::DebugLoclists);
+				d.reloc(DW_AT_location, DW_FORM_sec_offset, listSym, (I64)loclists.size());
+				for(const VarRange& range : r) {
+					offsetPair(loclists, tree.func.textOff + range.start, tree.func.textOff + range.end);
+					List<U8> expr = locExpr(range.loc, vi.indirect);
+					le::uleb(loclists, expr.size());
+					loclists.insert(loclists.end(), expr.begin(), expr.end());
+				}
+				loclists.push_back(DW_LE_end_of_list);
 			}
 			emit(v.isParam ? DW_TAG_formal_parameter : DW_TAG_variable, false, d);
 		}
@@ -418,8 +399,7 @@ namespace rat {
 			B32 children = hasDies(tree, scope);
 			emit(s.inlined ? DW_TAG_inlined_subroutine : DW_TAG_lexical_block, children, d);
 			scopeChildren(tree, scope);
-			if(children)
-				info.push_back(0);
+			endChildren(false, children);
 		}
 
 		// lexical blocks without code hand their vars and children to the parent, an inlined call
@@ -602,7 +582,7 @@ namespace rat {
 
 		// pads a record with DW_CFA_nop to the pointer size and patches its length
 		void closeRecord(List<U8>& out, U32 start) {
-			le::padTo(out, start + (out.size() - start + kPtrBytes - 1) / kPtrBytes * kPtrBytes);
+			le::padTo(out, start + alignUp(out.size() - start, kPtrBytes));
 			le::patch32(out, start, (U32)(out.size() - start - 4));
 		}
 

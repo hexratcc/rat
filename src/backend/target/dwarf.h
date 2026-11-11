@@ -91,7 +91,8 @@ namespace rat {
 
 		void describeVar(Die& d, const DebugVar& v);
 		void describeFunc(Die& d, const String& name, const DebugFunc& f, B32 external);
-		void locExpr(List<U8>& out, const VarLoc& loc, B32 indirect);
+		List<U8> locExpr(const VarLoc& loc, B32 indirect);
+		void offsetPair(List<U8>& out, U32 start, U32 end);
 
 		struct ScopeTree {
 			const EncodedFunc& func;
@@ -121,9 +122,7 @@ namespace rat {
 			U32 emit(U32 tag, B32 children, const Die& d);
 			void pcRanges(Die& d, const List<PcRange>& r, U32 textOff);
 			void typeDie(const DebugType* t);
-			void typeChildren(const DebugType* t);
 			void endChildren(B32 variadic, B32 children);
-			U32 locList(const List<VarRange>& r, B32 indirect, U32 textOff);
 			B32 hasStorage(const DebugVar& v);
 			void globalDie(const DebugVar& v);
 			void instDie(const ScopeTree& tree, U32 inst);

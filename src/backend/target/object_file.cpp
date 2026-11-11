@@ -35,12 +35,9 @@ namespace rat {
 	}
 
 	U32 ObjectFile::align(Section sec, U32 a) {
-		if(a > requestedAlign[sec])
-			requestedAlign[sec] = a;
+		requestedAlign[sec] = std::max(requestedAlign[sec], a);
 		U32 sz = sectionSize(sec);
-		U32 pad = (a - (sz % a)) % a;
-		if(pad)
-			appendZero(sec, pad);
+		appendZero(sec, (U32)alignUp(sz, a) - sz);
 		return sectionSize(sec);
 	}
 

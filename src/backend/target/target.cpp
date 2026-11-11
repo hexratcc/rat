@@ -48,7 +48,6 @@ namespace rat {
 		RegisterInfo buildX86Registers(const X86CallConv& conv) {
 			RegisterInfo info;
 			info.classes = {gpRegClass(conv), fpRegClass(conv), x87RegClass()};
-			info.spillSlotBytes = 8;
 			return info;
 		}
 	} // namespace detail
@@ -90,8 +89,4 @@ namespace rat {
 	RegAllocHooks TargetInfo::regAllocHooks() const { return {}; }
 
 	RegisterInfo X86Target::build(OS os) { return detail::buildX86Registers(x86CallConv(os)); }
-
-	UniquePtr<TargetInfo> createTarget(const TargetTriple& triple) {
-		return std::make_unique<X86Target>(triple);
-	}
 } // namespace rat

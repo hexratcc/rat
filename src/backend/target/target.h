@@ -109,8 +109,6 @@ namespace rat {
 		TargetTriple triple;
 		RegisterInfo info;
 	};
-
-	UniquePtr<TargetInfo> createTarget(const TargetTriple& triple);
 } // namespace rat
 
 #endif
