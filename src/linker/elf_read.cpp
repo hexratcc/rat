@@ -1,6 +1,7 @@
 #include "elf_read.h"
 
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <sys/stat.h>
@@ -36,10 +37,10 @@ namespace rat {
 				err = "not a 64-bit little-endian ELF";
 				return false;
 			}
-			U64 shoff = rd64(&img[40]);
-			U16 shentsize = rd16(&img[58]);
-			U16 shnum = rd16(&img[60]);
-			U16 shstrndx = rd16(&img[62]);
+			U64 shoff = le::rd64(&img[40]);
+			U16 shentsize = le::rd16(&img[58]);
+			U16 shnum = le::rd16(&img[60]);
+			U16 shstrndx = le::rd16(&img[62]);
 			if(shentsize != 64 || shoff + (U64)shnum * 64 > img.size()) {
 				err = "malformed section header table";
 				return false;
@@ -48,15 +49,15 @@ namespace rat {
 			for(U16 i = 0; i < shnum; ++i) {
 				const U8* p = &img[shoff + (U64)i * 64];
 				SectionHeader s;
-				s.name = rd32(p);
-				s.type = rd32(p + 4);
-				s.flags = rd64(p + 8);
-				s.offset = rd64(p + 24);
-				s.size = rd64(p + 32);
-				s.link = rd32(p + 40);
-				s.info = rd32(p + 44);
-				s.align = rd64(p + 48);
-				s.entSize = rd64(p + 56);
+				s.name = le::rd32(p);
+				s.type = le::rd32(p + 4);
+				s.flags = le::rd64(p + 8);
+				s.offset = le::rd64(p + 24);
+				s.size = le::rd64(p + 32);
+				s.link = le::rd32(p + 40);
+				s.info = le::rd32(p + 44);
+				s.align = le::rd64(p + 48);
+				s.entSize = le::rd64(p + 56);
 				out.push_back(s);
 			}
 			if(shstrndx >= out.size()) {
@@ -89,7 +90,7 @@ namespace rat {
 		const U8* shstr = nullptr;
 		if(!detail::parseShdrs(img, shdrs, shstr, err))
 			return false;
-		if(rd16(&img[16]) != ET_REL) {
+		if(le::rd16(&img[16]) != ET_REL) {
 			err = "'" + path + "' is not a relocatable object";
 			return false;
 		}
@@ -97,9 +98,10 @@ namespace rat {
 		obj.image = std::move(img);
 		const List<U8>& im = obj.image;
 
-		// one InSection per index, syms/relocs reference original indices
+		// one InSection per index, syms and relocs reference original indices
 		obj.sections.resize(shdrs.size());
 		B32 debugCompressed = false;
+		U32 symSec = 0;
 		for(U32 i = 0; i < shdrs.size(); ++i) {
 			const SectionHeader& sh = shdrs[i];
 			InSection& s = obj.sections[i];
@@ -114,8 +116,9 @@ namespace rat {
 				s.bucket = BDebug;
 			s.keep = s.bucket != BNone;
 			debugCompressed |= s.bucket == BDebug && (sh.flags & SHF_COMPRESSED);
+			if(sh.type == SHT_SYMTAB)
+				symSec = i;
 		}
-
 		// compressed debug sections are not read, drop all of the object's debug info
 		if(debugCompressed) {
 			std::cerr << "ratl: warning: '" << path
@@ -124,96 +127,57 @@ namespace rat {
 				if(s.bucket == BDebug)
 					s.keep = false;
 		}
-
-		U32 symSec = 0;
-		for(U32 i = 0; i < shdrs.size(); ++i)
-			if(shdrs[i].type == SHT_SYMTAB)
-				symSec = i;
-
-		// comdat dup: drop only later copies' init/fini members (dup ctors corrupt state)
-		{
-			for(U32 i = 0; i < shdrs.size(); ++i) {
-				const SectionHeader& sh = shdrs[i];
-				if(sh.type != SHT_GROUP)
-					continue;
-				const U8* g = &im[sh.offset];
-				if(!(rd32(g) & GRP_COMDAT))
-					continue;
-				String sig;
-				if(symSec && sh.link == symSec) {
-					const SectionHeader& st = shdrs[sh.link];
-					const U8* sp = &im[st.offset + (U64)sh.info * 24];
-					const U8* gstr = &im[shdrs[st.link].offset];
-					sig = (const C8*)(gstr + rd32(sp));
-				}
-				if(sig.empty() || seenGroups.insert(sig).second)
-					continue; // first or unnamed, keep whole
-				U32 nmem = (U32)(sh.size / 4);
-				for(U32 m = 1; m < nmem; ++m) { // entry 0 is flags word
-					U32 sidx = rd32(g + (U64)m * 4);
-					if(sidx >= obj.sections.size())
-						continue;
-					U8 b = obj.sections[sidx].bucket;
-					if(b == BInitArray || b == BFiniArray)
-						obj.sections[sidx].keep = false;
-				}
-			}
-		}
-
-		// symbols
 		if(!symSec) {
 			err = "'" + path + "' has no symbol table";
 			return false;
 		}
 		const SectionHeader& sym = shdrs[symSec];
 		const U8* strtab = &im[shdrs[sym.link].offset];
-		U32 nsym = (U32)(sym.size / 24);
-		obj.syms.reserve(nsym);
-		for(U32 i = 0; i < nsym; ++i) {
-			const U8* p = &im[sym.offset + (U64)i * 24];
-			InSym s;
-			s.name = (const C8*)(strtab + rd32(p));
-			U8 info = p[4];
-			s.bind = (U8)(info >> 4);
-			s.type = (U8)(info & 0xf);
-			U16 shndx = rd16(p + 6);
-			s.shndx = shndx;
-			s.value = rd64(p + 8);
-			s.size = rd64(p + 16);
-			if(shndx == SHN_UNDEF) {
-				s.undef = true;
-			} else if(shndx == SHN_ABS) {
-				s.undef = false;
-				s.abs = true;
-			} else if(shndx == SHN_COMMON) {
-				s.undef = false;
-				s.common = true; // value=align, size=byte count
-			} else if(shndx < obj.sections.size() && obj.sections[shndx].keep) {
-				s.undef = false;
-			} else {
-				s.undef = true; // defined in dropped section
+
+		// comdat dup, drop only later copies' init and fini members (dup ctors corrupt state)
+		for(const SectionHeader& sh : shdrs) {
+			if(sh.type != SHT_GROUP || !(le::rd32(&im[sh.offset]) & GRP_COMDAT) || sh.link != symSec)
+				continue;
+			String sig = (const C8*)(strtab + le::rd32(&im[sym.offset + (U64)sh.info * 24]));
+			if(sig.empty() || seenGroups.insert(sig).second)
+				continue;														 // first or unnamed, keep whole
+			for(U64 m = 1; m < sh.size / 4; ++m) { // entry 0 is flags word
+				U32 sidx = le::rd32(&im[sh.offset + m * 4]);
+				U8 b = sidx < obj.sections.size() ? obj.sections[sidx].bucket : (U8)BNone;
+				if(b == BInitArray || b == BFiniArray)
+					obj.sections[sidx].keep = false;
 			}
+		}
+
+		obj.syms.reserve(sym.size / 24);
+		for(U64 at = sym.offset; at + 24 <= sym.offset + sym.size; at += 24) {
+			const U8* p = &im[at];
+			InSym s;
+			s.name = (const C8*)(strtab + le::rd32(p));
+			s.bind = (U8)(p[4] >> 4);
+			s.type = (U8)(p[4] & 0xf);
+			s.shndx = le::rd16(p + 6);
+			s.value = le::rd64(p + 8);
+			s.size = le::rd64(p + 16); // for commons value is the align
+			s.abs = s.shndx == SHN_ABS;
+			s.common = s.shndx == SHN_COMMON;
+			// a def in a dropped section is undefined too
+			s.undef =
+					!s.abs && !s.common && (s.shndx >= obj.sections.size() || !obj.sections[s.shndx].keep);
 			obj.syms.push_back(std::move(s));
 		}
 
 		// relocs, keep those patching a kept section
-		for(U32 i = 0; i < shdrs.size(); ++i) {
-			const SectionHeader& sh = shdrs[i];
-			if(sh.type != SHT_RELA)
+		for(const SectionHeader& sh : shdrs) {
+			if(sh.type != SHT_RELA || sh.info >= obj.sections.size() || !obj.sections[sh.info].keep)
 				continue;
-			if(sh.info >= obj.sections.size() || !obj.sections[sh.info].keep)
-				continue;
-			U32 n = (U32)(sh.size / 24);
-			for(U32 r = 0; r < n; ++r) {
-				const U8* p = &im[sh.offset + (U64)r * 24];
-				InRel rel;
-				rel.secIdx = sh.info;
-				rel.offset = rd64(p);
-				U64 info = rd64(p + 8);
-				rel.sym = (U32)(info >> 32);
-				rel.type = (U32)(info & 0xffffffff);
-				rel.addend = (I64)rd64(p + 16);
-				obj.rels.push_back(rel);
+			for(U64 at = sh.offset; at + 24 <= sh.offset + sh.size; at += 24) {
+				U64 info = le::rd64(&im[at + 8]);
+				obj.rels.push_back({sh.info,
+														le::rd64(&im[at]),
+														(U32)(info >> 32),
+														(U32)info,
+														(I64)le::rd64(&im[at + 16])});
 			}
 		}
 		return true;
@@ -253,67 +217,36 @@ namespace rat {
 						ar.index.emplace(std::move(nm), memOff);
 				}
 			}
-			o = dataOff + sz;
-			if(o & 1)
-				++o;
+			o = alignUp(dataOff + sz, 2);
 		}
 		return true;
 	}
 
 	B32 loadLibrary(const String& path, Lib& lib, String& err) {
-		std::ifstream f(path, std::ios::binary);
-		auto fail = [&](const C8* what) {
-			err = String(what) + " '" + path + "'";
+		List<U8> img;
+		List<SectionHeader> shdrs;
+		const U8* shstr = nullptr;
+		if(!readWhole(path, img)) {
+			err = "cannot read library '" + path + "'";
 			return false;
-		};
-		if(!f)
-			return fail("cannot read library");
-
-		U8 eh[64];
-		f.read((C8*)eh, 64);
-		if(!f || eh[0] != 0x7f || eh[1] != 'E' || eh[2] != 'L' || eh[3] != 'F' || eh[4] != ELFCLASS64 ||
-			 eh[5] != ELFDATA2LSB)
-			return fail("not a 64-bit LE ELF library");
-		U64 shoff = rd64(eh + 40);
-		if(rd16(eh + 58) != 64)
-			return fail("bad section header size in");
-		U32 shnum = rd16(eh + 60);
-
-		List<U8> sh(shnum * 64);
-		f.seekg((std::streamoff)shoff);
-		f.read((C8*)sh.data(), (std::streamsize)sh.size());
-		if(!f)
-			return fail("truncated section headers in");
-
-		U64 symOff = 0, symSize = 0, strOff = 0, strSize = 0;
-		for(U32 i = 0; i < shnum; ++i) {
-			const U8* p = &sh[(U64)i * 64];
-			if(rd32(p + 4) != SHT_DYNSYM)
-				continue;
-			symOff = rd64(p + 24);
-			symSize = rd64(p + 32);
-			U32 link = rd32(p + 40);
-			if(link < shnum) {
-				const U8* d = &sh[(U64)link * 64];
-				strOff = rd64(d + 24);
-				strSize = rd64(d + 32);
-			}
-			break;
 		}
-		if(!symSize || !strSize)
-			return fail("no dynamic symbol table in");
-
-		lib.dynsym.resize(symSize);
-		f.seekg((std::streamoff)symOff);
-		f.read((C8*)lib.dynsym.data(), (std::streamsize)symSize);
-		lib.dynstr.resize(strSize);
-		f.seekg((std::streamoff)strOff);
-		f.read((C8*)lib.dynstr.data(), (std::streamsize)strSize);
-		if(!f)
-			return fail("truncated dynamic tables in");
-
-		lib.soname = path.substr(path.find_last_of('/') + 1);
-		return true;
+		if(!detail::parseShdrs(img, shdrs, shstr, err)) {
+			err += " in '" + path + "'";
+			return false;
+		}
+		for(const SectionHeader& sh : shdrs) {
+			if(sh.type != SHT_DYNSYM || sh.link >= shdrs.size())
+				continue;
+			const SectionHeader& str = shdrs[sh.link];
+			if(sh.offset + sh.size > img.size() || str.offset + str.size > img.size())
+				break;
+			lib.dynsym.assign(&img[sh.offset], &img[sh.offset] + sh.size);
+			lib.dynstr.assign(&img[str.offset], &img[str.offset] + str.size);
+			lib.soname = path.substr(path.find_last_of('/') + 1);
+			return true;
+		}
+		err = "no dynamic symbol table in '" + path + "'";
+		return false;
 	}
 
 	B32 findLibrary(const String& l, const List<String>& paths, String& found) {
@@ -334,46 +267,27 @@ namespace rat {
 		return false;
 	}
 
-	// probe host loader/libdirs from /proc/self (fhs-independent); only when opt empty
-
-	// loader from ratl's own PT_INTERP, empty on failure
-	const String& hostLoader() {
-		static const String p = [] {
-			std::ifstream f("/proc/self/exe", std::ios::binary);
-			if(!f)
+	namespace detail {
+		// loader from ratl's own PT_INTERP, empty on failure
+		String probeHostLoader() {
+			List<U8> img;
+			if(!readWhole("/proc/self/exe", img) || img.size() < 64)
 				return String();
-			U8 eh[64];
-			if(!f.read((C8*)eh, 64))
-				return String();
-			U64 phoff = rd64(eh + 32);
-			U16 phentsize = rd16(eh + 54);
-			U16 phnum = rd16(eh + 56);
-			for(U16 i = 0; i < phnum; ++i) {
-				U8 ph[56];
-				f.seekg((std::streamoff)(phoff + (U64)i * phentsize));
-				if(!f.read((C8*)ph, 56))
+			U64 phoff = le::rd64(&img[32]);
+			U16 phentsize = le::rd16(&img[54]);
+			for(U16 i = 0; i < le::rd16(&img[56]); ++i) {
+				U64 at = phoff + (U64)i * phentsize;
+				if(at + 56 > img.size())
 					break;
-				if(rd32(ph) != PT_INTERP)
-					continue;
-				U64 off = rd64(ph + 8), sz = rd64(ph + 32);
-				if(!sz || sz > 4096)
-					break;
-				String s(sz, '\0');
-				f.seekg((std::streamoff)off);
-				if(!f.read(&s[0], (std::streamsize)sz))
-					break;
-				if(!s.empty() && s.back() == '\0')
-					s.pop_back();
-				return s;
+				U64 off = le::rd64(&img[at + 8]), sz = le::rd64(&img[at + 32]);
+				if(le::rd32(&img[at]) == PT_INTERP && off + sz <= img.size())
+					return String((const C8*)&img[off], strnlen((const C8*)&img[off], sz));
 			}
 			return String();
-		}();
-		return p;
-	}
+		}
 
-	// dirs of libs ratl has mapped, first-seen order
-	const List<String>& hostLibDirs() {
-		static const List<String> dirs = [] {
+		// dirs of libs ratl has mapped, first-seen order
+		List<String> probeHostLibDirs() {
 			List<String> out;
 			Set<String> seen;
 			std::ifstream f("/proc/self/maps");
@@ -391,7 +305,17 @@ namespace rat {
 					out.push_back(dir);
 			}
 			return out;
-		}();
+		}
+	} // namespace detail
+
+	// probed from /proc/self, fhs independent
+	const String& hostLoader() {
+		static const String loader = detail::probeHostLoader();
+		return loader;
+	}
+
+	const List<String>& hostLibDirs() {
+		static const List<String> dirs = detail::probeHostLibDirs();
 		return dirs;
 	}
 } // namespace rat

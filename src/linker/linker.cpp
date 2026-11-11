@@ -2,8 +2,6 @@
 
 #include "elf_file.h"
 
-#include <string_view>
-
 namespace rat {
 	using namespace elf;
 
@@ -14,46 +12,7 @@ namespace rat {
 			return t == R_X86_64_GOTPCREL || t == R_X86_64_GOTPCRELX || t == R_X86_64_REX_GOTPCRELX ||
 						 t == R_X86_64_GOTTPOFF;
 		}
-
-		B32 isLinkerSym(const String& n) {
-			static const C8* names[] = {"__dso_handle",
-																	"_GLOBAL_OFFSET_TABLE_",
-																	"__init_array_start",
-																	"__init_array_end",
-																	"__preinit_array_start",
-																	"__preinit_array_end",
-																	"__fini_array_start",
-																	"__fini_array_end",
-																	"__bss_start",
-																	"_edata",
-																	"edata",
-																	"_end",
-																	"end",
-																	"__end__",
-																	"__ehdr_start",
-																	"_DYNAMIC",
-																	"__data_start",
-																	"data_start",
-																	"__TMC_END__"};
-			for(const C8* s : names)
-				if(n == s)
-					return true;
-			return false;
-		}
 	} // namespace detail
-
-	Import& Linker::intern(const String& name, Import::Kind kind) {
-		auto it = importIndex.find(name);
-		if(it != importIndex.end())
-			return imports[it->second];
-		U32 idx = (U32)imports.size();
-		importIndex.emplace(name, idx);
-		Import im;
-		im.kind = kind;
-		imports.push_back(im);
-		importNames.push_back(name);
-		return imports.back();
-	}
 
 	B32 Linker::loadInputs() {
 		if(opt.inputs.empty()) {
@@ -79,7 +38,7 @@ namespace rat {
 			}
 			// positional shared object is a lib
 			if(img.size() >= 18 && img[0] == 0x7f && img[1] == 'E' && img[2] == 'L' && img[3] == 'F' &&
-				 rd16(&img[16]) == ET_DYN) {
+				 le::rd16(&img[16]) == ET_DYN) {
 				libFiles.push_back(p);
 				continue;
 			}
@@ -206,49 +165,61 @@ namespace rat {
 		}
 	}
 
-	B32 Linker::resolveExternals() {
-		struct Need {
-			B32 required = false;
-			B32 found = false;
-			U8 type = STT_NOTYPE;
-			U64 size = 0;
-		};
-		Arena names;
-		Map<std::string_view, U32> needIndex;
-		List<String> needNames;
-		List<Need> needs;
-		auto note = [&](std::string_view name) -> Need& {
-			auto it = needIndex.find(name);
-			if(it != needIndex.end())
-				return needs[it->second];
-			const C8* stable = names.internString(name.data(), name.size());
-			U32 idx = (U32)needNames.size();
-			needIndex.emplace(std::string_view(stable, name.size()), idx);
-			needNames.emplace_back(name);
-			needs.push_back({});
-			return needs[idx];
-		};
-		note("__libc_start_main").required = true;
+	void detail::NeedTable::note(std::string_view name, B32 required) {
+		auto it = index.find(name);
+		if(it == index.end()) {
+			std::string_view stable(names.internString(name.data(), name.size()), name.size());
+			it = index.emplace(stable, (U32)needs.size()).first;
+			needs.push_back({stable});
+		}
+		needs[it->second].required |= required;
+	}
 
+	// marks the needs lib defines, true when it defines any
+	B32 detail::NeedTable::matchLibrary(const Lib& lib, U32& foundRequired) {
+		B32 used = false;
+		U32 n = (U32)(lib.dynsym.size() / 24);
+		const C8* strs = (const C8*)lib.dynstr.data();
+		for(U32 i = 0; i < n; ++i) {
+			const U8* p = lib.dynsym.data() + (U64)i * 24;
+			if(le::rd16(p + 6) == SHN_UNDEF)
+				continue;
+			U8 bind = (U8)(p[4] >> 4);
+			if(bind != STB_GLOBAL && bind != STB_WEAK && bind != STB_GNU_UNIQUE)
+				continue;
+			U32 nameOff = le::rd32(p);
+			if(nameOff >= lib.dynstr.size() || !strs[nameOff])
+				continue;
+			auto it = index.find(strs + nameOff);
+			if(it == index.end() || needs[it->second].found)
+				continue;
+			Need& nd = needs[it->second];
+			nd.found = true;
+			nd.type = (U8)(p[4] & 0xf);
+			nd.size = le::rd64(p + 16);
+			used = true;
+			if(nd.required)
+				foundRequired++;
+		}
+		return used;
+	}
+
+	// loads libs until every required undefined name is found, records the used ones
+	B32 Linker::resolveExternals() {
+		detail::NeedTable table;
+		table.note("__libc_start_main", true);
 		for(const InObject& obj : objs) {
 			for(const InRel& r : obj.rels) {
 				const InSym& s = obj.syms[r.sym];
 				if(obj.sections[r.secIdx].bucket == BDebug)
 					continue; // unresolved debug refs read as 0
-				if(!s.undef || globals.count(s.name))
-					continue;
-				if(s.name.empty() || detail::isLinkerSym(s.name))
-					continue;
-				if(s.bind != STB_WEAK)
-					note(s.name).required = true;
-				else
-					note(s.name);
+				if(s.undef && !globals.count(s.name) && !s.name.empty() && !detail::isLinkerSym(s.name))
+					table.note(s.name, s.bind != STB_WEAK);
 			}
 		}
 		U32 totalRequired = 0;
-		for(const Need& nd : needs)
+		for(const detail::Need& nd : table.needs)
 			totalRequired += nd.required ? 1 : 0;
-
 		U32 foundRequired = 0;
 		for(const String& path : libFiles) {
 			if(foundRequired == totalRequired)
@@ -256,53 +227,30 @@ namespace rat {
 			Lib lib;
 			if(!loadLibrary(path, lib, err))
 				return false;
-			B32 used = false;
-			U32 n = (U32)(lib.dynsym.size() / 24);
-			const U8* syms = lib.dynsym.data();
-			const C8* strs = (const C8*)lib.dynstr.data();
-			U64 strMax = lib.dynstr.size();
-			for(U32 i = 0; i < n; ++i) {
-				const U8* p = syms + (U64)i * 24;
-				if(rd16(p + 6) == SHN_UNDEF)
-					continue;
-				U8 bind = (U8)(p[4] >> 4);
-				if(bind != STB_GLOBAL && bind != STB_WEAK && bind != STB_GNU_UNIQUE)
-					continue;
-				U32 nameOff = rd32(p);
-				if(nameOff >= strMax || !strs[nameOff])
-					continue;
-				auto it = needIndex.find(strs + nameOff);
-				if(it == needIndex.end() || needs[it->second].found)
-					continue;
-				Need& nd = needs[it->second];
-				nd.found = true;
-				nd.type = (U8)(p[4] & 0xf);
-				nd.size = rd64(p + 16);
-				used = true;
-				if(nd.required)
-					foundRequired++;
-			}
-			if(used)
+			if(table.matchLibrary(lib, foundRequired))
 				neededLibs.push_back(lib.soname);
 		}
+		return importNeeds(table);
+	}
 
-		for(U32 i = 0; i < needNames.size(); ++i) {
-			const Need& nd = needs[i];
+	B32 Linker::importNeeds(const detail::NeedTable& table) {
+		for(const detail::Need& nd : table.needs) {
+			String name(nd.name);
 			if(!nd.found) {
-				if(needNames[i] == "__libc_start_main") {
+				if(name == "__libc_start_main") {
 					err = "libc is missing __libc_start_main";
 					return false;
 				}
 				if(nd.required) {
-					err = "undefined symbol '" + needNames[i] + "'";
+					err = "undefined symbol '" + name + "'";
 					return false;
 				}
 				continue;
 			}
 			B32 isData = nd.type == STT_OBJECT;
-			Import& im = intern(needNames[i], isData ? Import::Data : Import::Func);
-			if(isData)
-				im.size = nd.size;
+			importIndex.emplace(name, (U32)imports.size());
+			imports.push_back({isData ? Import::Data : Import::Func, 0, 0, isData ? nd.size : 0});
+			importNames.push_back(name);
 		}
 		return true;
 	}
@@ -341,29 +289,6 @@ namespace rat {
 		}
 	}
 
-	void Linker::buildStart() {
-		auto emit = [&](std::initializer_list<U8> b) {
-			for(U8 x : b)
-				startCode.push_back(x);
-		};
-		emit({0x31, 0xed});							// xor  ebp, ebp
-		emit({0x49, 0x89, 0xd1});				// mov  r9, rdx
-		emit({0x5e});										// pop  rsi
-		emit({0x48, 0x89, 0xe2});				// mov  rdx, rsp
-		emit({0x48, 0x83, 0xe4, 0xf0}); // and  rsp, -16
-		emit({0x50});										// push rax
-		emit({0x54});										// push rsp
-		emit({0x45, 0x31, 0xc0});				// xor  r8d, r8d
-		emit({0x31, 0xc9});							// xor  ecx, ecx
-		emit({0x48, 0x8d, 0x3d});				// lea  rdi, [rip+disp32]
-		startLeaDisp = startCode.size();
-		emit({0, 0, 0, 0});
-		emit({0xe8}); // call rel32
-		startCallDisp = startCode.size();
-		emit({0, 0, 0, 0});
-		emit({0xf4}); // hlt
-	}
-
 	B32 Linker::run() {
 		interp = !opt.interp.empty() ? opt.interp : hostLoader();
 		if(interp.empty())
@@ -379,7 +304,6 @@ namespace rat {
 		if(!resolveExternals())
 			return false;
 		assignGot();
-		buildStart();
 		layout();
 		if(!applyRelocs())
 			return false;

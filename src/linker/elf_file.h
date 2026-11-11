@@ -116,15 +116,6 @@ namespace rat {
 		constexpr U32 R_X86_64_GOTPCRELX = 41;
 		constexpr U32 R_X86_64_REX_GOTPCRELX = 42;
 
-		// forwarders to base/ByteIO.h, keep call sites unchanged
-		inline U16 rd16(const U8* p) { return le::rd16(p); }
-		inline U32 rd32(const U8* p) { return le::rd32(p); }
-		inline U64 rd64(const U8* p) { return le::rd64(p); }
-		inline void wr16(List<U8>& b, U16 v) { le::put16(b, v); }
-		inline void wr32(List<U8>& b, U32 v) { le::put32(b, v); }
-		inline void wr64(List<U8>& b, U64 v) { le::put64(b, v); }
-		inline void wrPad(List<U8>& b, U64 to) { le::padTo(b, to); }
-
 		// Elf64_Shdr
 		struct SectionHeader {
 			U32 name = 0, type = SHT_NULL;

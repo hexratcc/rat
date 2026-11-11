@@ -100,6 +100,11 @@ namespace rat {
 
 	B32 readWhole(const String& path, List<U8>& out);
 
+	namespace detail {
+		String probeHostLoader();
+		List<String> probeHostLibDirs();
+	} // namespace detail
+
 	B32 loadObject(
 			List<U8> img, const String& path, InObject& obj, Set<String>& seenGroups, String& err);
 

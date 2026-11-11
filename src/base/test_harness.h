@@ -3,13 +3,10 @@
 
 #include "core.h"
 
-namespace rat {
-	namespace detail {
-		B32 hasSuffix(const String& s, const C8* suffix);
-		void collectCases(const String& dir, const C8* ext, List<String>& out);
-		String findDir(const List<String>& candidates);
-	} // namespace detail
+#include <atomic>
+#include <mutex>
 
+namespace rat {
 	using CaseRunner = Delegate<B32(const String& path, String& err)>;
 
 	struct TestSuiteSpec {
@@ -18,6 +15,21 @@ namespace rat {
 		List<String> dirCandidates; // searched when no paths are given
 		CaseRunner run;							// executes a single case
 	};
+
+	namespace detail {
+		// shared by the worker threads
+		struct SuiteRun {
+			std::atomic<U32> next{0};
+			std::mutex ioMtx;
+			U32 passed = 0;
+			List<String> failures;
+			void work(const TestSuiteSpec& spec, const List<String>& cases);
+		};
+
+		B32 hasSuffix(const String& s, const C8* suffix);
+		void collectCases(const String& dir, const C8* ext, List<String>& out);
+		String findDir(const List<String>& candidates);
+	} // namespace detail
 
 	I32 runTestSuite(I32 argc, C8** argv, const TestSuiteSpec& spec);
 } // namespace rat

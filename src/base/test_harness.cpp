@@ -1,10 +1,8 @@
 #include "test_harness.h"
 
-#include <atomic>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
-#include <mutex>
 #include <thread>
 
 namespace rat {
@@ -40,11 +38,31 @@ namespace rat {
 					return c;
 			return "";
 		}
+
+		void SuiteRun::work(const TestSuiteSpec& spec, const List<String>& cases) {
+			for(U32 i = next++; i < cases.size(); i = next++) {
+				String err;
+				B32 ok = false;
+				try {
+					ok = spec.run(cases[i], err);
+				} catch(const std::exception& e) {
+					err = String("unhandled exception: ") + e.what();
+				} catch(...) {
+					err = "unhandled exception";
+				}
+				std::lock_guard<std::mutex> lock(ioMtx);
+				std::cout << (ok ? "PASS  " : "FAIL  ") << cases[i] << (ok ? String() : ": " + err) << "\n";
+				if(ok)
+					++passed;
+				else
+					failures.push_back(cases[i]);
+			}
+		}
 	} // namespace detail
 
 	I32 runTestSuite(I32 argc, C8** argv, const TestSuiteSpec& spec) {
 		U32 jobs = 1;
-		B32 quiet = false; // -q: only the per-case lines, the caller tallies them
+		B32 quiet = false; // -q, only the per-case lines, the caller tallies them
 		List<String> cases;
 		for(I32 i = 1; i < argc; ++i) {
 			String arg = argv[i];
@@ -54,93 +72,34 @@ namespace rat {
 				String num = arg.substr(2);
 				if(num.empty() && i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9')
 					num = argv[++i];
-				if(!num.empty()) {
-					I64 n = std::strtol(num.c_str(), nullptr, 10);
-					if(n > 1)
-						jobs = (U32)n;
-				}
+				jobs = (U32)std::max<I64>(1, std::strtol(num.c_str(), nullptr, 10));
 			} else {
 				cases.push_back(arg);
 			}
 		}
-
+		if(cases.empty())
+			detail::collectCases(detail::findDir(spec.dirCandidates), spec.extension, cases);
 		if(cases.empty()) {
-			String dir = detail::findDir(spec.dirCandidates);
-			if(!dir.empty())
-				detail::collectCases(dir, spec.extension, cases);
-			if(cases.empty()) {
-				std::cerr << spec.tool << ": no case paths given and no case directory found\n";
-				return 2;
-			}
+			std::cerr << spec.tool << ": no case paths given and no case directory found\n";
+			return 2;
 		}
 
-		std::atomic<U32> passed{0};
-		std::atomic<U32> failed{0};
-		std::mutex ioMtx;
-		List<String> failures;
+		detail::SuiteRun run;
+		List<std::thread> pool;
+		for(U32 t = 1; t < std::min<U64>(jobs, cases.size()); ++t)
+			pool.emplace_back(&detail::SuiteRun::work, &run, std::cref(spec), std::cref(cases));
+		run.work(spec, cases);
+		for(std::thread& t : pool)
+			t.join();
 
-		auto record = [&](const String& path, B32 ok, const String& err) {
-			if(ok) {
-				std::cout << "PASS  " << path << "\n";
-				++passed;
-			} else {
-				std::cout << "FAIL  " << path << ": " << err << "\n";
-				++failed;
-				failures.push_back(path);
-			}
-		};
-
-		auto runContained = [&](const String& path, String& err) -> B32 {
-			try {
-				return spec.run(path, err);
-			} catch(const std::exception& e) {
-				err = String("unhandled exception: ") + e.what();
-				return false;
-			} catch(...) {
-				err = "unhandled exception";
-				return false;
-			}
-		};
-
-		if(jobs <= 1) {
-			for(const String& path : cases) {
-				String err;
-				B32 ok = runContained(path, err);
-				record(path, ok, err);
-			}
-		} else {
-			std::atomic<U32> next{0};
-			auto worker = [&] {
-				for(;;) {
-					U32 i = next.fetch_add(1);
-					if(i >= cases.size())
-						break;
-					const String& path = cases[i];
-					String err;
-					B32 ok = runContained(path, err);
-					std::lock_guard<std::mutex> lk(ioMtx);
-					record(path, ok, err);
-				}
-			};
-
-			if(jobs > cases.size())
-				jobs = (U32)cases.size();
-			List<std::thread> pool;
-			for(U32 t = 0; t < jobs; ++t)
-				pool.emplace_back(worker);
-			for(std::thread& t : pool)
-				t.join();
+		if(!quiet && !run.failures.empty()) {
+			std::sort(run.failures.begin(), run.failures.end());
+			std::cout << "\n=== failures ===\n";
+			for(const String& path : run.failures)
+				std::cout << "FAIL  " << path << "\n";
 		}
-
-		if(!quiet) {
-			if(!failures.empty()) {
-				std::sort(failures.begin(), failures.end());
-				std::cout << "\n=== failures ===\n";
-				for(const String& path : failures)
-					std::cout << "FAIL  " << path << "\n";
-			}
-			std::cout << "\n" << passed.load() << " passed, " << failed.load() << " failed\n";
-		}
-		return failed.load() == 0 ? 0 : 1;
+		if(!quiet)
+			std::cout << "\n" << run.passed << " passed, " << run.failures.size() << " failed\n";
+		return run.failures.empty() ? 0 : 1;
 	}
 } // namespace rat

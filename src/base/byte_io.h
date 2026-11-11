@@ -32,6 +32,14 @@ namespace rat {
 			b.insert(b.end(), tmp, tmp + 8);
 		}
 
+		// little-endian value of the len bytes at p
+		inline U64 rd(const U8* p, U32 len) {
+			U64 v = 0;
+			for(U32 i = 0; i < len; ++i)
+				v |= (U64)p[i] << (i * 8);
+			return v;
+		}
+
 		// store the low len bytes of v
 		inline void wr(U8* p, U64 v, U32 len) {
 			for(U32 i = 0; i < len; ++i)

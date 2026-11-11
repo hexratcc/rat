@@ -2,6 +2,7 @@
 
 #include "elf_file.h"
 
+#include <cstring>
 #include <fstream>
 #include <sys/stat.h>
 
@@ -35,6 +36,76 @@ namespace rat {
 		};
 		// clang-format on
 
+		constexpr U16 kPhnum = 8; // PHDR INTERP LOAD LOAD DYNAMIC TLS GNU_EH_FRAME GNU_STACK
+
+		// clang-format off
+		// _start calls __libc_start_main(main, argc, argv, 0, 0, rtld_fini, stack_end)
+		constexpr U8 kStartCode[] = {
+				0x31, 0xed,             // xor  ebp, ebp
+				0x49, 0x89, 0xd1,       // mov  r9, rdx
+				0x5e,                   // pop  rsi
+				0x48, 0x89, 0xe2,       // mov  rdx, rsp
+				0x48, 0x83, 0xe4, 0xf0, // and  rsp, -16
+				0x50,                   // push rax
+				0x54,                   // push rsp
+				0x45, 0x31, 0xc0,       // xor  r8d, r8d
+				0x31, 0xc9,             // xor  ecx, ecx
+				0x48, 0x8d, 0x3d,       // lea  rdi, [rip+disp32]
+				0, 0, 0, 0,
+				0xe8,                   // call rel32
+				0, 0, 0, 0,
+				0xf4,                   // hlt
+		};
+		// clang-format on
+		// the disp32 fields of the lea and the call
+		constexpr U64 kStartMainDisp = 23;
+		constexpr U64 kStartCallDisp = 28;
+
+		// per Bucket
+		constexpr Linker::OutSec kBucketSecs[BucketCount] = {Linker::OText,
+																												 Linker::ORodata,
+																												 Linker::OEhFrame,
+																												 Linker::OInitArray,
+																												 Linker::OFiniArray,
+																												 Linker::OData,
+																												 Linker::OBss,
+																												 Linker::OTdata,
+																												 Linker::OTbss};
+
+		struct LinkerSym {
+			const C8* name;
+			Linker::OutSec sec; // kOutSecs is the file header
+			B32 atEnd;
+		};
+		constexpr LinkerSym kLinkerSyms[] = {
+				{"__dso_handle", Linker::OData, false},
+				{"_GLOBAL_OFFSET_TABLE_", Linker::OGotPlt, false},
+				{"__init_array_start", Linker::OInitArray, false},
+				{"__init_array_end", Linker::OInitArray, true},
+				{"__preinit_array_start", Linker::OInitArray, false},
+				{"__preinit_array_end", Linker::OInitArray, false},
+				{"__fini_array_start", Linker::OFiniArray, false},
+				{"__fini_array_end", Linker::OFiniArray, true},
+				{"__bss_start", Linker::OBss, false},
+				{"_edata", Linker::OBss, false},
+				{"edata", Linker::OBss, false},
+				{"_end", Linker::OBss, true},
+				{"end", Linker::OBss, true},
+				{"__end__", Linker::OBss, true},
+				{"__ehdr_start", Linker::kOutSecs, false},
+				{"_DYNAMIC", Linker::ODynamic, false},
+				{"__data_start", Linker::OData, false},
+				{"data_start", Linker::OData, false},
+				{"__TMC_END__", Linker::OData, false},
+		};
+
+		B32 isLinkerSym(const String& n) {
+			for(const LinkerSym& s : kLinkerSyms)
+				if(n == s.name)
+					return true;
+			return false;
+		}
+
 		// ':'-join for DT_RUNPATH
 		String joinColon(const List<String>& v) {
 			String s;
@@ -45,195 +116,141 @@ namespace rat {
 			}
 			return s;
 		}
-	} // namespace detail
 
-	// count FDEs in merged .eh_frame (drives hdr size)
-	U32 Linker::countFdes() {
-		const List<U8>& m = merged[BEhFrame];
-		U32 n = 0;
-		U64 off = 0;
-		while(off + 4 <= m.size()) {
-			U32 len = rd32(&m[off]);
-			if(len == 0) {
-				off += 4;
-				continue; // terminator
+		void skipLeb(const U8* p, U64& i) {
+			while(p[i++] & 0x80) {
 			}
-			if(len == 0xffffffff)
-				break; // 64-bit form unsupported
-			U64 idOff = off + 4;
-			if(idOff + 4 > m.size())
-				break;
-			U32 id = rd32(&m[idOff]);
-			if(id != 0)
-				++n; // FDE (CIE has id 0)
-			off = idOff + len;
 		}
-		return n;
-	}
 
-	namespace detail {
-		U64 readUleb(const U8* p, U64& i) {
-			U64 v = 0;
-			U32 sh = 0;
-			U8 b;
-			do {
-				b = p[i++];
-				v |= (U64)(b & 0x7f) << sh;
-				sh += 7;
-			} while(b & 0x80);
-			return v;
-		}
-		I64 readSleb(const U8* p, U64& i) {
-			I64 v = 0;
-			U32 sh = 0;
-			U8 b;
-			do {
-				b = p[i++];
-				v |= (I64)(b & 0x7f) << sh;
-				sh += 7;
-			} while(b & 0x80);
-			if(sh < 64 && (b & 0x40))
-				v |= -((I64)1 << sh);
-			return v;
-		}
-		// byte size of DW_EH_PE value (lower nibble)
+		// byte size of a DW_EH_PE value format, absptr is 8 on x86-64
 		U32 encSize(U8 enc) {
-			switch(enc & 0x0f) {
-			case 0x00:
-				return 8; // absptr = 8 on x86-64
+			switch(enc & 0x07) {
 			case 0x02:
 				return 2;
 			case 0x03:
 				return 4;
-			case 0x04:
-				return 8;
-			case 0x0a:
-				return 2;
-			case 0x0b:
-				return 4;
-			case 0x0c:
-				return 8;
 			}
 			return 8;
 		}
+
+		// the fde pointer encoding of the cie at idOff from its 'R' augmentation, absptr without
+		U8 cieFdeEncoding(const List<U8>& ehFrame, U64 idOff) {
+			U64 i = idOff + 5; // past the id and version
+			const C8* aug = (const C8*)&ehFrame[i];
+			U64 augLen = strlen(aug);
+			i += augLen + 1;
+			skipLeb(ehFrame.data(), i); // code align
+			skipLeb(ehFrame.data(), i); // data align
+			skipLeb(ehFrame.data(), i); // ra reg
+			if(aug[0] != 'z')
+				return 0;
+			skipLeb(ehFrame.data(), i); // aug data len
+			for(U64 a = 1; a < augLen; ++a) {
+				if(aug[a] == 'R')
+					return ehFrame[i];
+				if(aug[a] == 'L')
+					++i; // lsda enc byte
+				else if(aug[a] == 'P')
+					i += 1 + encSize(ehFrame[i]); // personality enc and ptr
+			}
+			return 0;
+		}
+
+		U64 fdeInitialLocation(const List<U8>& ehFrame, U64 pcOff, U8 enc, U64 ehFrameVaddr) {
+			U32 bytes = encSize(enc);
+			I64 value = (I64)le::rd(&ehFrame[pcOff], bytes);
+			if(enc & 0x08) // signed
+				value = signExtend(value, bytes * 8);
+			if((enc & 0x70) == 0x10) // pcrel
+				return ehFrameVaddr + pcOff + value;
+			return (U64)value; // absolute, filled by a reloc
+		}
+
+		// Elf64_Phdr, paddr = vaddr
+		void putProgramHeader(List<U8>& out, const ProgramHeader& ph) {
+			le::put32(out, ph.type);
+			le::put32(out, ph.flags);
+			le::put64(out, ph.offset);
+			le::put64(out, ph.vaddr);
+			le::put64(out, ph.vaddr);
+			le::put64(out, ph.fileSize);
+			le::put64(out, ph.memSize);
+			le::put64(out, ph.align);
+		}
+
+		void putDynamic(List<U8>& dynamic, I64 tag, U64 value) {
+			le::put64(dynamic, (U64)tag);
+			le::put64(dynamic, value);
+		}
 	} // namespace detail
 
-	// .eh_frame_hdr: header + pc-sorted (initial_location, fde) table for bsearch
-	void Linker::buildEhFrameHdr() {
-		ehFrameHdr.clear();
+	// (initial_location, fde) vaddrs, the locations are final once relocs are applied
+	List<Pair<U64, U64>> Linker::fdeTable() const {
 		const List<U8>& m = merged[BEhFrame];
 		U64 ehVa = vaddr[OEhFrame];
-		U64 hdrVa = vaddr[OEhFrameHdr];
-
-		Map<U64, U8> cieFdeEnc;					 // cie off -> fde ptr enc
-		List<std::pair<U64, U64>> table; // (initial_location va, fde va)
-
+		List<Pair<U64, U64>> table;
 		U64 off = 0;
 		while(off + 4 <= m.size()) {
-			U32 len = rd32(&m[off]);
+			U32 len = le::rd32(&m[off]);
 			if(len == 0) {
 				off += 4;
 				continue;
 			}
 			if(len == 0xffffffff)
 				break;
-			U64 recStart = off;
 			U64 idOff = off + 4;
-			U32 id = rd32(&m[idOff]);
-			U64 recEnd = idOff + len;
-			if(id == 0) {
-				// cie: parse augmentation for 'R' fde ptr enc
-				U64 i = idOff + 4;
-				++i; // version
-				const C8* aug = (const C8*)&m[i];
-				U64 augLen = 0;
-				while(m[i + augLen])
-					++augLen;
-				U64 augStart = i;
-				i += augLen + 1;
-				detail::readUleb(m.data(), i); // code align
-				detail::readSleb(m.data(), i); // data align
-				detail::readUleb(m.data(), i); // ra reg
-				U8 fdeEnc = 0x00;							 // absptr default
-				if(aug[0] == 'z') {
-					detail::readUleb(m.data(), i); // aug data len
-					for(U64 a = 1; a < augLen; ++a) {
-						C8 c = ((const C8*)&m[augStart])[a];
-						if(c == 'L') {
-							++i; // lsda enc byte
-						} else if(c == 'P') {
-							U8 penc = m[i++];
-							i += detail::encSize(penc); // personality ptr
-						} else if(c == 'R') {
-							fdeEnc = m[i++];
-						}
-					}
-				}
-				cieFdeEnc[recStart] = fdeEnc;
-			} else {
-				// fde: cie ptr = idOff - id
-				U64 cieStart = idOff - id;
-				U8 fdeEnc = 0x00;
-				auto it = cieFdeEnc.find(cieStart);
-				if(it != cieFdeEnc.end())
-					fdeEnc = it->second;
-				U64 pcOff = idOff + 4; // offset in .eh_frame
-				U64 pcFieldVa = ehVa + pcOff;
-				I64 raw = 0;
-				U32 sz = detail::encSize(fdeEnc);
-				if((fdeEnc & 0x0f) == 0x0b || (fdeEnc & 0x0f) == 0x0a || (fdeEnc & 0x0f) == 0x0c)
-					raw = (I64)signExtend((I64)rd64(&m[pcOff]) & ((sz == 4) ? 0xffffffffull : ~0ull), sz * 8);
-				else if(sz == 4)
-					raw = (I64)(I32)rd32(&m[pcOff]);
-				else
-					raw = (I64)rd64(&m[pcOff]);
-				U64 pcVa;
-				if((fdeEnc & 0x70) == 0x10) // pcrel
-					pcVa = (U64)((I64)pcFieldVa + raw);
-				else
-					pcVa = (U64)raw; // absolute (filled by reloc)
-				table.push_back({pcVa, ehVa + recStart});
+			U32 id = le::rd32(&m[idOff]);
+			if(id != 0 && id <= idOff) { // an fde, its cie starts id bytes back
+				U8 enc = detail::cieFdeEncoding(m, idOff - id + 4);
+				table.push_back({detail::fdeInitialLocation(m, idOff + 4, enc, ehVa), ehVa + off});
 			}
-			off = recEnd;
+			off = idOff + len;
 		}
+		return table;
+	}
 
+	// header and the pc sorted table for bsearch
+	void Linker::buildEhFrameHdr() {
+		U64 ehVa = vaddr[OEhFrame];
+		U64 hdrVa = vaddr[OEhFrameHdr];
+		List<Pair<U64, U64>> table = fdeTable();
 		std::sort(table.begin(), table.end());
 
-		ehFrameHdr.push_back(1);		// version
-		ehFrameHdr.push_back(0x1b); // eh_frame_ptr: pcrel sdata4
-		ehFrameHdr.push_back(0x03); // fde_count: udata4
-		ehFrameHdr.push_back(0x3b); // table: datarel sdata4
-		le::put32(ehFrameHdr, (U32)(I32)((I64)ehVa - (I64)(hdrVa + 4)));
+		// version, eh_frame_ptr pcrel sdata4, fde_count udata4, table datarel sdata4
+		ehFrameHdr = {1, 0x1b, 0x03, 0x3b};
+		le::put32(ehFrameHdr, (U32)(ehVa - (hdrVa + 4)));
 		le::put32(ehFrameHdr, (U32)table.size());
-		for(auto& e : table) {
-			le::put32(ehFrameHdr, (U32)(I32)((I64)e.first - (I64)hdrVa));
-			le::put32(ehFrameHdr, (U32)(I32)((I64)e.second - (I64)hdrVa));
+		for(const auto& [pc, fde] : table) {
+			le::put32(ehFrameHdr, (U32)(pc - hdrVa));
+			le::put32(ehFrameHdr, (U32)(fde - hdrVa));
 		}
 	}
 
 	// append s to its same-named debug output, keep input align
 	void Linker::mergeDebug(const InObject& obj, InSection& s) {
-		s.debugOut = 0;
-		while(s.debugOut < debugOuts.size() && debugOuts[s.debugOut].name != s.name)
-			++s.debugOut;
-		if(s.debugOut == debugOuts.size())
+		auto [it, fresh] = debugOutIndex.emplace(s.name, (U32)debugOuts.size());
+		if(fresh)
 			debugOuts.push_back({s.name, {}, 1});
+		s.debugOut = it->second;
 		DebugOut& d = debugOuts[s.debugOut];
-		if(s.align > d.align)
-			d.align = s.align;
-		wrPad(d.bytes, (d.bytes.size() + s.align - 1) & ~(s.align - 1));
+		d.align = std::max(d.align, s.align);
+		le::padTo(d.bytes, alignUp(d.bytes.size(), s.align));
 		s.outOff = d.bytes.size();
 		const U8* p = &obj.image[s.fileOff];
 		d.bytes.insert(d.bytes.end(), p, p + s.size);
 	}
 
 	void Linker::layout() {
-		// 1. concat kept sections into buckets, assign offsets; _start last in .text
-		auto padTo = [](List<U8>& v, U64 a) {
-			if(a > 1)
-				while(v.size() % a)
-					v.push_back(0);
-		};
+		fillBuckets();
+		sizeSections();
+		placeSections();
+		placeImports();
+		placeGlobals();
+		defineLinkerSyms();
+	}
+
+	// kept sections concatenated per bucket, _start last in .text, commons at the end of .bss
+	void Linker::fillBuckets() {
 		for(InObject& obj : objs) {
 			for(InSection& s : obj.sections) {
 				if(!s.keep)
@@ -243,14 +260,13 @@ namespace rat {
 					continue;
 				}
 				U8 b = s.bucket;
-				if(s.align > bucketAlign[b])
-					bucketAlign[b] = s.align;
+				bucketAlign[b] = std::max(bucketAlign[b], s.align);
 				if(b == BBss || b == BTbss) {
-					bucketSize[b] = (bucketSize[b] + (s.align - 1)) & ~(s.align - 1);
+					bucketSize[b] = alignUp(bucketSize[b], s.align);
 					s.outOff = bucketSize[b];
 					bucketSize[b] += s.size;
 				} else {
-					padTo(merged[b], s.align);
+					le::padTo(merged[b], alignUp(merged[b].size(), s.align));
 					s.outOff = merged[b].size();
 					const U8* p = &obj.image[s.fileOff];
 					merged[b].insert(merged[b].end(), p, p + s.size);
@@ -258,9 +274,10 @@ namespace rat {
 				}
 			}
 		}
-		padTo(merged[BText], 16);
-		merged[BText].insert(merged[BText].end(), startCode.begin(), startCode.end());
-		bucketSize[BText] = merged[BText].size();
+		List<U8>& text = merged[BText];
+		le::padTo(text, alignUp(text.size(), 16));
+		text.insert(text.end(), std::begin(detail::kStartCode), std::end(detail::kStartCode));
+		bucketSize[BText] = text.size();
 
 		// zero-length record terminates .eh_frame
 		if(!merged[BEhFrame].empty()) {
@@ -268,182 +285,136 @@ namespace rat {
 			bucketSize[BEhFrame] = merged[BEhFrame].size();
 		}
 
-		// commons -> appended to .bss
-		for(auto& kv : globals) {
-			Def& d = kv.second;
+		for(auto& [name, d] : globals) {
 			if(!d.common)
 				continue;
-			U64 a = d.comAlign ? d.comAlign : 1;
-			if(a > bucketAlign[BBss])
-				bucketAlign[BBss] = a;
-			bucketSize[BBss] = (bucketSize[BBss] + (a - 1)) & ~(a - 1);
-			d.addr = bucketSize[BBss]; // bucket-relative, absolutized below
+			bucketAlign[BBss] = std::max(bucketAlign[BBss], d.comAlign);
+			bucketSize[BBss] = alignUp(bucketSize[BBss], d.comAlign);
+			d.addr = bucketSize[BBss]; // bucket-relative, absolutized in placeGlobals
 			bucketSize[BBss] += d.comSize ? d.comSize : 1;
 		}
+	}
 
-		// 2. section sizes
-		U32 nImports = (U32)imports.size();
-		U32 nFunc = 0, nData = 0;
+	void Linker::sizeSections() {
+		U32 nFunc = 0, nData = 0, nGlob = 0;
 		for(const Import& im : imports)
 			(im.kind == Import::Func ? nFunc : nData)++;
-		U32 nDyn = 1 + nImports;
-
-		size[OInterp] = interp.size() + 1;
-		U32 nGlob = 0;
 		for(const GotSlot& g : gotSlots)
 			nGlob += g.isImport ? 1 : 0;
+		U32 nDyn = 1 + (U32)imports.size();
+		for(U32 b = 0; b < BucketCount; ++b)
+			size[detail::kBucketSecs[b]] = bucketSize[b];
+
+		size[OInterp] = interp.size() + 1;
+		size[OHash] = (U64)(2 + nDyn + nDyn) * 4;
 		size[ODynsym] = (U64)nDyn * 24;
 		size[ORelaDyn] = (U64)(nData + nGlob) * 24; // COPY + GLOB_DAT
 		size[ORelaPlt] = (U64)nFunc * 24;
 		size[OPlt] = (U64)nFunc * detail::kPltEntSize;
-		size[OText] = bucketSize[BText];
-		size[ORodata] = bucketSize[BRodata];
-		size[OEhFrame] = bucketSize[BEhFrame];
-		ehFdeCount = size[OEhFrame] ? countFdes() : 0;
-		size[OEhFrameHdr] = ehFdeCount ? (12 + (U64)ehFdeCount * 8) : 0;
-		size[OInitArray] = bucketSize[BInitArray];
-		size[OFiniArray] = bucketSize[BFiniArray];
-		size[OData] = bucketSize[BData];
-		size[OTdata] = bucketSize[BTdata];
+		U64 fdes = fdeTable().size();
+		size[OEhFrameHdr] = fdes ? 12 + fdes * 8 : 0;
 		size[OGot] = (U64)gotSlots.size() * 8;
 		size[OGotPlt] = (U64)(3 + nFunc) * 8;
-		size[OHash] = (U64)(2 + nDyn + nDyn) * 4;
-		{
-			U64 n = 1;
-			for(const String& nm : importNames)
-				n += nm.size() + 1;
-			for(const String& lib : neededLibs)
-				n += lib.size() + 1;
-			if(!rpaths.empty())
-				n += detail::joinColon(rpaths).size() + 1;
-			size[ODynstr] = n;
-		}
 
-		// 3. first R-X segment: identity map from file off 0
-		U16 phnum = 8; // PHDR INTERP LOAD LOAD DYNAMIC TLS GNU_EH_FRAME GNU_STACK
-		U64 cursor = 64 + (U64)phnum * 56;
-		auto place = [&](OutSec s, U64 align) {
-			if(align > 1)
-				cursor = (cursor + (align - 1)) & ~(align - 1);
-			foff[s] = cursor;
-			vaddr[s] = detail::kImageBase + cursor;
-			cursor += size[s];
-		};
-		place(OInterp, 1);
-		place(OHash, 8);
-		place(ODynsym, 8);
-		place(ODynstr, 1);
-		place(ORelaDyn, 8);
-		place(ORelaPlt, 8);
-		place(OPlt, 16);
-		place(OText, bucketAlign[BText] > 16 ? bucketAlign[BText] : 16);
-		place(ORodata, bucketAlign[BRodata] > 16 ? bucketAlign[BRodata] : 16);
-		place(OEhFrame, 8);
-		place(OEhFrameHdr, 4);
+		size[ODynstr] = 1;
+		for(const String& nm : importNames)
+			size[ODynstr] += nm.size() + 1;
+		for(const String& lib : neededLibs)
+			size[ODynstr] += lib.size() + 1;
+		if(!rpaths.empty())
+			size[ODynstr] += detail::joinColon(rpaths).size() + 1;
 
-		// 4. second R-W segment on fresh page
-		cursor = (cursor + detail::kPage - 1) & ~(detail::kPage - 1);
-		place(OInitArray, 8);
-		place(OFiniArray, 8);
-		place(OData, bucketAlign[BData] > 16 ? bucketAlign[BData] : 16);
-		place(OTdata, 16);
-		place(OGot, 8);
-		place(OGotPlt, 8);
-		{
-			U32 n = (U32)neededLibs.size();
-			n += rpaths.empty() ? 0 : 1;
-			n += 6;												// HASH STRTAB SYMTAB STRSZ SYMENT PLTGOT
-			n += nFunc ? 3 : 0;						// PLTRELSZ PLTREL JMPREL
-			n += (nData + nGlob) ? 3 : 0; // RELA RELASZ RELAENT
-			n += size[OInitArray] ? 2 : 0;
-			n += size[OFiniArray] ? 2 : 0;
-			n += 3; // FLAGS FLAGS_1 NULL
-			n += 4; // slack
-			size[ODynamic] = (U64)n * 16;
-		}
-		place(ODynamic, 8);
+		U32 tags = (U32)neededLibs.size() + (rpaths.empty() ? 0 : 1);
+		tags += 6;											 // HASH STRTAB SYMTAB STRSZ SYMENT PLTGOT
+		tags += nFunc ? 3 : 0;					 // PLTRELSZ PLTREL JMPREL
+		tags += (nData + nGlob) ? 3 : 0; // RELA RELASZ RELAENT
+		tags += size[OInitArray] ? 2 : 0;
+		tags += size[OFiniArray] ? 2 : 0;
+		tags += 3; // FLAGS FLAGS_1 NULL
+		tags += 4; // slack
+		size[ODynamic] = (U64)tags * 16;
+	}
 
-		// nobits last
-		{
-			U64 a = bucketAlign[BBss] > 16 ? bucketAlign[BBss] : 16;
-			cursor = (cursor + a - 1) & ~(a - 1);
-		}
+	void Linker::place(OutSec s, U64 align, U64& cursor) {
+		cursor = alignUp(cursor, align);
+		foff[s] = cursor;
+		vaddr[s] = detail::kImageBase + cursor;
+		cursor += size[s];
+	}
+
+	// an R-X segment identity mapped from file offset 0, an R-W one on a fresh page, nobits last
+	void Linker::placeSections() {
+		U64 cursor = 64 + (U64)detail::kPhnum * 56;
+		place(OInterp, 1, cursor);
+		place(OHash, 8, cursor);
+		place(ODynsym, 8, cursor);
+		place(ODynstr, 1, cursor);
+		place(ORelaDyn, 8, cursor);
+		place(ORelaPlt, 8, cursor);
+		place(OPlt, 16, cursor);
+		place(OText, std::max<U64>(bucketAlign[BText], 16), cursor);
+		place(ORodata, std::max<U64>(bucketAlign[BRodata], 16), cursor);
+		place(OEhFrame, 8, cursor);
+		place(OEhFrameHdr, 4, cursor);
+
+		cursor = alignUp(cursor, detail::kPage);
+		place(OInitArray, 8, cursor);
+		place(OFiniArray, 8, cursor);
+		place(OData, std::max<U64>(bucketAlign[BData], 16), cursor);
+		place(OTdata, 16, cursor);
+		place(OGot, 8, cursor);
+		place(OGotPlt, 8, cursor);
+		place(ODynamic, 8, cursor);
+
+		cursor = alignUp(cursor, std::max<U64>(bucketAlign[BBss], 16));
 		vaddr[OBss] = detail::kImageBase + cursor;
-		size[OBss] = bucketSize[BBss];
 		// tls bss is loader-managed, park after bss
-		U64 tbssCur = cursor + size[OBss];
-		tbssCur = (tbssCur + 15) & ~15ull;
-		vaddr[OTbss] = detail::kImageBase + tbssCur;
-		size[OTbss] = bucketSize[BTbss];
+		vaddr[OTbss] = detail::kImageBase + alignUp(cursor + size[OBss], 16);
+	}
 
-		// 5. bucket vaddrs + final addresses
-		for(U32 b = 0; b < BucketCount; ++b)
-			bucketVaddr[b] = vaddr[outSecOf((U8)b)];
-
-		// data imports get a COPY slot in .bss (after commons + merged bss)
-		U64 copyCursor = size[OBss];
-		U32 funcSlot = 0;
-		U32 dynCursor = 1;
-		for(U32 pass = 0; pass < 2; ++pass) {
-			for(U32 i = 0; i < imports.size(); ++i) {
-				Import& im = imports[i];
-				B32 isFunc = im.kind == Import::Func;
-				if((pass == 0) != (B32)isFunc)
+	// plt stubs for func imports, then COPY slots in .bss for data imports
+	void Linker::placeImports() {
+		U32 dynIndex = 1;
+		U32 pltIndex = 0;
+		for(Import::Kind kind : {Import::Func, Import::Data}) {
+			for(Import& im : imports) {
+				if(im.kind != kind)
 					continue;
-				im.dynIndex = dynCursor++;
-				if(isFunc) {
-					im.pltIndex = funcSlot++;
+				im.dynIndex = dynIndex++;
+				if(kind == Import::Func) {
+					im.pltIndex = pltIndex++;
 					im.addr = vaddr[OPlt] + (U64)im.pltIndex * detail::kPltEntSize;
 				} else {
-					U64 a = im.size ? im.size : 8;
-					U64 align = a >= 16 ? 16 : (a >= 8 ? 8 : (a >= 4 ? 4 : 1));
-					copyCursor = (copyCursor + (align - 1)) & ~(align - 1);
-					im.addr = vaddr[OBss] + copyCursor;
-					copyCursor += a;
+					U64 bytes = im.size ? im.size : 8;
+					U64 align = bytes >= 16 ? 16 : (bytes >= 8 ? 8 : (bytes >= 4 ? 4 : 1));
+					size[OBss] = alignUp(size[OBss], align);
+					im.addr = vaddr[OBss] + size[OBss];
+					size[OBss] += bytes;
 				}
 			}
 		}
-		size[OBss] = copyCursor;
+	}
 
-		// absolutize commons
-		for(auto& kv : globals) {
-			Def& d = kv.second;
-			if(d.common)
+	// commons into .bss, own defs at their placed section
+	void Linker::placeGlobals() {
+		for(auto& [name, d] : globals) {
+			if(d.common) {
 				d.addr += vaddr[OBss];
+			} else if(d.defined && d.obj != 0xffffffffu) {
+				const InObject& obj = objs[d.obj];
+				const InSym& s = obj.syms[d.sym];
+				d.addr = placedAddr(obj.sections[s.shndx], s.value, d.isTls);
+			}
 		}
+	}
 
-		// resolve own global defs (non-common)
-		for(auto& kv : globals) {
-			Def& d = kv.second;
-			if(d.common || !d.defined || d.obj == 0xffffffffu)
-				continue;
-			const InObject& obj = objs[d.obj];
-			const InSym& s = obj.syms[d.sym];
-			const InSection& sec = obj.sections[s.shndx];
-			d.addr = placedAddr(sec, s.value, d.isTls);
+	void Linker::defineLinkerSyms() {
+		for(const detail::LinkerSym& s : detail::kLinkerSyms) {
+			U64 addr = detail::kImageBase;
+			if(s.sec != kOutSecs)
+				addr = vaddr[s.sec] + (s.atEnd ? size[s.sec] : 0);
+			linkerSyms[s.name] = addr;
 		}
-
-		// synthesized linker/crt symbols
-		U64 bssEnd = vaddr[OBss] + size[OBss];
-		linkerSyms["__dso_handle"] = vaddr[OData];
-		linkerSyms["_GLOBAL_OFFSET_TABLE_"] = vaddr[OGotPlt];
-		linkerSyms["__init_array_start"] = vaddr[OInitArray];
-		linkerSyms["__init_array_end"] = vaddr[OInitArray] + size[OInitArray];
-		linkerSyms["__preinit_array_start"] = vaddr[OInitArray];
-		linkerSyms["__preinit_array_end"] = vaddr[OInitArray];
-		linkerSyms["__fini_array_start"] = vaddr[OFiniArray];
-		linkerSyms["__fini_array_end"] = vaddr[OFiniArray] + size[OFiniArray];
-		linkerSyms["__bss_start"] = vaddr[OBss];
-		linkerSyms["_edata"] = vaddr[OBss];
-		linkerSyms["edata"] = vaddr[OBss];
-		linkerSyms["_end"] = bssEnd;
-		linkerSyms["end"] = bssEnd;
-		linkerSyms["__end__"] = bssEnd;
-		linkerSyms["__ehdr_start"] = detail::kImageBase;
-		linkerSyms["_DYNAMIC"] = vaddr[ODynamic];
-		linkerSyms["__data_start"] = vaddr[OData];
-		linkerSyms["data_start"] = vaddr[OData];
-		linkerSyms["__TMC_END__"] = vaddr[OData];
 	}
 
 	// discarded or undefined targets read as 0, never an error
@@ -474,7 +445,7 @@ namespace rat {
 	U64 Linker::placedAddr(const InSection& sec, U64 value, B32 isTls) const {
 		if(isTls || sec.bucket == BDebug)
 			return sec.outOff + value;
-		return bucketVaddr[sec.bucket] + sec.outOff + value;
+		return vaddr[detail::kBucketSecs[sec.bucket]] + sec.outOff + value;
 	}
 
 	B32 Linker::symbolTarget(const InObject& obj, U32 symIdx, U64& addr, B32& isFunc, B32& isTls) {
@@ -521,104 +492,103 @@ namespace rat {
 	}
 
 	B32 Linker::applyRelocs() {
-		U64 tlsBlockSize = size[OTdata] + size[OTbss];
-		U64 tlsAlignedSize = (tlsBlockSize + 15) & ~15ull;
+		U64 tlsSize = alignUp(size[OTdata] + size[OTbss], 16);
+		for(U32 oi = 0; oi < objs.size(); ++oi)
+			for(const InRel& r : objs[oi].rels)
+				if(!applyReloc(oi, r, tlsSize))
+					return false;
+		return patchStart();
+	}
 
-		for(U32 oi = 0; oi < objs.size(); ++oi) {
-			const InObject& obj = objs[oi];
-			for(const InRel& r : obj.rels) {
-				const InSection& rsec = obj.sections[r.secIdx];
-				U8 b = rsec.bucket;
-				if(b == BBss || b == BTbss)
-					continue; // nobits carries no relocs
-				if(b == BDebug) {
-					applyDebugReloc(obj, r);
-					continue;
-				}
-				U64 patchOff = rsec.outOff + r.offset;
-				U8* patch = &merged[b][patchOff];
-				U64 P = bucketVaddr[b] + patchOff;
-				U64 S = 0;
-				B32 isFunc = false, isTls = false;
-				if(!symbolTarget(obj, r.sym, S, isFunc, isTls))
-					return false;
-				I64 A = r.addend;
-				switch(r.type) {
-				case R_X86_64_64:
-					le::wr(patch, (U64)((I64)S + A), 8);
-					break;
-				case R_X86_64_PC32:
-				case R_X86_64_PLT32:
-				case R_X86_64_GOT32: // pc-rel to symbol (small model)
-					le::wr(patch, (U32)(I32)((I64)S + A - (I64)P), 4);
-					break;
-				case R_X86_64_PC64:
-					le::wr(patch, (U64)((I64)S + A - (I64)P), 8);
-					break;
-				case R_X86_64_32:
-					le::wr(patch, (U32)((I64)S + A), 4);
-					break;
-				case R_X86_64_32S:
-					le::wr(patch, (U32)(I32)((I64)S + A), 4);
-					break;
-				case R_X86_64_16:
-					le::wr(patch, (U16)((I64)S + A), 2);
-					break;
-				case R_X86_64_SIZE32:
-					le::wr(patch, (U32)((I64)obj.syms[r.sym].size + A), 4);
-					break;
-				case R_X86_64_SIZE64:
-					le::wr(patch, (U64)((I64)obj.syms[r.sym].size + A), 8);
-					break;
-				case R_X86_64_GOTPCREL:
-				case R_X86_64_GOTPCRELX:
-				case R_X86_64_REX_GOTPCRELX: {
-					U32 slot = gotIndex[gotKey(oi, r)];
-					if(!gotSlots[slot].isImport)
-						gotSlots[slot].addr = S; // defined: slot holds addr
-					U64 gAddr = vaddr[OGot] + (U64)slot * 8;
-					le::wr(patch, (U32)(I32)((I64)gAddr + A - (I64)P), 4);
-					break;
-				}
-				case R_X86_64_TPOFF32: {
-					// local-exec: neg offset from tp (end of tls block); S is block-relative
-					I64 tp = (I64)S + A - (I64)tlsAlignedSize;
-					le::wr(patch, (U32)(I32)tp, 4);
-					break;
-				}
-				case R_X86_64_GOTTPOFF: {
-					// initial-exec: got slot holds tpoff (local-exec offset), ref is pc-rel to slot
-					U32 slot = gotIndex[gotKey(oi, r)];
-					I64 tp = (I64)S - (I64)tlsAlignedSize;
-					gotSlots[slot].addr = (U64)tp;
-					gotSlots[slot].isImport = false;
-					U64 gAddr = vaddr[OGot] + (U64)slot * 8;
-					le::wr(patch, (U32)(I32)((I64)gAddr + A - (I64)P), 4);
-					break;
-				}
-				default:
-					err = "unsupported relocation type " + std::to_string(r.type) + " in " + obj.path;
-					return false;
-				}
-			}
+	B32 Linker::applyReloc(U32 oi, const InRel& r, U64 tlsSize) {
+		const InObject& obj = objs[oi];
+		const InSection& rsec = obj.sections[r.secIdx];
+		U8 b = rsec.bucket;
+		if(b == BBss || b == BTbss)
+			return true; // nobits carries no relocs
+		if(b == BDebug) {
+			applyDebugReloc(obj, r);
+			return true;
 		}
+		U64 patchOff = rsec.outOff + r.offset;
+		U8* patch = &merged[b][patchOff];
+		U64 P = vaddr[detail::kBucketSecs[b]] + patchOff;
+		U64 S = 0;
+		B32 isFunc = false, isTls = false;
+		if(!symbolTarget(obj, r.sym, S, isFunc, isTls))
+			return false;
+		I64 A = r.addend;
+		switch(r.type) {
+		case R_X86_64_64:
+			le::wr(patch, (U64)((I64)S + A), 8);
+			break;
+		case R_X86_64_PC32:
+		case R_X86_64_PLT32:
+		case R_X86_64_GOT32: // pc-rel to symbol (small model)
+			le::wr(patch, (U32)(I32)((I64)S + A - (I64)P), 4);
+			break;
+		case R_X86_64_PC64:
+			le::wr(patch, (U64)((I64)S + A - (I64)P), 8);
+			break;
+		case R_X86_64_32:
+			le::wr(patch, (U32)((I64)S + A), 4);
+			break;
+		case R_X86_64_32S:
+			le::wr(patch, (U32)(I32)((I64)S + A), 4);
+			break;
+		case R_X86_64_16:
+			le::wr(patch, (U16)((I64)S + A), 2);
+			break;
+		case R_X86_64_SIZE32:
+			le::wr(patch, (U32)((I64)obj.syms[r.sym].size + A), 4);
+			break;
+		case R_X86_64_SIZE64:
+			le::wr(patch, (U64)((I64)obj.syms[r.sym].size + A), 8);
+			break;
+		case R_X86_64_GOTPCREL:
+		case R_X86_64_GOTPCRELX:
+		case R_X86_64_REX_GOTPCRELX: {
+			U32 slot = gotIndex[gotKey(oi, r)];
+			if(!gotSlots[slot].isImport)
+				gotSlots[slot].addr = S; // defined, the slot holds the address
+			U64 gAddr = vaddr[OGot] + (U64)slot * 8;
+			le::wr(patch, (U32)(I32)((I64)gAddr + A - (I64)P), 4);
+			break;
+		}
+		case R_X86_64_TPOFF32:
+			// local-exec, neg offset from tp (end of tls block), S is block-relative
+			le::wr(patch, (U32)(I32)((I64)S + A - (I64)tlsSize), 4);
+			break;
+		case R_X86_64_GOTTPOFF: {
+			// initial-exec, got slot holds the local-exec offset, ref is pc-rel to slot
+			U32 slot = gotIndex[gotKey(oi, r)];
+			gotSlots[slot].addr = (U64)((I64)S - (I64)tlsSize);
+			gotSlots[slot].isImport = false;
+			U64 gAddr = vaddr[OGot] + (U64)slot * 8;
+			le::wr(patch, (U32)(I32)((I64)gAddr + A - (I64)P), 4);
+			break;
+		}
+		default:
+			err = "unsupported relocation type " + std::to_string(r.type) + " in " + obj.path;
+			return false;
+		}
+		return true;
+	}
 
-		// _start fixups (main + __libc_start_main)
-		U64 startVaddr = vaddr[OText] + (size[OText] - startCode.size());
+	// _start's lea to the entry and call to __libc_start_main
+	B32 Linker::patchStart() {
 		auto g = globals.find(opt.entry);
 		if(g == globals.end() || !g->second.defined) {
 			err = "entry symbol '" + opt.entry + "' is undefined";
 			return false;
 		}
-		U64 mainAddr = g->second.addr;
+		U64 startOff = size[OText] - sizeof(detail::kStartCode);
+		U64 startVaddr = vaddr[OText] + startOff;
 		U64 lsmAddr = imports[importIndex["__libc_start_main"]].addr;
-		U64 leaVaddr = startVaddr + startLeaDisp;
-		U64 callVaddr = startVaddr + startCallDisp;
-		I32 leaDisp = (I32)((I64)mainAddr - (I64)(leaVaddr + 4));
-		I32 callDisp = (I32)((I64)lsmAddr - (I64)(callVaddr + 4));
-		U64 startFileOff = size[OText] - startCode.size();
-		le::wr(&merged[BText][startFileOff + startLeaDisp], (U32)leaDisp, 4);
-		le::wr(&merged[BText][startFileOff + startCallDisp], (U32)callDisp, 4);
+		U64 mainDisp = g->second.addr - (startVaddr + detail::kStartMainDisp + 4);
+		U64 callDisp = lsmAddr - (startVaddr + detail::kStartCallDisp + 4);
+		le::wr(&merged[BText][startOff + detail::kStartMainDisp], mainDisp, 4);
+		le::wr(&merged[BText][startOff + detail::kStartCallDisp], callDisp, 4);
 		return true;
 	}
 
@@ -643,263 +613,209 @@ namespace rat {
 		appendSections(out, secs, (U16)(secs.size() - 1));
 	}
 
-	B32 Linker::write() {
-		// .dynstr
-		List<U8> dynstr;
-		dynstr.push_back(0);
-		List<U32> importNameOff(imports.size(), 0);
-		for(U32 i = 0; i < importNames.size(); ++i) {
-			importNameOff[i] = (U32)dynstr.size();
-			const String& nm = importNames[i];
-			dynstr.insert(dynstr.end(), nm.begin(), nm.end());
-			dynstr.push_back(0);
-		}
-		List<U32> libNameOff(neededLibs.size(), 0);
-		for(U32 i = 0; i < neededLibs.size(); ++i) {
-			libNameOff[i] = (U32)dynstr.size();
-			const String& nm = neededLibs[i];
-			dynstr.insert(dynstr.end(), nm.begin(), nm.end());
-			dynstr.push_back(0);
-		}
-		U32 runpathOff = 0;
-		if(!rpaths.empty()) {
-			runpathOff = (U32)dynstr.size();
-			String rp = detail::joinColon(rpaths);
-			dynstr.insert(dynstr.end(), rp.begin(), rp.end());
-			dynstr.push_back(0);
-		}
-
-		// .dynsym
-		U32 nDyn = 1 + (U32)imports.size();
-		List<U8> dynsym(nDyn * 24, 0);
-		auto writeSym = [&](U32 idx, U32 nameOff, U8 bind, U8 type, U16 shndx, U64 value, U64 sz) {
-			U8* p = &dynsym[(U64)idx * 24];
-			p[0] = (U8)nameOff;
-			p[1] = (U8)(nameOff >> 8);
-			p[2] = (U8)(nameOff >> 16);
-			p[3] = (U8)(nameOff >> 24);
-			p[4] = (U8)((bind << 4) | (type & 0xf));
-			p[5] = 0;
-			p[6] = (U8)shndx;
-			p[7] = (U8)(shndx >> 8);
-			for(U32 i = 0; i < 8; ++i)
-				p[8 + i] = (U8)(value >> (i * 8));
-			for(U32 i = 0; i < 8; ++i)
-				p[16 + i] = (U8)(sz >> (i * 8));
-		};
+	// imports as undefined funcs or defined COPY data, names appended to dynstr
+	List<U8> Linker::dynsymTable(List<U8>& dynstr) const {
 		const U16 kDefinedShndx = 1;
+		List<U8> dynsym((1 + imports.size()) * 24, 0);
 		for(U32 i = 0; i < imports.size(); ++i) {
 			const Import& im = imports[i];
-			if(im.kind == Import::Func)
-				writeSym(im.dynIndex, importNameOff[i], STB_GLOBAL, STT_FUNC, SHN_UNDEF, 0, 0);
-			else
-				writeSym(
-						im.dynIndex, importNameOff[i], STB_GLOBAL, STT_OBJECT, kDefinedShndx, im.addr, im.size);
-		}
-
-		// .hash
-		List<U8> hash;
-		{
-			U32 nbucket = nDyn;
-			List<U32> buckets(nbucket, 0);
-			List<U32> chain(nDyn, 0);
-			for(U32 i = 0; i < imports.size(); ++i) {
-				U32 di = imports[i].dynIndex;
-				U32 h = sysvHash(importNames[i].c_str()) % nbucket;
-				chain[di] = buckets[h];
-				buckets[h] = di;
+			U8* p = &dynsym[(U64)im.dynIndex * 24];
+			le::wr(p, appendName(dynstr, importNames[i]), 4);
+			if(im.kind == Import::Func) {
+				p[4] = STB_GLOBAL << 4 | STT_FUNC;
+				continue;
 			}
-			wr32(hash, nbucket);
-			wr32(hash, nDyn);
-			for(U32 bkt : buckets)
-				wr32(hash, bkt);
-			for(U32 c : chain)
-				wr32(hash, c);
+			p[4] = STB_GLOBAL << 4 | STT_OBJECT;
+			le::wr(p + 6, kDefinedShndx, 2);
+			le::wr(p + 8, im.addr, 8);
+			le::wr(p + 16, im.size, 8);
 		}
+		return dynsym;
+	}
 
-		// .rela.plt + .got.plt
-		List<U8> relaPlt, gotPlt;
-		wr64(gotPlt, vaddr[ODynamic]);
-		wr64(gotPlt, 0);
-		wr64(gotPlt, 0);
+	List<U8> Linker::hashTable() const {
+		U32 nDyn = 1 + (U32)imports.size();
+		List<U32> buckets(nDyn, 0), chain(nDyn, 0);
 		for(U32 i = 0; i < imports.size(); ++i) {
-			const Import& im = imports[i];
+			U32 di = imports[i].dynIndex;
+			U32 h = sysvHash(importNames[i].c_str()) % nDyn;
+			chain[di] = buckets[h];
+			buckets[h] = di;
+		}
+		List<U8> hash;
+		le::put32(hash, nDyn); // nbucket
+		le::put32(hash, nDyn); // nchain
+		for(U32 b : buckets)
+			le::put32(hash, b);
+		for(U32 c : chain)
+			le::put32(hash, c);
+		return hash;
+	}
+
+	// a jmp [rip+disp32] stub per func import to its .got.plt slot, the slot bound by a JUMP_SLOT
+	List<U8> Linker::pltStubs(List<U8>& relaPlt) const {
+		List<U8> plt;
+		for(const Import& im : imports) {
 			if(im.kind != Import::Func)
 				continue;
-			U64 slot = vaddr[OGotPlt] + (U64)(3 + im.pltIndex) * 8;
-			wr64(relaPlt, slot);
-			wr64(relaPlt, ((U64)im.dynIndex << 32) | R_X86_64_JUMP_SLOT);
-			wr64(relaPlt, 0);
-			wr64(gotPlt, 0);
+			U64 entry = vaddr[OPlt] + im.pltIndex * detail::kPltEntSize;
+			U64 gotSlot = vaddr[OGotPlt] + (3 + im.pltIndex) * 8;
+			plt.insert(plt.end(), {0xff, 0x25});
+			le::put32(plt, (U32)(gotSlot - (entry + 6)));
+			plt.insert(plt.end(), detail::kPltEntSize - 6, 0x90);
+			le::put64(relaPlt, gotSlot);
+			le::put64(relaPlt, ((U64)im.dynIndex << 32) | R_X86_64_JUMP_SLOT);
+			le::put64(relaPlt, 0);
 		}
+		return plt;
+	}
 
-		// .got (defined -> absolute, import -> GLOB_DAT)
-		List<U8> got;
-		List<U8> relaDyn;
-		for(U32 i = 0; i < imports.size(); ++i) {
-			const Import& im = imports[i];
+	// COPY relocs for data imports, then defined slots hold their address and imports get a GLOB_DAT
+	List<U8> Linker::gotTable(List<U8>& relaDyn) const {
+		for(const Import& im : imports) {
 			if(im.kind != Import::Data)
 				continue;
-			wr64(relaDyn, im.addr);
-			wr64(relaDyn, ((U64)im.dynIndex << 32) | R_X86_64_COPY);
-			wr64(relaDyn, 0);
+			le::put64(relaDyn, im.addr);
+			le::put64(relaDyn, ((U64)im.dynIndex << 32) | R_X86_64_COPY);
+			le::put64(relaDyn, 0);
 		}
+		List<U8> got;
 		for(U32 s = 0; s < gotSlots.size(); ++s) {
-			GotSlot& g = gotSlots[s];
-			if(g.isImport) {
-				// g.dynIndex holds import list index from assignGot
-				U32 dynIdx = 0;
-				if(g.dynIndex < imports.size())
-					dynIdx = imports[g.dynIndex].dynIndex;
-				wr64(got, 0);
-				U64 slotAddr = vaddr[OGot] + (U64)s * 8;
-				wr64(relaDyn, slotAddr);
-				wr64(relaDyn, ((U64)dynIdx << 32) | R_X86_64_GLOB_DAT);
-				wr64(relaDyn, 0);
-			} else {
-				wr64(got, g.addr);
-			}
+			const GotSlot& g = gotSlots[s];
+			le::put64(got, g.addr); // 0 for imports
+			if(!g.isImport)
+				continue;
+			// g.dynIndex holds the import list index from assignGot
+			le::put64(relaDyn, vaddr[OGot] + (U64)s * 8);
+			le::put64(relaDyn, ((U64)imports[g.dynIndex].dynIndex << 32) | R_X86_64_GLOB_DAT);
+			le::put64(relaDyn, 0);
 		}
+		return got;
+	}
 
-		// .plt
-		List<U8> plt;
-		{
-			U32 slotN = 0;
-			for(U32 i = 0; i < imports.size(); ++i) {
-				if(imports[i].kind != Import::Func)
-					continue;
-				U64 entry = vaddr[OPlt] + (U64)slotN * detail::kPltEntSize;
-				U64 slot = vaddr[OGotPlt] + (U64)(3 + slotN) * 8;
-				I32 disp = (I32)((I64)slot - (I64)(entry + 6));
-				plt.push_back(0xff);
-				plt.push_back(0x25);
-				le::put32(plt, (U32)disp);
-				while(plt.size() % detail::kPltEntSize)
-					plt.push_back(0x90);
-				++slotN;
-			}
-		}
-
-		// .dynamic
+	// lib and runpath names appended to dynstr
+	List<U8> Linker::dynamicTable(List<U8>& dynstr, U64 relaDynSize) const {
 		List<U8> dyn;
-		auto dt = [&](I64 tag, U64 val) {
-			wr64(dyn, (U64)tag);
-			wr64(dyn, val);
-		};
-		for(U32 i = 0; i < neededLibs.size(); ++i)
-			dt(DT_NEEDED, libNameOff[i]);
+		for(const String& lib : neededLibs)
+			detail::putDynamic(dyn, DT_NEEDED, appendName(dynstr, lib));
 		if(!rpaths.empty())
-			dt(DT_RUNPATH, runpathOff);
-		dt(DT_HASH, vaddr[OHash]);
-		dt(DT_STRTAB, vaddr[ODynstr]);
-		dt(DT_SYMTAB, vaddr[ODynsym]);
-		dt(DT_STRSZ, dynstr.size());
-		dt(DT_SYMENT, 24);
-		dt(DT_PLTGOT, vaddr[OGotPlt]);
+			detail::putDynamic(dyn, DT_RUNPATH, appendName(dynstr, detail::joinColon(rpaths)));
+		detail::putDynamic(dyn, DT_HASH, vaddr[OHash]);
+		detail::putDynamic(dyn, DT_STRTAB, vaddr[ODynstr]);
+		detail::putDynamic(dyn, DT_SYMTAB, vaddr[ODynsym]);
+		detail::putDynamic(dyn, DT_STRSZ, dynstr.size());
+		detail::putDynamic(dyn, DT_SYMENT, 24);
+		detail::putDynamic(dyn, DT_PLTGOT, vaddr[OGotPlt]);
 		if(size[ORelaPlt]) {
-			dt(DT_PLTRELSZ, size[ORelaPlt]);
-			dt(DT_PLTREL, DT_RELA);
-			dt(DT_JMPREL, vaddr[ORelaPlt]);
+			detail::putDynamic(dyn, DT_PLTRELSZ, size[ORelaPlt]);
+			detail::putDynamic(dyn, DT_PLTREL, DT_RELA);
+			detail::putDynamic(dyn, DT_JMPREL, vaddr[ORelaPlt]);
 		}
-		if(!relaDyn.empty()) {
-			dt(DT_RELA, vaddr[ORelaDyn]);
-			dt(DT_RELASZ, relaDyn.size());
-			dt(DT_RELAENT, 24);
+		if(relaDynSize) {
+			detail::putDynamic(dyn, DT_RELA, vaddr[ORelaDyn]);
+			detail::putDynamic(dyn, DT_RELASZ, relaDynSize);
+			detail::putDynamic(dyn, DT_RELAENT, 24);
 		}
 		if(size[OInitArray]) {
-			dt(DT_INIT_ARRAY, vaddr[OInitArray]);
-			dt(DT_INIT_ARRAYSZ, size[OInitArray]);
+			detail::putDynamic(dyn, DT_INIT_ARRAY, vaddr[OInitArray]);
+			detail::putDynamic(dyn, DT_INIT_ARRAYSZ, size[OInitArray]);
 		}
 		if(size[OFiniArray]) {
-			dt(DT_FINI_ARRAY, vaddr[OFiniArray]);
-			dt(DT_FINI_ARRAYSZ, size[OFiniArray]);
+			detail::putDynamic(dyn, DT_FINI_ARRAY, vaddr[OFiniArray]);
+			detail::putDynamic(dyn, DT_FINI_ARRAYSZ, size[OFiniArray]);
 		}
-		dt(DT_FLAGS, DF_BIND_NOW);
-		dt(DT_FLAGS_1, DF_1_NOW);
-		dt(DT_NULL, 0);
-		if(dyn.size() < size[ODynamic])
-			dyn.insert(dyn.end(), size[ODynamic] - dyn.size(), 0);
+		detail::putDynamic(dyn, DT_FLAGS, DF_BIND_NOW);
+		detail::putDynamic(dyn, DT_FLAGS_1, DF_1_NOW);
+		detail::putDynamic(dyn, DT_NULL, 0);
+		le::padTo(dyn, size[ODynamic]);
+		return dyn;
+	}
 
-		// assemble
-		List<U8> out;
-		U64 fileEnd = foff[ODynamic] + size[ODynamic];
-		out.reserve(fileEnd + 1024);
-		auto emitAt = [&](U64 off, const List<U8>& blob) {
-			wrPad(out, off);
-			out.insert(out.end(), blob.begin(), blob.end());
-		};
+	detail::ProgramHeader Linker::segmentOf(U32 type, U32 flags, OutSec s, U64 align) const {
+		return {type, flags, foff[s], vaddr[s], size[s], size[s], align};
+	}
 
-		U64 startVaddr = vaddr[OText] + (size[OText] - startCode.size());
-		U16 phnum = 8;
-		putFileHeader(out, ET_EXEC, startVaddr, phnum);
-
-		U64 rxFilesz = foff[OEhFrameHdr] + size[OEhFrameHdr];
-		if(!rxFilesz)
-			rxFilesz = foff[ORodata] + size[ORodata];
-		U64 rwStart = foff[OInitArray];
-		U64 rwFilesz = (foff[ODynamic] + size[ODynamic]) - rwStart;
-		U64 rwMemsz = (vaddr[OBss] + size[OBss]) - vaddr[OInitArray];
-		auto phdr = [&](U32 type, U32 flags, U64 off, U64 va, U64 filesz, U64 memsz, U64 align) {
-			wr32(out, type);
-			wr32(out, flags);
-			wr64(out, off);
-			wr64(out, va);
-			wr64(out, va);
-			wr64(out, filesz);
-			wr64(out, memsz);
-			wr64(out, align);
-		};
-		phdr(PT_PHDR, PF_R, 64, detail::kImageBase + 64, (U64)phnum * 56, (U64)phnum * 56, 8);
-		phdr(PT_INTERP, PF_R, foff[OInterp], vaddr[OInterp], size[OInterp], size[OInterp], 1);
-		phdr(PT_LOAD, PF_R | PF_X, 0, detail::kImageBase, rxFilesz, rxFilesz, detail::kPage);
-		phdr(PT_LOAD, PF_R | PF_W, rwStart, vaddr[OInitArray], rwFilesz, rwMemsz, detail::kPage);
-		phdr(PT_DYNAMIC,
-				 PF_R | PF_W,
-				 foff[ODynamic],
-				 vaddr[ODynamic],
-				 size[ODynamic],
-				 size[ODynamic],
-				 8);
-		{
-			U64 tlsFilesz = size[OTdata];
-			U64 tlsMemsz = size[OTdata] + size[OTbss];
-			phdr(PT_TLS, PF_R, foff[OTdata], vaddr[OTdata], tlsFilesz, tlsMemsz, 16);
-		}
+	// the section header fields are patched by appendSections
+	void Linker::putHeaders(List<U8>& out) const {
+		U64 entry = vaddr[OText] + size[OText] - sizeof(detail::kStartCode);
+		putFileHeader(out, ET_EXEC, entry, detail::kPhnum);
+		U64 phdrSize = (U64)detail::kPhnum * 56;
+		U64 rxSize = foff[OEhFrameHdr] + size[OEhFrameHdr];
+		U64 rwFileSize = foff[ODynamic] + size[ODynamic] - foff[OInitArray];
+		U64 rwMemSize = vaddr[OBss] + size[OBss] - vaddr[OInitArray];
+		U64 tlsMemSize = size[OTdata] + size[OTbss];
+		detail::ProgramHeader ehFrame = {PT_NOTE, PF_R, 0, 0, 0, 0, 4}; // filler to keep phnum fixed
 		if(size[OEhFrameHdr])
-			phdr(PT_GNU_EH_FRAME,
-					 PF_R,
-					 foff[OEhFrameHdr],
-					 vaddr[OEhFrameHdr],
-					 size[OEhFrameHdr],
-					 size[OEhFrameHdr],
-					 4);
-		else
-			phdr(PT_NOTE, PF_R, 0, 0, 0, 0, 4); // filler to keep phnum fixed
-		phdr(PT_GNU_STACK, PF_R | PF_W, 0, 0, 0, 0, 16);
+			ehFrame = segmentOf(PT_GNU_EH_FRAME, PF_R, OEhFrameHdr, 4);
+		const detail::ProgramHeader phdrs[] = {
+				{PT_PHDR, PF_R, 64, detail::kImageBase + 64, phdrSize, phdrSize, 8},
+				segmentOf(PT_INTERP, PF_R, OInterp, 1),
+				{PT_LOAD, PF_R | PF_X, 0, detail::kImageBase, rxSize, rxSize, detail::kPage},
+				{PT_LOAD,
+				 PF_R | PF_W,
+				 foff[OInitArray],
+				 vaddr[OInitArray],
+				 rwFileSize,
+				 rwMemSize,
+				 detail::kPage},
+				segmentOf(PT_DYNAMIC, PF_R | PF_W, ODynamic, 8),
+				{PT_TLS, PF_R, foff[OTdata], vaddr[OTdata], size[OTdata], tlsMemSize, 16},
+				ehFrame,
+				{PT_GNU_STACK, PF_R | PF_W, 0, 0, 0, 0, 16},
+		};
+		static_assert(sizeof(phdrs) / sizeof(phdrs[0]) == detail::kPhnum, "one entry per phdr");
+		for(const detail::ProgramHeader& ph : phdrs)
+			detail::putProgramHeader(out, ph);
+	}
 
-		List<U8> interpBytes(interp.begin(), interp.end());
-		interpBytes.push_back(0);
-		emitAt(foff[OInterp], interpBytes);
-		emitAt(foff[OHash], hash);
-		emitAt(foff[ODynsym], dynsym);
-		emitAt(foff[ODynstr], dynstr);
-		emitAt(foff[ORelaDyn], relaDyn);
-		emitAt(foff[ORelaPlt], relaPlt);
-		emitAt(foff[OPlt], plt);
-		emitAt(foff[OText], merged[BText]);
-		emitAt(foff[ORodata], merged[BRodata]);
-		emitAt(foff[OEhFrame], merged[BEhFrame]);
-		emitAt(foff[OEhFrameHdr], ehFrameHdr);
-		emitAt(foff[OInitArray], merged[BInitArray]);
-		emitAt(foff[OFiniArray], merged[BFiniArray]);
-		emitAt(foff[OData], merged[BData]);
-		emitAt(foff[OTdata], merged[BTdata]);
-		emitAt(foff[OGot], got);
-		emitAt(foff[OGotPlt], gotPlt);
-		emitAt(foff[ODynamic], dyn);
+	B32 Linker::write() {
+		// dynsym appends the import names to dynstr before the dynamic table adds the rest and its size
+		List<U8> dynstr(1, 0);
+		List<U8> dynsym = dynsymTable(dynstr);
+		List<U8> relaDyn;
+		List<U8> got = gotTable(relaDyn);
+		List<U8> dynamic = dynamicTable(dynstr, relaDyn.size());
+		List<U8> interpBytes;
+		le::putString(interpBytes, interp);
+		List<U8> hash = hashTable();
+		List<U8> relaPlt;
+		List<U8> plt = pltStubs(relaPlt);
+		List<U8> gotPlt; // .dynamic, then the reserved and the lazily bound slots
+		le::put64(gotPlt, vaddr[ODynamic]);
+		le::padTo(gotPlt, size[OGotPlt]);
+		// file contents per OutSec up to the nobits
+		const List<U8>* contents[] = {&interpBytes,
+																	&hash,
+																	&dynsym,
+																	&dynstr,
+																	&relaDyn,
+																	&relaPlt,
+																	&plt,
+																	&merged[BText],
+																	&merged[BRodata],
+																	&merged[BEhFrame],
+																	&ehFrameHdr,
+																	&merged[BInitArray],
+																	&merged[BFiniArray],
+																	&merged[BData],
+																	&merged[BTdata],
+																	&got,
+																	&gotPlt,
+																	&dynamic};
+		static_assert(sizeof(contents) / sizeof(contents[0]) == OBss, "one entry per file section");
 
+		List<U8> out;
+		out.reserve(foff[ODynamic] + size[ODynamic] + 1024);
+		putHeaders(out);
+		for(U32 s = 0; s < OBss; ++s) {
+			le::padTo(out, foff[s]);
+			out.insert(out.end(), contents[s]->begin(), contents[s]->end());
+		}
 		emitShdrs(out);
+		return writeFile(out);
+	}
 
+	B32 Linker::writeFile(const List<U8>& out) {
 		std::ofstream os(opt.output, std::ios::binary | std::ios::trunc);
 		if(!os) {
 			err = "cannot write '" + opt.output + "'";
