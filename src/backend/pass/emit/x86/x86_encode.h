@@ -46,10 +46,10 @@ namespace rat {
 
 			B32 operator<(U32 other) const;
 		};
-		// a location the peephole left wrong past its first okBytes
+		// a location the peephole left wrong past its first okBits bits
 		struct Poison {
 			VarLoc loc;
-			U32 okBytes;
+			U32 okBits;
 		};
 		// debug var tracking state at one point, open ranges plus poisoned locations
 		struct VarState {
@@ -57,7 +57,7 @@ namespace rat {
 			List<Poison> poison;
 		};
 		static constexpr U32 kNoPc = ~0u;									// solving, no ranges
-		static constexpr U32 kClean = ~0u;								// okBytes of an unpoisoned location
+		static constexpr U32 kClean = ~0u;								// okBits of an unpoisoned location
 		static constexpr U64 kMaxVarTrackCost = 20000000; // instrs times tracked vars
 
 		static void emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes);
@@ -133,7 +133,7 @@ namespace rat {
 		static B32 writesSlot(const MachineInstr& in, I64 cfaOff);
 		void closeRange(const OpenVarRange& open, U32 end);
 		void setLoc(List<OpenVarRange>& live, U32 inst, VarLoc loc, U32 pc);
-		static U32 okBytes(const List<Poison>& poison, const VarLoc& loc);
+		static U32 okBits(const List<Poison>& poison, const VarLoc& loc);
 		static void setPoison(List<Poison>& poison, const VarLoc& loc, U32 ok);
 		void applyRecords(VarState& vars, U32 chain, U32 pc);
 		static U32 poisonFlow(const List<Poison>& poison, const MachineInstr& in);

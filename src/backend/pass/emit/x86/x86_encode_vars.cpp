@@ -65,10 +65,10 @@ namespace rat {
 			live.insert(it, {inst, loc, pc});
 	}
 
-	U32 X86EncodePass::okBytes(const List<Poison>& poison, const VarLoc& loc) {
+	U32 X86EncodePass::okBits(const List<Poison>& poison, const VarLoc& loc) {
 		for(const Poison& p : poison)
 			if(p.loc == loc)
-				return p.okBytes;
+				return p.okBits;
 		return kClean;
 	}
 
@@ -81,7 +81,7 @@ namespace rat {
 		else if(ok == kClean)
 			return;
 		else if(i < poison.size())
-			poison[i].okBytes = ok;
+			poison[i].okBits = ok;
 		else
 			poison.push_back({loc, ok});
 	}
@@ -90,37 +90,37 @@ namespace rat {
 		for(U32 r = chain; r; r = fn->dbg[r].next) {
 			const DbgRec& rec = fn->dbg[r];
 			VarLoc loc = toVarLoc(rec.loc);
-			U32 ok = okBytes(vars.poison, loc);
+			U32 ok = okBits(vars.poison, loc);
 			if(rec.inst == kDbgKill)
 				setPoison(vars.poison, loc, std::min(ok, (U32)rec.loc.width));
 			else
-				setLoc(vars.live, rec.inst, ok < rec.loc.width ? VarLoc{} : loc, pc);
+				setLoc(vars.live, rec.inst, ok < rec.loc.width * 8u ? VarLoc{} : loc, pc);
 		}
 	}
 
-	// the right bytes of what in computes from its poisoned inputs, kClean when none is. a slot store
+	// the right low bits of what in computes from its poisoned inputs, kClean when none is. a slot store
 	// passes its source on, a normalize within the right bits makes it right again
 	U32 X86EncodePass::poisonFlow(const List<Poison>& poison, const MachineInstr& in) {
 		B32 store = detail::isAnySlotStore(in);
 		U32 ok = kClean;
 		U32 first = store ? 1 : 0; // a slot store writes uses[0]
 		for(U32 i = first; i < in.uses.size(); ++i)
-			ok = std::min(ok, okBytes(poison, toVarLoc(in.uses[i])));
+			ok = std::min(ok, okBits(poison, toVarLoc(in.uses[i])));
 		X86Op op = (X86Op)in.op;
 		if(ok == kClean || store)
 			return ok;
 		if(!(x86OpInfo(op).flags & detail::kX86KeepsLowBits))
 			return 0;
-		if(detail::isNormalize(op) && (U64)in.imm <= ok * 8u)
+		if(detail::isNormalize(op) && (U64)in.imm <= ok)
 			return kClean;
 		return ok;
 	}
 
-	// a partial write keeps the poison of the bytes it leaves
+	// a partial write keeps the poison of the bits it leaves
 	void
 	X86EncodePass::writePoison(List<Poison>& poison, const MachineOperand& o, B32 partial, U32 flow) {
 		VarLoc loc = toVarLoc(o);
-		U32 left = partial ? okBytes(poison, loc) : kClean;
+		U32 left = partial ? okBits(poison, loc) : kClean;
 		setPoison(poison, loc, std::min(left, flow));
 	}
 
@@ -178,8 +178,8 @@ namespace rat {
 		into.live.resize(kept);
 		B32 changed = kept != before;
 		for(const Poison& p : from.poison)
-			if(p.okBytes < okBytes(into.poison, p.loc)) {
-				setPoison(into.poison, p.loc, p.okBytes);
+			if(p.okBits < okBits(into.poison, p.loc)) {
+				setPoison(into.poison, p.loc, p.okBits);
 				changed = true;
 			}
 		return changed;

@@ -54,7 +54,7 @@ namespace rat {
 	};
 
 	// a debug var inst lives in loc from here on, a None loc is optimized out. a kDbgKill record marks
-	// loc wrong past its first width bytes
+	// loc wrong past its first width bits
 	struct DbgRec {
 		U32 inst;
 		MachineOperand loc;
