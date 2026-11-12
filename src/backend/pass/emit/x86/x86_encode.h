@@ -43,8 +43,21 @@ namespace rat {
 			U32 inst;
 			VarLoc loc; // reg is a PhysReg
 			U32 start;
+
+			B32 operator<(U32 other) const;
+		};
+		// a location the peephole left wrong past its first okBytes
+		struct Poison {
+			VarLoc loc;
+			U32 okBytes;
+		};
+		// debug var tracking state at one point, open ranges plus poisoned locations
+		struct VarState {
+			List<OpenVarRange> live;
+			List<Poison> poison;
 		};
 		static constexpr U32 kNoPc = ~0u;									// solving, no ranges
+		static constexpr U32 kClean = ~0u;								// okBytes of an unpoisoned location
 		static constexpr U64 kMaxVarTrackCost = 20000000; // instrs times tracked vars
 
 		static void emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes);
@@ -53,6 +66,9 @@ namespace rat {
 		static U32 blockIdBound(const MachineFunc& f);
 		static B32 touchesFrame(const MachineOperand& o);
 		static B32 needsFrame(const MachineInstr& in);
+		U32 planFrame();
+		void trackVars(U32 instCount);
+		void patchJumps();
 		void encodeFunction(const MachineFunc& f, Asm& asm_);
 
 		static Reg toGp(PhysReg p);
@@ -115,16 +131,18 @@ namespace rat {
 		void recordVars(const Function& f);
 		static VarLoc toVarLoc(const MachineOperand& o);
 		static B32 writesSlot(const MachineInstr& in, I64 cfaOff);
-		static B32 instBefore(const OpenVarRange& open, U32 inst);
 		void closeRange(const OpenVarRange& open, U32 end);
 		void setLoc(List<OpenVarRange>& live, U32 inst, VarLoc loc, U32 pc);
-		void applyRecords(List<OpenVarRange>& live, U32 chain, U32 pc);
-		void clobber(List<OpenVarRange>& live, const MachineInstr& in, U32 pc);
-		static void meet(List<OpenVarRange>& into, const List<OpenVarRange>& from);
-		void blockVars(const MachineBlock& blk, List<OpenVarRange>& live);
-		void solveVars(const MachineFunc& f);
-		void beginVars(U32 bi);
-		void endVars(const MachineBlock& blk);
+		static U32 okBytes(const List<Poison>& poison, const VarLoc& loc);
+		static void setPoison(List<Poison>& poison, const VarLoc& loc, U32 ok);
+		void applyRecords(VarState& vars, U32 chain, U32 pc);
+		static U32 poisonFlow(const List<Poison>& poison, const MachineInstr& in);
+		static void writePoison(List<Poison>& poison, const MachineOperand& o, B32 partial, U32 flow);
+		static void passPoison(List<Poison>& poison, const MachineInstr& in);
+		void clobber(VarState& vars, const MachineInstr& in, U32 pc);
+		static B32 meet(VarState& into, const VarState& from);
+		void walkBlock(U32 bi, VarState& vars, B32 emit);
+		void solveVars();
 	private:
 		std::ostream* os;
 		UniquePtr<ObjectFile> obj;
@@ -134,8 +152,7 @@ namespace rat {
 		List<EncodedFunc> encoded;					// elf only, one per placed function
 		EncodedFunc* encodedFunc = nullptr; // the function being encoded, null on coff
 		U32 scope = 0;											// of the last located instr
-		List<List<OpenVarRange>> varsIn; // block index -> var locations at its start, empty untracked
-		List<OpenVarRange> liveVars;		 // in the block being encoded
+		List<VarState> varsIn;							// block index -> var state at its start, empty untracked
 		const X86CallConv* conv = &abi::kSysV;
 		const MachineFunc* fn = nullptr;
 		const X86FrameLayout* fl = nullptr;

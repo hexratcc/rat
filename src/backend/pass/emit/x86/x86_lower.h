@@ -255,8 +255,7 @@ namespace rat {
 		};
 		void planBindings(BindingPlan& plan) const;
 		U32 endIn(const Node* n, I32 b, const BindingPlan& plan) const;
-		U32 sourcePos(const DebugBinding& bd, I32 b, const BindingPlan& plan) const;
-		U32 valuePos(const DebugBinding& bd, I32 b, const BindingPlan& plan) const;
+		U32 bindingPos(const DebugBinding& bd, I32 b, const BindingPlan& plan, U32& src) const;
 		MachineOperand bindingLoc(const Node* value) const;
 		void placeBindings(I32 b, BindingPlan& plan);
 	private:
@@ -276,7 +275,6 @@ namespace rat {
 		// per node id
 		List<VReg> vregOf;
 		List<I32> x87Slot;
-		List<I32> allocOff;
 		List<Pair<PhiNode*, VReg>> phiMoves;
 		List<Pair<PhiNode*, Slot>> x87Moves;
 	};

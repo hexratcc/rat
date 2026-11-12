@@ -210,6 +210,16 @@ namespace rat {
 				return false;
 			return operandText(instr.defs[0]) == operandText(instr.uses[0]);
 		}
+
+		B32 isNormalize(X86Op op) { return op == X86Op::MaskBits || op == X86Op::SignExtBits; }
+
+		// uses[0] = frame slot, uses[1] = source
+		B32 isAnySlotStore(const MachineInstr& in) {
+			X86Op op = (X86Op)in.op;
+			return (op == X86Op::Store || op == X86Op::FStore) && in.defs.empty() &&
+						 in.uses.size() == 2 && in.uses[0].kind == MachineOperand::Kind::FrameSlot &&
+						 in.uses[1].isPhys();
+		}
 	} // namespace detail
 
 	const X86OpInfo& x86OpInfo(X86Op op) { return detail::kX86OpInfo[(U32)op]; }

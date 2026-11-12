@@ -22,6 +22,8 @@ namespace rat {
 
 		constexpr I64 kX87MemBits = 80;
 
+		// an unassigned frame slot offset
+		constexpr I32 kNoSlot = INT32_MIN;
 		// rbp sits this far below the cfa, past the return address and saved rbp
 		constexpr I32 kCfaFromRbp = 16;
 		// dwarf register number per PhysReg, xmm and st already match theirs
@@ -193,6 +195,8 @@ namespace rat {
 		B32 immIsCc(const MachineInstr& instr);
 		B32 immIsOperand(X86Op op);
 		B32 repeatsDef(const MachineInstr& instr);
+		B32 isNormalize(X86Op op);
+		B32 isAnySlotStore(const MachineInstr& in);
 	} // namespace detail
 
 	String x86InstrText(const MachineInstr& instr);
@@ -215,8 +219,6 @@ namespace rat {
 	inline Slot slot(I32 s, U32 w = 8) { return {s, w}; }
 	inline Xmm xmm(U32 n, U32 w = 8) { return {n, w}; }
 
-	constexpr I32 kNoSlot = INT32_MIN;
-
 	struct X86FrameLayout : MachineFuncAux {
 		I32 ldScratch = 0;
 		I32 vecScratch = 0;
@@ -226,7 +228,7 @@ namespace rat {
 		U32 namedGp = 0;
 		U32 namedFp = 0;
 		I32 sretSlot = 0;
-		List<I32> allocOff;
+		List<I32> allocOff; // node id -> alloca frame offset, kNoSlot none
 	};
 } // namespace rat
 

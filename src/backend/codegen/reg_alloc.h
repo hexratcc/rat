@@ -9,6 +9,7 @@
 namespace rat {
 	namespace detail {
 		PhysReg firstFree(const List<PhysReg>& regs, U64 blocked);
+		U32 loopWeight(I32 depth, U32& level);
 		void groupBy(const List<Pair<U32, U32>>& in, U32 nk, List<U32>& first, List<U32>& out);
 	} // namespace detail
 
@@ -52,7 +53,7 @@ namespace rat {
 		PhysReg pick(VReg v) const;
 		// debug records
 		B32 covers(VReg v, I32 pos) const;
-		B32 liveAt(const MachineOperand& o, U32 b, U32 k) const;
+		MachineOperand home(const MachineOperand& o) const;
 		void checkDebugLive();
 		void rewriteDebug();
 		// rewrite

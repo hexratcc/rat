@@ -93,7 +93,7 @@ namespace rat {
 		for(const Node* n : sched->allocNodes()) {
 			const AllocNode* al = cast<AllocNode>(n);
 			U32 sz = std::max(al->getAllocType()->byteSize(ptrBytes), 8u);
-			allocOff[n->getId()] = reserve((sz + 7u) & ~7u, al->getAlign());
+			fl->allocOff[n->getId()] = reserve((sz + 7u) & ~7u, al->getAlign());
 		}
 		if(conv->x87ByRef && isX87Ty(fn->getReturnType()))
 			fl->sretSlot = reserve(8); // stash for the hidden x87 sret pointer
@@ -132,7 +132,7 @@ namespace rat {
 
 	Slot X86LowerPass::x87SlotOf(const Node* n) {
 		I32& s = x87Slot[n->getId()];
-		if(s == kNoSlot)
+		if(s == detail::kNoSlot)
 			s = reserve(16);
 		return slot(s);
 	}
@@ -159,7 +159,7 @@ namespace rat {
 			return d;
 		}
 		if(isa<AllocNode>(n))
-			return frameAddr(allocOff[n->getId()]);
+			return frameAddr(fl->allocOff[n->getId()]);
 		return vregFor(n);
 	}
 
@@ -245,7 +245,7 @@ namespace rat {
 		a.hasIndex = m.hasIndex;
 		if(AllocNode* al = dyn_cast<AllocNode>(m.base)) {
 			a.frameBase = true;
-			a.disp += allocOff[al->getId()];
+			a.disp += fl->allocOff[al->getId()];
 		} else {
 			a.base = gpValue(m.base);
 		}
@@ -556,12 +556,10 @@ namespace rat {
 		fl = &frame;
 		mb = nullptr;
 		vregOf.assign(f.idBound(), kNoVReg);
-		x87Slot.assign(f.idBound(), kNoSlot);
+		x87Slot.assign(f.idBound(), detail::kNoSlot);
 		curLoc = 0;
-		allocOff.assign(f.idBound(), kNoSlot);
+		frame.allocOff.assign(f.idBound(), detail::kNoSlot);
 		lowerBlocks();
-		if(f.getDebug())
-			frame.allocOff = std::move(allocOff); // slot offsets for variable locations
 		mf.aux = std::make_unique<X86FrameLayout>(std::move(frame)); // the layout rides along on mf.aux
 	}
 

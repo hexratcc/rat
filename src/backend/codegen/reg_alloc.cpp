@@ -23,6 +23,16 @@ namespace rat {
 			return kNoReg;
 		}
 
+		// use weight of a loop depth, level counts the loops it covers
+		U32 loopWeight(I32 depth, U32& level) {
+			U32 weight = 1;
+			for(I32 d = depth; d > 0 && weight < kMaxUseWeight; --d) {
+				weight *= kLoopUseWeight;
+				++level;
+			}
+			return weight;
+		}
+
 		void groupBy(const List<Pair<U32, U32>>& in, U32 nk, List<U32>& first, List<U32>& out) {
 			first.assign(nk + 1, 0);
 			for(const auto& [k, x] : in)
@@ -203,12 +213,8 @@ namespace rat {
 				segEnd[v] = 2 * (I32)blockFirst[b + 1] - 1;
 				liveList.push_back(v);
 			}
-			U32 weight = 1;
 			U32 level = 0; // loop levels counted in weight
-			for(I32 d = blk.loopDepth; d > 0 && weight < detail::kMaxUseWeight; --d) {
-				weight *= detail::kLoopUseWeight;
-				++level;
-			}
+			U32 weight = detail::loopWeight(blk.loopDepth, level);
 			U64 fixed = 0; // live fixed registers
 			for(U32 k = (U32)blk.insts.size(); k-- > 0;) {
 				const MachineInstr& in = blk.insts[k];
@@ -264,19 +270,16 @@ namespace rat {
 
 	// a record holds when its vreg is live right before the instr, or was just written by the one ahead,
 	// before bundles merge. stack resident vregs keep their slot
-	B32 RegAllocPass::liveAt(const MachineOperand& o, U32 b, U32 k) const {
-		I32 u = 2 * (I32)(blockFirst[b] + k);
-		B32 last = k == fn->blocks[b].insts.size();
-		return cross[o.vreg] || (!last && covers(o.vreg, u)) || (k > 0 && covers(o.vreg, u - 1));
-	}
-
 	void RegAllocPass::checkDebugLive() {
 		for(U32 b = 0; b < fn->blocks.size(); ++b) {
 			MachineBlock& blk = fn->blocks[b];
 			for(U32 k = 0; k <= blk.insts.size(); ++k) {
+				I32 u = 2 * (I32)(blockFirst[b] + k);
 				for(U32 r = blk.dbgBefore(k); r; r = fn->dbg[r].next) {
 					MachineOperand& o = fn->dbg[r].loc;
-					if(o.isVReg() && !liveAt(o, b, k))
+					if(!o.isVReg() || cross[o.vreg])
+						continue;
+					if(!(k < blk.insts.size() && covers(o.vreg, u)) && !(k > 0 && covers(o.vreg, u - 1)))
 						o = MachineOperand::none(o.width);
 				}
 			}
@@ -285,15 +288,17 @@ namespace rat {
 
 	// spilled bundles are found in their slot
 	void RegAllocPass::rewriteDebug() {
-		for(DbgRec& r : fn->dbg) {
-			if(!r.loc.isVReg())
-				continue;
-			const Interval& t = bundle(r.loc.vreg);
-			if(t.reg != kNoReg)
-				r.loc = MachineOperand::fixed(t.reg, r.loc.width);
-			else
-				r.loc = MachineOperand::frameSlot(t.slot, r.loc.width);
-		}
+		for(DbgRec& r : fn->dbg)
+			if(r.loc.isVReg())
+				r.loc = home(r.loc);
+	}
+
+	// where the bundle of a vreg lives, its register or its slot
+	MachineOperand RegAllocPass::home(const MachineOperand& o) const {
+		const Interval& t = bundle(o.vreg);
+		if(t.reg != kNoReg)
+			return MachineOperand::fixed(t.reg, o.width);
+		return MachineOperand::frameSlot(t.slot, o.width);
 	}
 
 	// path halving

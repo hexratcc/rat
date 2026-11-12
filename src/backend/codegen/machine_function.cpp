@@ -43,7 +43,7 @@ namespace rat {
 			b.insts.clear();
 			b.dbgEnd = 0;
 		}
-		dbg.clear();
+		dbg.assign(1, {});
 		nextVReg = 1;
 		vregClass.clear();
 		frameBytes = 0;
@@ -60,8 +60,6 @@ namespace rat {
 	}
 
 	void MachineFunc::addDbg(U32& chain, U32 inst, MachineOperand loc) {
-		if(dbg.empty())
-			dbg.emplace_back();
 		dbg.push_back({inst, loc, 0});
 		chain = joinDbg(chain, (U32)dbg.size() - 1);
 	}

@@ -53,12 +53,15 @@ namespace rat {
 		B32 isPhys() const { return kind == Kind::Phys; }
 	};
 
-	// a debug var inst lives in loc from here on, a None loc is optimized out
+	// a debug var inst lives in loc from here on, a None loc is optimized out. a kDbgKill record marks
+	// loc wrong past its first width bytes
 	struct DbgRec {
 		U32 inst;
 		MachineOperand loc;
 		U32 next; // in MachineFunc::dbg, 0 ends the chain
 	};
+
+	constexpr U32 kDbgKill = ~0u;
 
 	using MachineDefs = SmallList<MachineOperand, 2>;
 	using MachineOperands = SmallList<MachineOperand, 3>;
@@ -99,7 +102,7 @@ namespace rat {
 		U32 frameBytes = 0;
 		List<PhysReg> usedCalleeSaved;
 		UniquePtr<MachineFuncAux> aux;
-		List<DbgRec> dbg; // chain storage, 0 unused
+		List<DbgRec> dbg = List<DbgRec>(1); // chain storage, 0 unused
 
 		VReg newVReg(U32 cls);
 		// a chain is its head index in dbg, 0 empty. addDbg appends in place, joinDbg returns first then second

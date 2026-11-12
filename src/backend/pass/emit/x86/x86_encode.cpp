@@ -584,8 +584,9 @@ namespace rat {
 		if(!f.getDebug())
 			return;
 		for(const DebugVarInst& v : f.getDebug()->vars) {
-			I32 off = v.slot ? fl->allocOff[v.slot->getId()] : kNoSlot;
-			encodedFunc->varFrameOff.push_back(off == kNoSlot ? kNoFrameSlot : off - detail::kCfaFromRbp);
+			I32 off = v.slot ? fl->allocOff[v.slot->getId()] : detail::kNoSlot;
+			I32 cfaOff = off == detail::kNoSlot ? kNoFrameSlot : off - detail::kCfaFromRbp;
+			encodedFunc->varFrameOff.push_back(cfaOff);
 		}
 	}
 
@@ -619,19 +620,13 @@ namespace rat {
 		return false;
 	}
 
-	void X86EncodePass::encodeFunction(const MachineFunc& f, Asm& asm_) {
-		fn = &f;
-		fl = static_cast<const X86FrameLayout*>(f.aux.get());
-		a = &asm_;
-		fixes.clear();
-		tables.clear();
-
-		// frame slots in [rbp-frameSize, rbp); saves pushed below, total 16-aligned
+	// frame slots in [rbp-frameSize, rbp), saves pushed below, total 16-aligned. frameless when nothing
+	// touches rbp/rsp, no slots, saves, calls, variadic, or frame-addressing instruction. returns the
+	// instr count
+	U32 X86EncodePass::planFrame() {
+		const MachineFunc& f = *fn;
 		U32 saveBytes = 8u * (U32)f.usedCalleeSaved.size();
 		frameSize = ((f.frameBytes + saveBytes + 15u) & ~15u) - saveBytes;
-
-		// frameless when nothing touches rbp/rsp: no slots, saves, calls, variadic,
-		// or frame-addressing instruction
 		hasDynAlloca = false;
 		B32 framey = f.frameBytes != 0 || saveBytes != 0 || fl->variadic;
 		U32 instCount = 0;
@@ -645,42 +640,19 @@ namespace rat {
 				++instCount;
 			}
 		omitFrame = !framey && !hasDynAlloca;
-		a->code.reserve((U64)instCount * 16u + 64u); // cheap upper estimate
+		return instCount;
+	}
 
-		blockOffset.assign(blockIdBound(f), 0);
+	// like gcc's max-vartrack-size, huge functions keep their vars without locations
+	void X86EncodePass::trackVars(U32 instCount) {
 		varsIn.clear();
-		// like gcc's max-vartrack-size, huge functions keep their vars without locations
 		const DebugBody* body = encodedFunc ? encodedFunc->fn->getDebug() : nullptr;
-		U64 trackCost = body ? (U64)instCount * body->vars.size() : 0;
-		if(body && f.dbg.size() > 1 && trackCost <= kMaxVarTrackCost)
-			solveVars(f);
-		B32 trackVars = !varsIn.empty();
-		prologue();
-		for(U32 bi = 0; bi < f.blocks.size(); ++bi) {
-			const MachineBlock& blk = f.blocks[bi];
-			if(blk.id < 0)
-				continue;
-			if(blk.align)
-				a->alignNop(blk.align);
-			blockOffset[blk.id] = a->here();
-			I32 fallthrough = (bi + 1 < f.blocks.size()) ? (I32)f.blocks[bi + 1].id : -1;
-			if(trackVars)
-				beginVars(bi);
-			for(const MachineInstr& in : blk.insts) {
-				U32 at = a->here();
-				markLine(in.loc);
-				if(trackVars)
-					applyRecords(liveVars, in.dbg, at);
-				emitInst(in, fallthrough);
-				markScope(in.loc, at, a->here());
-				// a write ends its vars one byte in, so the instr start still shows them but no later pc does
-				if(trackVars)
-					clobber(liveVars, in, std::min(at + 1, a->here()));
-			}
-			if(trackVars)
-				endVars(blk);
-		}
-		// jump tables: 4-byte offsets from the table base, emitted after the code
+		if(body && fn->dbg.size() > 1 && (U64)instCount * body->vars.size() <= kMaxVarTrackCost)
+			solveVars();
+	}
+
+	// jump tables are 4-byte offsets from the table base, emitted after the code
+	void X86EncodePass::patchJumps() {
 		for(const PendingTable& t : tables) {
 			U32 base = a->here();
 			a->patchRel32(t.leaDispAt, base);
@@ -689,6 +661,30 @@ namespace rat {
 		}
 		for(const JumpFix& jf : fixes)
 			a->patchRel32(jf.dispAt, blockOffset[jf.targetBlock]);
+	}
+
+	void X86EncodePass::encodeFunction(const MachineFunc& f, Asm& asm_) {
+		fn = &f;
+		fl = static_cast<const X86FrameLayout*>(f.aux.get());
+		a = &asm_;
+		fixes.clear();
+		tables.clear();
+		U32 instCount = planFrame();
+		a->code.reserve((U64)instCount * 16u + 64u); // cheap upper estimate
+		blockOffset.assign(blockIdBound(f), 0);
+		trackVars(instCount);
+		prologue();
+		VarState vars;
+		for(U32 bi = 0; bi < f.blocks.size(); ++bi) {
+			const MachineBlock& blk = f.blocks[bi];
+			if(blk.id < 0)
+				continue;
+			if(blk.align)
+				a->alignNop(blk.align);
+			blockOffset[blk.id] = a->here();
+			walkBlock(bi, vars, true);
+		}
+		patchJumps();
 	}
 
 	void X86EncodePass::emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes) {
