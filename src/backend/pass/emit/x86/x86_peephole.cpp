@@ -57,61 +57,6 @@ namespace rat {
 			slot[k] = {v, width, epoch};
 	}
 
-	// an instruction that reaches frame memory outside its operands, or that can
-	// be re-entered, invalidates everything tracked
-	B32 X86PeepholePass::isTransparent(X86Op op) {
-		switch(op) {
-		case X86Op::Copy:
-		case X86Op::LoadImm:
-		case X86Op::LoadSym:
-		case X86Op::FrameAddr:
-		case X86Op::RetAddr:
-		case X86Op::Lea:
-		case X86Op::Load:
-		case X86Op::Store:
-		case X86Op::Add:
-		case X86Op::Sub:
-		case X86Op::Mul:
-		case X86Op::And:
-		case X86Op::Or:
-		case X86Op::Xor:
-		case X86Op::Neg:
-		case X86Op::Not:
-		case X86Op::Shl:
-		case X86Op::AShr:
-		case X86Op::LShr:
-		case X86Op::Rotl:
-		case X86Op::Rotr:
-		case X86Op::BitScanF:
-		case X86Op::BitScanR:
-		case X86Op::Cmp:
-		case X86Op::SetCC:
-		case X86Op::CMov:
-		case X86Op::MaskBits:
-		case X86Op::SignExtBits:
-		case X86Op::Bswap:
-		case X86Op::FLoad:
-		case X86Op::FStore:
-		case X86Op::FAdd:
-		case X86Op::FSub:
-		case X86Op::FMul:
-		case X86Op::FDiv:
-		case X86Op::FNeg:
-		case X86Op::FSqrt:
-		case X86Op::FAbs:
-		case X86Op::FCmp:
-		case X86Op::FCmpFlags:
-		case X86Op::Call: // clobbers cover the volatile set, slots are below rsp
-		case X86Op::Jmp:
-		case X86Op::Br:
-		case X86Op::Ret:
-		case X86Op::SwitchJump:
-			return true;
-		default:
-			return false;
-		}
-	}
-
 	B32 X86PeepholePass::isRegCopy(const MachineInstr& in) {
 		return (X86Op)in.op == X86Op::Copy && in.defs.size() == 1 && in.uses.size() == 1 &&
 					 in.defs[0].isPhys() && in.uses[0].isPhys();
@@ -198,7 +143,7 @@ namespace rat {
 
 	void X86PeepholePass::stepOther(const MachineInstr& in) {
 		X86Op op = (X86Op)in.op;
-		if(!isTransparent(op) || writesUntrackedSlot(in)) {
+		if(!(x86OpInfo(op).flags & detail::kX86Transparent) || writesUntrackedSlot(in)) {
 			st.reset();
 			return;
 		}
@@ -272,51 +217,16 @@ namespace rat {
 		return true;
 	}
 
-	B32 X86PeepholePass::readsFlags(X86Op op) {
-		return op == X86Op::SetCC || op == X86Op::CMov || op == X86Op::Br;
-	}
-
-	B32 X86PeepholePass::writesFlags(X86Op op) {
-		switch(op) {
-		case X86Op::Add:
-		case X86Op::Sub:
-		case X86Op::Mul:
-		case X86Op::And:
-		case X86Op::Or:
-		case X86Op::Xor:
-		case X86Op::Neg:
-		case X86Op::Shl:
-		case X86Op::AShr:
-		case X86Op::LShr:
-		case X86Op::Rotl:
-		case X86Op::Rotr:
-		case X86Op::Cmp:
-		case X86Op::FCmp:
-		case X86Op::FCmpFlags:
-		case X86Op::MaskBits:
-		case X86Op::BitScanF:
-		case X86Op::BitScanR:
-		case X86Op::SDiv:
-		case X86Op::SRem:
-		case X86Op::UDiv:
-		case X86Op::URem:
-		case X86Op::Call:
-			return true;
-		default:
-			return false;
-		}
-	}
-
 	// MaskBits and wide SignExtBits set flags, so dropping one is only safe when
 	// the next instruction to care about flags overwrites them anyway
 	B32 X86PeepholePass::flagSafeToDrop(const MachineBlock& b, U32 at) {
 		if((X86Op)b.insts[at].op == X86Op::SignExtBits && b.insts[at].imm == 32)
 			return true; // movsxd leaves flags alone
 		for(U32 i = at + 1; i < (U32)b.insts.size(); ++i) {
-			X86Op op = (X86Op)b.insts[i].op;
-			if(readsFlags(op))
+			U8 flags = x86OpInfo((X86Op)b.insts[i].op).flags;
+			if(flags & detail::kX86ReadsFlags)
 				return false;
-			if(writesFlags(op))
+			if(flags & detail::kX86WritesFlags)
 				return true;
 		}
 		return true;

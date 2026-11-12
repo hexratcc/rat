@@ -166,9 +166,19 @@ namespace rat {
 		AbiRegs regs;
 	};
 
+	namespace detail {
+		// X86OpInfo flags. a transparent op reaches no frame memory outside its operands and is not
+		// re-entered, a keeps-low-bits op computes its low result bits from the low input bits only
+		constexpr U8 kX86Transparent = 1;
+		constexpr U8 kX86WritesFlags = 2;
+		constexpr U8 kX86ReadsFlags = 4;
+		constexpr U8 kX86KeepsLowBits = 8;
+	} // namespace detail
+
 	struct X86OpInfo {
 		const C8* mnemonic;
 		U8 cls; // default register class
+		U8 flags;
 	};
 
 	const X86OpInfo& x86OpInfo(X86Op op);

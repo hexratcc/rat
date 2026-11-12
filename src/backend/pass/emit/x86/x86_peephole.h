@@ -57,7 +57,6 @@ namespace rat {
 		};
 
 		// value-numbering phase
-		static B32 isTransparent(X86Op op);
 		static B32 isRegCopy(const MachineInstr& in);
 		static B32 isSlotStore(const MachineInstr& in);
 		static B32 isSlotLoad(const MachineInstr& in);
@@ -77,8 +76,6 @@ namespace rat {
 		static B32 hasNormalize(const MachineBlock& b);
 		static void demandUses(const MachineInstr& in, U64 mask, U64* dem, U32 from = 0, U32 to = ~0u);
 		static B32 immCount(const MachineInstr& in, U32& out);
-		static B32 readsFlags(X86Op op);
-		static B32 writesFlags(X86Op op);
 		static B32 flagSafeToDrop(const MachineBlock& b, U32 at);
 		static void transfer(const MachineInstr& in, U64* dem);
 		void eraseMarked(MachineFunc& mf, MachineBlock& b);
@@ -130,7 +127,6 @@ namespace rat {
 			void set(const MachineOperand& o, U32 lv);
 		};
 
-		static B32 keepsLowBits(X86Op op);
 		static void taintStep(const MachineInstr& in, DbgTaint& t);
 		static void killRecords(MachineFunc& mf, U32 chain, const DbgTaint& t);
 		B32 taintPass(MachineFunc& mf, List<List<U64>>& entry, DbgTaint& t, B32 kill) const;

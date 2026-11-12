@@ -35,30 +35,6 @@ namespace rat {
 		}
 	}
 
-	// ops whose low result bits come from the low bits of their inputs only
-	B32 X86PeepholePass::keepsLowBits(X86Op op) {
-		switch(op) {
-		case X86Op::Copy:
-		case X86Op::Load:
-		case X86Op::Lea:
-		case X86Op::Add:
-		case X86Op::Sub:
-		case X86Op::Mul:
-		case X86Op::And:
-		case X86Op::Or:
-		case X86Op::Xor:
-		case X86Op::Not:
-		case X86Op::Neg:
-		case X86Op::Shl:
-		case X86Op::CMov:
-		case X86Op::MaskBits:
-		case X86Op::SignExtBits:
-			return true;
-		default:
-			return false;
-		}
-	}
-
 	// low taint survives ops that keep low bits and ends at a normalization within the right bits,
 	// anything else turns it wrong
 	void X86PeepholePass::taintStep(const MachineInstr& in, DbgTaint& t) {
@@ -72,7 +48,7 @@ namespace rat {
 		for(const MachineOperand& u : in.uses)
 			lv = std::max(lv, t.level(u));
 		X86Op op = (X86Op)in.op;
-		if(lv == 1 && !keepsLowBits(op))
+		if(lv == 1 && !(x86OpInfo(op).flags & detail::kX86KeepsLowBits))
 			lv = 2;
 		if(lv == 1 && isNormalize(op) && (U64)in.imm <= t.rightBits)
 			lv = 0;
