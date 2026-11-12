@@ -54,9 +54,9 @@ namespace rat {
 		VReg s = sseValue(arg);
 		VReg d = vregFor(vp);
 		if(isSqrt)
-			fsqrt(d, s, w);
+			put(X86Op::FSqrt, {vr(d, w)}, {vr(s, w)}, (I64)w);
 		else
-			fabs_(d, s, w);
+			put(X86Op::FAbs, {vr(d, w)}, {vr(s, w)}, (I64)w);
 		return true;
 	}
 
@@ -77,21 +77,24 @@ namespace rat {
 		Node* vp = c->projection(CallNode::valueProjIndex());
 		if(callee == "__builtin_va_start") {
 			VReg ptr = gpValue(c->getArg(0));
-			vaStart(ptr, fl->namedGp, fl->namedFp);
+			put(X86Op::VaStart, {}, {vr(ptr)}, (I64)fl->namedGp, (I64)fl->namedFp).clobbers =
+					detail::scratchBits();
 		} else if(callee == "__builtin_va_arg") {
 			emitVaArg(c);
 		} else if(callee == "__builtin_va_arg_aggregate") {
 			vaArgAggregate(c);
 		} else if(callee == "__builtin_setjmp") {
 			mov(R11, gpValue(c->getArg(0)));
-			setJmp();
+			MachineInstr& m = put(X86Op::SetJmp, {ph(RAX)}, {ph(R11)});
+			m.isCall = true; // nothing survives the jump in a register
+			m.clobbers = allRegClobbers();
 			if(vp)
 				mov(vregFor(vp), RAX);
 		} else if(callee == "__builtin_longjmp") {
 			mov(R11, gpValue(c->getArg(0)));
-			longJmp();
+			put(X86Op::LongJmp, {}, {ph(R11)}).clobbers = detail::physBit(detail::gpPhys(R10));
 		} else if(callee == "__builtin_trap") {
-			ud2();
+			put(X86Op::Ud2, {}, {});
 		} else if(callee == "__builtin_prefetch") {
 			// prefetchw needs 3dnowprefetch, so a write prefetch uses the read form
 			static const U8 kHint[] = {0, 3, 2, 1};
@@ -100,13 +103,13 @@ namespace rat {
 				if(ConstantNode* loc = dyn_cast<ConstantNode>(c->getArg(2)))
 					l = loc->getValue();
 			VReg p = gpValue(c->getArg(0));
-			prefetch(p, kHint[l < 0 || l > 3 ? 3 : l]);
+			put(X86Op::Prefetch, {}, {vr(p)}, 0, (I64)kHint[l < 0 || l > 3 ? 3 : l]);
 		} else if(callee == "__builtin_frame_address") {
 			if(vp)
-				leaFrame(vregFor(vp), 0);
+				put(X86Op::FrameAddr, {vr(vregFor(vp))}, {}, 0);
 		} else if(callee == "__builtin_return_address") {
 			if(vp)
-				retAddr(vregFor(vp));
+				put(X86Op::RetAddr, {vr(vregFor(vp))}, {});
 		} else if(callee != "__builtin_va_end") {
 			return emitMathIntrinsic(c);
 		}
@@ -140,7 +143,7 @@ namespace rat {
 			// the return value travels through a hidden pointer in the first slot
 			retTemp = reserve(16);
 			VReg addr = frameAddr((I64)retTemp);
-			args.push_back({MachineOperand::vr(addr), Kind::Int, as.next(Kind::Int).reg});
+			args.push_back({vr(addr), Kind::Int, as.next(Kind::Int).reg});
 		}
 		// a return in registers lands in the slot arg 0 points at
 		const AbiRegs& retRegs = c->getAbi().ret;
@@ -184,14 +187,12 @@ namespace rat {
 				uses.push_back(argToReg(a));
 
 		if(conv->alHoldsSseCount && c->isVarArgs()) {
-			VReg al = fresh(detail::kGp);
-			movi(al, (I64)sseUsed);
-			mov(RAX, al);
-			uses.push_back(MachineOperand::fixed(gpReg(RAX)));
+			mov(RAX, gpConst(sseUsed));
+			uses.push_back(ph(RAX));
 		}
 
 		if(c->isIndirect())
-			uses.push_back(MachineOperand::fixed(gpReg(R11)));
+			uses.push_back(ph(R11));
 		else
 			uses.push_back(MachineOperand::symbol(c->getCallee()));
 
@@ -209,22 +210,22 @@ namespace rat {
 			Slot src = x87Value(arg);
 			I32 tmp = reserve(16);
 			fldSlot(slot(tmp), src);
-			return {MachineOperand::vr(frameAddr((I64)tmp)), Kind::Int, as.next(Kind::Int).reg};
+			return {vr(frameAddr((I64)tmp)), Kind::Int, as.next(Kind::Int).reg};
 		}
 		if(isX87Ty(t))
 			return {MachineOperand::frameSlot(x87Value(arg).s, 16), Kind::X87, as.next(Kind::X87).reg};
 		if(isSseTy(t))
-			return {MachineOperand::vr(sseValue(arg), opWidth(t)), Kind::Sse, as.next(Kind::Sse).reg};
-		return {MachineOperand::vr(gpValue(arg)), Kind::Int, as.next(Kind::Int).reg};
+			return {vr(sseValue(arg), opWidth(t)), Kind::Sse, as.next(Kind::Sse).reg};
+		return {vr(gpValue(arg)), Kind::Int, as.next(Kind::Int).reg};
 	}
 
 	MachineOperand X86LowerPass::argToReg(const CallArg& a) {
 		if(a.cls == Kind::Sse) {
-			MachineOperand dst = MachineOperand::fixed(xmmReg((U32)a.reg), a.val.width);
+			MachineOperand dst = xm(xmm((U32)a.reg, a.val.width));
 			mov(dst, a.val, detail::kFp);
 			return dst;
 		}
-		MachineOperand dst = MachineOperand::fixed(gpReg(conv->gpArgs[a.reg]));
+		MachineOperand dst = ph(conv->gpArgs[a.reg]);
 		mov(dst, a.val, detail::kGp);
 		return dst;
 	}
@@ -237,10 +238,10 @@ namespace rat {
 		}
 		if(rt && isX87Ty(rt)) { // st(0) return
 			if(!vp) {
-				fstpDiscard(); // pop the unused st(0)
+				put(X86Op::X87StoreMem, {}, {}, -2); // pop the unused st(0)
 				return;
 			}
-			fstp(x87SlotOf(vp));
+			put(X86Op::X87StoreMem, {sl(x87SlotOf(vp))}, {}, -1);
 			return;
 		}
 		if(!vp || !rt)
@@ -259,8 +260,8 @@ namespace rat {
 	// rax then rdx, xmm0 then xmm1
 	MachineOperand X86LowerPass::returnReg(AbiClass c, U32& gp, U32& sse) {
 		if(c == AbiClass::Sse)
-			return MachineOperand::fixed(xmmReg(sse++), 8);
-		return MachineOperand::fixed(gpReg(gp++ ? RDX : RAX));
+			return MachineOperand::fixed(detail::xmmPhys(sse++), 8);
+		return MachineOperand::fixed(detail::gpPhys(gp++ ? RDX : RAX));
 	}
 
 	// the return registers into the slot after a call, or out of it before a ret
@@ -286,7 +287,7 @@ namespace rat {
 			if(move == ReturnMove::IntoSlot) {
 				mov(MachineOperand::vr(v), reg, cls);
 				if(cls == detail::kFp)
-					stf(at, v, 8);
+					put(X86Op::FStore, {}, {addrBase(at), vr(v, 8)}, at.disp, sibBits(0, at));
 				else
 					st(at, MachineOperand::vr(v));
 				continue;
@@ -305,8 +306,9 @@ namespace rat {
 	void X86LowerPass::storeX87Return(VReg retSlot, U32 count) {
 		for(U32 k = 0; k < count; ++k) {
 			Slot value = slot(reserve(16, 16));
-			fstp(value);
-			fstp(x87PartAddr(retSlot, k), value);
+			put(X86Op::X87StoreMem, {sl(value)}, {}, -1);
+			VReg addr = x87PartAddr(retSlot, k);
+			put(X86Op::X87StoreMem, {}, {vr(addr), sl(value)}, detail::kX87MemBits);
 		}
 	}
 
@@ -314,8 +316,9 @@ namespace rat {
 	void X86LowerPass::loadX87Return(VReg retSlot, U32 count) {
 		for(U32 k = count; k-- > 0;) {
 			Slot value = slot(reserve(16, 16));
-			fld(value, x87PartAddr(retSlot, k));
-			fldPop(value);
+			VReg addr = x87PartAddr(retSlot, k);
+			put(X86Op::X87LoadMem, {sl(value)}, {vr(addr)}, detail::kX87MemBits);
+			put(X86Op::X87LoadMem, {}, {sl(value)}, -1);
 		}
 	}
 
@@ -338,7 +341,7 @@ namespace rat {
 	// static frame address in a fresh gp vreg
 	VReg X86LowerPass::frameAddr(I64 disp) {
 		VReg addr = fresh(detail::kGp);
-		leaFrame(addr, disp);
+		put(X86Op::FrameAddr, {vr(addr)}, {}, disp);
 		return addr;
 	}
 
@@ -376,7 +379,8 @@ namespace rat {
 			return;
 		const CallAbi& abi = fn->getAttrs().abi;
 		if(index == 0 && abi.ret.count) {
-			leaFrame(vregFor(p), reserve(abi.ret.cls[0] == AbiClass::X87 ? 32 : 16, 16));
+			I64 retBytes = abi.ret.cls[0] == AbiClass::X87 ? 32 : 16;
+			put(X86Op::FrameAddr, {vr(vregFor(p))}, {}, reserve(retBytes, 16));
 			return;
 		}
 		if(abi.byvalAt(index)) {
@@ -415,7 +419,7 @@ namespace rat {
 				ld(addr, home);
 			}
 		}
-		fld(x87SlotOf(p), addr);
+		put(X86Op::X87LoadMem, {sl(x87SlotOf(p))}, {vr(addr)}, detail::kX87MemBits);
 	}
 
 	VReg X86LowerPass::stackParamAddr(U32 off) {
@@ -440,8 +444,10 @@ namespace rat {
 		if(kind == VaArgKind::X87)
 			def = MachineOperand::frameSlot(vp ? x87SlotOf(vp).s : reserve(16));
 		else
-			def = MachineOperand::vr(vp ? vregFor(vp) : fresh(classOf(rt)), w);
-		vaArg(def, ptr, kind, desc, classOf(rt));
+			def = vr(vp ? vregFor(vp) : fresh(classOf(rt)), w);
+		MachineInstr& m = put(X86Op::VaArg, {def}, {vr(ptr)}, (I64)kind, desc);
+		m.regClass = classOf(rt);
+		m.clobbers = detail::scratchBits();
 	}
 
 	// the register eightbytes go through a frame temp, args 1 and 2 are the size and alignment
@@ -454,8 +460,10 @@ namespace rat {
 		Node* vp = c->projection(CallNode::valueProjIndex());
 		MachineOperand def = MachineOperand::vr(vp ? vregFor(vp) : fresh(detail::kGp));
 		VReg ptr = gpValue(c->getArg(0));
-		MachineInstr& m =
-				vaArg(def, ptr, VaArgKind::Aggregate, detail::packVaAggregate(agg), detail::kGp);
+		I64 desc = detail::packVaAggregate(agg);
+		MachineInstr& m = put(X86Op::VaArg, {def}, {vr(ptr)}, (I64)VaArgKind::Aggregate, desc);
+		m.regClass = detail::kGp;
+		m.clobbers = detail::scratchBits();
 		if(agg.regs.count && conv->vaList != X86VaList::CharPtr)
 			m.uses.push_back(MachineOperand::frameSlot(reserve(16), 16));
 	}
@@ -473,20 +481,20 @@ namespace rat {
 				Slot s = x87Value(v);
 				VReg ptr = fresh(detail::kGp);
 				ld(ptr, slot(fl->sretSlot));
-				fstp(ptr, s);
+				put(X86Op::X87StoreMem, {}, {vr(ptr), sl(s)}, detail::kX87MemBits);
 				mov(RAX, ptr);
-				m.uses = {MachineOperand::fixed(gpReg(RAX))};
+				m.uses = {ph(RAX)};
 			} else if(isX87Ty(v->getType())) {
-				fldPop(x87Value(v));
+				put(X86Op::X87LoadMem, {}, {sl(x87Value(v))}, -1);
 			} else if(isSseTy(v->getType())) {
 				U32 w = opWidth(v->getType());
 				VReg s = sseValue(v);
 				movaps(xmm(0, w), s);
-				m.uses = {MachineOperand::fixed(xmmReg(0), w)};
+				m.uses = {xm(xmm(0, w))};
 			} else {
 				VReg s = gpValue(v);
 				mov(RAX, s);
-				m.uses = {MachineOperand::fixed(gpReg(RAX))};
+				m.uses = {ph(RAX)};
 			}
 		}
 		mb->insts.push_back(std::move(m));

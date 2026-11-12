@@ -13,7 +13,6 @@
 #include "target/x86/x86_asm.h"
 
 namespace rat {
-	PhysReg X86LowerPass::gpReg(Reg r) { return detail::gpPhys(r); }
 	U32 X86LowerPass::opWidth(const Type* t) {
 		if(!t)
 			return 8;
@@ -33,7 +32,6 @@ namespace rat {
 		return 8;
 	}
 
-	PhysReg X86LowerPass::xmmReg(U32 n) { return detail::xmmPhys(n); }
 	B32 X86LowerPass::isX87Ty(const Type* t) {
 		return t && t->isFloat() && t->getFloatWidth() == 128;
 	}
@@ -76,12 +74,7 @@ namespace rat {
 	}
 
 	B32 X86LowerPass::branchOnlyCompare(Node* n) {
-		if(!fusableCompare(n))
-			return false;
-		for(Node* u : n->getUsers())
-			if(!isa<IfNode>(u))
-				return false;
-		return !n->getUsers().empty();
+		return fusableCompare(n) && onlyUsedBy(n, Opcode::If);
 	}
 
 	void X86LowerPass::needScratch() {
@@ -153,12 +146,10 @@ namespace rat {
 
 	VReg X86LowerPass::gpValue(Node* n) {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
-			U64 v = (U64)c->getValue();
+			I64 v = c->getValue();
 			if(n->getType() && n->getType()->isInt())
-				v = (U64)signExtend((I64)c->getValue(), opWidth(n->getType()) * 8);
-			VReg d = fresh(detail::kGp);
-			movi(d, (I64)v);
-			return d;
+				v = signExtend(v, opWidth(n->getType()) * 8);
+			return gpConst(v);
 		}
 		if(GlobalNode* g = dyn_cast<GlobalNode>(n)) {
 			if(vregOf[n->getId()] != kNoVReg)
@@ -265,8 +256,8 @@ namespace rat {
 
 	MachineOperand X86LowerPass::addrBase(const AddrParts& a) {
 		if(a.frameBase)
-			return MachineOperand::fixed(gpReg(RBP));
-		return MachineOperand::vr(a.base);
+			return ph(RBP);
+		return vr(a.base);
 	}
 
 	B32 X86LowerPass::addressOnlyAdd(Node* n) {
@@ -347,7 +338,7 @@ namespace rat {
 		Slot s = x87SlotOf(n);
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
 			needScratch();
-			fldImm(s, (U64)c->getValue());
+			put(X86Op::X87LoadImmD, {sl(s)}, {im(imm(c->getValue()))});
 		}
 		return s;
 	}
@@ -359,7 +350,7 @@ namespace rat {
 			lea(vregFor(n), cast<GlobalNode>(n)->getSymbol());
 			return;
 		case Opcode::Constant:
-			if(isSseTy(n->getType()) && !packOnlyConst(n))
+			if(isSseTy(n->getType()) && !onlyUsedBy(n, Opcode::Pack))
 				fpConstLoad(cast<ConstantNode>(n), vregFor(n));
 			return;
 		case Opcode::Store:
@@ -378,14 +369,15 @@ namespace rat {
 			return;
 		case Opcode::StackAlloc: {
 			VReg sz = gpValue(cast<StackAllocNode>(n)->getSize());
-			stackAlloc(vregFor(n), sz);
+			put(X86Op::StackAlloc, {vr(vregFor(n))}, {vr(sz)}).clobbers =
+					detail::scratchBits(); // rounds through the scratch regs
 			return;
 		}
 		case Opcode::StackSave:
-			stackSave(vregFor(n));
+			put(X86Op::StackSave, {vr(vregFor(n))}, {});
 			return;
 		case Opcode::StackRestore:
-			stackRestore(gpValue(cast<StackRestoreNode>(n)->getSaved()));
+			put(X86Op::StackRestore, {}, {vr(gpValue(cast<StackRestoreNode>(n)->getSaved()))});
 			return;
 		case Opcode::Splat:
 			emitSplat(cast<SplatNode>(n));
@@ -474,22 +466,29 @@ namespace rat {
 			if(fusableCompare(pred)) {
 				// fuse the compare into the branch: cmp lhs, rhs; jcc
 				U8 cc = emitCmp(cast<CompareNode>(pred));
-				jcc(cc, blk.thenB, blk.elseB);
+				put(X86Op::Br,
+						{},
+						{blockRef(blk.thenB), blockRef(blk.elseB)},
+						(I64)cc,
+						1); // cc in imm, no predicate
 				return;
 			}
 			VReg p = gpValue(pred);
-			br(p, blk.thenB, blk.elseB);
+			put(X86Op::Br, {}, {vr(p), blockRef(blk.thenB), blockRef(blk.elseB)});
 			return;
 		}
 		case Schedule::TermKind::Switch: {
 			// per-edge trampoline blocks carry phi copies, so the table jump is direct
 			VReg sel = gpValue(cast<SwitchNode>(blk.termNode)->getSelector());
-			switchJump(sel, blk.caseB);
+			Ops uses = {vr(sel)};
+			for(I32 t : blk.caseB)
+				uses.push_back(blockRef(t));
+			put(X86Op::SwitchJump, {}, std::move(uses)).clobbers = detail::scratchBits();
 			return;
 		}
 		case Schedule::TermKind::Goto:
 			emitPhiCopies(blk.gotoB, blk.gotoPredIdx);
-			jmp(blk.gotoB);
+			put(X86Op::Jmp, {}, {blockRef(blk.gotoB)});
 			return;
 		}
 	}

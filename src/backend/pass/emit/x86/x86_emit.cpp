@@ -1,55 +1,35 @@
-// the named x86 instruction emitters; one per X86Op, over a single plumbing
-// function. every operand is materialized by the caller, so emission order is
-// exactly call order.
+// x86 operand constructors, the plumbing function put and the named emitters over it. every
+// operand is materialized by the caller, so emission order is exactly call order
 #include "pass/emit/x86/x86_lower.h"
 
 #include "codegen/machine_function.h"
 #include "target/x86/x86_asm.h"
 
 namespace rat {
-	namespace detail {
-		static MachineOperand vr(VReg v, U32 w = 8) { return MachineOperand::vr(v, w); }
-		static MachineOperand ph(Reg r) { return MachineOperand::fixed(gpPhys(r)); }
-		static MachineOperand xm(Xmm x) { return MachineOperand::fixed(xmmPhys(x.n), x.w); }
-		static MachineOperand im(Imm i) { return MachineOperand::immVal(i.v, i.w); }
-		static MachineOperand sl(Slot s) { return MachineOperand::frameSlot(s.s, s.w); }
-	} // namespace detail
+	MachineOperand X86LowerPass::vr(VReg v, U32 w) { return MachineOperand::vr(v, w); }
+	MachineOperand X86LowerPass::ph(Reg r) { return MachineOperand::fixed(detail::gpPhys(r)); }
+	MachineOperand X86LowerPass::xm(Xmm x) {
+		return MachineOperand::fixed(detail::xmmPhys(x.n), x.w);
+	}
+	MachineOperand X86LowerPass::im(Imm i) { return MachineOperand::immVal(i.v, i.w); }
+	MachineOperand X86LowerPass::sl(Slot s) { return MachineOperand::frameSlot(s.s, s.w); }
+	MachineOperand X86LowerPass::blockRef(I32 b) { return MachineOperand::blockRef(b); }
 
-	using detail::im;
 	using detail::kFp;
-	using detail::kGp;
-	using detail::kX87MemBits;
-	using detail::ph;
-	using detail::physBit;
-	using detail::scratchBits;
-	using detail::sl;
-	using detail::vr;
-	using detail::xm;
 
-	MachineInstr& X86LowerPass::put(X86Op op, OpList defs, OpList uses, I64 imm, I64 imm2) {
-		MachineInstr& m = putDefs(op, defs, imm, imm2);
-		m.uses.assign(uses.begin(), uses.end());
-		return m;
-	}
-
-	MachineInstr& X86LowerPass::put(X86Op op, OpList defs, const Ops& uses, I64 imm, I64 imm2) {
-		MachineInstr& m = putDefs(op, defs, imm, imm2);
-		m.uses = uses;
-		return m;
-	}
-
-	MachineInstr& X86LowerPass::putDefs(X86Op op, OpList defs, I64 imm, I64 imm2) {
+	MachineInstr& X86LowerPass::put(X86Op op, OpList defs, Ops uses, I64 imm, I64 imm2) {
 		MachineInstr& m = mb->insts.emplace_back();
 		m.op = (MachineOpcode)op;
 		m.regClass = x86OpInfo(op).cls;
 		m.defs.assign(defs.begin(), defs.end());
+		m.uses = std::move(uses);
 		m.imm = imm;
 		m.imm2 = imm2;
 		m.loc = curLoc;
 		// x87 sequences stage through r10/r11 in the encoder, declare so the
 		// allocator can use them elsewhere
 		if(op >= X86Op::X87LoadMem && op <= X86Op::X87Cmp)
-			m.clobbers = scratchBits();
+			m.clobbers = detail::scratchBits();
 		return m;
 	}
 
@@ -68,10 +48,6 @@ namespace rat {
 	void X86LowerPass::movaps(VReg d, Xmm s) { mov(vr(d, s.w), xm(s), kFp); }
 	void X86LowerPass::movaps(Xmm d, VReg s) { mov(xm(d), vr(s, d.w), kFp); }
 
-	void X86LowerPass::movi(VReg d, I64 v) {
-		put(X86Op::LoadImm, {vr(d)}, {MachineOperand::immVal(v)});
-	}
-
 	void X86LowerPass::lea(VReg d, const String& s) {
 		put(X86Op::LoadSym, {vr(d)}, {MachineOperand::symbol(s)});
 	}
@@ -80,10 +56,6 @@ namespace rat {
 		Ops uses = {addrBase(a), vr(a.index)};
 		put(X86Op::Lea, {vr(d)}, std::move(uses), a.disp, a.scaleLog2 & 3);
 	}
-
-	void X86LowerPass::leaFrame(VReg d, I64 disp) { put(X86Op::FrameAddr, {vr(d)}, {}, disp); }
-
-	void X86LowerPass::retAddr(VReg d) { put(X86Op::RetAddr, {vr(d)}, {}); }
 
 	// integer memory
 
@@ -119,74 +91,18 @@ namespace rat {
 		put(X86Op::Store, {}, std::move(uses), a.disp, sibBits(0, a));
 	}
 
-	// dynamic stack
-
-	void X86LowerPass::stackAlloc(VReg d, VReg size) {
-		// rounding runs through the scratch regs
-		put(X86Op::StackAlloc, {vr(d)}, {vr(size)}).clobbers = scratchBits();
-	}
-
-	void X86LowerPass::stackSave(VReg d) { put(X86Op::StackSave, {vr(d)}, {}); }
-
-	void X86LowerPass::stackRestore(VReg sp) { put(X86Op::StackRestore, {}, {vr(sp)}); }
-
-	// non-local goto
-
-	void X86LowerPass::setJmp() {
-		MachineInstr& m = put(X86Op::SetJmp, {ph(RAX)}, {ph(R11)});
-		m.isCall = true; // nothing survives the jump in a register
-		m.clobbers = allRegClobbers();
-	}
-
-	void X86LowerPass::longJmp() {
-		put(X86Op::LongJmp, {}, {ph(R11)}).clobbers = physBit(gpReg(R10));
-	}
-
 	// integer ALU
 
 	void X86LowerPass::alu(X86Op op, VReg d, VReg a, VReg b) { put(op, {vr(d)}, {vr(a), vr(b)}); }
 
 	void X86LowerPass::alu(X86Op op, VReg d, VReg a, Imm b) { put(op, {vr(d)}, {vr(a), im(b)}); }
 
-	void X86LowerPass::imul(VReg d, VReg a, Imm b) { put(X86Op::Mul, {vr(d)}, {vr(a), im(b)}); }
-
-	void X86LowerPass::neg(VReg d) { put(X86Op::Neg, {vr(d)}, {vr(d)}); }
-	void X86LowerPass::not_(VReg d) { put(X86Op::Not, {vr(d)}, {vr(d)}); }
-
 	void X86LowerPass::shift(X86Op op, VReg d, Imm cnt) { put(op, {vr(d)}, {vr(d), im(cnt)}); }
 
 	void X86LowerPass::shift(X86Op op, VReg d, Reg cl) { put(op, {vr(d)}, {vr(d), ph(cl)}); }
 
-	void X86LowerPass::rot(X86Op op, VReg d, I64 cnt, U32 bits) {
-		put(op, {vr(d)}, {vr(d), MachineOperand::immVal(cnt)}, (I64)bits);
-	}
-
-	void X86LowerPass::idiv(X86Op op, U32 bits) {
-		put(op, {ph(RAX), ph(RDX)}, {ph(RAX), ph(RCX)}, (I64)bits);
-	}
-
-	void X86LowerPass::bitScan(X86Op op, VReg d, VReg s, U32 w) { put(op, {vr(d)}, {vr(s)}, (I64)w); }
-
 	void X86LowerPass::cmp(VReg a, VReg b) { put(X86Op::Cmp, {}, {vr(a), vr(b)}); }
 	void X86LowerPass::cmp(VReg a, Imm b) { put(X86Op::Cmp, {}, {vr(a), im(b)}); }
-
-	void X86LowerPass::setcc(VReg d, U8 cc) { put(X86Op::SetCC, {vr(d)}, {}, (I64)cc); }
-
-	void X86LowerPass::cmov(VReg d, VReg s, U8 cc) {
-		put(X86Op::CMov, {vr(d)}, {vr(d), vr(s)}, (I64)cc);
-	}
-
-	void X86LowerPass::maskBitsOp(VReg d, U32 bits) {
-		MachineInstr& m = put(X86Op::MaskBits, {vr(d)}, {vr(d)}, (I64)bits);
-		if(bits > 32)
-			m.clobbers = physBit(gpReg(R11)); // mask built via scratch reg
-	}
-
-	void X86LowerPass::signExtBitsOp(VReg d, U32 bits) {
-		put(X86Op::SignExtBits, {vr(d)}, {vr(d)}, (I64)bits);
-	}
-
-	void X86LowerPass::bswap(VReg d, U32 w) { put(X86Op::Bswap, {vr(d)}, {vr(d)}, (I64)w); }
 
 	// sse scalar float
 
@@ -200,13 +116,6 @@ namespace rat {
 		put(X86Op::FLoad, {vr(d, w)}, addrUses(a), a.disp, sibBits(0, a));
 	}
 
-	void X86LowerPass::stf(const AddrParts& a, VReg s, U32 w) {
-		Ops uses = {addrBase(a), vr(s, w)};
-		if(a.hasIndex)
-			uses.push_back(vr(a.index));
-		put(X86Op::FStore, {}, std::move(uses), a.disp, sibBits(0, a));
-	}
-
 	MachineInstr& X86LowerPass::farith(X86Op op, VReg d, VReg a, VReg b, U32 w, I64 desc) {
 		movaps(d, a, w);
 		VReg rhs = b;
@@ -215,35 +124,8 @@ namespace rat {
 		return put(op, {vr(d, w)}, {vr(d, w), vr(rhs, w)}, desc);
 	}
 
-	void X86LowerPass::fneg(VReg d, VReg s, U32 w, U32 lane) {
-		// the encoder builds the sign mask of each lane through the top volatile xmm
-		put(X86Op::FNeg, {vr(d, w)}, {vr(s, w)}, (I64)lane).clobbers =
-				physBit(xmmReg(conv->sseVolatileCount - 1));
-	}
-
-	void X86LowerPass::fsqrt(VReg d, VReg s, U32 w) {
-		put(X86Op::FSqrt, {vr(d, w)}, {vr(s, w)}, (I64)w);
-	}
-
-	void X86LowerPass::fabs_(VReg d, VReg s, U32 w) {
-		put(X86Op::FAbs, {vr(d, w)}, {vr(s, w)}, (I64)w);
-	}
-
-	void X86LowerPass::ucomis(VReg d, VReg a, VReg b, U32 w, U8 cc, B32 swap) {
-		Ops uses = {vr(a, w), vr(b, w)};
-		put(X86Op::FCmp, {vr(d)}, std::move(uses), (I64)cc, swap ? 1 : 0);
-	}
-
-	void X86LowerPass::ucomisFlags(VReg a, VReg b, U32 w, B32 swap) {
-		put(X86Op::FCmpFlags, {}, {vr(a, w), vr(b, w)}, 0, swap ? 1 : 0);
-	}
-
 	void X86LowerPass::cvtf(VReg d, U32 dw, VReg s, U32 sw, U8 pfx, U8 opc, B32 wide) {
 		put(X86Op::Cvt, {vr(d, dw)}, {vr(s, sw)}, cvtDesc(pfx, opc, wide));
-	}
-
-	void X86LowerPass::cvti(VReg d, VReg s, U32 sw, U8 pfx, U8 opc, B32 wide) {
-		put(X86Op::Cvt, {vr(d)}, {vr(s, sw)}, cvtDesc(pfx, opc, wide)).regClass = kGp;
 	}
 
 	// sse packed vector
@@ -278,18 +160,6 @@ namespace rat {
 		put(X86Op::VUnary, {vr(d, 16)}, {vr(s, 16)}, vecDesc(pfx, opc, esc));
 	}
 
-	void X86LowerPass::vshiftImm(VReg d, VReg s, U32 laneBits, U8 ext, U8 cnt) {
-		movaps(d, s, 16);
-		put(X86Op::VShiftImm, {vr(d, 16)}, {vr(d, 16)}, (I64)laneBits, ((I64)ext << 8) | cnt);
-	}
-
-	void X86LowerPass::vcmpf(VReg d, VReg a, VReg b, U32 esz, U8 pred) {
-		U8 pfx = 0; // cmpps
-		if(esz == 8)
-			pfx = 0x66; // cmppd
-		varithImm(d, a, b, pfx, 0xc2, 0, pred);
-	}
-
 	// d = mask ? t : f per lane, blendvps/blendvpd read the mask from xmm0
 	void X86LowerPass::vblend(VReg d, VReg f, VReg t, VReg mask, U32 esz) {
 		U8 opc = 0x14; // blendvps
@@ -300,123 +170,11 @@ namespace rat {
 		farith(X86Op::VArith, d, f, t, 16, desc).uses.push_back(xm(xmm(0, 16)));
 	}
 
-	void X86LowerPass::vsplat(VReg d, VReg s, U32 esz, B32 isInt) {
-		Ops uses = {vr(s, isInt ? 8 : esz)};
-		put(X86Op::VSplat, {vr(d, 16)}, std::move(uses), (I64)esz, isInt ? 1 : 0);
-	}
-
-	void X86LowerPass::vextract(VReg d, VReg s, U32 lane, U32 esz, B32 isInt) {
-		I64 desc = ((I64)esz << 1) | (isInt ? 1 : 0);
-		MachineInstr& m = put(X86Op::VExtract, {vr(d, isInt ? 8 : esz)}, {vr(s, 16)}, (I64)lane, desc);
-		m.regClass = isInt ? kGp : kFp;
-	}
-
-	void X86LowerPass::vpackMem(VReg d, const List<MachineOperand>& lanes, U32 esz, B32 isInt) {
-		for(U32 i = 0; i < (U32)lanes.size(); ++i) {
-			I64 desc = ((I64)i << 1) | (isInt ? 1 : 0);
-			put(X86Op::VPackLane, {}, {lanes[i]}, (I64)esz, desc).regClass = isInt ? kGp : kFp;
-		}
-		put(X86Op::VPack, {vr(d, 16)}, {}, (I64)esz, isInt ? 1 : 0);
-	}
-
-	// movd/movq of an int lane, the upper lanes zero
-	void X86LowerPass::vmovd(VReg d, VReg gp, U32 esz) {
-		put(X86Op::VPackReg, {vr(d, 16)}, {vr(gp)}, (I64)esz, 1);
-	}
-
-	// pinsrd/pinsrq of an int into lane of d
-	void X86LowerPass::vinsert(VReg d, VReg gp, U32 esz, U32 lane) {
-		put(X86Op::VInsertReg, {vr(d, 16)}, {vr(d, 16), vr(gp)}, (I64)esz, (I64)lane);
-	}
-
-	void X86LowerPass::vshuf(VReg d, VReg s, U8 sel) {
-		put(X86Op::VShuf, {vr(d, 16)}, {vr(s, 16)}, (I64)sel);
-	}
-
 	// x87
 
-	void X86LowerPass::fld(Slot d, VReg addr) {
-		put(X86Op::X87LoadMem, {sl(d)}, {vr(addr)}, kX87MemBits);
-	}
-
-	void X86LowerPass::fldPop(Slot s) { put(X86Op::X87LoadMem, {}, {sl(s)}, -1); }
-
-	void X86LowerPass::fstp(VReg addr, Slot s) {
-		put(X86Op::X87StoreMem, {}, {vr(addr), sl(s)}, kX87MemBits);
-	}
-
-	void X86LowerPass::fstp(Slot d) { put(X86Op::X87StoreMem, {sl(d)}, {}, -1); }
-
-	void X86LowerPass::fstpDiscard() { put(X86Op::X87StoreMem, {}, {}, -2); }
-
-	void X86LowerPass::fldImm(Slot d, U64 bits) {
-		put(X86Op::X87LoadImmD, {sl(d)}, {MachineOperand::immVal((I64)bits)});
-	}
-
-	void X86LowerPass::fild(Slot d, VReg s) { put(X86Op::X87FromInt, {sl(d)}, {vr(s)}); }
-
-	void X86LowerPass::fistp(VReg d, Slot s) { put(X86Op::X87ToInt, {vr(d)}, {sl(s)}); }
-
-	void X86LowerPass::fldSse(Slot d, VReg s, U32 w) {
-		put(X86Op::X87FromSse, {sl(d)}, {vr(s, w)}, (I64)w);
-	}
-
+	// copies an x87 slot through st0
 	void X86LowerPass::fldSlot(Slot d, Slot s) {
-		put(X86Op::X87FromSse, {sl(d)}, {sl(s)}, kX87MemBits);
+		put(X86Op::X87FromSse, {sl(d)}, {sl(s)}, detail::kX87MemBits);
 	}
 
-	void X86LowerPass::fstpSse(VReg d, U32 w, Slot s) {
-		put(X86Op::X87ToSse, {vr(d, w)}, {sl(s)}, (I64)w);
-	}
-
-	void X86LowerPass::x87Arith(X86Op op, Slot d, Slot a, Slot b) {
-		put(op, {sl(d)}, {sl(a), sl(b)});
-	}
-
-	void X86LowerPass::fchs(Slot d, Slot s) { put(X86Op::X87Neg, {sl(d)}, {sl(s)}); }
-
-	void X86LowerPass::fucomi(VReg d, Slot a, Slot b, U8 cc, B32 swap) {
-		put(X86Op::X87Cmp, {vr(d)}, {sl(a), sl(b)}, (I64)cc, swap ? 1 : 0);
-	}
-
-	// control
-
-	void X86LowerPass::jmp(I32 target) { put(X86Op::Jmp, {}, {MachineOperand::blockRef(target)}); }
-
-	// imm2 = 1: condition code in imm, no predicate register
-	void X86LowerPass::jcc(U8 cc, I32 thenB, I32 elseB) {
-		Ops uses = {MachineOperand::blockRef(thenB), MachineOperand::blockRef(elseB)};
-		put(X86Op::Br, {}, std::move(uses), (I64)cc, 1);
-	}
-
-	void X86LowerPass::br(VReg pred, I32 thenB, I32 elseB) {
-		Ops uses = {vr(pred), MachineOperand::blockRef(thenB), MachineOperand::blockRef(elseB)};
-		put(X86Op::Br, {}, std::move(uses));
-	}
-
-	void X86LowerPass::switchJump(VReg sel, const List<I32>& targets) {
-		Ops uses = {vr(sel)};
-		for(I32 t : targets)
-			uses.push_back(MachineOperand::blockRef(t));
-		put(X86Op::SwitchJump, {}, std::move(uses)).clobbers = scratchBits();
-	}
-
-	void X86LowerPass::vaStart(VReg ptr, U32 namedGp, U32 namedFp) {
-		MachineInstr& m = put(X86Op::VaStart, {}, {vr(ptr)}, (I64)namedGp, (I64)namedFp);
-		m.clobbers = scratchBits();
-	}
-
-	MachineInstr&
-	X86LowerPass::vaArg(MachineOperand def, VReg ptr, VaArgKind kind, I64 desc, U32 cls) {
-		MachineInstr& m = put(X86Op::VaArg, {std::move(def)}, {vr(ptr)}, (I64)kind, desc);
-		m.regClass = cls;
-		m.clobbers = scratchBits();
-		return m;
-	}
-
-	void X86LowerPass::ud2() { put(X86Op::Ud2, {}, {}); }
-
-	void X86LowerPass::prefetch(VReg addr, U8 hint) {
-		put(X86Op::Prefetch, {}, {vr(addr)}, 0, (I64)hint);
-	}
 } // namespace rat

@@ -19,6 +19,7 @@ namespace rat {
 		U32 outCount(const Node* n);
 		U32 outElem(const Node* from, const Node* to);
 		String outName(const Node* n, U32 e);
+		void writeCell(std::ostream& os, C8 side, U32 port, U32 span, const String& text);
 		void writeNode(std::ostream& os, U32 fnIndex, const Node* n, const List<U32>& useCount);
 		const Type* carriedType(const Node* from, const Node* to);
 		const C8* edgeStyle(const Type* t);

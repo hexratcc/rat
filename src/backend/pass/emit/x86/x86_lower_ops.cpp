@@ -11,15 +11,18 @@
 #include "target/x86/x86_asm.h"
 
 namespace rat {
+	// n has users and all of them are op
+	B32 X86LowerPass::onlyUsedBy(const Node* n, Opcode op) {
+		for(Node* u : n->getUsers())
+			if(u->getOpcode() != op)
+				return false;
+		return n->hasUsers();
+	}
+
 	// narrow load used only by zext: load zero-extended, later zext is a no-op
 	B32 X86LowerPass::zextOnlyLoad(const LoadNode* l) {
 		const Type* t = l->getType();
-		if(!t || !t->isInt() || intBits(t) >= 64 || l->getUsers().empty())
-			return false;
-		for(Node* u : l->getUsers())
-			if(u->getOpcode() != Opcode::ZExt)
-				return false;
-		return true;
+		return t && t->isInt() && intBits(t) < 64 && onlyUsedBy(l, Opcode::ZExt);
 	}
 
 	B32 X86LowerPass::lowHalfOnlyLoad(const LoadNode* l) {
@@ -40,19 +43,8 @@ namespace rat {
 	}
 
 	B32 X86LowerPass::splatOnlyLoad(const Node* n) {
-		if(!isa<LoadNode>(n) || !n->getType()->isInt() || intBits(n->getType()) < 32)
-			return false;
-		for(Node* u : n->getUsers())
-			if(!isa<SplatNode>(u))
-				return false;
-		return n->hasUsers();
-	}
-
-	B32 X86LowerPass::packOnlyConst(const Node* n) {
-		for(Node* u : n->getUsers())
-			if(!isa<PackNode>(u))
-				return false;
-		return n->hasUsers();
+		const Type* t = n->getType();
+		return isa<LoadNode>(n) && t->isInt() && intBits(t) >= 32 && onlyUsedBy(n, Opcode::Splat);
 	}
 
 	BinaryNode* X86LowerPass::addSubOf(const ShuffleNode* n) {
@@ -90,23 +82,26 @@ namespace rat {
 		U32 w = opWidth(val->getType());
 		if(isX87Ty(val->getType())) {
 			VReg addr = gpValue(s->getPointer()); // x87 mem ops carry width in imm, no disp
-			fstp(addr, x87Value(val));
+			put(X86Op::X87StoreMem, {}, {vr(addr), sl(x87Value(val))}, detail::kX87MemBits);
 			return;
 		}
 		AddrParts a = matchAddr(s->getPointer());
 		if(isSseTy(val->getType())) {
 			VReg src = sseValue(val);
-			stf(a, src, w);
+			Ops uses = {addrBase(a), vr(src, w)};
+			if(a.hasIndex)
+				uses.push_back(vr(a.index));
+			put(X86Op::FStore, {}, std::move(uses), a.disp, sibBits(0, a));
 			return;
 		}
 		if(ConstantNode* c = dyn_cast<ConstantNode>(val)) {
 			I64 v = c->getValue();
 			if(w < 8 || v == (I64)(I32)v) {
-				st(a, MachineOperand::immVal(v, w));
+				st(a, im(imm(v, w)));
 				return;
 			}
 		}
-		MachineOperand src = MachineOperand::vr(gpValue(val), w);
+		MachineOperand src = vr(gpValue(val), w);
 		// indexed reg store [base+index*scale+disp]=src has 3 gp uses; a vreg base lets all three
 		// spill at once but only 2 gp scratch exist, so fold the address into an lea and keep the
 		// store at <=2 gp uses
@@ -123,7 +118,7 @@ namespace rat {
 		U32 w = opWidth(l->getType());
 		if(isX87Ty(l->getType())) {
 			VReg addr = gpValue(l->getPointer());
-			fld(x87SlotOf(l), addr);
+			put(X86Op::X87LoadMem, {sl(x87SlotOf(l))}, {vr(addr)}, detail::kX87MemBits);
 			return;
 		}
 		AddrParts a = matchAddr(l->getPointer());
@@ -140,7 +135,8 @@ namespace rat {
 
 	void X86LowerPass::maskBits(VReg d, U32 bits) {
 		if(bits > 0 && bits < 64)
-			maskBitsOp(d, bits);
+			put(X86Op::MaskBits, {vr(d)}, {vr(d)}, (I64)bits).clobbers =
+					bits > 32 ? detail::physBit(detail::gpPhys(R11)) : 0; // a wide mask goes through r11
 	}
 
 	void X86LowerPass::signExtBits(VReg d, U32 bits) {
@@ -149,7 +145,7 @@ namespace rat {
 			return;
 		}
 		if(bits > 0 && bits < 64)
-			signExtBitsOp(d, bits);
+			put(X86Op::SignExtBits, {vr(d)}, {vr(d)}, (I64)bits);
 	}
 
 	void X86LowerPass::emitDivLike(BinaryNode* n, X86Op op) {
@@ -159,7 +155,7 @@ namespace rat {
 		mov(R11, rhs);
 		mov(RAX, lhs);
 		mov(RCX, R11);
-		idiv(op, intBits(n->getType()));
+		put(op, {ph(RAX), ph(RDX)}, {ph(RAX), ph(RCX)}, (I64)intBits(n->getType()));
 		B32 wantRem = op == X86Op::SRem || op == X86Op::URem;
 		mov(d, wantRem ? RDX : RAX);
 	}
@@ -195,7 +191,7 @@ namespace rat {
 		I64 iv = 0;
 		if(!immOf(n->getRHS(), iv))
 			return; // degenerate; should not happen
-		rot(op, d, iv & (bits - 1), bits);
+		put(op, {vr(d)}, {vr(d), im(imm(iv & (bits - 1)))}, (I64)bits);
 		signExtBits(d, bits); // restore in-register sign-extended convention
 	}
 
@@ -255,7 +251,7 @@ namespace rat {
 		U32 sc = log2Scale(v - 1);
 		if(sc == 0) {
 			// otherwise three-operand imul: no tied copy needed
-			imul(d, s, imm(v));
+			put(X86Op::Mul, {vr(d)}, {vr(s), im(imm(v))});
 			return;
 		}
 		AddrParts a; // lhs + lhs*(1<<sc)
@@ -272,7 +268,7 @@ namespace rat {
 			static const X86Op kX87[] = {X86Op::X87Add, X86Op::X87Sub, X86Op::X87Mul, X86Op::X87Div};
 			Slot lhs = x87Value(n->getLHS());
 			Slot rhs = x87Value(n->getRHS());
-			x87Arith(kX87[idx], x87SlotOf(n), lhs, rhs);
+			put(kX87[idx], {sl(x87SlotOf(n))}, {sl(lhs), sl(rhs)});
 			return;
 		}
 		U32 w = opWidth(n->getType());
@@ -354,11 +350,12 @@ namespace rat {
 		VReg d = vregFor(n);
 		I64 cnt = 0;
 		if(immOf(n->getRHS(), cnt)) {
-			vshiftImm(d, s, bits, ext, (U8)cnt);
+			movaps(d, s, 16);
+			put(X86Op::VShiftImm, {vr(d, 16)}, {vr(d, 16)}, (I64)bits, ((I64)ext << 8) | (U8)cnt);
 			return;
 		}
 		VReg c = fresh(detail::kFp);
-		vmovd(c, gpValue(n->getRHS()), 4);
+		put(X86Op::VPackReg, {vr(c, 16)}, {vr(gpValue(n->getRHS()))}, 4, 1);
 		varith(d, s, c, 0x66, opc, false);
 	}
 
@@ -371,7 +368,7 @@ namespace rat {
 			s = gpValue(n->getScalar());
 		else
 			s = sseValue(n->getScalar());
-		vsplat(vregFor(n), s, esz, inGp);
+		put(X86Op::VSplat, {vr(vregFor(n), 16)}, {vr(s, inGp ? 8 : esz)}, (I64)esz, inGp ? 1 : 0);
 	}
 
 	void X86LowerPass::emitExtract(ExtractNode* n) {
@@ -381,7 +378,10 @@ namespace rat {
 		VReg v = sseValue(n->getVector());
 		if(isInt && n->getLane() != 0 && fl->vecScratch == 0)
 			fl->vecScratch = reserve(16); // staged through memory
-		vextract(vregFor(n), v, n->getLane(), esz, isInt);
+		I64 desc = ((I64)esz << 1) | (isInt ? 1 : 0);
+		MachineInstr& m = put(
+				X86Op::VExtract, {vr(vregFor(n), isInt ? 8 : esz)}, {vr(v, 16)}, (I64)n->getLane(), desc);
+		m.regClass = isInt ? detail::kGp : detail::kFp;
 	}
 
 	// the constant lanes of n as 16 pool bytes, zero in the other lanes
@@ -439,17 +439,26 @@ namespace rat {
 		for(U32 i = 0; i < n->getLaneCount(); ++i) {
 			Node* lane = n->getLane(i);
 			if(isInt)
-				lanes.push_back(MachineOperand::vr(gpValue(lane)));
+				lanes.push_back(vr(gpValue(lane)));
 			else
-				lanes.push_back(MachineOperand::vr(sseValue(lane), esz));
+				lanes.push_back(vr(sseValue(lane), esz));
 		}
-		vpackMem(vregFor(n), lanes, esz, isInt);
+		for(U32 i = 0; i < (U32)lanes.size(); ++i) {
+			I64 desc = ((I64)i << 1) | (isInt ? 1 : 0);
+			put(X86Op::VPackLane, {}, {lanes[i]}, (I64)esz, desc).regClass =
+					isInt ? detail::kGp : detail::kFp;
+		}
+		put(X86Op::VPack, {vr(vregFor(n), 16)}, {}, (I64)esz, isInt ? 1 : 0);
 	}
 
 	void X86LowerPass::packLaneZero(PackNode* n, VReg d, U32 esz, B32 isInt) {
 		Node* lane = n->getLane(0);
 		if(isInt) {
-			vmovd(d, gpValue(lane), esz);
+			put(X86Op::VPackReg,
+					{vr(d, 16)},
+					{vr(gpValue(lane))},
+					(I64)esz,
+					1); // movd/movq, the upper lanes zero
 			return;
 		}
 		U8 zero = 0; // insertps zero mask
@@ -468,7 +477,11 @@ namespace rat {
 
 	void X86LowerPass::insertLane(VReg d, Node* lane, U32 i, U32 esz, B32 isInt) {
 		if(isInt) {
-			vinsert(d, gpValue(lane), esz, i);
+			put(X86Op::VInsertReg,
+					{vr(d, 16)},
+					{vr(d, 16), vr(gpValue(lane))},
+					(I64)esz,
+					(I64)i); // pinsrd, pinsrq
 			return;
 		}
 		VReg s = sseValue(lane);
@@ -527,22 +540,22 @@ namespace rat {
 		if(mask == 15 || mask == 3)
 			std::swap(a, b); // the low half comes from second
 		if(mask == 0 || mask == 15) {
-			vshuf(d, a, sel);
+			put(X86Op::VShuf, {vr(d, 16)}, {vr(a, 16)}, (I64)sel);
 		} else if(mask == 12 || mask == 3) {
 			varithImm(d, a, b, 0, 0xc6, 0, sel); // shufps
 		} else {
 			VReg ta = fresh(detail::kFp);
 			VReg tb = fresh(detail::kFp);
-			vshuf(ta, a, sel);
-			vshuf(tb, b, sel);
+			put(X86Op::VShuf, {vr(ta, 16)}, {vr(a, 16)}, (I64)sel);
+			put(X86Op::VShuf, {vr(tb, 16)}, {vr(b, 16)}, (I64)sel);
 			varithImm(d, ta, tb, 0x66, 0x0c, 0x3a, mask);
 		}
 	}
 
-	// a fresh register holding a constant too wide for an ALU immediate
+	// a fresh register holding a constant
 	VReg X86LowerPass::gpConst(I64 v) {
 		VReg t = fresh(detail::kGp);
-		movi(t, v);
+		put(X86Op::LoadImm, {vr(t)}, {im(imm(v))});
 		return t;
 	}
 
@@ -556,7 +569,7 @@ namespace rat {
 			maskBits(d, bits);
 			s = d;
 		}
-		bitScan(reverse ? X86Op::BitScanR : X86Op::BitScanF, d, s, w);
+		put(reverse ? X86Op::BitScanR : X86Op::BitScanF, {vr(d)}, {vr(s)}, (I64)w);
 		if(reverse)
 			alu(X86Op::Xor, d, d, imm((I64)bits - 1));
 	}
@@ -597,7 +610,7 @@ namespace rat {
 	void X86LowerPass::emitFNeg(UnaryNode* n) {
 		if(isX87Ty(n->getType())) {
 			Slot s = x87Value(n->getOperand());
-			fchs(x87SlotOf(n), s);
+			put(X86Op::X87Neg, {sl(x87SlotOf(n))}, {sl(s)});
 			return;
 		}
 		U32 w = opWidth(n->getType());
@@ -606,7 +619,9 @@ namespace rat {
 			lane = opWidth(n->getType()->getVecElement());
 		VReg s = sseValue(n->getOperand());
 		needScratch();
-		fneg(vregFor(n), s, w, lane);
+		// the encoder builds the sign mask of each lane through the top volatile xmm
+		MachineInstr& m = put(X86Op::FNeg, {vr(vregFor(n), w)}, {vr(s, w)}, (I64)lane);
+		m.clobbers = detail::physBit(detail::xmmPhys(conv->sseVolatileCount - 1));
 	}
 
 	void X86LowerPass::emitUnary(UnaryNode* n) {
@@ -628,13 +643,13 @@ namespace rat {
 		VReg d = vregFor(n);
 		mov(d, s);
 		if(uop == Opcode::Bswap) {
-			bswap(d, bits > 32 ? 64 : 32);
+			put(X86Op::Bswap, {vr(d)}, {vr(d)}, bits > 32 ? 64 : 32);
 			signExtBits(d, bits); // bswap r32 zero-extends
 		} else if(uop == Opcode::Neg) {
-			neg(d);
+			put(X86Op::Neg, {vr(d)}, {vr(d)});
 			signExtBits(d, bits); // -INT_MIN carries out of the width
 		} else {
-			not_(d);
+			put(X86Op::Not, {vr(d)}, {vr(d)});
 		}
 	}
 
@@ -657,7 +672,7 @@ namespace rat {
 		U32 idx = (U32)n->getOpcode() - (U32)Opcode::FEq;
 		VReg lhs = sseValue(n->getLHS());
 		VReg rhs = sseValue(n->getRHS());
-		ucomisFlags(lhs, rhs, w, detail::kFpSwap[idx]);
+		put(X86Op::FCmpFlags, {}, {vr(lhs, w), vr(rhs, w)}, 0, detail::kFpSwap[idx]);
 		return detail::kFpCc[idx];
 	}
 
@@ -681,7 +696,7 @@ namespace rat {
 			VReg cv = gpValue(cond);
 			cmp(cv, imm(0));
 		}
-		cmov(d, t, cc);
+		put(X86Op::CMov, {vr(d)}, {vr(d), vr(t)}, (I64)cc);
 	}
 
 	VReg X86LowerPass::vecMask(CompareNode* c, B32& invert) {
@@ -696,7 +711,13 @@ namespace rat {
 		VReg m = fresh(detail::kFp);
 		if(op == Opcode::FGt || op == Opcode::FGe)
 			std::swap(l, r);
-		vcmpf(m, l, r, esz, detail::kVecFpPred[(U32)op - (U32)Opcode::FEq]);
+		varithImm(m,
+							l,
+							r,
+							esz == 8 ? 0x66 : 0,
+							0xc2,
+							0,
+							detail::kVecFpPred[(U32)op - (U32)Opcode::FEq]); // cmpps, cmppd
 		return m;
 	}
 
@@ -758,7 +779,7 @@ namespace rat {
 		if(n->getOpcode() < Opcode::FEq) {
 			U8 cc = emitCmp(n);
 			VReg d = vregFor(n);
-			setcc(d, cc);
+			put(X86Op::SetCC, {vr(d)}, {}, (I64)cc);
 			return;
 		}
 		U32 idx = (U32)op - (U32)Opcode::FEq;
@@ -768,17 +789,17 @@ namespace rat {
 		if(isX87Ty(n->getLHS()->getType())) {
 			Slot lhs = x87Value(n->getLHS());
 			Slot rhs = x87Value(n->getRHS());
-			fucomi(d, lhs, rhs, cc, swap);
+			put(X86Op::X87Cmp, {vr(d)}, {sl(lhs), sl(rhs)}, (I64)cc, swap ? 1 : 0);
 		} else {
 			U32 w = opWidth(n->getLHS()->getType());
 			VReg lhs = sseValue(n->getLHS());
 			VReg rhs = sseValue(n->getRHS());
-			ucomis(d, lhs, rhs, w, cc, swap);
+			put(X86Op::FCmp, {vr(d)}, {vr(lhs, w), vr(rhs, w)}, (I64)cc, swap ? 1 : 0);
 		}
 		if(op != Opcode::FEq && op != Opcode::FNe)
 			return;
 		VReg t = fresh(detail::kGp);
-		setcc(t, op == Opcode::FEq ? CC_NP : CC_P);
+		put(X86Op::SetCC, {vr(t)}, {}, op == Opcode::FEq ? CC_NP : CC_P);
 		alu(op == Opcode::FEq ? X86Op::And : X86Op::Or, d, d, t);
 	}
 
@@ -915,7 +936,11 @@ namespace rat {
 		U32 w = opWidth(src->getType());
 		VReg s = sseValue(src);
 		VReg d = vregFor(n);
-		cvti(d, s, w, Asm::ssePrefixByte(w), 0x2c, isUnsigned || bits > 32);
+		put(X86Op::Cvt,
+				{vr(d)},
+				{vr(s, w)},
+				cvtDesc(Asm::ssePrefixByte(w), 0x2c, isUnsigned || bits > 32))
+				.regClass = detail::kGp;
 		signExtBits(d, bits); // cvtt writes a whole register; restore the convention
 	}
 
@@ -930,7 +955,7 @@ namespace rat {
 	}
 
 	void X86LowerPass::blendU64(ConvertNode* n, VReg lo, VReg hi, VReg m) {
-		neg(m);
+		put(X86Op::Neg, {vr(m)}, {vr(m)});
 		VReg d = vregFor(n); // d = lo ^ ((lo ^ hi) & m)
 		mov(d, hi);
 		alu(X86Op::Xor, d, d, lo);
@@ -967,16 +992,16 @@ namespace rat {
 		U8 pfx = Asm::ssePrefixByte(w);
 
 		VReg lo = fresh(detail::kGp); // while x < 2^63
-		cvti(lo, x, w, pfx, 0x2c, true);
+		put(X86Op::Cvt, {vr(lo)}, {vr(x, w)}, cvtDesc(pfx, 0x2c, true)).regClass = detail::kGp;
 
 		VReg biased = fresh(detail::kFp);
 		farith(X86Op::FSub, biased, x, k, w, (I64)w);
 		VReg hi = fresh(detail::kGp);
-		cvti(hi, biased, w, pfx, 0x2c, true);
+		put(X86Op::Cvt, {vr(hi)}, {vr(biased, w)}, cvtDesc(pfx, 0x2c, true)).regClass = detail::kGp;
 		alu(X86Op::Xor, hi, hi, gpConst((I64)0x8000000000000000ull)); // undo the bias
 
 		VReg m = fresh(detail::kGp); // -(x >= 2^63)
-		ucomis(m, x, k, w, CC_AE, false);
+		put(X86Op::FCmp, {vr(m)}, {vr(x, w), vr(k, w)}, CC_AE);
 		blendU64(n, lo, hi, m);
 	}
 
@@ -985,35 +1010,35 @@ namespace rat {
 			VReg z = fresh(detail::kGp);
 			mov(z, s);
 			maskBits(z, bits);
-			fild(x87SlotOf(n), z);
+			put(X86Op::X87FromInt, {sl(x87SlotOf(n))}, {vr(z)});
 			return;
 		}
 		auto [hi, lo] = splitHalves(s);
 		Slot fh = slot(reserve(16));
-		fild(fh, hi);
+		put(X86Op::X87FromInt, {sl(fh)}, {vr(hi)});
 		Slot flo = slot(reserve(16));
-		fild(flo, lo);
+		put(X86Op::X87FromInt, {sl(flo)}, {vr(lo)});
 		Slot k = slot(reserve(16));
-		fldImm(k, 0x41f0000000000000ull); // 2^32
-		x87Arith(X86Op::X87Mul, fh, fh, k);
-		x87Arith(X86Op::X87Add, x87SlotOf(n), fh, flo); // exact in the 64-bit mantissa
+		put(X86Op::X87LoadImmD, {sl(k)}, {im(imm((I64)0x41f0000000000000ull))}); // 2^32
+		put(X86Op::X87Mul, {sl(fh)}, {sl(fh), sl(k)});
+		put(X86Op::X87Add, {sl(x87SlotOf(n))}, {sl(fh), sl(flo)}); // exact in the 64-bit mantissa
 	}
 
 	void X86LowerPass::emitX87ToU64(ConvertNode* n, Slot x) {
 		Slot k = slot(reserve(16));
-		fldImm(k, 0x43e0000000000000ull); // 2^63
+		put(X86Op::X87LoadImmD, {sl(k)}, {im(imm((I64)0x43e0000000000000ull))}); // 2^63
 
 		VReg lo = fresh(detail::kGp); // while x < 2^63
-		fistp(lo, x);
+		put(X86Op::X87ToInt, {vr(lo)}, {sl(x)});
 
 		Slot biased = slot(reserve(16));
-		x87Arith(X86Op::X87Sub, biased, x, k);
+		put(X86Op::X87Sub, {sl(biased)}, {sl(x), sl(k)});
 		VReg hi = fresh(detail::kGp);
-		fistp(hi, biased);
+		put(X86Op::X87ToInt, {vr(hi)}, {sl(biased)});
 		alu(X86Op::Xor, hi, hi, gpConst((I64)0x8000000000000000ull)); // undo the bias
 
 		VReg m = fresh(detail::kGp); // -(x >= 2^63)
-		fucomi(m, x, k, CC_AE, false);
+		put(X86Op::X87Cmp, {vr(m)}, {sl(x), sl(k)}, CC_AE);
 		blendU64(n, lo, hi, m);
 	}
 
@@ -1033,17 +1058,20 @@ namespace rat {
 			if(isX87Ty(st)) // long double -> long double: plain move
 				fldSlot(x87SlotOf(n), x);
 			else
-				fldSse(x87SlotOf(n), s, opWidth(st));
+				put(X86Op::X87FromSse, {sl(x87SlotOf(n))}, {vr(s, opWidth(st))}, (I64)opWidth(st));
 			return;
 		case Opcode::FPTrunc:
-			fstpSse(vregFor(n), opWidth(n->getType()), x);
+			put(X86Op::X87ToSse,
+					{vr(vregFor(n), opWidth(n->getType()))},
+					{sl(x)},
+					(I64)opWidth(n->getType()));
 			return;
 		case Opcode::SIToFP: {
 			// fild reads all 64 bits, a narrower source loaded from memory is zero extended
 			VReg wide = fresh(detail::kGp);
 			mov(wide, s);
 			signExtBits(wide, intBits(st));
-			fild(x87SlotOf(n), wide);
+			put(X86Op::X87FromInt, {sl(x87SlotOf(n))}, {vr(wide)});
 			return;
 		}
 		case Opcode::UIToFP:
@@ -1056,7 +1084,7 @@ namespace rat {
 				return;
 			}
 			VReg d = vregFor(n);
-			fistp(d, x);
+			put(X86Op::X87ToInt, {vr(d)}, {sl(x)});
 			signExtBits(d, intBits(n->getType()));
 			return;
 		}

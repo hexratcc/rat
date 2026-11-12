@@ -50,9 +50,9 @@ namespace rat {
 			return none;
 		const Type* t = value->getType();
 		if(const ConstantNode* c = dyn_cast<ConstantNode>(value))
-			return t->isInt() || t->isPtr() ? MachineOperand::immVal(c->getValue(), opWidth(t)) : none;
+			return t->isInt() || t->isPtr() ? im(imm(c->getValue(), opWidth(t))) : none;
 		VReg v = vregOf[value->getId()];
-		return v == kNoVReg ? none : MachineOperand::vr(v, opWidth(t));
+		return v == kNoVReg ? none : vr(v, opWidth(t));
 	}
 
 	// records hang off the instr they precede, outside the instr lists

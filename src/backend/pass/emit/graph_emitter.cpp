@@ -15,20 +15,14 @@ namespace rat {
 
 		void writeHtml(std::ostream& os, const String& s) {
 			for(C8 ch : s) {
-				switch(ch) {
-				case '&':
+				if(ch == '&')
 					os << "&amp;";
-					break;
-				case '<':
+				else if(ch == '<')
 					os << "&lt;";
-					break;
-				case '>':
+				else if(ch == '>')
 					os << "&gt;";
-					break;
-				default:
+				else
 					os << ch;
-					break;
-				}
 			}
 		}
 
@@ -134,6 +128,13 @@ namespace rat {
 			return t->getTupleElement(e)->str();
 		}
 
+		void writeCell(std::ostream& os, C8 side, U32 port, U32 span, const String& text) {
+			os << "<td port=\"" << side << port << "\" colspan=\"" << span
+				 << "\" valign=\"bottom\">&#160;";
+			writeHtml(os, text);
+			os << "&#160;</td>";
+		}
+
 		void writeNode(std::ostream& os, U32 fnIndex, const Node* n, const List<U32>& useCount) {
 			U32 in = n->getInputCount();
 			U32 out = outCount(n);
@@ -148,12 +149,8 @@ namespace rat {
 						"cellpadding=\"3\">";
 			if(in) {
 				os << "<tr>";
-				for(U32 i = 0; i < in; ++i) {
-					os << "<td port=\"i" << i << "\" colspan=\"" << cols / in
-						 << "\" valign=\"bottom\">&#160;";
-					writeHtml(os, portName(n, i));
-					os << "&#160;</td>";
-				}
+				for(U32 i = 0; i < in; ++i)
+					writeCell(os, 'i', i, cols / in, portName(n, i));
 				os << "</tr>";
 			}
 			os << "<tr><td colspan=\"" << cols << "\">&#160;";
@@ -162,12 +159,8 @@ namespace rat {
 			U32 port = 0;
 			for(U32 e = 0; e < out; ++e) {
 				String name = outName(n, e);
-				for(U32 k = 0, uk = std::max(useCount[e], 1u); k < uk; ++k) {
-					os << "<td port=\"o" << port++ << "\" colspan=\"" << cols / total
-						 << "\" valign=\"bottom\">&#160;";
-					writeHtml(os, name);
-					os << "&#160;</td>";
-				}
+				for(U32 k = 0, uk = std::max(useCount[e], 1u); k < uk; ++k)
+					writeCell(os, 'o', port++, cols / total, name);
 			}
 			os << "</tr></table>>];\n";
 		}
