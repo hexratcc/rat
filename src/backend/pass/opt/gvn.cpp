@@ -62,7 +62,6 @@ namespace rat {
 
 	U32 GVNPass::runOnFunction(Function& fn, const TargetInfo&) {
 		U32 removed = 0;
-
 		U32 cap = 16;
 		while(cap < fn.size() * 2)
 			cap <<= 1;
@@ -98,7 +97,7 @@ namespace rat {
 						break;
 					}
 				} else {
-					// n is a duplicate of the earlier representative; redirect its uses
+					// a duplicate, redirect its uses to the representative
 					changed = changed || hasKeyedUser(n);
 					detail::meetNsw(slots[i].val, n);
 					n->replaceAllUsesWith(slots[i].val);

@@ -23,7 +23,7 @@ namespace rat {
 			StoreNode* state = nullptr; // the state it read before
 		};
 
-		// what loadcanon leaves for slp on the same function: its hoists, and its chains and addresses
+		// what loadcanon leaves for slp on the same function, its hoists, chains and addresses
 		// to save compile time
 		struct Handoff {
 			Handoff() = default;

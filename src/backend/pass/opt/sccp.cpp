@@ -13,8 +13,6 @@ namespace rat {
 		return kind == o.kind && (kind != Kind::Constant || value == o.value);
 	}
 
-	B32 SCCPPass::Lattice::operator!=(const Lattice& o) const { return !(*this == o); }
-
 	B32 SCCPPass::isValueNode(Node* n) {
 		Opcode op = n->getOpcode();
 		return op == Opcode::Constant || op == Opcode::Phi || isArithmeticOpcode(op);
@@ -69,12 +67,11 @@ namespace rat {
 		Lattice p = get(iff->getPredicate());
 		if(p.kind == Lattice::Kind::Top)
 			return;
-		B32 takeThen = p.kind == Lattice::Kind::Bottom || p.value != 0;
-		B32 takeElse = p.kind == Lattice::Kind::Bottom || p.value == 0;
-		if(takeThen)
+		B32 unknown = p.kind == Lattice::Kind::Bottom;
+		if(unknown || p.value != 0)
 			if(ProjNode* t = iff->projection(IfNode::thenProjIndex()))
 				markExec(t);
-		if(takeElse)
+		if(unknown || p.value == 0)
 			if(ProjNode* e = iff->projection(IfNode::elseProjIndex()))
 				markExec(e);
 	}
@@ -121,21 +118,20 @@ namespace rat {
 		if(!isValueNode(n))
 			return;
 		Lattice nw = evaluate(n);
-		if(nw != get(n)) {
-			U32 id = n->getId();
-			ensureSize(id);
-			values[id] = nw;
-			for(Node* u : n->getUsers())
-				ssaWork.push_back(u);
-		}
+		if(nw == get(n))
+			return;
+		U32 id = n->getId();
+		ensureSize(id);
+		values[id] = nw;
+		for(Node* u : n->getUsers())
+			ssaWork.push_back(u);
 	}
 
 	SCCPPass::Lattice SCCPPass::evaluate(Node* n) {
-		Opcode op = n->getOpcode();
-		if(op == Opcode::Constant)
-			return Lattice::constant(cast<ConstantNode>(n)->getValue());
-		if(op == Opcode::Phi)
-			return evalPhi(cast<PhiNode>(n));
+		if(ConstantNode* c = dyn_cast<ConstantNode>(n))
+			return Lattice::constant(c->getValue());
+		if(PhiNode* phi = dyn_cast<PhiNode>(n))
+			return evalPhi(phi);
 		return evalArith(n);
 	}
 
@@ -164,29 +160,24 @@ namespace rat {
 			return Lattice::bottom();
 		if(a.kind == Lattice::Kind::Top || b.kind == Lattice::Kind::Top)
 			return Lattice::top();
-
 		Type* lty = lhs->getType();
-		if(isConvertOpcode(op) && lty == n->getType())
+		Type* dty = n->getType();
+		if(isConvertOpcode(op) && lty == dty)
 			return Lattice::constant(a.value);
 		if(!lty->isInt())
 			return Lattice::bottom();
 		U32 w = lty->getIntWidth();
-		I64 out;
-		if(isBinaryOpcode(op)) {
-			if(evalBinaryConst(op, w, a.value, b.value, out))
-				return Lattice::constant(out);
-		} else if(isUnaryOpcode(op)) {
-			if(evalUnaryConst(op, w, a.value, out))
-				return Lattice::constant(out);
-		} else if(isCompareOpcode(op)) {
-			if(evalCompareConst(op, w, a.value, b.value, out))
-				return Lattice::constant(out);
-		} else if(isConvertOpcode(op)) {
-			Type* dty = n->getType();
-			if(dty->isInt() && evalConvertConst(op, w, dty->getIntWidth(), a.value, out))
-				return Lattice::constant(out);
-		}
-		return Lattice::bottom();
+		I64 out = 0;
+		B32 folded = false;
+		if(isBinaryOpcode(op))
+			folded = evalBinaryConst(op, w, a.value, b.value, out);
+		else if(isUnaryOpcode(op))
+			folded = evalUnaryConst(op, w, a.value, out);
+		else if(isCompareOpcode(op))
+			folded = evalCompareConst(op, w, a.value, b.value, out);
+		else if(isConvertOpcode(op))
+			folded = dty->isInt() && evalConvertConst(op, w, dty->getIntWidth(), a.value, out);
+		return folded ? Lattice::constant(out) : Lattice::bottom();
 	}
 
 	void SCCPPass::solve(Function& fn) {

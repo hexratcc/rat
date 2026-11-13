@@ -100,15 +100,12 @@ namespace detail {
 
 	B32 readFile(const String& path, String& text, String& err) {
 		std::ifstream f(path);
-		if(!f) {
+		if(f && readAll(f, text))
+			return true;
+		{
 			err = "cannot read file";
 			return false;
 		}
-		if(!readAll(f, text)) {
-			err = "failed to read file";
-			return false;
-		}
-		return true;
 	}
 
 	B32 runRatPasses(Module& mod, const List<String>& passes, String& err) {

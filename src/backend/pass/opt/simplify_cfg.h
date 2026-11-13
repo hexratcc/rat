@@ -16,7 +16,6 @@
 #include "pass/pass.h"
 
 namespace rat {
-	struct Function;
 	struct IfNode;
 	struct Node;
 	struct PhiNode;

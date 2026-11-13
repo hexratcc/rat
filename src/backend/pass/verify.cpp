@@ -6,7 +6,8 @@
 #include "ir/type.h"
 #include "target/target.h"
 
-#include <sstream>
+#include <algorithm>
+#include <ostream>
 
 namespace rat {
 	VerifyPass::FunctionVerifier::FunctionVerifier(const Function& fn, std::ostream& os)
@@ -47,13 +48,6 @@ namespace rat {
 		return t->isInt() && t->getIntWidth() == 1;
 	}
 
-	B32 VerifyPass::FunctionVerifier::listsAsUser(const Node* def, const Node* user) {
-		for(const Node* u : def->getUsers())
-			if(u == user)
-				return true;
-		return false;
-	}
-
 	B32 VerifyPass::FunctionVerifier::listsAsInput(const Node* user, const Node* def) {
 		for(U32 i = 0, e = user->getInputCount(); i < e; ++i)
 			if(user->getInput(i) == def)
@@ -63,23 +57,17 @@ namespace rat {
 
 	B32 VerifyPass::FunctionVerifier::checkArity(const Node* n) {
 		const OpcodeInfo& info = getOpcodeInfo(n->getOpcode());
-		U32 c = n->getInputCount();
-		U32 lo = (U32)info.minInputs;
+		U32 count = n->getInputCount();
 		B32 variadic = info.maxInputs < 0;
-		if(c < lo || (!variadic && c > (U32)info.maxInputs)) {
-			std::ostringstream os;
-			os << "expects ";
-			if(variadic)
-				os << lo << "+";
-			else if((U32)info.maxInputs == lo)
-				os << lo;
-			else
-				os << lo << ".." << (U32)info.maxInputs;
-			os << " inputs but has " << c;
-			err(n, os.str());
-			return false;
-		}
-		return true;
+		if(count >= (U32)info.minInputs && (variadic || count <= (U32)info.maxInputs))
+			return true;
+		String maxStr = variadic ? "+" : "";
+		if(!variadic && info.maxInputs != info.minInputs)
+			maxStr = ".." + std::to_string(info.maxInputs);
+		err(n,
+				"expects " + std::to_string(info.minInputs) + maxStr + " inputs but has " +
+						std::to_string(count));
+		return false;
 	}
 
 	void VerifyPass::FunctionVerifier::checkEdges(Node* n) {
@@ -117,31 +105,38 @@ namespace rat {
 		const Type* t = n->getType();
 		switch(n->getOpcode()) {
 		case Opcode::Start:
-			checkStart(n);
-			break;
+			return checkStart(n);
+		case Opcode::Return:
+			return checkReturn(n);
+		case Opcode::Region:
+			return checkRegion(n);
+		case Opcode::If:
+			return checkIf(n);
+		case Opcode::Switch:
+			return checkSwitch(n);
+		case Opcode::Proj:
+			return checkProj(n);
+		case Opcode::Phi:
+			return checkPhi(n);
+		case Opcode::Splat:
+		case Opcode::Extract:
+		case Opcode::Pack:
+		case Opcode::Shuffle:
+			return checkLaneOp(n);
+		case Opcode::Select:
+			return checkSelect(n);
+		case Opcode::Load:
+		case Opcode::Store:
+			return checkMemoryOp(n);
+		case Opcode::Call:
+			return checkCall(n);
+		case Opcode::Asm:
+			return checkAsm(n);
 		case Opcode::Stop:
 			if(n != fn.getStop())
 				err(n, "duplicate Stop node");
 			if(!t->isControl())
 				err(n, "Stop type must be control");
-			break;
-		case Opcode::Return:
-			checkReturn(n);
-			break;
-		case Opcode::Region:
-			checkRegion(n);
-			break;
-		case Opcode::If:
-			checkIf(n);
-			break;
-		case Opcode::Switch:
-			checkSwitch(n);
-			break;
-		case Opcode::Proj:
-			checkProj(n);
-			break;
-		case Opcode::Phi:
-			checkPhi(n);
 			break;
 		case Opcode::Constant:
 			if(!(t->isInt() || t->isFloat()))
@@ -168,28 +163,8 @@ namespace rat {
 			if(!t->isMemory())
 				err(n, "StackRestore type must be memory");
 			break;
-		case Opcode::Splat:
-		case Opcode::Extract:
-		case Opcode::Pack:
-		case Opcode::Shuffle:
-			checkLaneOp(n);
-			break;
-		case Opcode::Select:
-			checkSelect(n);
-			break;
-		case Opcode::Load:
-		case Opcode::Store:
-			checkMemoryOp(n);
-			break;
-		case Opcode::Call:
-			checkCall(n);
-			break;
-		case Opcode::Asm:
-			checkAsm(n);
-			break;
 		default:
-			checkArithmetic(n);
-			break;
+			return checkArithmetic(n);
 		}
 	}
 
@@ -239,7 +214,8 @@ namespace rat {
 		} else if(r->hasValue()) {
 			err(n, "Return in a void function carries a value");
 		}
-		if(!listsAsUser(n, fn.getStop()))
+		NodeSpan users = n->getUsers();
+		if(std::find(users.begin(), users.end(), fn.getStop()) == users.end())
 			err(n, "Return is not connected to the Stop node");
 	}
 
@@ -424,17 +400,13 @@ namespace rat {
 	void VerifyPass::FunctionVerifier::checkArithmetic(const Node* n) {
 		switch(getOpClass(n->getOpcode())) {
 		case OpClass::Binary:
-			checkBinary(n);
-			break;
+			return checkBinary(n);
 		case OpClass::Unary:
-			checkUnary(n);
-			break;
+			return checkUnary(n);
 		case OpClass::Compare:
-			checkCompare(n);
-			break;
+			return checkCompare(n);
 		case OpClass::Convert:
-			checkConvert(n);
-			break;
+			return checkConvert(n);
 		case OpClass::None:
 			break;
 		}
@@ -470,22 +442,15 @@ namespace rat {
 				err(n, "pointer arithmetic supports only add/sub");
 			else if(!rt->isInt())
 				err(n, "pointer arithmetic offset must be an integer");
-		} else if(lt->isInt()) {
+		} else if(lt->isInt() || lt->isVec()) {
+			// a shift amount is one scalar, also for a vector
 			if(shift) {
 				if(!rt->isInt())
 					err(n, "shift amount is not an integer");
 			} else if(rt != lt) {
 				err(n, "binary operands have different types");
 			}
-		} else if(lt->isVec()) {
-			// a vector shift is by one scalar amount
-			if(shift) {
-				if(!rt->isInt())
-					err(n, "shift amount is not an integer");
-			} else if(rt != lt) {
-				err(n, "binary operands have different types");
-			}
-			if(!hasVectorLowering(op, lt->getVecElement()))
+			if(lt->isVec() && !hasVectorLowering(op, lt->getVecElement()))
 				err(n, "binary opcode has no vector lowering");
 		} else if(lt->isFloat()) {
 			if(rt != lt)

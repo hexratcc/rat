@@ -17,11 +17,9 @@
 #include "ir/opcode.h"
 #include "pass/pass.h"
 
-#include <iosfwd>
 #include <tuple>
 
 namespace rat {
-	struct Node;
 	struct CallNode;
 	struct StoreNode;
 	struct LoadNode;
@@ -92,16 +90,15 @@ namespace rat {
 			U32 guardedRunsIn(const Node* block) const;
 			B32 bytesRead(U32 group, I64 offset, U32 size, const Node* ctrl);
 			B32 storesTo(U32 object);
-		private:
-			void indexReads();
-			void indexStores();
-		public:
 			Function& fn;
 			U32 ptrBytes;
 			B32 sse41;
 			SlpGuards guards;
 			AddrCache addrs;
 			Map<const Node*, U32> guardedRunsPerBlock; // block -> guarded runs, commitGuarded counts
+		private:
+			void indexReads();
+			void indexStores();
 		private:
 			Map<U64, Set<I64>> reads; // (control id, group) -> offsets of the 4-byte pieces loads read
 			B32 readsIndexed = false;
@@ -110,7 +107,6 @@ namespace rat {
 		};
 
 		// chains
-
 		struct Access {
 			Addr addr;
 			U32 size = 0;
@@ -139,7 +135,6 @@ namespace rat {
 		};
 
 		// plan
-
 		enum class VectorKind : U8 {
 			Gather, // Pack or Splat
 			Load,		// wide loads or a broadcast load
@@ -185,6 +180,11 @@ namespace rat {
 			Plan(Context& cx, const Seed& seed);
 			B32 build();
 			Node* tupleNode(U32 tuple) const; // what apply emitted for seed tuple
+			const Seed& seed;
+			List<Vector> vectors;												// operands first
+			SmallList<U32, kMaxTerms / 4> tupleVectors; // vector of each seed tuple
+			List<GuardRange> guards;
+			List<Pair<LoadNode*, Addr>> loads; // the loads apply made, loadAt reuses them
 		private:
 			void addGuard(const Vector& vec);
 			U32 planVector(const Lanes& lanes);
@@ -206,19 +206,12 @@ namespace rat {
 			B32 forwardBlocked(const Vector& vec);
 			B32 splitsLoad(Node* state, const Access& load, SmallList<Node*, kMaxHops>& walk);
 			B32 callWrites(const CallNode* call, const Addr& addr);
-		public:
-			const Seed& seed;
-			List<Vector> vectors;												// operands first
-			SmallList<U32, kMaxTerms / 4> tupleVectors; // vector of each seed tuple
-			List<GuardRange> guards;
-			List<Pair<LoadNode*, Addr>> loads; // the loads apply made, loadAt reuses them
 		private:
 			Context& cx;
 			U32 budget = 0; // Op vectors left to try, kMaxOps more per seed tuple
 		};
 
 		// check
-
 		// the role of each node in the plan under check and apply
 		struct Check {
 			explicit Check(const Function& fn);
@@ -235,7 +228,6 @@ namespace rat {
 		};
 
 		// apply
-
 		struct GuardedRun {
 			Node* block = nullptr;
 			StoreNode* firstStore = nullptr; // its memory follows every rewire of memIn
@@ -254,7 +246,6 @@ namespace rat {
 		private:
 			Pair<Node*, I64> anchorOf(Node* ptr);
 			Node* anchorPtr(Node* ptr, I64 offset, const Node* ctrl);
-			Node* emitGather(const Vector& vec, Type* vecTy);
 			Node* emitLoad(const Vector& vec, Type* vecTy, Plan& plan);
 			Node* loadAt(const Vector& vec, Type* ty, I64 offset, Plan& plan);
 			Node* emitOp(const Vector& vec, Type* vecTy, const Plan& plan);
@@ -270,11 +261,9 @@ namespace rat {
 		};
 
 		// driver
-
 		struct Slp {
 			Slp(Function& fn, const TargetInfo& target, SlpStats& stats, SlpGuards guards);
 			Slp(const Slp&) = delete; // the stages hold references to cx
-			Slp& operator=(const Slp&) = delete;
 			U32 run();
 		private:
 			B32 pack(const Seed& seed);

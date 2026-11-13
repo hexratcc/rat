@@ -25,13 +25,11 @@ namespace rat {
 		constexpr U32 kMaxPtrHops = 32;			// add and sub steps walked from a pointer to its base
 		// a pointer further from its base gets a group of its own, so sums and differences of offsets fit I64
 		constexpr I64 kMaxPtrOffset = (I64)1 << 61;
-
 		// object id = kObjectTags * number + tag
 		constexpr U32 kObjectTags = 4;
 		constexpr U32 kAllocTag = 1;		// node id of an Alloc or StackAlloc
 		constexpr U32 kRestrictTag = 2; // parameter index, one object for all its projections
 		constexpr U32 kGlobalTag = 3;		// global symbol, one object for all its Global nodes
-
 		// sum and product modulo 2^64, as pointer arithmetic wraps
 		I64 wrapAdd(I64 a, I64 b);
 		I64 wrapMul(I64 a, I64 b);

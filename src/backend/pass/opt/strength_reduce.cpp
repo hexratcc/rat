@@ -11,15 +11,7 @@ namespace rat {
 				return false;
 			for(U32 i = 0; i < 2; ++i) {
 				Node* v = p->getValue(i);
-				if(!v || v->getOpcode() != Opcode::Add)
-					continue;
-				Node* a = v->getInput(0);
-				Node* b = v->getInput(1);
-				ConstantNode* c = nullptr;
-				if(a == p)
-					c = dyn_cast<ConstantNode>(b);
-				else if(b == p)
-					c = dyn_cast<ConstantNode>(a);
+				ConstantNode* c = v ? offsetOf(v, p) : nullptr;
 				if(!c)
 					continue;
 				step = c->getValue();
@@ -30,20 +22,15 @@ namespace rat {
 		}
 
 		B32 foldableScale(Opcode op, I64 k, U32 width) {
-			if(width != 64)
-				return false;
 			if(op == Opcode::Shl)
-				return k >= 1 && k <= 3;
-			return k == 2 || k == 4 || k == 8;
+				return width == 64 && k >= 1 && k <= 3;
+			return width == 64 && (k == 2 || k == 4 || k == 8);
 		}
 
 		ConstantNode* affineScale(Node* u, PhiNode* p) {
-			if(u->getInputCount() != 2)
-				return nullptr;
 			Opcode op = u->getOpcode();
-			if(op != Opcode::Mul && op != Opcode::Shl)
-				return nullptr;
-			if(u->getType() != p->getType())
+			if(u->getInputCount() != 2 || (op != Opcode::Mul && op != Opcode::Shl) ||
+				 u->getType() != p->getType())
 				return nullptr;
 			if(op == Opcode::Shl && u->getInput(0) != p)
 				return nullptr; // k << p is not affine in p
@@ -68,9 +55,7 @@ namespace rat {
 			if(!cmp || cmp->getLHS() != p || !isa<ConstantNode>(cmp->getRHS()))
 				return nullptr;
 			Opcode op = cmp->getOpcode();
-			if(op != Opcode::Slt && op != Opcode::Sle)
-				return nullptr;
-			return cmp;
+			return op == Opcode::Slt || op == Opcode::Sle ? cmp : nullptr;
 		}
 
 		// k of u = p + k (null otherwise)
@@ -131,9 +116,7 @@ namespace rat {
 			return 0;
 		I64 lo = signExtend(cast<ConstantNode>(init)->getValue(), 32);
 		I64 bound = signExtend(cast<ConstantNode>(cmp->getRHS())->getValue(), 32);
-		I64 limit = bound;
-		if(cmp->getOpcode() == Opcode::Sle)
-			limit = bound + 1;
+		I64 limit = cmp->getOpcode() == Opcode::Sle ? bound + 1 : bound;
 		step = signExtend(step, 32);
 		I64 top = std::max(lo, limit - 1 + step);
 		if(step <= 0 || top > INT32_MAX)
@@ -159,7 +142,6 @@ namespace rat {
 
 	U32 StrengthReducePass::runOnFunction(Function& fn, const TargetInfo&) {
 		U32 changed = 0;
-
 		List<PhiNode*> phis;
 		for(Node* n : fn)
 			if(PhiNode* p = dyn_cast<PhiNode>(n))
@@ -179,24 +161,20 @@ namespace rat {
 			Node* init = p->getValue(1 - recIdx);
 			RegionNode* region = p->getRegion();
 
-			// collect candidate uses
 			List<Node*> muls;
 			for(Node* u : p->getUsers())
 				if(detail::affineScale(u, p))
 					muls.push_back(u);
-
 			for(Node* mul : muls) {
 				Opcode op = mul->getOpcode();
 				I64 k = detail::affineScale(mul, p)->getValue();
 				I64 scaledStep;
 				if(!evalBinaryConst(op, w, step, k, scaledStep))
 					continue;
-
 				Node* scaledInit = fn.create<BinaryNode>(op, ty, init, constant(fn, ty, k));
 				PhiNode* q = fn.create<PhiNode>(ty, List<Node*>{region, scaledInit, scaledInit});
 				Node* stepNode = fn.create<BinaryNode>(Opcode::Add, ty, q, constant(fn, ty, scaledStep));
 				q->setInput(1 + recIdx, stepNode);
-
 				mul->replaceAllUsesWith(q);
 				++changed;
 			}

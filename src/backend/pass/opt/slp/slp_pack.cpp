@@ -50,9 +50,7 @@ namespace rat {
 
 	U32 SlpPackPass::Context::guardedRunsIn(const Node* block) const {
 		auto it = guardedRunsPerBlock.find(block);
-		if(it == guardedRunsPerBlock.end())
-			return 0;
-		return it->second;
+		return it == guardedRunsPerBlock.end() ? 0 : it->second;
 	}
 
 	SlpPackPass::Slp::Slp(Function& fn, const TargetInfo& target, SlpStats& stats, SlpGuards guards)
@@ -76,9 +74,7 @@ namespace rat {
 
 	B32 SlpPackPass::Slp::pack(const Seed& seed) {
 		Plan plan(cx, seed);
-		I32 margin = -1;
-		if(plan.build())
-			margin = profitMargin(plan, cx.guards);
+		I32 margin = plan.build() ? profitMargin(plan, cx.guards) : -1;
 		if(margin < 0) {
 			++stats.rejected;
 			return false;
@@ -176,20 +172,16 @@ namespace rat {
 	}
 
 	U8 SlpPackPass::Check::roleOf(const Node* n) const {
-		if(n->getId() >= roles.size())
-			return 0;
-		return roles[n->getId()];
+		return n->getId() < roles.size() ? roles[n->getId()] : 0;
 	}
 
 	SlpPackPass::SlpPackPass(SlpGuards guards)
 	: guards(guards) {}
 
 	const C8* SlpPackPass::name() const {
-		if(guards == SlpGuards::NoCost)
-			return "slp-noguardcost";
-		if(guards == SlpGuards::Off)
-			return "slp-noguards";
-		return "slp";
+		static_assert((U8)SlpGuards::On == 0 && (U8)SlpGuards::NoCost == 1 && (U8)SlpGuards::Off == 2);
+		constexpr const C8* kNames[] = {"slp", "slp-noguardcost", "slp-noguards"};
+		return kNames[(U8)guards];
 	}
 
 	void SlpPackPass::beginModule(Module&, const CallGraph&) {

@@ -33,7 +33,6 @@ namespace rat {
 			static B32 isMem(const Node* n);
 			static B32 isData(const Node* n);
 			static B32 isBool(const Type* t);
-			static B32 listsAsUser(const Node* def, const Node* user);
 			static B32 listsAsInput(const Node* user, const Node* def);
 			B32 checkArity(const Node* n);
 			void checkEdges(Node* n);

@@ -83,9 +83,8 @@ namespace rat {
 			work.pop_back();
 			if(++visits > kMaxCone)
 				return ~0u;
-			U32 state = 0;
-			if(Node* mem = memoryInput(n))
-				state = stateOf[mem->getId()];
+			Node* mem = memoryInput(n);
+			U32 state = mem ? stateOf[mem->getId()] : 0;
 			latest = std::max(latest, state);
 			if(state || isa<PhiNode>(n))
 				continue;
@@ -140,9 +139,7 @@ namespace rat {
 	}
 
 	U32 LoadCanonPass::LastOutside::outside(U32 group) const {
-		if(group != lastGroup)
-			return last;
-		return lastOther;
+		return group != lastGroup ? last : lastOther;
 	}
 
 	LoadCanonPass::Handoff& LoadCanonPass::handoff() {

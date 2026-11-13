@@ -116,9 +116,7 @@ namespace rat {
 			addWindow(seed, chain, next);
 			++stats.windowsSeen;
 		}
-		if(!pack(seed))
-			return 0;
-		return (U32)seed.stores.size();
+		return pack(seed) ? (U32)seed.stores.size() : 0;
 	}
 
 	// bytes / element size stores from chain[start] of one type and group that fill one span
@@ -163,12 +161,12 @@ namespace rat {
 	}
 
 	void SlpPackPass::addWindow(Seed& seed, const Chain& chain, const Window& window) {
-		for(U32 j = 0; j < window.laneCount; ++j)
-			seed.stores.push_back(chain[window.start + j]);
 		seed.lowestStores.push_back(window.laneStore[0]);
-		seed.tuples.emplace_back();
-		for(U32 lane = 0; lane < window.laneCount; ++lane)
-			seed.tuples.back().push_back(window.laneStore[lane]->getValue());
+		Lanes& tuple = seed.tuples.emplace_back();
+		for(U32 lane = 0; lane < window.laneCount; ++lane) {
+			seed.stores.push_back(chain[window.start + lane]);
+			tuple.push_back(window.laneStore[lane]->getValue());
+		}
 		seed.profit += (I32)window.laneCount - 1; // the fused store
 	}
 

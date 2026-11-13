@@ -43,13 +43,6 @@ namespace rat {
 		return changed;
 	}
 
-	U32 PassManager::functionPassRun(U32 first) const {
-		U32 last = first;
-		while(last < passes.size() && dynamic_cast<FunctionPass*>(passes[last].get()))
-			++last;
-		return last;
-	}
-
 	// passes [first, last) run function by function, callees first, so a callee is fully optimized
 	// before any caller inlines it
 	void PassManager::runFunctionPasses(U32 first, U32 last, Module& module, std::ostream* log) {
@@ -75,7 +68,9 @@ namespace rat {
 
 	void PassManager::run(Module& module, std::ostream* log) {
 		for(U32 i = 0; i < passes.size();) {
-			U32 last = functionPassRun(i);
+			U32 last = i;
+			while(last < passes.size() && dynamic_cast<FunctionPass*>(passes[last].get()))
+				++last;
 			if(last > i) {
 				runFunctionPasses(i, last, module, log);
 				i = last;
@@ -119,15 +114,13 @@ namespace rat {
 		List<PassTiming> sorted = timing;
 		std::sort(sorted.begin(), sorted.end(), detail::slowerPass);
 
-		B32 first = true;
+		const C8* separator = "";
 		for(auto& t : sorted) {
 			F64 pct = 100.0 * static_cast<F64>(t.nanos) / static_cast<F64>(total);
 			F64 ms = static_cast<F64>(t.nanos) / 1e6;
-			if(!first)
-				os << ", ";
-			os << t.name << " " << std::fixed << std::setprecision(3) << ms << "ms ("
+			os << separator << t.name << " " << std::fixed << std::setprecision(3) << ms << "ms ("
 				 << std::setprecision(2) << pct << "%)";
-			first = false;
+			separator = ", ";
 		}
 		os << "\n";
 	}

@@ -17,13 +17,7 @@
 #include "pass/pass.h"
 
 namespace rat {
-	struct Function;
-	struct LoadNode;
-	struct Node;
-	struct PhiNode;
 	struct Schedule;
-	struct StoreNode;
-	struct Type;
 
 	struct MemoryOptPass : FunctionPass {
 		const C8* name() const override;
@@ -33,15 +27,19 @@ namespace rat {
 		U32 cseLoads(Function& fn, const AliasAnalysis& aa);
 		U32 forwardLoopCarried(Function& fn, const AliasAnalysis& aa);
 
-		// store-chain walk cap: unbounded it is O(loads * chain) and blows up on
-		// huge by-value struct copies; hitting the cap only forgoes forwarding,
-		// still sound
+		// store-chain walk cap. Unbounded it is O(loads * chain) and blows up on huge by-value
+		// struct copies, hitting the cap only forgoes forwarding, still sound
 		static constexpr U32 kMaxStoreWalk = 512;
 
 		// skip back over stores that provably do not alias [addr, addr+size)
 		static Node* effectiveDef(const AliasAnalysis& aa, Node* mem, Node* addr, U32 size, U32& hops);
 		B32 precedes(const LoadNode* a, const LoadNode* b) const;
 		B32 dominates(const Schedule& sched, LoadNode* a, LoadNode* b) const;
+		struct DomOrder {
+			const MemoryOptPass& pass;
+			const Schedule& sched;
+			B32 operator()(const LoadNode* a, const LoadNode* b) const;
+		};
 		static B32 forwardable(const AliasAnalysis& aa, StoreNode* s, LoadNode* l, U32 size);
 
 		struct ChainScan {

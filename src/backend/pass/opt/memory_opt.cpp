@@ -1,6 +1,5 @@
 #include "pass/opt/memory_opt.h"
 
-#include "analysis/alias_analysis.h"
 #include "codegen/schedule.h"
 #include "ir/function.h"
 #include "ir/node.h"
@@ -24,9 +23,7 @@ namespace rat {
 	// is their order inside a block
 	B32 MemoryOptPass::precedes(const LoadNode* a, const LoadNode* b) const {
 		U32 ha = chainHops[a->getId()], hb = chainHops[b->getId()];
-		if(ha != hb)
-			return ha < hb;
-		return a->getId() < b->getId(); // same memory state, either may represent
+		return ha != hb ? ha < hb : a->getId() < b->getId(); // same hops, either may represent
 	}
 
 	B32 MemoryOptPass::dominates(const Schedule& sched, LoadNode* a, LoadNode* b) const {
@@ -36,6 +33,14 @@ namespace rat {
 		if(ba == bb)
 			return precedes(a, b); // same block, no aliasing store between
 		return sched.dominates(ba, bb);
+	}
+
+	// dominators first, then by precedes
+	B32 MemoryOptPass::DomOrder::operator()(const LoadNode* a, const LoadNode* b) const {
+		I32 ba = sched.blockOf(a), bb = sched.blockOf(b);
+		I32 da = ba < 0 ? -1 : sched.block(ba).domDepth;
+		I32 db = bb < 0 ? -1 : sched.block(bb).domDepth;
+		return da != db ? da < db : pass.precedes(a, b);
 	}
 
 	B32 MemoryOptPass::forwardable(const AliasAnalysis& aa, StoreNode* s, LoadNode* l, U32 size) {
@@ -67,7 +72,7 @@ namespace rat {
 				continue;
 			AliasAnalysis::MustAliasKey key = aa.mustAliasKey(l);
 			if(!key.valid())
-				continue; // opaque address / unknown size: not provably CSE
+				continue; // opaque address or unknown size, not provably CSE
 			buckets[BucketKey{defs[l->getId()], l->getType(), key}].push_back(l);
 		}
 		paired.clear();
@@ -83,23 +88,14 @@ namespace rat {
 			List<LoadNode*>& group = kv.second;
 			if(group.size() < 2)
 				continue;
-			std::sort(group.begin(), group.end(), [&](LoadNode* a, LoadNode* b) -> B32 {
-				I32 ba = sched.blockOf(a), bb = sched.blockOf(b);
-				I32 da = ba < 0 ? -1 : sched.block(ba).domDepth;
-				I32 db = bb < 0 ? -1 : sched.block(bb).domDepth;
-				if(da != db)
-					return da < db;
-				return precedes(a, b);
-			});
+			std::sort(group.begin(), group.end(), DomOrder{*this, sched});
 			for(U32 i = 0, e = (U32)group.size(); i < e; ++i) {
 				LoadNode* b = group[i];
 				if(!b->hasUsers())
 					continue;
 				for(U32 j = 0; j < i; ++j) {
 					LoadNode* a = group[j];
-					if(!a->hasUsers())
-						continue;
-					if(dominates(sched, a, b)) {
+					if(a->hasUsers() && dominates(sched, a, b)) {
 						b->replaceAllUsesWith(a);
 						++removed;
 						break;
@@ -158,9 +154,8 @@ namespace rat {
 			if(!l->hasUsers())
 				continue;
 			PhiNode* m = dyn_cast<PhiNode>(defs[l->getId()]);
-			if(!m || !m->getType()->isMemory() || m->getValueCount() != 2)
-				continue;
-			if(!m->getRegion()->isLoopHeader())
+			if(!m || !m->getType()->isMemory() || m->getValueCount() != 2 ||
+				 !m->getRegion()->isLoopHeader())
 				continue;
 			ChainScan a = scanPhiSide(aa, m, 0, l);
 			ChainScan b = scanPhiSide(aa, m, 1, l);
@@ -168,9 +163,7 @@ namespace rat {
 				continue;
 			const ChainScan& entry = a.loops ? b : a;
 			const ChainScan& back = a.loops ? a : b;
-			U32 backIdx = 1;
-			if(a.loops)
-				backIdx = 0;
+			U32 backIdx = a.loops ? 0 : 1;
 			if(!back.clobbered && !back.store && !entry.store && loopInvariant(aa, m, backIdx, l)) {
 				l->setInput(1, m->getValue(1 - backIdx));
 				++removed;
@@ -179,12 +172,10 @@ namespace rat {
 			if(entry.clobbered || back.clobbered || !entry.store)
 				continue;
 			Node* init = entry.store->getValue();
-			Node* replacement;
-			if(!back.store || back.store->getValue() == l) {
-				replacement = init;
-			} else {
+			Node* replacement = init;
+			if(back.store && back.store->getValue() != l) {
 				List<Node*> values{init, init};
-				values[a.loops ? 0 : 1] = back.store->getValue();
+				values[backIdx] = back.store->getValue();
 				replacement = fn.phi(l->getType(), m->getRegion(), values);
 			}
 			l->replaceAllUsesWith(replacement);
@@ -197,7 +188,6 @@ namespace rat {
 
 	U32 MemoryOptPass::runOnFunction(Function& fn, const TargetInfo& target) {
 		fn.eliminateDeadNodes();
-
 		AliasAnalysis aa(target.getPointerSizeInBytes(), 0);
 
 		loads.clear();
@@ -211,8 +201,7 @@ namespace rat {
 				defs[l->getId()] = effectiveDef(
 						aa, l->getMemory(), l->getPointer(), aa.getAccessSize(l), chainHops[l->getId()]);
 
-		U32 removed = 0;
-		removed += forwardStores(aa);
+		U32 removed = forwardStores(aa);
 		removed += cseLoads(fn, aa);
 		removed += forwardLoopCarried(fn, aa);
 		if(removed)

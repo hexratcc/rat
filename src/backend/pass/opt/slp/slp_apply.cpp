@@ -81,15 +81,11 @@ namespace rat {
 				vec.node = emitLoad(vec, vecTy, plan);
 			else if(vec.kind == VectorKind::Op)
 				vec.node = emitOp(vec, vecTy, plan);
+			else if(isSplat(vec.lanes))
+				vec.node = cx.fn.create<SplatNode>(vecTy, vec.lanes[0]);
 			else
-				vec.node = emitGather(vec, vecTy);
+				vec.node = cx.fn.create<PackNode>(vecTy, List<Node*>(vec.lanes.begin(), vec.lanes.end()));
 		}
-	}
-
-	Node* SlpPackPass::Emitter::emitGather(const Vector& vec, Type* vecTy) {
-		if(isSplat(vec.lanes))
-			return cx.fn.create<SplatNode>(vecTy, vec.lanes[0]);
-		return cx.fn.create<PackNode>(vecTy, List<Node*>(vec.lanes.begin(), vec.lanes.end()));
 	}
 
 	Node* SlpPackPass::Emitter::emitLoad(const Vector& vec, Type* vecTy, Plan& plan) {
@@ -100,9 +96,7 @@ namespace rat {
 		Node* low = loadAt(vec, vecTy, vec.offset, plan);
 		if(!vec.permuted)
 			return low;
-		Node* high = low;
-		if(vec.wideLoads == 2)
-			high = loadAt(vec, vecTy, vec.offset + (I64)kVecBytes, plan);
+		Node* high = vec.wideLoads == 2 ? loadAt(vec, vecTy, vec.offset + (I64)kVecBytes, plan) : low;
 		return cx.fn.create<ShuffleNode>(vecTy, low, high, vec.sel);
 	}
 
@@ -161,9 +155,8 @@ namespace rat {
 				set->setInput(slot, nullptr);
 			}
 			set->setInput(firstSlot, wide);
-		} else {
+		} else
 			seed.stores.back()->replaceAllUsesWith(wide);
-		}
 		for(StoreNode* st : seed.stores)
 			st->clearInputs(); // dead without inputs, the sweep in run erases it
 	}
@@ -232,9 +225,7 @@ namespace rat {
 			fails.push_back(fn.create<ProjNode>(ctrlTy, after, IfNode::elseProjIndex(), "slp.else"));
 			ctrl = fn.create<RegionNode>(ctrlTy, List<Node*>{beforeThen, afterThen});
 		}
-		elseP = fails[0];
-		if(fails.size() > 1)
-			elseP = fn.create<RegionNode>(ctrlTy, fails);
+		elseP = fails.size() > 1 ? fn.create<RegionNode>(ctrlTy, fails) : fails[0];
 		return ctrl;
 	}
 

@@ -19,13 +19,11 @@ namespace rat {
 				continue;
 			reach[n->getId()] = 1;
 			for(Node* u : n->getUsers()) {
-				if(isControlNode(u)) {
+				if(isControlNode(u))
 					stack.push_back(u);
-				} else if(isa<CallNode>(u) || isa<AsmNode>(u)) {
-					if(u->getControlInput() == n)
-						if(Node* cp = u->projection(CallNode::controlProjIndex()))
-							stack.push_back(cp);
-				}
+				else if((isa<CallNode>(u) || isa<AsmNode>(u)) && u->getControlInput() == n)
+					if(Node* cp = u->projection(CallNode::controlProjIndex()))
+						stack.push_back(cp);
 			}
 		}
 	}
@@ -78,9 +76,7 @@ namespace rat {
 		if(isa<ConstantNode>(v) || isa<GlobalNode>(v) || isa<AllocNode>(v) || isa<ProjNode>(v) ||
 			 isa<PhiNode>(v))
 			return true;
-		if(v->hasSideEffects())
-			return false;
-		return v->getControlInput() != nullptr;
+		return !v->hasSideEffects() && v->getControlInput() != nullptr;
 	}
 
 	B32 SimplifyCFGPass::cheapOp(Opcode op) {
@@ -138,9 +134,7 @@ namespace rat {
 		I32 total = 1;
 		for(U32 i = 0, e = v->getInputCount(); i < e; ++i) {
 			Node* in = v->getInput(i);
-			if(!in)
-				return -1;
-			I32 c = speculationCost(in, phi, depth - 1);
+			I32 c = in ? speculationCost(in, phi, depth - 1) : -1;
 			if(c < 0)
 				return -1;
 			total += c;
@@ -160,9 +154,7 @@ namespace rat {
 		if(!iff || iff != dyn_cast<IfNode>(b->getProducer()))
 			return false;
 		// nothing may be anchored to the projections
-		if(a->getUsers().size() != 1 || b->getUsers().size() != 1)
-			return false;
-		if(a->getIndex() == b->getIndex())
+		if(a->getUsers().size() != 1 || b->getUsers().size() != 1 || a->getIndex() == b->getIndex())
 			return false;
 
 		Node* pred = iff->getPredicate();
@@ -191,13 +183,11 @@ namespace rat {
 			return false;
 
 		for(PhiNode* phi : phis) {
-			if(phi->getValue(0) == phi->getValue(1)) {
-				phi->replaceAllUsesWith(phi->getValue(0));
-			} else {
-				Node* sel = fn.create<SelectNode>(
+			Node* merged = phi->getValue(0);
+			if(merged != phi->getValue(1))
+				merged = fn.create<SelectNode>(
 						phi->getType(), pred, phi->getValue(thenSlot), phi->getValue(1 - thenSlot));
-				phi->replaceAllUsesWith(sel);
-			}
+			phi->replaceAllUsesWith(merged);
 		}
 		// splice the merge out of the control chain, then drop the diamond
 		r->replaceAllUsesWith(iff->getControl());
@@ -217,20 +207,17 @@ namespace rat {
 
 	// keeps the ifs it did not fold
 	U32 SimplifyCFGPass::foldConstantIfs(Function& fn) {
-		U32 changed = 0;
 		U32 kept = 0;
 		for(Node* n : ifs) {
 			IfNode* iff = cast<IfNode>(n);
-			ConstantNode* c = dyn_cast<ConstantNode>(iff->getPredicate());
-			if(!c) {
+			if(ConstantNode* c = dyn_cast<ConstantNode>(iff->getPredicate()))
+				foldIf(fn, iff, c->getValue() != 0);
+			else
 				ifs[kept++] = n;
-				continue;
-			}
-			foldIf(fn, iff, c->getValue() != 0);
-			++changed;
 		}
+		U32 folded = (U32)ifs.size() - kept;
 		ifs.resize(kept);
-		return changed;
+		return folded;
 	}
 
 	// detach unreachable control and everything anchored to it
@@ -252,9 +239,7 @@ namespace rat {
 				dead = !reached(n);
 			else if(Node* ci = n->getControlInput())
 				dead = ci != fn.getStart() && !reached(ci);
-			if(!dead)
-				continue;
-			if(n->getInputCount() > 0) {
+			if(dead && n->getInputCount() > 0) {
 				n->clearInputs();
 				++changed;
 			}

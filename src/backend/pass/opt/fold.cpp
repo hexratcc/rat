@@ -6,17 +6,9 @@
 
 namespace rat {
 	namespace detail {
-		U64 maskW(I64 v, U32 w) {
-			if(w >= 64)
-				return (U64)v;
-			return (U64)v & (((U64)1 << w) - 1);
-		}
+		U64 maskW(I64 v, U32 w) { return w >= 64 ? (U64)v : (U64)v & (((U64)1 << w) - 1); }
 
-		I64 normalizeConst(I64 v, U32 w) {
-			if(w == 1)
-				return v & 1;
-			return signExtend(v, w);
-		}
+		I64 normalizeConst(I64 v, U32 w) { return w == 1 ? v & 1 : signExtend(v, w); }
 
 		B32 isConstWithValue(Node* n, I64 want) {
 			ConstantNode* c = dyn_cast<ConstantNode>(n);
@@ -41,18 +33,16 @@ namespace rat {
 			BinaryNode* b = dyn_cast<BinaryNode>(n);
 			if(!b || b->getOpcode() != want)
 				return false;
-			if(ConstantNode* cr = dyn_cast<ConstantNode>(b->getRHS())) {
-				base = b->getLHS();
-				c = cr->getValue();
-				return true;
+			ConstantNode* k = dyn_cast<ConstantNode>(b->getRHS());
+			base = b->getLHS();
+			if(!k && (want == Opcode::Add || want == Opcode::Mul)) { // a constant on either side
+				k = dyn_cast<ConstantNode>(b->getLHS());
+				base = b->getRHS();
 			}
-			if(want == Opcode::Add || want == Opcode::Mul)
-				if(ConstantNode* cl = dyn_cast<ConstantNode>(b->getLHS())) {
-					base = b->getRHS();
-					c = cl->getValue();
-					return true;
-				}
-			return false;
+			if(!k)
+				return false;
+			c = k->getValue();
+			return true;
 		}
 
 		Node* mkBin(Function& fn, Opcode op, Type* ty, Node* x, I64 c, B32 nsw) {
@@ -63,7 +53,6 @@ namespace rat {
 	} // namespace detail
 
 	Node* constant(Function& fn, Type* type, I64 value) {
-		// create a normalized constant
 		return fn.create<ConstantNode>(type, detail::normalizeConst(value, type->getIntWidth()));
 	}
 
@@ -148,11 +137,9 @@ namespace rat {
 			if(v == 0)
 				return false;
 			if(op == Opcode::Clz)
-				while(((v >> (w - 1 - n)) & 1) == 0)
-					++n;
+				out = countLeadingZeros64(v) - (64 - (I64)w);
 			else
-				n = (U32)countTrailingZeros64(v);
-			out = (I64)n;
+				out = countTrailingZeros64(v);
 			return true;
 		case Opcode::Popcnt:
 			for(; v != 0; v &= v - 1)
@@ -217,11 +204,8 @@ namespace rat {
 	namespace detail {
 		Node* foldBinaryIdentity(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs) {
 			switch(op) {
-			case Opcode::Add:
-				if(isZeroConst(rhs))
-					return lhs;
-				break;
 			case Opcode::Sub:
+			case Opcode::Xor:
 				if(isZeroConst(rhs))
 					return lhs;
 				if(lhs == rhs)
@@ -234,27 +218,18 @@ namespace rat {
 					return constant(fn, ty, 0);
 				break;
 			case Opcode::And:
-				if(lhs == rhs)
+				if(lhs == rhs || isAllOnesConst(rhs, w))
 					return lhs;
 				if(isZeroConst(rhs))
 					return constant(fn, ty, 0);
-				if(isAllOnesConst(rhs, w))
-					return lhs;
 				return foldSExtMask(fn, ty, lhs, rhs);
 			case Opcode::Or:
-				if(lhs == rhs)
-					return lhs;
-				if(isZeroConst(rhs))
+				if(lhs == rhs || isZeroConst(rhs))
 					return lhs;
 				if(isAllOnesConst(rhs, w))
 					return constant(fn, ty, -1);
 				return foldRotate(fn, ty, w, lhs, rhs);
-			case Opcode::Xor:
-				if(isZeroConst(rhs))
-					return lhs;
-				if(lhs == rhs)
-					return constant(fn, ty, 0);
-				break;
+			case Opcode::Add:
 			case Opcode::Shl:
 			case Opcode::LShr:
 			case Opcode::AShr:
@@ -423,7 +398,7 @@ namespace rat {
 			Node* q64;
 			if(!mg.a) {
 				q64 = mkBin(fn, Opcode::LShr, i64, prod, 32 + (I64)mg.s);
-			} else { // 33-bit constant: t = hi32(prod); q = (((x - t) >> 1) + t) >> (s - 1)
+			} else { // 33-bit constant, t = hi32(prod), q = (((x - t) >> 1) + t) >> (s - 1)
 				Node* t = mkBin(fn, Opcode::LShr, i64, prod, 32);
 				Node* one = constant(fn, i64, 1);
 				Node* diff = fn.create<BinaryNode>(Opcode::Sub, i64, x64, t);
@@ -542,7 +517,7 @@ namespace rat {
 		Node* foldBinary(Function& fn, Opcode op, Node* lhs, Node* rhs, B32 nsw) {
 			Type* ty = lhs->getType();
 			if(ty->isPtr()) {
-				// ptr arithmetic never reaches the int rules; peel the zero-offset identity
+				// ptr arithmetic never reaches the int rules, peel the zero-offset identity
 				if((op == Opcode::Add || op == Opcode::Sub) && isZeroConst(rhs))
 					return lhs;
 				return nullptr;
@@ -550,15 +525,12 @@ namespace rat {
 			if(!ty->isInt())
 				return nullptr;
 			U32 w = ty->getIntWidth();
-
 			ConstantNode* cl = dyn_cast<ConstantNode>(lhs);
 			ConstantNode* cr = dyn_cast<ConstantNode>(rhs);
-
 			if(cl && cr) {
 				I64 res;
-				if(!evalBinaryConst(op, w, cl->getValue(), cr->getValue(), res))
-					return nullptr;
-				return constant(fn, ty, res);
+				B32 folded = evalBinaryConst(op, w, cl->getValue(), cr->getValue(), res);
+				return folded ? constant(fn, ty, res) : nullptr;
 			}
 
 			// normalize a lone constant to the RHS for commutative ops, so every rule
@@ -581,26 +553,24 @@ namespace rat {
 
 		Node* foldUnary(Function& fn, Opcode op, Node* operand) {
 			ConstantNode* c = dyn_cast<ConstantNode>(operand);
-			if(!c || !operand->getType()->isInt())
+			Type* ty = operand->getType();
+			if(!c || !ty->isInt())
 				return nullptr;
 			I64 r;
-			if(!evalUnaryConst(op, operand->getType()->getIntWidth(), c->getValue(), r))
-				return nullptr;
-			return constant(fn, operand->getType(), r);
+			B32 folded = evalUnaryConst(op, ty->getIntWidth(), c->getValue(), r);
+			return folded ? constant(fn, ty, r) : nullptr;
 		}
 
 		Node* foldCompare(Function& fn, Opcode op, Node* lhs, Node* rhs) {
 			Type* ty = lhs->getType();
 			if(!ty->isInt())
 				return nullptr;
-
 			ConstantNode* cl = dyn_cast<ConstantNode>(lhs);
 			ConstantNode* cr = dyn_cast<ConstantNode>(rhs);
 			if(cl && cr) {
 				I64 res;
-				if(!evalCompareConst(op, ty->getIntWidth(), cl->getValue(), cr->getValue(), res))
-					return nullptr;
-				return fn.constBool(res != 0);
+				B32 folded = evalCompareConst(op, ty->getIntWidth(), cl->getValue(), cr->getValue(), res);
+				return folded ? fn.constBool(res != 0) : nullptr;
 			}
 
 			if(lhs == rhs) {
@@ -620,7 +590,7 @@ namespace rat {
 			return foldBoolRetest(fn, op, lhs, cr);
 		}
 
-		// collapse boolean re-tests: comparing an i1 (possibly zero-extended)
+		// collapse boolean re-tests, comparing an i1 (possibly zero-extended)
 		// against 0/1 yields the i1 itself or its complement
 		Node* foldBoolRetest(Function& fn, Opcode op, Node* lhs, ConstantNode* cr) {
 			if((op != Opcode::Eq && op != Opcode::Ne) || !cr ||
@@ -636,9 +606,8 @@ namespace rat {
 			}
 			if(!boolean)
 				return nullptr;
-			// (b != 0) == b, (b == 1) == b; the other two are the complement
-			B32 direct = (op == Opcode::Ne) == (cr->getValue() == 0);
-			if(direct)
+			// (b != 0) == b, (b == 1) == b, the other two are the complement
+			if((op == Opcode::Ne) == (cr->getValue() == 0))
 				return boolean;
 			Type* i1 = boolean->getType();
 			return fn.create<BinaryNode>(Opcode::Xor, i1, boolean, constant(fn, i1, 1));
@@ -653,9 +622,8 @@ namespace rat {
 			U32 srcW = operand->getType()->getIntWidth();
 			U32 dstW = destType->getIntWidth();
 			I64 r;
-			if(!evalConvertConst(op, srcW, dstW, c->getValue(), r))
-				return nullptr;
-			return constant(fn, destType, r);
+			B32 folded = evalConvertConst(op, srcW, dstW, c->getValue(), r);
+			return folded ? constant(fn, destType, r) : nullptr;
 		}
 
 		Node* simplify(Function& fn, Node* n) {

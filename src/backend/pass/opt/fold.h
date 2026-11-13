@@ -15,7 +15,6 @@
 #include "pass/pass.h"
 
 namespace rat {
-	struct Function;
 	struct Node;
 	struct ConstantNode;
 	struct Type;
@@ -52,15 +51,15 @@ namespace rat {
 		foldBinaryStrength(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs, B32 nsw);
 		Node* foldShiftOfShift(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs, B32 nsw);
 
-		// hacker's delight 10-9: magic number for unsigned 32-bit division by d
+		// hacker's delight 10-9, magic number for unsigned 32-bit division by d
 		struct MagicU32 {
 			U32 m;
 			U32 s;
-			B32 a; // "add" indicator: the 33-bit constant case
+			B32 a; // "add" indicator, the 33-bit constant case
 		};
 		MagicU32 magicU32(U32 d);
 
-		// hacker's delight 10-4: magic number for signed 32-bit division by d
+		// hacker's delight 10-4, magic number for signed 32-bit division by d
 		struct MagicS32 {
 			I32 m;
 			U32 s;

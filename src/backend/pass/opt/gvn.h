@@ -14,7 +14,6 @@
 #include "pass/pass.h"
 
 namespace rat {
-	struct Function;
 	struct Node;
 
 	namespace detail {

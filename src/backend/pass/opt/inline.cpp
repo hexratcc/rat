@@ -40,8 +40,6 @@ namespace rat {
 	}
 
 	Node* InlinePass::resolve(Node* n) const {
-		if(!n)
-			return n;
 		Node* m = mapped(n);
 		return m ? m : n;
 	}
@@ -73,7 +71,7 @@ namespace rat {
 	void InlinePass::wireClones(Function& callee) {
 		for(Node* n : callee) {
 			if(!isBodyNode(callee, n) || isStartProj(callee, n))
-				continue; // seeded with an external value; nothing to wire
+				continue; // seeded with an external value, nothing to wire
 			Node* clone = mapped(n);
 			if(!clone)
 				continue;
@@ -168,9 +166,7 @@ namespace rat {
 			return mem;
 		ProjNode* p = dyn_cast<ProjNode>(mem);
 		Node* producer = p ? p->getProducer() : nullptr;
-		if(isa<CallNode>(producer) || isa<AsmNode>(producer))
-			return producer;
-		return nullptr;
+		return isa<CallNode>(producer) || isa<AsmNode>(producer) ? producer : nullptr;
 	}
 
 	B32 InlinePass::inlineCallSite(Function& caller, CallNode* call, Function& callee) {

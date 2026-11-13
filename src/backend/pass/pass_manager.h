@@ -7,9 +7,6 @@
 #include <iosfwd>
 
 namespace rat {
-	struct Module;
-	struct TargetInfo;
-
 	struct PassTiming {
 		String name;
 		U64 nanos;
@@ -37,7 +34,6 @@ namespace rat {
 	private:
 		void record(const C8* name, U64 nanos);
 		B32 finish(const C8* name, U64 nanos, B32 changed, std::ostream* log);
-		U32 functionPassRun(U32 first) const;
 		void runFunctionPasses(U32 first, U32 last, Module& module, std::ostream* log);
 		void runMachine(Module& module, std::ostream* log);
 

@@ -35,9 +35,8 @@ namespace rat {
 		U32 first = (U32)stack.size() - 1;
 		while(stack[first] != v)
 			--first;
-		B32 loops = stack.size() - first > 1;
-		for(U32 w : callees[v])
-			loops = loops || w == v;
+		B32 selfCall = std::count(callees[v].begin(), callees[v].end(), v) != 0;
+		B32 loops = stack.size() - first > 1 || selfCall;
 		for(U32 i = first; i < stack.size(); ++i) {
 			Function* fn = funcs[stack[i]];
 			onStack[stack[i]] = 0;

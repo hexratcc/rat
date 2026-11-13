@@ -12,14 +12,13 @@ namespace rat {
 
 	struct CallGraph {
 		void build(Module& m);
-
 		Function* lookup(const String& name) const; // a function of the module, or null
 		B32 isCyclic(const Function* fn) const;			// on a call cycle (or calls itself)
 		const List<Function*>& bottomUp() const;		// every function, callees first
 	private:
 		void findComponents();
 		void popComponent(U32 v);
-
+	private:
 		List<Function*> funcs;
 		List<List<U32>> callees; // per function, indices into funcs
 		Map<String, Function*> byName;

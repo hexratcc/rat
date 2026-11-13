@@ -16,7 +16,6 @@
 #include "pass/pass.h"
 
 namespace rat {
-	struct Function;
 	struct Node;
 	struct IfNode;
 	struct PhiNode;
@@ -41,7 +40,6 @@ namespace rat {
 			static Lattice constant(I64 v);
 
 			B32 operator==(const Lattice& o) const;
-			B32 operator!=(const Lattice& o) const;
 		};
 
 		static B32 isValueNode(Node* n);

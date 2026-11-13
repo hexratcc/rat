@@ -19,8 +19,7 @@ namespace rat {
 					scratch.insert(g->getSymbol());
 				}
 			}
-			List<String> refs(scratch.begin(), scratch.end());
-			Pair<U64, List<String>> entry{fn.getVersion(), std::move(refs)};
+			Pair<U64, List<String>> entry{fn.getVersion(), {scratch.begin(), scratch.end()}};
 			it = refCache.insert_or_assign(&fn, std::move(entry)).first;
 		}
 		return it->second.second;

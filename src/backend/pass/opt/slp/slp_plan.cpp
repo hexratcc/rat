@@ -59,17 +59,13 @@ namespace rat {
 		U32 index = planLoad(lanes);
 		if(index == kNoVector)
 			index = planOp(lanes);
-		if(index == kNoVector)
-			index = planGather(lanes);
-		return index;
+		return index == kNoVector ? planGather(lanes) : index;
 	}
 
 	// a constant tuple stays a Pack, one pool load
 	B32 SlpPackPass::isSplat(const Lanes& lanes) {
-		for(Node* n : lanes)
-			if(n != lanes[0])
-				return false;
-		return !isa<ConstantNode>(lanes[0]);
+		B32 equal = std::count(lanes.begin(), lanes.end(), lanes[0]) == (I64)lanes.size();
+		return equal && !isa<ConstantNode>(lanes[0]);
 	}
 
 	U32 SlpPackPass::Plan::planGather(const Lanes& lanes) {
@@ -221,9 +217,8 @@ namespace rat {
 
 	// how many operand tuples become vector inputs, 0 when they do not fit one vector op
 	U32 SlpPackPass::Plan::operandTuples(const Lanes& lanes, LaneOps& ops) {
-		U32 tupleCount = (U32)getOpcodeInfo(ops.mainOp).minInputs;
-		if(isShiftOpcode(ops.mainOp))
-			tupleCount = 1; // the amount is one scalar for all lanes
+		// a shift amount is one scalar for all lanes
+		U32 tupleCount = isShiftOpcode(ops.mainOp) ? 1 : (U32)getOpcodeInfo(ops.mainOp).minInputs;
 		for(U32 input = 0; input < tupleCount; ++input)
 			for(Node* n : ops.operands[input])
 				if(n->getType() != ops.operands[input][0]->getType())
@@ -266,7 +261,7 @@ namespace rat {
 		}
 	}
 
-	// what orientOperands compares: the opcode, the type and a load's group
+	// what orientOperands compares, the opcode, the type and a load's group
 	std::tuple<Opcode, const Type*, U32> SlpPackPass::Plan::operandKey(Node* n) {
 		U32 group = 0;
 		if(LoadNode* l = dyn_cast<LoadNode>(n))
