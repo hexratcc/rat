@@ -1,0 +1,4 @@
+src/compiler/test/** linguist-detectable=false
+src/backend/test/** linguist-detectable=false
+src/*/test/**/*.py !linguist-detectable
+src/*/test/**/*.sh !linguist-detectable
