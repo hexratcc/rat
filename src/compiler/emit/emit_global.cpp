@@ -76,10 +76,8 @@ namespace rat::cc {
 		}
 
 		data.relocs.swap(saved);
-		if(!ok) {
-			diag.fail("invalid file-scope compound literal initializer");
-			return false;
-		}
+		if(!ok)
+			return diag.fail("invalid file-scope compound literal initializer");
 		syms.globals[name] = GlobalVariable{ty, e->compound.isArray, 0};
 		outSym = name;
 		return true;
@@ -107,10 +105,8 @@ namespace rat::cc {
 	B32 Emitter::validateGlobalArrayLen(const Declarator& d, I64& count, B32& haveLen) {
 		haveLen = d.arrayLen != nullptr;
 		count = 0;
-		if(haveLen && (!evalConst(d.arrayLen, count) || count <= 0)) {
-			failArrayCount();
-			return false;
-		}
+		if(haveLen && (!evalConst(d.arrayLen, count) || count <= 0))
+			return failArrayCount();
 		return true;
 	}
 
@@ -120,10 +116,8 @@ namespace rat::cc {
 		if(!validateGlobalArrayLen(d, count, haveLen))
 			return false;
 		if(!haveLen) {
-			if(!d.init || d.init->kind != ExprKind::InitList) {
-				failArrayUnknownSize(*d.name);
-				return false;
-			}
+			if(!d.init || d.init->kind != ExprKind::InitList)
+				return failArrayUnknownSize(*d.name);
 			count = (I64)initArrayCount(d.type, d.init);
 		}
 		U32 total = (U32)count * byteSize(d.type);
@@ -154,10 +148,8 @@ namespace rat::cc {
 
 		if(d.init && d.init->kind == ExprKind::StrLit) {
 			U32 charWidth = d.init->str.isWide ? d.init->str.charSize : 1u;
-			if(d.type.ptr != 0 || d.type.bits != charWidth * 8) {
-				failStringNeedsCharArray();
-				return false;
-			}
+			if(d.type.ptr != 0 || d.type.bits != charWidth * 8)
+				return failStringNeedsCharArray();
 			const String& bytes = *d.init->str.bytes;
 			I64 nchars = (I64)bytes.size() / (I64)charWidth;
 			if(!haveLen)
@@ -179,13 +171,10 @@ namespace rat::cc {
 					return false;
 			}
 		} else if(d.init) {
-			diag.fail("invalid initializer for an array");
-			return false;
+			return diag.fail("invalid initializer for an array");
 		} else {
-			if(!haveLen) {
-				failArrayUnknownSize(*d.name);
-				return false;
-			}
+			if(!haveLen)
+				return failArrayUnknownSize(*d.name);
 		}
 
 		defineGlobal(d, sym, mod.getArray(irType(d.type), (U32)count), std::move(init));
@@ -233,10 +222,8 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::registerGlobalScalar(const Declarator& d, const String& sym, Function* fn) {
-		if(d.type.isVoid() && !isPointer(d.type)) {
-			diag.fail("variable '" + *d.name + "' has incomplete type 'void'");
-			return false;
-		}
+		if(d.type.isVoid() && !isPointer(d.type))
+			return diag.fail("variable '" + *d.name + "' has incomplete type 'void'");
 		const Expr* dinit = d.init;
 		if(dinit && dinit->kind == ExprKind::InitList && dinit->args.size() == 1 &&
 			 dinit->args[0]->kind != ExprKind::InitList)
@@ -245,10 +232,8 @@ namespace rat::cc {
 		List<U8> init;
 		if(dinit && isFloating(d.type)) {
 			F80 dv = 0;
-			if(!evalFloatConst(dinit, dv)) {
-				diag.fail("initializer for '" + *d.name + "' is not a constant expression");
-				return false;
-			}
+			if(!evalFloatConst(dinit, dv))
+				return diag.fail("initializer for '" + *d.name + "' is not a constant expression");
 			encodeFloatBytes(d.type, dv, init);
 		} else if(dinit) {
 			I64 iv = 0;
@@ -257,10 +242,8 @@ namespace rat::cc {
 				I64 add = 0;
 				B32 isIntScalar = !isPointer(d.type) && !isAggregate(d.type) && !isVoidType(d.type);
 				B32 fits = isPointer(d.type) || (isIntScalar && byteSize(d.type) >= 8);
-				if(!fits || !evalAddrConst(dinit, target, add)) {
-					diag.fail("initializer for '" + *d.name + "' is not a constant expression");
-					return false;
-				}
+				if(!fits || !evalAddrConst(dinit, target, add))
+					return diag.fail("initializer for '" + *d.name + "' is not a constant expression");
 				data.relocs.push_back(Reloc{0, target, add});
 			}
 			value = (U64)iv;
@@ -276,10 +259,8 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::registerGlobalAlias(const Declarator& d) {
-		if(d.init) {
-			diag.fail("alias '" + *d.name + "' must not have an initializer");
-			return false;
-		}
+		if(d.init)
+			return diag.fail("alias '" + *d.name + "' must not have an initializer");
 		I64 count = 0;
 		if(d.isArray && d.arrayLen && !evalConst(d.arrayLen, count))
 			count = 0;
@@ -305,10 +286,8 @@ namespace rat::cc {
 					continue;
 				}
 				const Declarator*& prev = order[it->second];
-				if(d.init && prev->init) {
-					diag.fail("redefinition of '" + *d.name + "'");
-					return false;
-				}
+				if(d.init && prev->init)
+					return diag.fail("redefinition of '" + *d.name + "'");
 				if(d.init && !prev->init)
 					prev = &d;
 				if(defines)

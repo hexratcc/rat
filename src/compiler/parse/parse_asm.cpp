@@ -4,10 +4,8 @@ namespace rat::cc {
 	// string-literal...
 	// adjacent literals concatenate
 	B32 Parser::parseStrings(String& out, const C8* where) {
-		if(!check(TokKind::StringLiteral)) {
-			fail(peek(), String("expected a string literal in ") + where);
-			return false;
-		}
+		if(!check(TokKind::StringLiteral))
+			return fail(peek(), String("expected a string literal in ") + where);
 		while(check(TokKind::StringLiteral))
 			if(!parseStringLiteral(advance(), out))
 				return false;
@@ -31,10 +29,8 @@ namespace rat::cc {
 		for(;;) {
 			AsmOperand op;
 			if(accept(TokKind::LBracket)) {
-				if(!check(TokKind::Identifier)) {
-					fail(peek(), "expected a symbolic operand name");
-					return false;
-				}
+				if(!check(TokKind::Identifier))
+					return fail(peek(), "expected a symbolic operand name");
 				op.name = arena.make<String>(lex.text(advance()));
 				if(!expect(TokKind::RBracket, "']'"))
 					return false;
@@ -73,10 +69,8 @@ namespace rat::cc {
 	// [ name [, name]... ]
 	B32 Parser::parseAsmLabels(List<const String*>& out) {
 		while(!check(TokKind::RParen)) {
-			if(!check(TokKind::Identifier)) {
-				fail(peek(), "expected a label name in 'asm goto'");
-				return false;
-			}
+			if(!check(TokKind::Identifier))
+				return fail(peek(), "expected a label name in 'asm goto'");
 			out.push_back(arena.make<String>(lex.text(advance())));
 			if(!accept(TokKind::Comma))
 				break;
@@ -126,8 +120,7 @@ namespace rat::cc {
 					return nullptr;
 				break;
 			default:
-				fail(peek(), "too many ':' sections in 'asm'");
-				return nullptr;
+				return fail(peek(), "too many ':' sections in 'asm'");
 			}
 			++section;
 		}
@@ -163,8 +156,7 @@ namespace rat::cc {
 					return false;
 				if(!expect(TokKind::RParen, "')'"))
 					return false;
-				fail(kw, "asm labels on declarations are not supported");
-				return false;
+				return fail(kw, "asm labels on declarations are not supported");
 			}
 			if(accept(TokKind::KwNoinline)) {
 				noInlineOut = true;

@@ -48,10 +48,8 @@ namespace rat::cc {
 		if(!t.array->countExpr && !hasVlaDim(t.array->elem))
 			return true;
 		I64 n = 0;
-		if(hasVlaDim(t.array->elem) || !evalIntConst(t.array->countExpr, n) || n < 0) {
-			fail(peek(), "array member size must be a constant");
-			return false;
-		}
+		if(hasVlaDim(t.array->elem) || !evalIntConst(t.array->countExpr, n) || n < 0)
+			return fail(peek(), "array member size must be a constant");
 		count = (U64)n;
 		return true;
 	}
@@ -64,10 +62,8 @@ namespace rat::cc {
 		if(!wE)
 			return false;
 		I64 w = 0;
-		if(!evalIntConst(wE, w) || w < 0) {
-			fail(peek(), "bitfield width must be a non-negative constant");
-			return false;
-		}
+		if(!evalIntConst(wE, w) || w < 0)
+			return fail(peek(), "bitfield width must be a non-negative constant");
 		U32 unitBytes = typeSizeBytes(f.type);
 		if(unitBytes == 0)
 			unitBytes = 4;
@@ -125,32 +121,21 @@ namespace rat::cc {
 		if(accept(TokKind::Colon)) {
 			if(isArr || ft.ptr != 0 || ft.isFloat() || ft.isComplex() || ft.isVoid() || isStruct(ft) ||
 				 ft.func != nullptr) {
-				fail(peek(), "bit-field has invalid type");
-				return false;
+				return fail(peek(), "bit-field has invalid type");
 			}
 			return parseBitfield(st, f, r.align, isUnion, l);
 		}
-		if(!r.name) {
-			fail(peek(), "expected member name");
-			return false;
-		}
-		if(isStruct(ft) && !ft.strukt->complete) {
-			fail(peek(), "member has incomplete struct type");
-			return false;
-		}
+		if(!r.name)
+			return fail(peek(), "expected member name");
+		if(isStruct(ft) && !ft.strukt->complete)
+			return fail(peek(), "member has incomplete struct type");
 		if(isArr && count == 0 && !r.outerBound) {
-			if(isUnion) {
-				fail(peek(), "flexible array member not allowed in union");
-				return false;
-			}
-			if(st->fields.empty()) {
-				fail(peek(), "flexible array member in struct with no other members");
-				return false;
-			}
-			if(!(check(TokKind::Semicolon) && peek2().kind == TokKind::RBrace)) {
-				fail(peek(), "flexible array member must be the last member");
-				return false;
-			}
+			if(isUnion)
+				return fail(peek(), "flexible array member not allowed in union");
+			if(st->fields.empty())
+				return fail(peek(), "flexible array member in struct with no other members");
+			if(!(check(TokKind::Semicolon) && peek2().kind == TokKind::RBrace))
+				return fail(peek(), "flexible array member must be the last member");
 		}
 		f.set(Field::Array, isArr);
 		f.count = count;
@@ -171,10 +156,8 @@ namespace rat::cc {
 		StructLayout l;
 		while(!check(TokKind::RBrace) && !check(TokKind::Eof)) {
 			CType base;
-			if(!parseTypeSpec(base)) {
-				fail(peek(), "expected member type");
-				return false;
-			}
+			if(!parseTypeSpec(base))
+				return fail(peek(), "expected member type");
 			U32 baseAlign = specAlign;
 			if(isStruct(base) && accept(TokKind::Semicolon)) {
 				spliceAnonMember(st, base.strukt, isUnion, l);
@@ -234,10 +217,8 @@ namespace rat::cc {
 				return false;
 		}
 
-		if(!st) {
-			fail(peek(), "use of undeclared struct/union tag");
-			return false;
-		}
+		if(!st)
+			return fail(peek(), "use of undeclared struct/union tag");
 		if(!acceptTrailingAlignas(declAlign))
 			return false;
 		if(declAlign > st->align) {
@@ -274,10 +255,8 @@ namespace rat::cc {
 		I64 next = 0;
 		B32 anyNegative = false;
 		while(!check(TokKind::RBrace) && !check(TokKind::Eof)) {
-			if(!check(TokKind::Identifier)) {
-				fail(peek(), "expected enumerator name");
-				return false;
-			}
+			if(!check(TokKind::Identifier))
+				return fail(peek(), "expected enumerator name");
 			Token name = advance();
 			I64 value = next;
 			if(accept(TokKind::Assign)) {
@@ -287,10 +266,8 @@ namespace rat::cc {
 				if(!evalIntConst(init, value))
 					return false;
 			}
-			if(value < detail::kIntMin || value > detail::kIntMax) {
-				fail(name, "enumerator value is not representable as int");
-				return false;
-			}
+			if(value < detail::kIntMin || value > detail::kIntMax)
+				return fail(name, "enumerator value is not representable as int");
 			if(value < 0)
 				anyNegative = true;
 			enumConstants.set(lex.text(name), value);

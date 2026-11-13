@@ -112,6 +112,11 @@ namespace rat::cc {
 		constexpr B32 isVoid() const { return base == Base::Void; }
 	};
 
+	// what a failing diagnostic returns, the empty value of any return type
+	struct Failed {
+		template <typename T> operator T() const { return T{}; }
+	};
+
 	constexpr CType ctInt() { return CType{}; }
 	constexpr B32 isPointer(CType t) { return t.ptr > 0; }
 	constexpr B32 isTopConst(CType t) { return (t.quals & (1u << t.ptr)) != 0; }

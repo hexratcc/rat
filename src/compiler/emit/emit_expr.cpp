@@ -16,10 +16,8 @@ namespace rat::cc {
 		LValue lv;
 		if(!emitLValue(fn, e->unary.operand, lv))
 			return {};
-		if(lv.isVar()) {
-			diag.fail("cannot take the address of an SSA value");
-			return {};
-		}
+		if(lv.isVar())
+			return diag.fail("cannot take the address of an SSA value");
 		return {lv.addr, pointerTo(lv.type)};
 	}
 
@@ -31,8 +29,7 @@ namespace rat::cc {
 			return p;
 		if(!isPointer(p.type)) {
 			diag.offset = e->offset;
-			diag.fail("indirection requires a pointer operand");
-			return {};
+			return diag.fail("indirection requires a pointer operand");
 		}
 		CType pt = pointee(p.type);
 		if(isArrayType(pt))
@@ -78,18 +75,14 @@ namespace rat::cc {
 												 fn.unary(Opcode::FNeg, complexImag(fn, v)));
 		switch(e->unary.op) {
 		case ExprOp::Pos: {
-			if(!isInteger(v.type) && !isFloating(v.type)) {
-				diag.fail("wrong type argument to unary plus");
-				return {};
-			}
+			if(!isInteger(v.type) && !isFloating(v.type))
+				return diag.fail("wrong type argument to unary plus");
 			CType t = promote(v.type);
 			return {convert(fn, v.node, v.type, t), t};
 		}
 		case ExprOp::Neg: {
-			if(!isInteger(v.type) && !isFloating(v.type)) {
-				diag.fail("wrong type argument to unary minus");
-				return {};
-			}
+			if(!isInteger(v.type) && !isFloating(v.type))
+				return diag.fail("wrong type argument to unary minus");
 			CType t = promote(v.type);
 			Node* nv = convert(fn, v.node, v.type, t);
 			if(isFloating(t))
@@ -97,18 +90,14 @@ namespace rat::cc {
 			return {reduceBitfield(fn, fn.neg(nv), t), t};
 		}
 		case ExprOp::BitNot: {
-			if(!isInteger(v.type)) {
-				diag.fail("wrong type argument to bit-complement");
-				return {};
-			}
+			if(!isInteger(v.type))
+				return diag.fail("wrong type argument to bit-complement");
 			CType t = promote(v.type);
 			return {reduceBitfield(fn, fn.bitNot(convert(fn, v.node, v.type, t)), t), t};
 		}
 		case ExprOp::Not:
-			if(isAggregate(v.type) && !isComplexType(v.type)) {
-				diag.fail("wrong type argument to unary exclamation mark");
-				return {};
-			}
+			if(isAggregate(v.type) && !isComplexType(v.type))
+				return diag.fail("wrong type argument to unary exclamation mark");
 			if(isComplexType(v.type))
 				return {fromBool(fn, fn.eq(toBool(fn, v), fn.constInt(i32, 1))), ctInt()};
 			if(isFloating(v.type))
@@ -116,8 +105,7 @@ namespace rat::cc {
 								ctInt()};
 			return {fromBool(fn, fn.eq(v.node, fn.constInt(irType(v.type), 0))), ctInt()};
 		default:
-			diag.fail("unsupported unary operator");
-			return {};
+			return diag.fail("unsupported unary operator");
 		}
 	}
 
@@ -145,8 +133,7 @@ namespace rat::cc {
 		auto f = syms.functions.find(*e->ident.name);
 		if(f != syms.functions.end())
 			return {fn.global(*e->ident.name), funcPtrType(f->second)};
-		failUndeclared(*e->ident.name);
-		return {};
+		return failUndeclared(*e->ident.name);
 	}
 
 	Emitter::Value Emitter::emitSizeof(Function& fn, const Expr* e) {
@@ -169,10 +156,8 @@ namespace rat::cc {
 				return {};
 		} else {
 			CType t = e->sizeOf.type;
-			if(isStruct(t) && (t.strukt == nullptr || !t.strukt->complete)) {
-				diag.fail("sizeof applied to an incomplete type");
-				return {};
-			}
+			if(isStruct(t) && (t.strukt == nullptr || !t.strukt->complete))
+				return diag.fail("sizeof applied to an incomplete type");
 			n = byteSize(e->sizeOf.type);
 		}
 		return {fn.constInt(irType(sz), n), sz};
@@ -272,8 +257,7 @@ namespace rat::cc {
 				return {};
 			if(!isVoidType(castTy) && !isAggregate(castTy) && isAggregate(v.type) &&
 				 !isComplexType(v.type)) {
-				diag.fail("cannot cast a struct or union to a scalar type");
-				return {};
+				return diag.fail("cannot cast a struct or union to a scalar type");
 			}
 			if(isVoidType(castTy))
 				return {v.node, castTy};
@@ -336,13 +320,11 @@ namespace rat::cc {
 			return {loadLValue(fn, lv), lv.type};
 		}
 		case ExprKind::InitList:
-			diag.fail("initializer list is only allowed in a declaration");
-			return {};
+			return diag.fail("initializer list is only allowed in a declaration");
 		case ExprKind::CompoundLit:
 			return emitCompoundLit(fn, e);
 		}
-		diag.fail("unsupported expression");
-		return {};
+		return diag.fail("unsupported expression");
 	}
 
 	Emitter::Value Emitter::emitTernarySelect(Function& fn, const Expr* e) {
@@ -435,10 +417,8 @@ namespace rat::cc {
 			U32 elemSize = byteSize(ty);
 			I64 count = 0;
 			if(e->compound.arrayLen) {
-				if(!evalConst(e->compound.arrayLen, count) || count <= 0) {
-					failArrayCount();
-					return {};
-				}
+				if(!evalConst(e->compound.arrayLen, count) || count <= 0)
+					return failArrayCount();
 			} else if(init->kind == ExprKind::StrLit) {
 				count = (I64)init->str.bytes->size() + 1;
 			} else if(init->kind == ExprKind::InitList) {
@@ -446,10 +426,8 @@ namespace rat::cc {
 				if(!resolveArrayIndices(init, false, count, idx))
 					return {};
 			}
-			if(count <= 0) {
-				failArrayCount();
-				return {};
-			}
+			if(count <= 0)
+				return failArrayCount();
 			U32 total = (U32)count * elemSize;
 			Node* slot =
 					isAggregate(ty) ? allocBytes(fn, total) : fn.alloc(mod.getArray(elemTy, (U32)count));

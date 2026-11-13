@@ -60,10 +60,8 @@ namespace rat::cc {
 	// name [, name]... )
 	B32 Parser::parseParamNames(FuncType* ft) {
 		for(;;) {
-			if(!check(TokKind::Identifier)) {
-				fail(peek(), "expected parameter name");
-				return false;
-			}
+			if(!check(TokKind::Identifier))
+				return fail(peek(), "expected parameter name");
 			Token nameTok = advance();
 			Param p;
 			p.name = arena.make<String>(lex.text(nameTok));
@@ -94,27 +92,21 @@ namespace rat::cc {
 		}
 		for(;;) {
 			if(check(TokKind::Ellipsis)) {
-				if(ft->params.empty()) {
-					fail(peek(), "'...' must be preceded by a named parameter");
-					return false;
-				}
+				if(ft->params.empty())
+					return fail(peek(), "'...' must be preceded by a named parameter");
 				advance();
 				ft->isVarArgs = true;
 				break;
 			}
 			Token pstart = peek();
 			CType pt;
-			if(!parseTypeSpec(pt)) {
-				fail(peek(), "expected parameter type");
-				return false;
-			}
+			if(!parseTypeSpec(pt))
+				return fail(peek(), "expected parameter type");
 			DeclResult r;
 			if(!parseDeclarator(pt, r))
 				return false;
-			if(isVoidType(r.type)) {
-				fail(pstart, "'void' must be the only unnamed parameter");
-				return false;
-			}
+			if(isVoidType(r.type))
+				return fail(pstart, "'void' must be the only unnamed parameter");
 			Param p;
 			p.name = r.name;
 			p.offset = pstart.offset;
@@ -267,10 +259,8 @@ namespace rat::cc {
 			B32 outermost = i + 1 == ops.size();
 			if(ops[i].kind != DeclOp::Kind::Func || !ops[i].func->oldStyle)
 				continue;
-			if(!outermost || !out.allowOldStyle) {
-				fail(peek(), "parameter names (without types) in function declaration");
-				return false;
-			}
+			if(!outermost || !out.allowOldStyle)
+				return fail(peek(), "parameter names (without types) in function declaration");
 		}
 		out.type = applyDeclOps(t, ops);
 		if(!ops.empty() && ops.back().kind == DeclOp::Kind::Array) {
@@ -310,10 +300,8 @@ namespace rat::cc {
 	B32 Parser::parseAbstractDeclarator(CType base, DeclResult& out) {
 		if(!parseDeclarator(base, out))
 			return false;
-		if(out.name) {
-			fail(peek(), "unexpected name in a type name");
-			return false;
-		}
+		if(out.name)
+			return fail(peek(), "unexpected name in a type name");
 		return true;
 	}
 } // namespace rat::cc

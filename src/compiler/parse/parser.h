@@ -76,7 +76,7 @@ namespace rat::cc {
 		B32 check(TokKind kind) { return peek().kind == kind; }
 		B32 accept(TokKind kind);
 		B32 expect(TokKind kind, const C8* what);
-		void fail(const Token& at, const String& msg);
+		Failed fail(const Token& at, const String& msg);
 
 		// type specifiers
 		struct DeclSpecs {

@@ -4,10 +4,8 @@
 
 namespace rat::cc {
 	B32 Parser::enterDepth() {
-		if(++parseDepth > kMaxParseDepth) {
-			fail(peek(), "nesting too deep");
-			return false;
-		}
+		if(++parseDepth > kMaxParseDepth)
+			return fail(peek(), "nesting too deep");
 		return true;
 	}
 
@@ -34,13 +32,14 @@ namespace rat::cc {
 		typedefs.set("__builtin_va_list", vaList);
 	}
 
-	void Parser::fail(const Token& at, const String& msg) {
+	Failed Parser::fail(const Token& at, const String& msg) {
 		if(failed)
-			return;
+			return {};
 		std::ostringstream os;
 		os << lex.file() << ":" << at.line << ":" << at.col << ": " << msg;
 		errMsg = os.str();
 		failed = true;
+		return {};
 	}
 
 	B32 Parser::accept(TokKind kind) {
@@ -56,8 +55,7 @@ namespace rat::cc {
 			advance();
 			return true;
 		}
-		fail(peek(), String("expected ") + what + ", found '" + tokKindName(peek().kind) + "'");
-		return false;
+		return fail(peek(), String("expected ") + what + ", found '" + tokKindName(peek().kind) + "'");
 	}
 
 	Expr* Parser::makeExpr(ExprKind kind, U32 offset) {
@@ -106,10 +104,8 @@ namespace rat::cc {
 			if(!fn->params[i].name)
 				continue;
 			for(U32 j = 0; j < i; j++) {
-				if(fn->params[j].name && *fn->params[j].name == *fn->params[i].name) {
-					fail(peek(), "redefinition of parameter");
-					return false;
-				}
+				if(fn->params[j].name && *fn->params[j].name == *fn->params[i].name)
+					return fail(peek(), "redefinition of parameter");
 			}
 		}
 		return true;
@@ -120,10 +116,8 @@ namespace rat::cc {
 		if(!fn->body)
 			return true;
 		auto it = funcDefs.find(fn->name);
-		if(it != funcDefs.end()) {
-			fail(peek(), "redefinition of function");
-			return false;
-		}
+		if(it != funcDefs.end())
+			return fail(peek(), "redefinition of function");
 		funcDefs.emplace(fn->name, fn);
 		return true;
 	}
@@ -150,18 +144,14 @@ namespace rat::cc {
 	B32 Parser::parseOldStyleDecls(FuncDef* fn) {
 		while(startsType(peek())) {
 			CType base;
-			if(!parseTypeSpec(base)) {
-				fail(peek(), "expected parameter type");
-				return false;
-			}
+			if(!parseTypeSpec(base))
+				return fail(peek(), "expected parameter type");
 			for(;;) {
 				DeclResult r;
 				if(!parseDeclarator(base, r))
 					return false;
-				if(!r.name) {
-					fail(peek(), "expected parameter name");
-					return false;
-				}
+				if(!r.name)
+					return fail(peek(), "expected parameter name");
 				adjustParamType(r.type);
 				B32 matched = false;
 				for(Param& p : fn->params) {
@@ -171,10 +161,8 @@ namespace rat::cc {
 						break;
 					}
 				}
-				if(!matched) {
-					fail(peek(), "parameter named in declaration is not in the identifier list");
-					return false;
-				}
+				if(!matched)
+					return fail(peek(), "parameter named in declaration is not in the identifier list");
 				if(!accept(TokKind::Comma))
 					break;
 			}
@@ -207,10 +195,8 @@ namespace rat::cc {
 		fn->isNoInline |= noInline;
 		B32 oldStyle = r.type.func->oldStyle;
 		defined = check(TokKind::LBrace) || (oldStyle && startsType(peek()));
-		if(oldStyle && !defined) {
-			fail(peek(), "parameter names (without types) in function declaration");
-			return false;
-		}
+		if(oldStyle && !defined)
+			return fail(peek(), "parameter names (without types) in function declaration");
 		if(defined) {
 			if(!parseFunctionDef(fn, oldStyle))
 				return false;
@@ -234,10 +220,8 @@ namespace rat::cc {
 		if(!parseDeclAttributes(d.aliasOf, noInline, d.align))
 			return false;
 		if(accept(TokKind::Assign)) {
-			if(!fileScope && d.isExtern) {
-				fail(start, "'extern' variable cannot have an initializer");
-				return false;
-			}
+			if(!fileScope && d.isExtern)
+				return fail(start, "'extern' variable cannot have an initializer");
 			d.init = parseInitializer();
 			if(!d.init)
 				return false;
@@ -261,10 +245,8 @@ namespace rat::cc {
 			r.align = align;
 			if(!parseDeclarator(base, r))
 				return false;
-			if(!r.name) {
-				fail(peek(), "expected declarator name");
-				return false;
-			}
+			if(!r.name)
+				return fail(peek(), "expected declarator name");
 			if(r.type.func && r.type.ptr == 0) {
 				B32 defined = false;
 				if(!parseFunctionDeclarator(r, start, ds, unit, defined))
@@ -295,10 +277,8 @@ namespace rat::cc {
 			return makeStmt(StmtKind::Empty, start.offset);
 		}
 		CType base;
-		if(!parseTypeSpec(base)) {
-			fail(peek(), "expected type specifier");
-			return nullptr;
-		}
+		if(!parseTypeSpec(base))
+			return fail(peek(), "expected type specifier");
 		Stmt* s = makeStmt(StmtKind::Decl, start.offset);
 		if(accept(TokKind::Semicolon))
 			return s;
@@ -321,10 +301,8 @@ namespace rat::cc {
 				Stmt* s = parseAsmStatement();
 				if(!s)
 					return nullptr;
-				if(!s->asmBlock->text->empty()) {
-					fail(start, "file-scope assembly is not supported");
-					return nullptr;
-				}
+				if(!s->asmBlock->text->empty())
+					return fail(start, "file-scope assembly is not supported");
 				continue;
 			}
 			Stmt* s = parseDeclaration(unit);

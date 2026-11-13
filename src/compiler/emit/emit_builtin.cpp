@@ -153,18 +153,15 @@ namespace rat::cc {
 		LValue lv;
 		if(!emitLValue(fn, ap, lv))
 			return nullptr;
-		if(lv.isVar() || !lv.addr) {
-			diag.fail("va_list operand must be addressable");
-			return nullptr;
-		}
+		if(lv.isVar() || !lv.addr)
+			return diag.fail("va_list operand must be addressable");
 		return lv.addr;
 	}
 
 	B32 Emitter::oneArg(const Expr* e) {
 		if(e->args.size() == 1)
 			return true;
-		diag.fail("'" + *e->call.callee + "' expects one argument");
-		return false;
+		return diag.fail("'" + *e->call.callee + "' expects one argument");
 	}
 
 	B32 Emitter::emitBitCountBuiltin(Function& fn, const Expr* e, Value& out) {

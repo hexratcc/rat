@@ -21,10 +21,8 @@ namespace rat::cc {
 		I64 v = 0;
 		if(!evalIntConst(cond, v))
 			return false;
-		if(v == 0) {
-			fail(kw, "static assertion failed: " + msg);
-			return false;
-		}
+		if(v == 0)
+			return fail(kw, "static assertion failed: " + msg);
 		return true;
 	}
 
@@ -35,10 +33,8 @@ namespace rat::cc {
 		CType ult = d.type;
 		while(ult.array != nullptr && ult.ptr == 0)
 			ult = ult.array->elem;
-		if(isStruct(ult) && (ult.strukt == nullptr || !ult.strukt->complete)) {
-			fail(peek(), "variable has incomplete type");
-			return false;
-		}
+		if(isStruct(ult) && (ult.strukt == nullptr || !ult.strukt->complete))
+			return fail(peek(), "variable has incomplete type");
 		return true;
 	}
 
@@ -212,10 +208,8 @@ namespace rat::cc {
 	// goto name ;
 	Stmt* Parser::parseGoto() {
 		Token kw = advance();
-		if(!check(TokKind::Identifier)) {
-			fail(peek(), "expected a label name after 'goto'");
-			return nullptr;
-		}
+		if(!check(TokKind::Identifier))
+			return fail(peek(), "expected a label name after 'goto'");
 		Token nameTok = advance();
 		Stmt* s = makeStmt(StmtKind::Goto, kw.offset);
 		s->label = arena.make<String>(lex.text(nameTok));

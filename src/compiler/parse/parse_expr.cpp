@@ -106,10 +106,8 @@ namespace rat::cc {
 			e->compound.isArray = r.outerArray;
 			return parsePostfixTail(e); // allow [..], .x, etc. after the literal
 		}
-		if(r.outerArray) {
-			fail(lp, "array types may not be used in a cast");
-			return nullptr;
-		}
+		if(r.outerArray)
+			return fail(lp, "array types may not be used in a cast");
 		Expr* operand = parseUnary();
 		if(!operand)
 			return nullptr;

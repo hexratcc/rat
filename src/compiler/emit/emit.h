@@ -191,17 +191,21 @@ namespace rat::cc {
 		void storeLValue(Function& fn, const LValue& lv, Node* value);
 
 		// diagnostics
-		void failUndeclared(const String& name) {
-			diag.fail("use of undeclared identifier '" + name + "'");
+		Failed failUndeclared(const String& name) {
+			return diag.fail("use of undeclared identifier '" + name + "'");
 		}
-		void failArrayCount() { diag.fail("array size must be a positive integer constant"); }
-		void failArrayUnknownSize(const String& name) {
-			diag.fail("array '" + name + "' has unknown size");
+		Failed failArrayCount() { return diag.fail("array size must be a positive integer constant"); }
+		Failed failArrayUnknownSize(const String& name) {
+			return diag.fail("array '" + name + "' has unknown size");
 		}
-		void failFieldInArray() { diag.fail("field designator in an array initializer"); }
-		void failTooManyInits() { diag.fail("too many initializers for the array"); }
-		void failNonConstInit() { diag.fail("initializer element is not a constant expression"); }
-		void failStringNeedsCharArray() { diag.fail("string initializer requires a 'char' array"); }
+		Failed failFieldInArray() { return diag.fail("field designator in an array initializer"); }
+		Failed failTooManyInits() { return diag.fail("too many initializers for the array"); }
+		Failed failNonConstInit() {
+			return diag.fail("initializer element is not a constant expression");
+		}
+		Failed failStringNeedsCharArray() {
+			return diag.fail("string initializer requires a 'char' array");
+		}
 
 		// statements
 		B32 emitStmt(Function& fn, const Stmt* stmt);

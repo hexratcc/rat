@@ -5,10 +5,8 @@ namespace rat::cc {
 	// a '...' range is allowed on the first designator only
 	B32 Parser::parseDesignator(Designator& cur, B32 first, I64& rangeEnd) {
 		if(accept(TokKind::Dot)) {
-			if(!check(TokKind::Identifier)) {
-				fail(peek(), "expected a field name after '.'");
-				return false;
-			}
+			if(!check(TokKind::Identifier))
+				return fail(peek(), "expected a field name after '.'");
 			Token id = advance();
 			cur.isIndex = false;
 			cur.field = arena.make<String>(lex.text(id));
@@ -17,19 +15,15 @@ namespace rat::cc {
 		advance(); // '['
 		Expr* ix = parseAssignment();
 		I64 v = 0;
-		if(!ix || !evalIntConst(ix, v) || v < 0) {
-			fail(peek(), "array designator must be a non-negative integer constant");
-			return false;
-		}
+		if(!ix || !evalIntConst(ix, v) || v < 0)
+			return fail(peek(), "array designator must be a non-negative integer constant");
 		cur.isIndex = true;
 		cur.index = v;
 		if(first && accept(TokKind::Ellipsis)) {
 			Expr* hi = parseAssignment();
 			I64 hv = 0;
-			if(!hi || !evalIntConst(hi, hv) || hv < v) {
-				fail(peek(), "invalid range designator");
-				return false;
-			}
+			if(!hi || !evalIntConst(hi, hv) || hv < v)
+				return fail(peek(), "invalid range designator");
 			rangeEnd = hv;
 		}
 		return expect(TokKind::RBracket, "']'");
@@ -123,8 +117,7 @@ namespace rat::cc {
 		case ExprOp::BitNot: out = ~v; return true;
 		// clang-format on
 		default:
-			fail(peek(), "non-constant operator in constant expression");
-			return false;
+			return fail(peek(), "non-constant operator in constant expression");
 		}
 	}
 
@@ -154,39 +147,28 @@ namespace rat::cc {
 		// clang-format on
 		case ExprOp::Div:
 		case ExprOp::Rem:
-			if(r == 0) {
-				fail(peek(), "division by zero in constant expression");
-				return false;
-			}
+			if(r == 0)
+				return fail(peek(), "division by zero in constant expression");
 			out = (e->binary.op == ExprOp::Div) ? (l / r) : (l % r);
 			return true;
 		default:
-			fail(peek(), "non-constant operator in constant expression");
-			return false;
+			return fail(peek(), "non-constant operator in constant expression");
 		}
 	}
 
 	B32 Parser::evalSizeofConst(const Expr* e, I64& out) {
 		if(e->kind == ExprKind::AlignOf) {
-			if(e->sizeOf.operand) {
-				fail(peek(), "_Alignof of an expression is not a constant expression here");
-				return false;
-			}
+			if(e->sizeOf.operand)
+				return fail(peek(), "_Alignof of an expression is not a constant expression here");
 			out = (I64)typeAlignBytes(e->sizeOf.type);
 			return true;
 		}
-		if(e->sizeOf.operand) {
-			fail(peek(), "sizeof expression not allowed in constant expression");
-			return false;
-		}
-		if(isVlaType(e->sizeOf.type)) {
-			fail(peek(), "sizeof a variable-length array is not constant");
-			return false;
-		}
-		if(isStruct(e->sizeOf.type) && !e->sizeOf.type.strukt->complete) {
-			fail(peek(), "sizeof applied to an incomplete type");
-			return false;
-		}
+		if(e->sizeOf.operand)
+			return fail(peek(), "sizeof expression not allowed in constant expression");
+		if(isVlaType(e->sizeOf.type))
+			return fail(peek(), "sizeof a variable-length array is not constant");
+		if(isStruct(e->sizeOf.type) && !e->sizeOf.type.strukt->complete)
+			return fail(peek(), "sizeof applied to an incomplete type");
 		out = (I64)typeSizeBytes(e->sizeOf.type);
 		return true;
 	}
@@ -216,8 +198,7 @@ namespace rat::cc {
 		case ExprKind::AlignOf:
 			return evalSizeofConst(e, out);
 		default:
-			fail(peek(), "expected a constant expression");
-			return false;
+			return fail(peek(), "expected a constant expression");
 		}
 	}
 

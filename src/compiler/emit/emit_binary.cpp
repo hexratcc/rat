@@ -3,16 +3,12 @@
 namespace rat::cc {
 	Emitter::Value Emitter::emitPtrArith(Function& fn, ExprOp op, Value lhs, Value rhs) {
 		if(op == ExprOp::Add) {
-			if(isPointer(lhs.type) && isPointer(rhs.type)) {
-				diag.fail("invalid operands to binary '+' (two pointers)");
-				return {};
-			}
+			if(isPointer(lhs.type) && isPointer(rhs.type))
+				return diag.fail("invalid operands to binary '+' (two pointers)");
 			Value p = isPointer(lhs.type) ? lhs : rhs;
 			Value i = isPointer(lhs.type) ? rhs : lhs;
-			if(!isInteger(i.type)) {
-				diag.fail("pointer arithmetic requires an integer operand");
-				return {};
-			}
+			if(!isInteger(i.type))
+				return diag.fail("pointer arithmetic requires an integer operand");
 			Node* idx = convert(fn, i.node, i.type, ctSize());
 			Node* stride = elemStride(fn, p.type);
 			if(!stride)
@@ -30,26 +26,22 @@ namespace rat::cc {
 					return {};
 				return {fn.sdiv(diff, stride), pd};
 			}
-			if(!isPointer(lhs.type) || !isInteger(rhs.type)) {
-				diag.fail("invalid operands to binary '-'");
-				return {};
-			}
+			if(!isPointer(lhs.type) || !isInteger(rhs.type))
+				return diag.fail("invalid operands to binary '-'");
 			Node* idx = convert(fn, rhs.node, rhs.type, ctSize());
 			Node* stride = elemStride(fn, lhs.type);
 			if(!stride)
 				return {};
 			return {fn.sub(lhs.node, fn.mul(idx, stride)), lhs.type};
 		}
-		diag.fail("invalid operands to binary expression on a pointer");
-		return {};
+		return diag.fail("invalid operands to binary expression on a pointer");
 	}
 
 	Node* Emitter::emitArith(Function& fn, ExprOp op, Node* l, Node* r, CType ct) {
 		if(isFloating(ct)) {
 			if(op >= ExprOp::Add && op <= ExprOp::Div) // Add..Div map onto FAdd..FDiv
 				return fn.binary((Opcode)((U32)Opcode::FAdd + ((U32)op - (U32)ExprOp::Add)), l, r);
-			diag.fail("invalid operator on a floating-point operand");
-			return nullptr;
+			return diag.fail("invalid operator on a floating-point operand");
 		}
 		struct Sel {
 			Opcode s, u;
@@ -73,10 +65,8 @@ namespace rat::cc {
 		static_assert(sizeof(kArith) / sizeof(kArith[0]) == (U32)ExprOp::BitXor - (U32)ExprOp::Add + 1,
 									"kArith must cover Add..BitXor");
 		U32 idx = (U32)op - (U32)ExprOp::Add;
-		if(op < ExprOp::Add || op > ExprOp::BitXor || kArith[idx].s == Opcode::Start) {
-			diag.fail("unsupported arithmetic operator");
-			return nullptr;
-		}
+		if(op < ExprOp::Add || op > ExprOp::BitXor || kArith[idx].s == Opcode::Start)
+			return diag.fail("unsupported arithmetic operator");
 		Node* res = fn.binary(ct.isUnsigned() ? kArith[idx].u : kArith[idx].s, l, r);
 		// signed overflow is undefined (C11 6.5p5). gcc defines a signed shl, so it gets no flag
 		if(!ct.isUnsigned() && (op == ExprOp::Add || op == ExprOp::Sub || op == ExprOp::Mul))
@@ -88,10 +78,8 @@ namespace rat::cc {
 		LValue lv;
 		if(!emitLValue(fn, e->unary.operand, lv))
 			return {};
-		if(isTopConst(lv.type)) {
-			diag.fail("cannot modify a const-qualified lvalue");
-			return {};
-		}
+		if(isTopConst(lv.type))
+			return diag.fail("cannot modify a const-qualified lvalue");
 		CType type = lv.type;
 		ExprOp op = e->unary.op;
 		B32 isInc = op == ExprOp::PreInc || op == ExprOp::PostInc;
@@ -127,15 +115,11 @@ namespace rat::cc {
 
 	Emitter::Value Emitter::assignStruct(Function& fn, const Expr* e, const LValue& lv, Value rhs) {
 		CType targetType = lv.type;
-		if(e->binary.op != ExprOp::Assign) {
-			diag.fail("invalid compound assignment to a struct or union");
-			return {};
-		}
-		if(!isStruct(rhs.type) || rhs.type.strukt != targetType.strukt) {
-			diag.fail("assigning to '" + typeName(targetType) + "' from incompatible '" +
-								typeName(rhs.type) + "'");
-			return {};
-		}
+		if(e->binary.op != ExprOp::Assign)
+			return diag.fail("invalid compound assignment to a struct or union");
+		if(!isStruct(rhs.type) || rhs.type.strukt != targetType.strukt)
+			return diag.fail("assigning to '" + typeName(targetType) + "' from incompatible '" +
+											 typeName(rhs.type) + "'");
 		emitMemCopy(fn, lv.addr, rhs.node, targetType.strukt->size);
 		return {lv.addr, targetType};
 	}
@@ -149,10 +133,8 @@ namespace rat::cc {
 			ExprOp base;
 			B32 ok = compoundBaseOp(e->binary.op, base) && (base == ExprOp::Add || base == ExprOp::Sub ||
 																											base == ExprOp::Mul || base == ExprOp::Div);
-			if(!ok) {
-				diag.fail("invalid compound assignment to a complex operand");
-				return {};
-			}
+			if(!ok)
+				return diag.fail("invalid compound assignment to a complex operand");
 			CType opType = completeComplex(usualArithmetic(ct, rhs.type));
 			Value cur = toComplex(fn, {lv.addr, ct}, opType);
 			Value rc = toComplex(fn, rhs, opType);
@@ -168,14 +150,10 @@ namespace rat::cc {
 		LValue lv;
 		if(!emitLValue(fn, e->binary.lhs, lv))
 			return {};
-		if(lv.isArray) {
-			diag.fail("array is not assignable");
-			return {};
-		}
-		if(isTopConst(lv.type)) {
-			diag.fail("cannot assign to a const-qualified lvalue");
-			return {};
-		}
+		if(lv.isArray)
+			return diag.fail("array is not assignable");
+		if(isTopConst(lv.type))
+			return diag.fail("cannot assign to a const-qualified lvalue");
 		CType targetType = lv.type;
 		Value rhs = emitExpr(fn, e->binary.rhs);
 		if(!rhs.node)
@@ -199,10 +177,8 @@ namespace rat::cc {
 			stored = res.node;
 		} else {
 			ExprOp base;
-			if(!compoundBaseOp(e->binary.op, base)) {
-				diag.fail("unsupported assignment operator");
-				return {};
-			}
+			if(!compoundBaseOp(e->binary.op, base))
+				return diag.fail("unsupported assignment operator");
 			CType ct = usualArithmetic(targetType, rhs.type);
 			Node* l = convert(fn, loadLValue(fn, lv), targetType, ct);
 			Node* r = convert(fn, rhs.node, rhs.type, ct);
@@ -220,10 +196,8 @@ namespace rat::cc {
 		Value lhs = emitExpr(fn, e->binary.lhs);
 		if(!lhs.node)
 			return {};
-		if(isAggregate(lhs.type) && !isComplexType(lhs.type)) {
-			diag.fail("operand of logical operator must have scalar type");
-			return {};
-		}
+		if(isAggregate(lhs.type) && !isComplexType(lhs.type))
+			return diag.fail("operand of logical operator must have scalar type");
 		Node* lpred = toBool(fn, lhs);
 		Function::Var var = fn.newVar("logic", i32);
 		Function::Block* rhsB = fn.createBlock(isAnd ? "and.rhs" : "or.rhs");
@@ -235,10 +209,8 @@ namespace rat::cc {
 		Value rhs = emitExpr(fn, e->binary.rhs);
 		if(!rhs.node)
 			return {};
-		if(isAggregate(rhs.type) && !isComplexType(rhs.type)) {
-			diag.fail("operand of logical operator must have scalar type");
-			return {};
-		}
+		if(isAggregate(rhs.type) && !isComplexType(rhs.type))
+			return diag.fail("operand of logical operator must have scalar type");
 		fn.set(var, fromBool(fn, toBool(fn, rhs)));
 		fn.jmp(endB);
 		fn.enterBlock(shortB);
@@ -316,10 +288,8 @@ namespace rat::cc {
 		case ExprOp::BitAnd:
 		case ExprOp::BitOr:
 		case ExprOp::BitXor:
-			if(!isInteger(lhs.type) || !isInteger(rhs.type)) {
-				diag.fail("operands of this operator must have integer type");
-				return {};
-			}
+			if(!isInteger(lhs.type) || !isInteger(rhs.type))
+				return diag.fail("operands of this operator must have integer type");
 			break;
 		default:
 			break;

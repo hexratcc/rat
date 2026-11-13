@@ -54,12 +54,13 @@ namespace rat::cc {
 		scopes.clear();
 	}
 
-	void Diagnostics::fail(const String& m) {
+	Failed Diagnostics::fail(const String& m) {
 		if(failed)
-			return;
+			return {};
 		message =
 				m + " [@" + std::to_string(offset) + (function.empty() ? "" : " in " + function) + "]";
 		failed = true;
+		return {};
 	}
 
 	const String& Symbols::resolveAlias(const String& name) const {

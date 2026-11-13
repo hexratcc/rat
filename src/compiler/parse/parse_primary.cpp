@@ -12,45 +12,33 @@ namespace rat::cc {
 		if(!expect(TokKind::LParen, "'('"))
 			return nullptr;
 		CType ty;
-		if(!parseTypeSpec(ty)) {
-			fail(peek(), "expected a type in __builtin_offsetof");
-			return nullptr;
-		}
+		if(!parseTypeSpec(ty))
+			return fail(peek(), "expected a type in __builtin_offsetof");
 		if(!expect(TokKind::Comma, "','"))
 			return nullptr;
-		if(!check(TokKind::Identifier)) {
-			fail(peek(), "expected a member name in __builtin_offsetof");
-			return nullptr;
-		}
+		if(!check(TokKind::Identifier))
+			return fail(peek(), "expected a member name in __builtin_offsetof");
 		I64 off = 0;
 		CType cur = ty;
 		B32 first = true;
 		for(;;) {
 			if(first || accept(TokKind::Dot)) {
 				first = false;
-				if(!check(TokKind::Identifier)) {
-					fail(peek(), "expected a member name in __builtin_offsetof");
-					return nullptr;
-				}
+				if(!check(TokKind::Identifier))
+					return fail(peek(), "expected a member name in __builtin_offsetof");
 				Token m = advance();
-				if(!isStruct(cur)) {
-					fail(m, "__builtin_offsetof of a member of a non-struct type");
-					return nullptr;
-				}
+				if(!isStruct(cur))
+					return fail(m, "__builtin_offsetof of a member of a non-struct type");
 				const Field* f = cur.strukt->find(lex.text(m));
-				if(!f) {
-					fail(m, "no such member in __builtin_offsetof");
-					return nullptr;
-				}
+				if(!f)
+					return fail(m, "no such member in __builtin_offsetof");
 				off += f->offset;
 				cur = f->type; // element type for array members
 			} else if(accept(TokKind::LBracket)) {
 				Expr* ix = parseConditional();
 				I64 v = 0;
-				if(!ix || !evalIntConst(ix, v)) {
-					fail(peek(), "array index in __builtin_offsetof must be constant");
-					return nullptr;
-				}
+				if(!ix || !evalIntConst(ix, v))
+					return fail(peek(), "array index in __builtin_offsetof must be constant");
 				if(!expect(TokKind::RBracket, "']'"))
 					return nullptr;
 				off += v * (I64)typeSizeBytes(cur);
@@ -161,10 +149,8 @@ namespace rat::cc {
 		errno = 0;
 		C8* end = nullptr;
 		F80 value = std::strtold(text.c_str(), &end);
-		if(end == text.c_str() || *end != '\0') {
-			fail(lit, "invalid floating constant '" + text + "'");
-			return nullptr;
-		}
+		if(end == text.c_str() || *end != '\0')
+			return fail(lit, "invalid floating constant '" + text + "'");
 		Expr* e = makeExpr(ExprKind::FloatLit, lit.offset);
 		e->floatLit = {value, isFloat ? 32u : (isLongDouble ? 128u : 64u), isImaginary};
 		return e;
@@ -242,8 +228,7 @@ namespace rat::cc {
 		case TokKind::LParen:
 			return parsePrimaryParen();
 		default:
-			fail(tok, String("expected expression, found '") + tokKindName(tok.kind) + "'");
-			return nullptr;
+			return fail(tok, String("expected expression, found '") + tokKindName(tok.kind) + "'");
 		}
 	}
 
@@ -264,10 +249,8 @@ namespace rat::cc {
 		if(!expect(TokKind::Comma, "','"))
 			return nullptr;
 		CType ty;
-		if(!parseTypeName(ty)) {
-			fail(peek(), "expected a type in __builtin_va_arg");
-			return nullptr;
-		}
+		if(!parseTypeName(ty))
+			return fail(peek(), "expected a type in __builtin_va_arg");
 		if(!expect(TokKind::RParen, "')'"))
 			return nullptr;
 		Expr* va = makeExpr(ExprKind::VaArg, lp.offset);
@@ -323,11 +306,10 @@ namespace rat::cc {
 				e = makeUnary(lb.offset, ExprOp::Deref, sum);
 			} else if(k == TokKind::Dot || k == TokKind::Arrow) {
 				Token t = advance();
-				if(!check(TokKind::Identifier)) {
-					fail(peek(),
-							 "expected member name after '" + String(k == TokKind::Arrow ? "->" : ".") + "'");
-					return nullptr;
-				}
+				if(!check(TokKind::Identifier))
+					return fail(peek(),
+											"expected member name after '" + String(k == TokKind::Arrow ? "->" : ".") +
+													"'");
 				Token nameTok = advance();
 				Expr* m = makeExpr(ExprKind::Member, t.offset);
 				m->member.base = e;

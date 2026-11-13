@@ -161,18 +161,14 @@ namespace rat::cc {
 		Value ctrl = emitExpr(fn, s->expr);
 		if(!ctrl.node)
 			return false;
-		if(!isInteger(ctrl.type)) {
-			diag.fail("switch controlling expression must have integer type");
-			return false;
-		}
+		if(!isInteger(ctrl.type))
+			return diag.fail("switch controlling expression must have integer type");
 		CType ct = promote(ctrl.type);
 		Node* val = convert(fn, ctrl.node, ctrl.type, ct);
 
 		const Stmt* body = s->thenBody;
-		if(body->kind != StmtKind::Compound) {
-			diag.fail("switch body must be a block");
-			return false;
-		}
+		if(body->kind != StmtKind::Compound)
+			return diag.fail("switch body must be a block");
 
 		Function::Block* exitB = fn.createBlock("switch.exit");
 		List<const Stmt*> caseStmts;
@@ -184,15 +180,11 @@ namespace rat::cc {
 		List<Function::Block*> caseBlocks;
 		for(const Stmt* c : caseStmts) {
 			I64 v;
-			if(!evalConst(c->expr, v)) {
-				diag.fail("case label is not an integer constant expression");
-				return false;
-			}
+			if(!evalConst(c->expr, v))
+				return diag.fail("case label is not an integer constant expression");
 			for(I64 prev : caseValues) {
-				if(prev == v) {
-					diag.fail("duplicate case value in switch");
-					return false;
-				}
+				if(prev == v)
+					return diag.fail("duplicate case value in switch");
 			}
 			Function::Block* b = fn.createBlock("switch.case");
 			blocks[c] = b;
@@ -389,10 +381,8 @@ namespace rat::cc {
 			if(it != func.switches.back().end())
 				lbl = it->second;
 		}
-		if(!lbl) {
-			diag.fail("'case'/'default' label not within a switch");
-			return false;
-		}
+		if(!lbl)
+			return diag.fail("'case'/'default' label not within a switch");
 		if(!fn.blockFinished())
 			fn.jmp(lbl);
 		fn.enterBlock(lbl);
@@ -426,10 +416,8 @@ namespace rat::cc {
 		case StmtKind::Default:
 			return emitCaseLabel(fn, s);
 		case StmtKind::Break:
-			if(func.loops.empty()) {
-				diag.fail("'break' statement not in a loop or switch");
-				return false;
-			}
+			if(func.loops.empty())
+				return diag.fail("'break' statement not in a loop or switch");
 			func.loops.back().exitReachable = true;
 			restoreStack(fn, func.loops.back().sp);
 			fn.jmp(func.loops.back().breakBlock);
@@ -442,8 +430,7 @@ namespace rat::cc {
 				fn.jmp(it->continueBlock);
 				return true;
 			}
-			diag.fail("'continue' statement not in a loop");
-			return false;
+			return diag.fail("'continue' statement not in a loop");
 		}
 		case StmtKind::Return:
 			return emitReturn(fn, s);
@@ -458,8 +445,7 @@ namespace rat::cc {
 		case StmtKind::Asm:
 			return emitAsm(fn, s);
 		}
-		diag.fail("unsupported statement");
-		return false;
+		return diag.fail("unsupported statement");
 	}
 
 	B32 Emitter::emitReturn(Function& fn, const Stmt* s) {
@@ -474,8 +460,7 @@ namespace rat::cc {
 				if(isComplexType(func.returnType)) {
 					storeComplex(fn, func.sretSlot, completeComplex(func.returnType), v);
 				} else if(!isStruct(v.type) || v.type.strukt != func.returnType.strukt) {
-					diag.fail("invalid return value for a struct/union function");
-					return false;
+					return diag.fail("invalid return value for a struct/union function");
 				} else {
 					emitMemCopy(fn, func.sretSlot, v.node, func.returnType.strukt->size);
 				}
@@ -484,10 +469,8 @@ namespace rat::cc {
 			return true;
 		}
 		if(isVoidType(func.returnType)) {
-			if(v.node && !isVoidType(v.type)) {
-				diag.fail("return with a value in a function returning void");
-				return false;
-			}
+			if(v.node && !isVoidType(v.type))
+				return diag.fail("return with a value in a function returning void");
 			fn.retVoid();
 			return true;
 		}
@@ -502,10 +485,8 @@ namespace rat::cc {
 
 	B32 Emitter::emitLabel(Function& fn, const Stmt* s) {
 		auto it = func.labels.find(*s->label);
-		if(it == func.labels.end()) {
-			diag.fail("internal: missing block for label '" + *s->label + "'");
-			return false;
-		}
+		if(it == func.labels.end())
+			return diag.fail("internal: missing block for label '" + *s->label + "'");
 		Function::Block* lbl = it->second.block;
 		if(!fn.blockFinished())
 			fn.jmp(lbl);
@@ -516,10 +497,8 @@ namespace rat::cc {
 
 	B32 Emitter::emitGoto(Function& fn, const Stmt* s) {
 		auto it = func.labels.find(*s->label);
-		if(it == func.labels.end()) {
-			diag.fail("use of undeclared label '" + *s->label + "'");
-			return false;
-		}
+		if(it == func.labels.end())
+			return diag.fail("use of undeclared label '" + *s->label + "'");
 		restoreStack(fn, it->second.sp);
 		fn.jmp(it->second.block);
 		return true;
@@ -548,14 +527,10 @@ namespace rat::cc {
 
 	B32 Emitter::emitAsm(Function& fn, const Stmt* s) {
 		const AsmBlock* a = s->asmBlock;
-		if(a->isGoto) {
-			diag.fail("'asm goto' is not supported");
-			return false;
-		}
-		if(!a->text->empty()) {
-			diag.fail("inline assembly with a non-empty template is not supported");
-			return false;
-		}
+		if(a->isGoto)
+			return diag.fail("'asm goto' is not supported");
+		if(!a->text->empty())
+			return diag.fail("inline assembly with a non-empty template is not supported");
 
 		List<LValue> lvs;
 		List<B32> readsBack(a->outputs.size(), false);
@@ -563,17 +538,13 @@ namespace rat::cc {
 		for(U32 i = 0; i < a->outputs.size(); ++i) {
 			const AsmOperand& op = a->outputs[i];
 			B32 readWrite = false;
-			if(!isRegConstraint(*op.constraint, true, readWrite)) {
-				diag.fail("unsupported asm output constraint '" + *op.constraint + "'");
-				return false;
-			}
+			if(!isRegConstraint(*op.constraint, true, readWrite))
+				return diag.fail("unsupported asm output constraint '" + *op.constraint + "'");
 			LValue lv;
 			if(!emitLValue(fn, op.expr, lv))
 				return false;
-			if(!asmFitsRegister(lv.type) || lv.isBitfield) {
-				diag.fail("asm operand type does not fit a register");
-				return false;
-			}
+			if(!asmFitsRegister(lv.type) || lv.isBitfield)
+				return diag.fail("asm operand type does not fit a register");
 			lvs.push_back(lv);
 			readsBack[i] = readWrite;
 		}
@@ -582,25 +553,19 @@ namespace rat::cc {
 		for(const AsmOperand& op : a->inputs) {
 			U32 which = 0;
 			if(matchingConstraint(*op.constraint, which)) {
-				if(which >= tie.size() || readsBack[which] || tie[which]) {
-					diag.fail("asm matching constraint '" + *op.constraint + "' names no free output");
-					return false;
-				}
+				if(which >= tie.size() || readsBack[which] || tie[which])
+					return diag.fail("asm matching constraint '" + *op.constraint + "' names no free output");
 				tie[which] = op.expr;
 				continue;
 			}
 			B32 readWrite = false;
-			if(!isRegConstraint(*op.constraint, false, readWrite)) {
-				diag.fail("unsupported asm input constraint '" + *op.constraint + "'");
-				return false;
-			}
+			if(!isRegConstraint(*op.constraint, false, readWrite))
+				return diag.fail("unsupported asm input constraint '" + *op.constraint + "'");
 			extra.push_back(op.expr);
 		}
 		for(U32 i = 0; i < tie.size(); ++i) {
-			if(!tie[i] && !readsBack[i]) {
-				diag.fail("asm output operand is not tied to an input, so it has no defined value");
-				return false;
-			}
+			if(!tie[i] && !readsBack[i])
+				return diag.fail("asm output operand is not tied to an input, so it has no defined value");
 		}
 
 		List<Type*> outTypes;
@@ -622,10 +587,8 @@ namespace rat::cc {
 			Value v = emitExpr(fn, e);
 			if(!v.node)
 				return false;
-			if(!asmFitsRegister(v.type)) {
-				diag.fail("asm operand type does not fit a register");
-				return false;
-			}
+			if(!asmFitsRegister(v.type))
+				return diag.fail("asm operand type does not fit a register");
 			args.push_back(v.node);
 		}
 

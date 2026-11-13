@@ -70,20 +70,16 @@ namespace rat::cc {
 	B32 Parser::parseTypedef() {
 		advance(); // typedef
 		CType base;
-		if(!parseTypeSpec(base)) {
-			fail(peek(), "expected type in typedef declaration");
-			return false;
-		}
+		if(!parseTypeSpec(base))
+			return fail(peek(), "expected type in typedef declaration");
 		if(accept(TokKind::Semicolon))
 			return true;
 		for(;;) {
 			DeclResult r;
 			if(!parseDeclarator(base, r))
 				return false;
-			if(!r.name) {
-				fail(peek(), "expected typedef name");
-				return false;
-			}
+			if(!r.name)
+				return fail(peek(), "expected typedef name");
 			CType named = r.type;
 			named.named = arena.make<NamedType>(NamedType{*r.name, r.type, {}, r.offset});
 			typedefs.set(*r.name, named);
@@ -110,10 +106,8 @@ namespace rat::cc {
 			I64 v = 0;
 			if(!e || !evalIntConst(e, v))
 				return false;
-			if(v <= 0 || (v & (v - 1)) != 0) {
-				fail(kw, "_Alignas requires a positive power-of-two alignment");
-				return false;
-			}
+			if(v <= 0 || (v & (v - 1)) != 0)
+				return fail(kw, "_Alignas requires a positive power-of-two alignment");
 			n = (U32)v;
 		}
 		if(!expect(TokKind::RParen, "')'"))
@@ -267,10 +261,8 @@ namespace rat::cc {
 		specAlign = 0;
 		if(!parseQualStorage(seen))
 			return false;
-		if(seen.storageCount > 1) {
-			fail(peek(), "more than one storage-class specifier");
-			return false;
-		}
+		if(seen.storageCount > 1)
+			return fail(peek(), "more than one storage-class specifier");
 		if(check(TokKind::KwTypeof))
 			return parseTypeofSpec(out) && finishTypeSpec(seen, out);
 		if(check(TokKind::KwEnum))
@@ -287,10 +279,8 @@ namespace rat::cc {
 		TypeWords w;
 		if(!parseTypeKeywords(seen, w) || w.total == 0)
 			return false;
-		if(seen.storageCount > 1) {
-			fail(peek(), "more than one storage-class specifier");
-			return false;
-		}
+		if(seen.storageCount > 1)
+			return fail(peek(), "more than one storage-class specifier");
 		out = basicType(w);
 		return finishTypeSpec(seen, out);
 	}

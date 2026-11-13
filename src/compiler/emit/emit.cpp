@@ -183,28 +183,23 @@ namespace rat::cc {
 			Value p = emitExpr(fn, e->member.base);
 			if(!p.node)
 				return false;
-			if(!isPointer(p.type) || !isStruct(pointee(p.type))) {
-				diag.fail("'->' requires a pointer to struct or union");
-				return false;
-			}
+			if(!isPointer(p.type) || !isStruct(pointee(p.type)))
+				return diag.fail("'->' requires a pointer to struct or union");
 			structType = pointee(p.type);
 			baseAddr = p.node;
 		} else {
 			LValue base;
 			if(!emitLValue(fn, e->member.base, base))
 				return false;
-			if(base.isVar() || !isStruct(base.type)) {
-				diag.fail("'.' requires a struct or union value");
-				return false;
-			}
+			if(base.isVar() || !isStruct(base.type))
+				return diag.fail("'.' requires a struct or union value");
 			structType = base.type;
 			baseAddr = base.addr;
 		}
 		const Field* f = structType.strukt->find(*e->member.name);
-		if(!f) {
-			diag.fail("no member named '" + *e->member.name + "' in '" + typeName(structType) + "'");
-			return false;
-		}
+		if(!f)
+			return diag.fail("no member named '" + *e->member.name + "' in '" + typeName(structType) +
+											 "'");
 		out.kind = LValue::Kind::Addr;
 		out.addr = f->offset ? fn.add(baseAddr, constSize(fn, f->offset)) : baseAddr;
 		out.type = f->type;
@@ -243,10 +238,8 @@ namespace rat::cc {
 		if(e->kind == ExprKind::Ident) {
 			Local loc;
 			if(func.scopes.lookup(*e->ident.name, loc)) {
-				if(loc.isArray) {
-					diag.fail("array '" + *e->ident.name + "' is not assignable");
-					return false;
-				}
+				if(loc.isArray)
+					return diag.fail("array '" + *e->ident.name + "' is not assignable");
 				if(loc.inMem()) {
 					out.kind = LValue::Kind::Addr;
 					out.addr = loc.addr;
@@ -259,17 +252,14 @@ namespace rat::cc {
 			}
 			auto g = syms.globals.find(*e->ident.name);
 			if(g != syms.globals.end()) {
-				if(g->second.isArray) {
-					diag.fail("array '" + *e->ident.name + "' is not assignable");
-					return false;
-				}
+				if(g->second.isArray)
+					return diag.fail("array '" + *e->ident.name + "' is not assignable");
 				out.kind = LValue::Kind::Addr;
 				out.addr = fn.global(syms.resolveAlias(*e->ident.name));
 				out.type = g->second.type;
 				return true;
 			}
-			failUndeclared(*e->ident.name);
-			return false;
+			return failUndeclared(*e->ident.name);
 		}
 		if(e->kind == ExprKind::Unary && e->unary.op == ExprOp::Deref) {
 			Value p = emitExpr(fn, e->unary.operand);
@@ -277,8 +267,7 @@ namespace rat::cc {
 				return false;
 			if(!isPointer(p.type)) {
 				diag.offset = e->offset;
-				diag.fail("indirection requires a pointer operand");
-				return false;
+				return diag.fail("indirection requires a pointer operand");
 			}
 			out.kind = LValue::Kind::Addr;
 			out.addr = p.node;
@@ -290,10 +279,8 @@ namespace rat::cc {
 			LValue base;
 			if(!emitLValue(fn, e->unary.operand, base))
 				return false;
-			if(!isComplexType(base.type) || base.isVar()) {
-				diag.fail("'__real__'/'__imag__' require a complex lvalue");
-				return false;
-			}
+			if(!isComplexType(base.type) || base.isVar())
+				return diag.fail("'__real__'/'__imag__' require a complex lvalue");
 			CType re = complexElem(base.type);
 			out.kind = LValue::Kind::Addr;
 			out.addr = e->unary.op == ExprOp::Imag ? offsetPtr(fn, base.addr, byteSize(re)) : base.addr;
@@ -316,8 +303,7 @@ namespace rat::cc {
 				return true;
 			}
 		}
-		diag.fail("expression is not assignable");
-		return false;
+		return diag.fail("expression is not assignable");
 	}
 
 	Node* Emitter::loadLValue(Function& fn, const LValue& lv) {
@@ -442,8 +428,8 @@ namespace rat::cc {
 			const Global* t = mod.getGlobal(target);
 			if((t && !t->isAlias()) || mod.getFunction(target))
 				continue;
-			diag.fail("alias '" + g->getName() + "' names '" + target + "', which is not defined here");
-			return false;
+			return diag.fail("alias '" + g->getName() + "' names '" + target +
+											 "', which is not defined here");
 		}
 		return true;
 	}

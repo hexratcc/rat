@@ -131,8 +131,7 @@ namespace rat::cc {
 		}
 		if(fallback)
 			return fallback;
-		diag.fail("no _Generic association matches the controlling type");
-		return nullptr;
+		return diag.fail("no _Generic association matches the controlling type");
 	}
 
 	B32 Emitter::typeOfUnary(const Expr* e, CType& out) {
@@ -164,10 +163,8 @@ namespace rat::cc {
 			}
 			if(isArrayType(t))
 				t = decay(t);
-			if(!isPointer(t)) {
-				diag.fail("indirection requires a pointer operand");
-				return false;
-			}
+			if(!isPointer(t))
+				return diag.fail("indirection requires a pointer operand");
 			out = pointee(t);
 			return true;
 		case ExprOp::Real:
@@ -259,8 +256,7 @@ namespace rat::cc {
 				out = funcPtrType(f->second);
 				return true;
 			}
-			failUndeclared(*e->ident.name);
-			return false;
+			return failUndeclared(*e->ident.name);
 		}
 		case ExprKind::Call: {
 			if(e->call.callee) {
@@ -327,15 +323,11 @@ namespace rat::cc {
 			if(!typeOf(e->member.base, base))
 				return false;
 			CType st = e->member.arrow ? pointee(base) : base;
-			if(!isStruct(st)) {
-				diag.fail("member reference base type is not a struct or union");
-				return false;
-			}
+			if(!isStruct(st))
+				return diag.fail("member reference base type is not a struct or union");
 			const Field* f = st.strukt->find(*e->member.name);
-			if(!f) {
-				diag.fail("no member named '" + *e->member.name + "' in '" + typeName(st) + "'");
-				return false;
-			}
+			if(!f)
+				return diag.fail("no member named '" + *e->member.name + "' in '" + typeName(st) + "'");
 			if(f->isArray())
 				out = pointerTo(f->type);
 			else
@@ -343,8 +335,7 @@ namespace rat::cc {
 			return true;
 		}
 		case ExprKind::InitList:
-			diag.fail("initializer list has no type");
-			return false;
+			return diag.fail("initializer list has no type");
 		case ExprKind::CompoundLit:
 			out = e->compound.isArray ? pointerTo(e->compound.type) : e->compound.type;
 			return true;

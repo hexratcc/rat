@@ -79,8 +79,7 @@ namespace rat::cc {
 					fn, ct, fn.binary(Opcode::FDiv, rnum, denom), fn.binary(Opcode::FDiv, inum, denom));
 		}
 		default:
-			diag.fail("invalid operator on a complex operand");
-			return {};
+			return diag.fail("invalid operator on a complex operand");
 		}
 	}
 } // namespace rat::cc

@@ -31,8 +31,7 @@ namespace rat::cc {
 				c.ft = ct.func;
 				c.prototyped = true;
 			} else if(isObject) {
-				diag.fail("called object is not a function or function pointer");
-				return false;
+				return diag.fail("called object is not a function or function pointer");
 			} else {
 				const String& callee = *e->call.callee;
 				if(callee.rfind("__builtin_", 0) != 0 && syms.implicitFunctions.insert(callee).second)
@@ -46,10 +45,8 @@ namespace rat::cc {
 		Value fpv = emitExpr(fn, e->call.target);
 		if(!fpv.node)
 			return false;
-		if(!isFuncPtr(fpv.type)) {
-			diag.fail("called object is not a function");
-			return false;
-		}
+		if(!isFuncPtr(fpv.type))
+			return diag.fail("called object is not a function");
 		c.target = fpv.node;
 		c.ft = fpv.type.func;
 		c.prototyped = true;

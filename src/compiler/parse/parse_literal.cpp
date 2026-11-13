@@ -111,10 +111,8 @@ namespace rat::cc {
 		U64 v = 0;
 		for(U32 i = start; i < end; ++i) {
 			I32 d = hexVal(s[i]);
-			if(d < 0 || d >= base) {
-				fail(tok, "invalid digit in integer constant");
-				return false;
-			}
+			if(d < 0 || d >= base)
+				return fail(tok, "invalid digit in integer constant");
 			v = v * (U64)base + (U64)d;
 		}
 
@@ -182,10 +180,8 @@ namespace rat::cc {
 	// any other character stands for itself
 	B32 Parser::decodeEscape(
 			const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out) {
-		if(i >= end) {
-			fail(tok, "unterminated escape");
-			return false;
-		}
+		if(i >= end)
+			return fail(tok, "unterminated escape");
 		C8 e = s[i++];
 		U8 simple = 0;
 		if(simpleEscape(e, simple)) {
@@ -197,17 +193,13 @@ namespace rat::cc {
 			out = '?';
 			return true;
 		case 'x': {
-			if(i >= end || !isHexDigit(s[i])) {
-				fail(tok, "expected hex digits in escape");
-				return false;
-			}
+			if(i >= end || !isHexDigit(s[i]))
+				return fail(tok, "expected hex digits in escape");
 			U32 hv = 0;
 			while(i < end && isHexDigit(s[i]))
 				hv = hv * 16 + (U32)hexVal(s[i++]);
-			if(hv > maxVal) {
-				fail(tok, "hex escape out of range");
-				return false;
-			}
+			if(hv > maxVal)
+				return fail(tok, "hex escape out of range");
 			out = hv; // maxVal already bounds this per encoding prefix
 			return true;
 		}
@@ -217,10 +209,8 @@ namespace rat::cc {
 				U32 ov = (U32)(e - '0');
 				for(U32 k = 0; k < 2 && i < end && isOctalDigit(s[i]); ++k, ++i)
 					ov = ov * 8 + (U32)(s[i] - '0');
-				if(ov > maxVal) {
-					fail(tok, "octal escape out of range");
-					return false;
-				}
+				if(ov > maxVal)
+					return fail(tok, "octal escape out of range");
 				out = ov;
 			} else {
 				out = (U8)e; // unknown escape: take the character literally
@@ -233,23 +223,17 @@ namespace rat::cc {
 	B32 Parser::decodeUcn(const String& s, U32& i, U32 end, const Token& tok, U32& cp) {
 		C8 kind = s[i++]; // 'u' or 'U'
 		U32 ndigits = (kind == 'u') ? 4 : 8;
-		if(i + ndigits > end) {
-			fail(tok, "incomplete universal character name");
-			return false;
-		}
+		if(i + ndigits > end)
+			return fail(tok, "incomplete universal character name");
 		U32 v = 0;
 		for(U32 k = 0; k < ndigits; ++k) {
-			if(!isHexDigit(s[i + k])) {
-				fail(tok, "universal character name requires hex digits");
-				return false;
-			}
+			if(!isHexDigit(s[i + k]))
+				return fail(tok, "universal character name requires hex digits");
 			v = v * 16 + (U32)hexVal(s[i + k]);
 		}
 		i += ndigits;
-		if((v >= 0xD800 && v <= 0xDFFF) || v > 0x10FFFF) {
-			fail(tok, "invalid universal character name");
-			return false;
-		}
+		if((v >= 0xD800 && v <= 0xDFFF) || v > 0x10FFFF)
+			return fail(tok, "invalid universal character name");
 		cp = v;
 		return true;
 	}
@@ -264,10 +248,8 @@ namespace rat::cc {
 		U32 end = 0;
 		detail::quotedRange(s, '\'', i, end);
 
-		if(i >= end) {
-			fail(tok, "empty character constant");
-			return false;
-		}
+		if(i >= end)
+			return fail(tok, "empty character constant");
 
 		I64 v = 0;
 		U32 count = 0;

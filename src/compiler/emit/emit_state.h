@@ -95,7 +95,7 @@ namespace rat::cc {
 	};
 
 	struct Diagnostics {
-		void fail(const String& m);
+		Failed fail(const String& m);
 
 		B32 failed = false;
 		String message;

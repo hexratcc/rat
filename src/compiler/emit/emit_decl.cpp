@@ -76,15 +76,12 @@ namespace rat::cc {
 					continue;
 				}
 				if(d.arrayLen) {
-					if(count <= 0) {
-						failArrayCount();
-						return false;
-					}
+					if(count <= 0)
+						return failArrayCount();
 				} else if(d.init && d.init->kind == ExprKind::InitList) {
 					count = (I64)d.init->args.size();
 				} else {
-					failArrayUnknownSize(*d.name);
-					return false;
+					return failArrayUnknownSize(*d.name);
 				}
 				U32 total = (U32)count * byteSize(d.type);
 				Node* slot = declSlot(fn, d, byteArrayType(total), total);
@@ -152,10 +149,8 @@ namespace rat::cc {
 			Value v = emitExpr(fn, d.init);
 			if(!v.node)
 				return false;
-			if(!isStruct(v.type) || v.type.strukt != d.type.strukt) {
-				diag.fail("invalid initializer for struct '" + *d.name + "'");
-				return false;
-			}
+			if(!isStruct(v.type) || v.type.strukt != d.type.strukt)
+				return diag.fail("invalid initializer for struct '" + *d.name + "'");
 			emitMemCopy(fn, slot, v.node, d.type.strukt->size);
 		}
 		func.scopes.declare(*d.name, Local::mem(slot, d.type));
@@ -163,10 +158,8 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitTypedefArrayDecl(Function& fn, const Declarator& d) {
-		if(d.init) {
-			diag.fail("invalid initializer for array variable '" + *d.name + "'");
-			return false;
-		}
+		if(d.init)
+			return diag.fail("invalid initializer for array variable '" + *d.name + "'");
 		Node* slot = declSlot(fn, d, byteArrayType(byteSize(d.type)), byteSize(d.type));
 		func.scopes.declare(*d.name, Local::memArray(slot, arrayElem(d.type)));
 		return true;
@@ -174,16 +167,12 @@ namespace rat::cc {
 
 	B32 Emitter::emitAggArrayDecl(Function& fn, const Declarator& d, I64 count, B32 haveLen) {
 		if(!haveLen) {
-			if(!d.init || d.init->kind != ExprKind::InitList) {
-				failArrayUnknownSize(*d.name);
-				return false;
-			}
+			if(!d.init || d.init->kind != ExprKind::InitList)
+				return failArrayUnknownSize(*d.name);
 			count = (I64)initArrayCount(d.type, d.init);
 		}
-		if(isStruct(d.type) && count <= 0) {
-			failArrayCount();
-			return false;
-		}
+		if(isStruct(d.type) && count <= 0)
+			return failArrayCount();
 		U32 elemSize = byteSize(d.type);
 		U32 total = (U32)count * elemSize;
 		Node* slot = declSlot(fn, d, byteArrayType(total), total);
@@ -201,16 +190,12 @@ namespace rat::cc {
 		B32 haveLen = d.arrayLen != nullptr;
 		I64 count;
 		if(declIsVla(d, count)) {
-			if(d.init) {
-				diag.fail("a variable-length array may not be initialized");
-				return false;
-			}
+			if(d.init)
+				return diag.fail("a variable-length array may not be initialized");
 			return emitVlaDecl(fn, d);
 		}
-		if(haveLen && count <= 0) {
-			failArrayCount();
-			return false;
-		}
+		if(haveLen && count <= 0)
+			return failArrayCount();
 		if(isArrayType(d.type) || isStruct(d.type))
 			return emitAggArrayDecl(fn, d, count, haveLen);
 		Type* elemTy = irType(d.type);
@@ -218,10 +203,8 @@ namespace rat::cc {
 
 		if(d.init && d.init->kind == ExprKind::StrLit) {
 			U32 cw = d.init->str.isWide ? d.init->str.charSize : 1u;
-			if(d.type.ptr != 0 || d.type.bits != cw * 8) {
-				failStringNeedsCharArray();
-				return false;
-			}
+			if(d.type.ptr != 0 || d.type.bits != cw * 8)
+				return failStringNeedsCharArray();
 			const String& bytes = *d.init->str.bytes;
 			I64 nchars = (I64)bytes.size() / (I64)cw;
 			if(!haveLen)
@@ -256,14 +239,10 @@ namespace rat::cc {
 			return true;
 		}
 
-		if(d.init) {
-			diag.fail("invalid initializer for an array");
-			return false;
-		}
-		if(!haveLen) {
-			failArrayUnknownSize(*d.name);
-			return false;
-		}
+		if(d.init)
+			return diag.fail("invalid initializer for an array");
+		if(!haveLen)
+			return failArrayUnknownSize(*d.name);
 		Node* slot = declSlot(fn, d, mod.getArray(irType(d.type), (U32)count), (U32)count * elemSize);
 		func.scopes.declare(*d.name, Local::memArray(slot, d.type, (U32)count));
 		return true;
