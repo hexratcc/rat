@@ -48,15 +48,7 @@ namespace rat {
 		if(!funcIndexValid)
 			rebuildFuncIndex();
 		auto it = funcIndex.find(name);
-		if(it != funcIndex.end() && it->second->getName() == name)
-			return it->second;
-		for(Function* fn : funcs) {
-			if(fn->getName() == name) {
-				rebuildFuncIndex();
-				return fn;
-			}
-		}
-		return nullptr;
+		return it == funcIndex.end() ? nullptr : it->second;
 	}
 
 	B32 Module::removeFunction(Function* fn) {

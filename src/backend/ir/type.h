@@ -73,6 +73,7 @@ namespace rat {
 	private:
 		Type* make(Type::Kind kind, U32 bits, List<Type*> elements);
 		Type* internElem(List<Type*>& pool, Type::Kind kind, Type* element, U32 count);
+		Type* internScalar(Map<U32, Type*>& pool, Type::Kind kind, U32 bits);
 
 		U32 nextUid = 0;
 		Type* control = nullptr;

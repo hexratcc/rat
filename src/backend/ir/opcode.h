@@ -86,7 +86,7 @@ namespace rat {
 		// assembly
 		Asm,
 
-		// storage: a pointer to a module global or a fixed-size frame slot
+		// storage, a pointer to a module global or a fixed-size frame slot
 		Global,
 		Alloc,
 
@@ -95,8 +95,8 @@ namespace rat {
 		StackSave,
 		StackRestore,
 
-		// multi-way branch: control + selector in, one control proj per slot;
-		// selector must be in [0, slots) (emitter guards it)
+		// multi-way branch, control and selector in, one control proj per slot, the selector
+		// must be in [0, slots) (emitter guards it)
 		Switch,
 
 		// vector lane ops

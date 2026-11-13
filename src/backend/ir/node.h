@@ -88,8 +88,8 @@ namespace rat {
 		U32 id; // unique per function
 		Type* ty;
 		Function* fn;
-		Node** inputs = nullptr;	// ordered defs; may contain null placeholders
-		Node** users = nullptr;		// reverse edges; one entry per using operand
+		Node** inputs = nullptr;	// ordered defs, may hold null placeholders
+		Node** users = nullptr;		// reverse edges, one entry per using operand
 		U32* inputPos = nullptr;	// index of this node's entry in inputs[i]->users
 		U32* userSlots = nullptr; // slot of users[k] that points here
 		U32 inputCount = 0;
@@ -97,6 +97,13 @@ namespace rat {
 		U32 userCount = 0;
 		U32 userCap = 0;
 		U32 loc = 0;
+	};
+
+	// input 0 is the control anchor, input 1 the memory state read
+	struct AnchoredNode : Node {
+		using Node::Node;
+		Node* getControl() const;
+		Node* getMemory() const;
 	};
 
 	// function entry
@@ -118,11 +125,9 @@ namespace rat {
 		StopNode(Function& fn, Type* controlType);
 	};
 
-	struct ReturnNode : Node {
+	struct ReturnNode : AnchoredNode {
 		ReturnNode(Function& fn, Type* controlType, const List<Node*>& inputs);
 
-		Node* getControl() const;
-		Node* getMemory() const;
 		B32 hasValue() const;
 		Node* getValue() const;
 	};
@@ -151,7 +156,7 @@ namespace rat {
 		static constexpr U32 elseProjIndex() { return 1; }
 	};
 
-	// multi-way branch on a dense selector: proj i = the slot-i control edge
+	// multi-way branch on a dense selector, proj i is the slot i control edge
 	struct SwitchNode : Node {
 		SwitchNode(Function& fn, Type* tupleType, Node* control, Node* selector);
 
@@ -226,11 +231,9 @@ namespace rat {
 
 	// consumes a memory state but does not produce one, so loads on the same state may reorder
 	// freely, the control anchor gives the schedule a latest legal position
-	struct LoadNode : Node {
+	struct LoadNode : AnchoredNode {
 		LoadNode(Function& fn, Type* valueType, Node* control, Node* memory, Node* pointer);
 
-		Node* getControl() const;
-		Node* getMemory() const;
 		Node* getPointer() const;
 
 		// a volatile access is never removed, merged, forwarded or widened
@@ -241,12 +244,10 @@ namespace rat {
 	};
 
 	// produces the next memory state
-	struct StoreNode : Node {
+	struct StoreNode : AnchoredNode {
 		StoreNode(
 				Function& fn, Type* memoryType, Node* control, Node* memory, Node* pointer, Node* value);
 
-		Node* getControl() const;
-		Node* getMemory() const;
 		Node* getPointer() const;
 		Node* getValue() const;
 
@@ -283,7 +284,7 @@ namespace rat {
 		std::optional<ByvalArg> byvalAt(U32 index) const;
 	};
 
-	struct CallNode : Node {
+	struct CallNode : AnchoredNode {
 		// control, memory, [target if indirect,] args..
 		CallNode(Function& fn,
 						 Type* tupleType,
@@ -293,9 +294,6 @@ namespace rat {
 						 B32 indirect = false);
 
 		const String& getCallee() const;
-		void setCallee(String name);
-		Node* getControl() const;
-		Node* getMemory() const;
 		U32 getArgCount() const;
 		Node* getArg(U32 index) const;
 		B32 returnsValue() const;
@@ -309,7 +307,7 @@ namespace rat {
 		const CallAbi& getAbi() const { return abi; }
 		void setAbi(CallAbi a) { abi = std::move(a); }
 
-		// psot-call
+		// post-call
 		static constexpr U32 controlProjIndex() { return 0; }
 		static constexpr U32 memoryProjIndex() { return 1; }
 		static constexpr U32 valueProjIndex() { return 2; }
@@ -322,7 +320,7 @@ namespace rat {
 	};
 
 	// inline assembly
-	struct AsmNode : Node {
+	struct AsmNode : AnchoredNode {
 		// control, memory, input operand values..
 		AsmNode(Function& fn,
 						Type* tupleType,
@@ -331,8 +329,6 @@ namespace rat {
 						const List<Node*>& controlMemoryInputs);
 
 		const String& getText() const;
-		Node* getControl() const;
-		Node* getMemory() const;
 		Node* getInputOperand(U32 index) const;
 		U32 getOutputCount() const { return outputCount; }
 
@@ -415,28 +411,21 @@ namespace rat {
 	};
 
 	// run-time stack bump
-	struct StackAllocNode : Node {
+	struct StackAllocNode : AnchoredNode {
 		StackAllocNode(Function& fn, Type* ptrType, Node* control, Node* memory, Node* size);
 
-		Node* getControl() const;
-		Node* getMemory() const;
 		Node* getSize() const;
 	};
 
 	// reads the current stack top
-	struct StackSaveNode : Node {
+	struct StackSaveNode : AnchoredNode {
 		StackSaveNode(Function& fn, Type* ptrType, Node* control, Node* memory);
-
-		Node* getControl() const;
-		Node* getMemory() const;
 	};
 
 	// puts a saved stack top back and produces the next memory state
-	struct StackRestoreNode : Node {
+	struct StackRestoreNode : AnchoredNode {
 		StackRestoreNode(Function& fn, Type* memoryType, Node* control, Node* memory, Node* saved);
 
-		Node* getControl() const;
-		Node* getMemory() const;
 		Node* getSaved() const;
 	};
 

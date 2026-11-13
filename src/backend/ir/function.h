@@ -42,7 +42,6 @@ namespace rat {
 		Module& getModule() const;
 		TypeContext& types() const;
 		const String& getName() const;
-		void setName(String n);
 
 		U32 getParamCount() const;
 		Type* getParamType(U32 index) const;
@@ -157,7 +156,7 @@ namespace rat {
 		void setInsertBlock(Block* block);
 		B32 blockFinished() const;
 
-		// sealing activates the block: zero preds leaves it inactive (unreachable), one pred forwards
+		// sealing activates the block, zero preds leaves it inactive (unreachable), one pred forwards
 		// that control edge directly, two or more create a region node
 		void seal(Block* block);
 		void enterBlock(Block* block);
@@ -165,8 +164,8 @@ namespace rat {
 		void jumpif(Node* cond, Block* target);
 		void switchJump(Node* selector, const List<Block*>& targets);
 
-		// locals: declare with newVar (define later) or declareLocal (with an
-		// initializer), then get / set. SSA phi placement is handled for you.
+		// locals are declared with newVar (define later) or declareLocal (with an initializer),
+		// then get and set them, SSA phi placement is handled for you
 		Var newVar(String name, Type* type);
 		Var declareLocal(String name, Node* init);
 		Node* get(Var var);
@@ -178,18 +177,8 @@ namespace rat {
 		void ret(Node* value);
 		void retVoid();
 
-		struct NodeIterator {
-			List<Node*>::const_iterator it;
-			Node* operator*() const { return *it; }
-			NodeIterator& operator++() {
-				++it;
-				return *this;
-			}
-			B32 operator!=(const NodeIterator& other) const { return it != other.it; }
-		};
-
-		NodeIterator begin() const { return {nodes.begin()}; }
-		NodeIterator end() const { return {nodes.end()}; }
+		List<Node*>::const_iterator begin() const { return nodes.begin(); }
+		List<Node*>::const_iterator end() const { return nodes.end(); }
 		U32 size() const { return (U32)nodes.size(); }
 		U32 idBound() const { return nextId; }
 

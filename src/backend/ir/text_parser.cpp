@@ -15,12 +15,7 @@
 namespace rat {
 	namespace detail {
 		B32 allDigits(const String& s) {
-			if(s.empty())
-				return false;
-			for(C8 c : s)
-				if(!std::isdigit((U8)c))
-					return false;
-			return true;
+			return !s.empty() && s.find_first_not_of("0123456789") == String::npos;
 		}
 
 		List<U32> parseVRefs(const String& s) {
@@ -41,34 +36,23 @@ namespace rat {
 		}
 
 		void splitTypeToken(const String& after, String& typeStr, String& remainder) {
-			if(!after.empty() && after.front() == '(') {
+			U64 end = after.find(' ');
+			if(after.rfind('(', 0) == 0) {
 				U32 depth = 0;
-				U32 i = 0;
-				for(; i < after.size(); ++i) {
-					if(after[i] == '(')
+				for(end = 0; end < after.size();) {
+					C8 c = after[end++];
+					if(c == '(')
 						++depth;
-					else if(after[i] == ')') {
-						--depth;
-						if(depth == 0) {
-							++i;
-							break;
-						}
-					}
+					else if(c == ')' && --depth == 0)
+						break;
 				}
-				typeStr = after.substr(0, i);
-				remainder = after.substr(i);
-				return;
+			} else if(after.rfind('<', 0) == 0) {
+				end = after.find('>');
+				if(end != String::npos)
+					++end;
 			}
-			if(!after.empty() && after.front() == '<') {
-				U64 close = after.find('>');
-				U32 i = close == String::npos ? (U32)after.size() : (U32)close + 1;
-				typeStr = after.substr(0, i);
-				remainder = after.substr(i);
-				return;
-			}
-			U64 sp = after.find(' ');
-			typeStr = after.substr(0, sp);
-			remainder = sp == String::npos ? "" : after.substr(sp);
+			typeStr = after.substr(0, end);
+			remainder = end == String::npos ? "" : after.substr(end);
 		}
 
 		B32 takeQuoted(const String& s, String& name, String& rest) {
@@ -82,14 +66,9 @@ namespace rat {
 		}
 
 		B32 hexDigit(C8 c, U8& v) {
-			if(c >= '0' && c <= '9')
-				v = (U8)(c - '0');
-			else if(c >= 'a' && c <= 'f')
-				v = (U8)(c - 'a' + 10);
-			else if(c >= 'A' && c <= 'F')
-				v = (U8)(c - 'A' + 10);
-			else
+			if(!std::isxdigit((U8)c))
 				return false;
+			v = (U8)(std::isdigit((U8)c) ? c - '0' : std::tolower((U8)c) - 'a' + 10);
 			return true;
 		}
 
@@ -110,13 +89,6 @@ namespace rat {
 			return true;
 		}
 
-		B32 unquoteBytes(const String& s, List<U8>& out) {
-			String t = trim(s);
-			if(t.size() < 2 || t.front() != '"' || t.back() != '"')
-				return false;
-			return decodeBytes(t.substr(1, t.size() - 2), out);
-		}
-
 		B32 parseIndex(const String& digits, U32& out) {
 			errno = 0;
 			U64 v = std::strtoul(digits.c_str(), nullptr, 10);
@@ -124,15 +96,13 @@ namespace rat {
 			return errno != ERANGE && v <= 0xffffffffUL;
 		}
 
-		Opcode opcodeForMnemonic(const String& m, B32& ok) {
+		B32 opcodeForMnemonic(const String& m, Opcode& op) {
 			for(U32 i = (U32)Opcode::Start; i <= (U32)Opcode::Select; ++i) {
-				if(m == getOpcodeMnemonic((Opcode)i)) {
-					ok = true;
-					return (Opcode)i;
-				}
+				op = (Opcode)i;
+				if(m == getOpcodeMnemonic(op))
+					return true;
 			}
-			ok = false;
-			return Opcode::Start;
+			return false;
 		}
 
 		Parser::Parser(Module& mod, std::ostream& err)
@@ -270,7 +240,8 @@ namespace rat {
 			if(!ty)
 				return false;
 			List<U8> init;
-			if(!unquoteBytes(initStr, init))
+			B32 quoted = initStr.size() >= 2 && initStr.front() == '"' && initStr.back() == '"';
+			if(!quoted || !decodeBytes(initStr.substr(1, initStr.size() - 2), init))
 				return fail("malformed global initializer: " + initStr);
 			mod.createGlobal(name, ty, isConst, std::move(init));
 			return true;
@@ -289,11 +260,7 @@ namespace rat {
 			String paramsStr = header.substr(lp + 1, rp - lp - 1);
 			String retStr = trim(header.substr(arrow + 2, brace - (arrow + 2)));
 
-			B32 noInline = false;
-			if(retStr.size() > 9 && retStr.substr(retStr.size() - 9) == " noinline") {
-				noInline = true;
-				retStr = trim(retStr.substr(0, retStr.size() - 9));
-			}
+			B32 noInline = takeSuffix(retStr, " noinline");
 
 			List<Type*> params;
 			U64 restricts = 0;
@@ -339,19 +306,16 @@ namespace rat {
 			if(eq == String::npos)
 				return fail("expected ' = ' in: " + line);
 			String lhs = trim(line.substr(0, eq));
-			if(lhs.empty() || lhs[0] != 'v' || !allDigits(lhs.substr(1)))
+			if(lhs.empty() || lhs[0] != 'v' || !allDigits(lhs.substr(1)) ||
+				 !parseIndex(lhs.substr(1), pn.id))
 				return fail("bad result name '" + lhs + "'");
-			if(!parseIndex(lhs.substr(1), pn.id))
-				return fail("result id out of range '" + lhs + "'");
 
 			String rest = line.substr(eq + 3);
 			U64 colon = rest.find(" : ");
 			if(colon == String::npos)
 				return fail("expected ' : ' in: " + line);
 			String mnem = trim(rest.substr(0, colon));
-			B32 ok = false;
-			pn.op = opcodeForMnemonic(mnem, ok);
-			if(!ok)
+			if(!opcodeForMnemonic(mnem, pn.op))
 				return fail("unknown mnemonic '" + mnem + "'");
 
 			String typeStr;
@@ -361,6 +325,13 @@ namespace rat {
 			if(!pn.ty)
 				return false;
 			return parsePayload(trim(remainder), line, pn);
+		}
+
+		// operands after an optional leading keyword, flag tells whether it was there
+		B32 Parser::parseFlaggedOperands(String body, const C8* keyword, B32& flag, ParsedNode& pn) {
+			flag = takeKeyword(body, keyword);
+			pn.operands = parseVRefs(body);
+			return true;
 		}
 
 		B32 Parser::parsePayload(const String& remainder, const String& line, ParsedNode& pn) {
@@ -408,28 +379,16 @@ namespace rat {
 					return fail("alloc node is missing its type: " + line);
 				pn.allocType = parseType(remainder);
 				return pn.allocType != nullptr;
-			case Opcode::Region: {
-				String body = remainder; // already trimmed
-				pn.loopHeader = takeKeyword(body, "loop");
-				pn.operands = parseVRefs(body);
-				return true;
-			}
+			case Opcode::Region:
+				return parseFlaggedOperands(remainder, "loop", pn.loopHeader, pn);
 			case Opcode::Load:
-			case Opcode::Store: {
-				String body = remainder;
-				pn.isVolatile = takeKeyword(body, "volatile");
-				pn.operands = parseVRefs(body);
-				return true;
-			}
+			case Opcode::Store:
+				return parseFlaggedOperands(remainder, "volatile", pn.isVolatile, pn);
 			case Opcode::Add:
 			case Opcode::Sub:
 			case Opcode::Mul:
-			case Opcode::Shl: {
-				String body = remainder;
-				pn.nsw = takeKeyword(body, "nsw");
-				pn.operands = parseVRefs(body);
-				return true;
-			}
+			case Opcode::Shl:
+				return parseFlaggedOperands(remainder, "nsw", pn.nsw, pn);
 			case Opcode::Extract:
 			case Opcode::Shuffle:
 				return parseLaneOp(remainder, line, pn);
@@ -462,12 +421,9 @@ namespace rat {
 			String index;
 			String label;
 			ss >> index >> label;
-			if(index.empty() || index[0] != '#')
+			if(index.size() < 2 || index[0] != '#' || !allDigits(index.substr(1)) ||
+				 !parseIndex(index.substr(1), pn.projIndex))
 				return fail("malformed proj (expected #index): " + line);
-			if(!allDigits(index.substr(1)))
-				return fail("bad proj index '" + index + "'");
-			if(!parseIndex(index.substr(1), pn.projIndex))
-				return fail("proj index out of range '" + index + "'");
 			if(label.size() >= 2 && label.front() == '"' && label.back() == '"')
 				pn.projLabel = label.substr(1, label.size() - 2);
 			return singleRef(remainder, "proj must reference exactly one producer: " + line, pn);
@@ -475,11 +431,9 @@ namespace rat {
 
 		B32 Parser::parseLaneOp(const String& remainder, const String& line, ParsedNode& pn) {
 			String laneTok = remainder.substr(0, remainder.find(' '));
-			if(laneTok.size() < 2 || laneTok[0] != '#' || !allDigits(laneTok.substr(1)))
+			if(laneTok.size() < 2 || laneTok[0] != '#' || !allDigits(laneTok.substr(1)) ||
+				 !parseIndex(laneTok.substr(1), pn.projIndex))
 				return fail("malformed lane selector (expected #index): " + line);
-			// reuse the proj payload slot for the selector
-			if(!parseIndex(laneTok.substr(1), pn.projIndex))
-				return fail("lane selector out of range: " + line);
 			if(pn.op == Opcode::Shuffle) {
 				pn.operands = parseVRefs(remainder);
 				B32 ok = pn.operands.size() == 2 && pn.projIndex <= UINT16_MAX;
@@ -525,20 +479,7 @@ namespace rat {
 			}
 		}
 
-		// fetches the first `count` operands of `pn`; false on a missing or undefined one
-		B32 Parser::operands(const ParsedNode& pn, U32 count, List<Node*>& out) {
-			for(U32 i = 0; i < count; ++i) {
-				Node* n = operand(pn, i);
-				if(!n)
-					return false;
-				out.push_back(n);
-			}
-			return true;
-		}
-
-		// constructs the single node described by `pn`, looking up its operands via
-		// operands(). Region / Phi are created with no inputs (wired later by
-		// wireDeferredInputs); returns null on a missing operand or unknown opcode.
+		// Region and Phi start without inputs, wireDeferredInputs wires them
 		Node* Parser::makeNode(Function* fn, const ParsedNode& pn) {
 			Opcode op = pn.op;
 			if(op == Opcode::Region) {
@@ -561,8 +502,12 @@ namespace rat {
 			if(maxInputs < 0 || op == Opcode::Return)
 				count = (U32)pn.operands.size();
 			List<Node*> in;
-			if(!operands(pn, count, in))
-				return nullptr;
+			for(U32 i = 0; i < count; ++i) {
+				Node* input = operand(pn, i);
+				if(!input)
+					return nullptr;
+				in.push_back(input);
+			}
 			return makeWithInputs(fn, pn, in);
 		}
 
@@ -636,8 +581,8 @@ namespace rat {
 			return failNull(String("cannot construct opcode '") + getOpcodeMnemonic(op) + "'");
 		}
 
-		// a record is ready once every operand it references already exists;
-		// Region / Phi are exempt since their inputs are wired in a later pass
+		// a record is ready once every operand it references already exists, Region and Phi
+		// are exempt since their inputs are wired in a later pass
 		B32 Parser::ready(const ParsedNode& pn) const {
 			if(pn.op == Opcode::Region || pn.op == Opcode::Phi)
 				return true;

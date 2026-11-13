@@ -43,8 +43,8 @@ namespace rat {
 	void DebugBody::mergeArm(Node* arm, Node* to) {
 		U32 id = arm->getId();
 		for(U32 r = id < refHead.size() ? refHead[id] : 0; r; r = refs[r - 1].next)
-			if(bindings[refs[r - 1].binding].anchor == arm)
-				bindings[refs[r - 1].binding].value = nullptr;
+			if(DebugBinding& b = bindings[refs[r - 1].binding]; b.anchor == arm)
+				b.value = nullptr;
 		retarget(arm, to);
 	}
 

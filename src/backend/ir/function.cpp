@@ -9,7 +9,6 @@ namespace rat {
 	Module& Function::getModule() const { return *mod; }
 	TypeContext& Function::types() const { return *mod; }
 	const String& Function::getName() const { return name; }
-	void Function::setName(String n) { name = std::move(n); }
 
 	U32 Function::getParamCount() const { return (U32)paramTypes.size(); }
 	Type* Function::getParamType(U32 index) const { return paramTypes[index]; }
@@ -169,7 +168,7 @@ namespace rat {
 
 	Node* Function::callIndirect(
 			Node* target, Type* retType, const Nodes& args, B32 varArgs, const CallAbi& abi) {
-		// inputs: control, memory, target pointer, then the call arguments
+		// inputs are control, memory, target pointer, then the call arguments
 		List<Node*> ins{control(), mem(), target};
 		ins.insert(ins.end(), args.begin(), args.end());
 		return emitCall(String(), ins, retType, true, varArgs, abi);
@@ -227,7 +226,7 @@ namespace rat {
 		} else if(block->preds.size() == 1) {
 			block->ctrl = block->preds[0]; // single predecessor needs no region
 		}
-		// zero predecessors: unreachable block; stays inactive
+		// zero predecessors leave an unreachable block inactive
 	}
 
 	void Function::seal(Block* block) {
@@ -251,7 +250,7 @@ namespace rat {
 		cur->finished = true;
 	}
 
-	// multi-way jump: slot i of the range-checked selector goes to targets[i]
+	// multi-way jump, slot i of the range-checked selector goes to targets[i]
 	void Function::switchJump(Node* selector, const List<Block*>& targets) {
 		if(cur->ctrl) {
 			List<Type*> elems(targets.size(), ctrlTy());
@@ -339,19 +338,19 @@ namespace rat {
 
 	Node* Function::readRecursive(Var var, Block* block) {
 		Node* val = nullptr;
-		if(!block->sealed) {
-			// unsealed (loop header): an incomplete phi, completed at seal()
-			PhiNode* p = phi(varTypes[var], block->region, {});
-			block->incompletePhis.push_back({var, p});
-			noteBinding(var, p, block->ctrl, nullptr);
-			val = p;
-		} else if(block->preds.size() == 1) {
+		if(block->sealed && block->preds.size() == 1) {
 			val = read(var, block->predBlocks[0]);
 		} else {
 			PhiNode* p = phi(varTypes[var], block->region, {});
-			cacheDef(block, var, p); // break cycles before reading predecessors
 			noteBinding(var, p, block->ctrl, nullptr);
-			val = addPhiOperands(var, p, block);
+			if(!block->sealed) {
+				// an incomplete phi in an unsealed loop header, seal() completes it
+				block->incompletePhis.push_back({var, p});
+				val = p;
+			} else {
+				cacheDef(block, var, p); // break cycles before reading predecessors
+				val = addPhiOperands(var, p, block);
+			}
 		}
 		cacheDef(block, var, val);
 		return val;
@@ -388,7 +387,7 @@ namespace rat {
 			same = op;
 		}
 		if(!same)
-			return phi; // no real operand yet; leave it
+			return phi; // no real operand yet, leave it
 
 		List<PhiNode*> phiUsers;
 		for(Node* u : phi->getUsers())

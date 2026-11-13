@@ -46,8 +46,7 @@ namespace rat {
 		void wireClones(Function& callee);
 		Merged mergeReturns(Function& caller, const Function& callee);
 		static void replaceCall(Function& caller, CallNode* call, const Merged& m);
-		void inlineScopes(Function& caller, CallNode* call, const Function& callee);
-		void inlineVars(Function& caller, const Function& callee);
+		void inlineDebug(Function& caller, CallNode* call, const Function& callee);
 		static Node* lastEffect(Node* mem);
 		B32 inlineCallSite(Function& caller, CallNode* call, Function& callee);
 	private:

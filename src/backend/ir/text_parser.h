@@ -19,16 +19,15 @@ namespace rat {
 		B32 takeQuoted(const String& s, String& name, String& rest);
 		B32 hexDigit(C8 c, U8& v);
 		B32 decodeBytes(const String& s, List<U8>& out);
-		B32 unquoteBytes(const String& s, List<U8>& out);
 		B32 parseIndex(const String& digits, U32& out);
-		Opcode opcodeForMnemonic(const String& m, B32& ok);
+		B32 opcodeForMnemonic(const String& m, Opcode& op);
 
 		struct ParsedNode {
 			U32 id = 0;
 			Opcode op = Opcode::Start;
 			Type* ty = nullptr;
 			I64 cval = 0;							 // Constant
-			U32 projIndex = 0;				 // Proj
+			U32 projIndex = 0;				 // Proj, lane selector of Extract and Shuffle
 			String projLabel;					 // Proj
 			String callee;						 // Call
 			String asmText;						 // Asm
@@ -58,6 +57,7 @@ namespace rat {
 			B32 parseGlobal(const String& line);
 			B32 parseFunction(const String& header, std::istream& in);
 			B32 parseNodeLine(const String& line, ParsedNode& pn);
+			B32 parseFlaggedOperands(String body, const C8* keyword, B32& flag, ParsedNode& pn);
 			B32 parsePayload(const String& remainder, const String& line, ParsedNode& pn);
 			B32 parseProj(const String& remainder, const String& line, ParsedNode& pn);
 			B32 parseLaneOp(const String& remainder, const String& line, ParsedNode& pn);
@@ -74,7 +74,6 @@ namespace rat {
 			B32 wireDeferredInputs(const List<ParsedNode>& nodes);
 
 			Node* operand(const ParsedNode& pn, U32 index);
-			B32 operands(const ParsedNode& pn, U32 count, List<Node*>& out);
 		private:
 			Map<U32, Node*> byId;			 // parsed id -> materialized node
 			Node* startCtrl = nullptr; // start control projection, if present

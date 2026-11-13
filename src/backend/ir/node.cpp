@@ -160,6 +160,9 @@ namespace rat {
 		return nullptr;
 	}
 
+	Node* AnchoredNode::getControl() const { return getInput(0); }
+	Node* AnchoredNode::getMemory() const { return getInput(1); }
+
 	StartNode::StartNode(Function& fn, Type* tupleType, U32 paramCount)
 	: Node(fn, Opcode::Start, tupleType, {}),
 		paramCount(paramCount) {}
@@ -170,10 +173,8 @@ namespace rat {
 	: Node(fn, Opcode::Stop, controlType, {}) {}
 
 	ReturnNode::ReturnNode(Function& fn, Type* controlType, const List<Node*>& inputs)
-	: Node(fn, Opcode::Return, controlType, inputs) {}
+	: AnchoredNode(fn, Opcode::Return, controlType, inputs) {}
 
-	Node* ReturnNode::getControl() const { return getInput(0); }
-	Node* ReturnNode::getMemory() const { return getInput(1); }
 	B32 ReturnNode::hasValue() const { return getInputCount() > 2; }
 	Node* ReturnNode::getValue() const { return hasValue() ? getInput(2) : nullptr; }
 
@@ -248,18 +249,14 @@ namespace rat {
 	Node* ConvertNode::getOperand() const { return getInput(0); }
 
 	LoadNode::LoadNode(Function& fn, Type* valueType, Node* control, Node* memory, Node* pointer)
-	: Node(fn, Opcode::Load, valueType, {control, memory, pointer}) {}
+	: AnchoredNode(fn, Opcode::Load, valueType, {control, memory, pointer}) {}
 
-	Node* LoadNode::getControl() const { return getInput(0); }
-	Node* LoadNode::getMemory() const { return getInput(1); }
 	Node* LoadNode::getPointer() const { return getInput(2); }
 
 	StoreNode::StoreNode(
 			Function& fn, Type* memoryType, Node* control, Node* memory, Node* pointer, Node* value)
-	: Node(fn, Opcode::Store, memoryType, {control, memory, pointer, value}) {}
+	: AnchoredNode(fn, Opcode::Store, memoryType, {control, memory, pointer, value}) {}
 
-	Node* StoreNode::getControl() const { return getInput(0); }
-	Node* StoreNode::getMemory() const { return getInput(1); }
 	Node* StoreNode::getPointer() const { return getInput(2); }
 	Node* StoreNode::getValue() const { return getInput(3); }
 
@@ -269,7 +266,7 @@ namespace rat {
 										 B32 returnsValue,
 										 const List<Node*>& controlMemoryArgs,
 										 B32 indirect)
-	: Node(fn, Opcode::Call, tupleType, controlMemoryArgs),
+	: AnchoredNode(fn, Opcode::Call, tupleType, controlMemoryArgs),
 		callee(std::move(callee)),
 		hasReturnValue(returnsValue),
 		indirect(indirect) {}
@@ -281,9 +278,6 @@ namespace rat {
 	}
 
 	const String& CallNode::getCallee() const { return callee; }
-	void CallNode::setCallee(String name) { callee = std::move(name); }
-	Node* CallNode::getControl() const { return getInput(0); }
-	Node* CallNode::getMemory() const { return getInput(1); }
 	// indirect calls reserve one extra input (index 2) for the target pointer
 	U32 CallNode::getArgCount() const { return getInputCount() - 2 - (indirect ? 1 : 0); }
 	Node* CallNode::getArg(U32 index) const { return getInput(2 + (indirect ? 1 : 0) + index); }
@@ -296,13 +290,11 @@ namespace rat {
 									 String text,
 									 U32 outputCount,
 									 const List<Node*>& controlMemoryInputs)
-	: Node(fn, Opcode::Asm, tupleType, controlMemoryInputs),
+	: AnchoredNode(fn, Opcode::Asm, tupleType, controlMemoryInputs),
 		text(std::move(text)),
 		outputCount(outputCount) {}
 
 	const String& AsmNode::getText() const { return text; }
-	Node* AsmNode::getControl() const { return getInput(0); }
-	Node* AsmNode::getMemory() const { return getInput(1); }
 	Node* AsmNode::getInputOperand(U32 index) const { return getInput(2 + index); }
 
 	GlobalNode::GlobalNode(Function& fn, Type* ptrType, String symbol)
@@ -322,24 +314,17 @@ namespace rat {
 
 	StackAllocNode::StackAllocNode(
 			Function& fn, Type* ptrType, Node* control, Node* memory, Node* size)
-	: Node(fn, Opcode::StackAlloc, ptrType, {control, memory, size}) {}
+	: AnchoredNode(fn, Opcode::StackAlloc, ptrType, {control, memory, size}) {}
 
-	Node* StackAllocNode::getControl() const { return getInput(0); }
-	Node* StackAllocNode::getMemory() const { return getInput(1); }
 	Node* StackAllocNode::getSize() const { return getInput(2); }
 
 	StackSaveNode::StackSaveNode(Function& fn, Type* ptrType, Node* control, Node* memory)
-	: Node(fn, Opcode::StackSave, ptrType, {control, memory}) {}
-
-	Node* StackSaveNode::getControl() const { return getInput(0); }
-	Node* StackSaveNode::getMemory() const { return getInput(1); }
+	: AnchoredNode(fn, Opcode::StackSave, ptrType, {control, memory}) {}
 
 	StackRestoreNode::StackRestoreNode(
 			Function& fn, Type* memoryType, Node* control, Node* memory, Node* saved)
-	: Node(fn, Opcode::StackRestore, memoryType, {control, memory, saved}) {}
+	: AnchoredNode(fn, Opcode::StackRestore, memoryType, {control, memory, saved}) {}
 
-	Node* StackRestoreNode::getControl() const { return getInput(0); }
-	Node* StackRestoreNode::getMemory() const { return getInput(1); }
 	Node* StackRestoreNode::getSaved() const { return getInput(2); }
 
 	MemMergeNode::MemMergeNode(Function& fn, Type* memoryType, const List<Node*>& controlStores)

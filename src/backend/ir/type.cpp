@@ -22,9 +22,7 @@ namespace rat {
 	U32 Type::getFloatWidth() const { return bits; }
 
 	const List<Type*>& Type::getTupleElements() const { return elements; }
-
 	Type* Type::getTupleElement(U32 index) const { return elements[index]; }
-
 	U32 Type::getTupleElementCount() const { return (U32)elements.size(); }
 
 	Type* Type::getArrayElement() const { return elements[0]; }
@@ -117,23 +115,15 @@ namespace rat {
 		return t;
 	}
 
-	Type* TypeContext::getInt(U32 bits) {
-		auto it = ints.find(bits);
-		if(it != ints.end())
-			return it->second;
-		Type* t = make(Type::Int, bits, {});
-		ints.emplace(bits, t);
-		return t;
+	Type* TypeContext::internScalar(Map<U32, Type*>& pool, Type::Kind kind, U32 bits) {
+		auto [it, fresh] = pool.try_emplace(bits, nullptr);
+		if(fresh)
+			it->second = make(kind, bits, {});
+		return it->second;
 	}
 
-	Type* TypeContext::getFloat(U32 bits) {
-		auto it = floats.find(bits);
-		if(it != floats.end())
-			return it->second;
-		Type* t = make(Type::Float, bits, {});
-		floats.emplace(bits, t);
-		return t;
-	}
+	Type* TypeContext::getInt(U32 bits) { return internScalar(ints, Type::Int, bits); }
+	Type* TypeContext::getFloat(U32 bits) { return internScalar(floats, Type::Float, bits); }
 
 	Type* TypeContext::getTuple(const List<Type*>& elements) {
 		for(Type* existing : tuples)

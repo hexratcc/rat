@@ -130,13 +130,14 @@ namespace rat {
 		caller.removeNode(call);
 	}
 
-	// the callee scopes and locs move under a new inlined scope of the caller, callee scope k lands at
-	// scopeBase + k and loc l at locBase + l, the clones take the moved locs
-	void InlinePass::inlineScopes(Function& caller, CallNode* call, const Function& callee) {
+	// the callee debug state moves under a new inlined scope of the caller, callee scope k lands at
+	// scopeBase + k, loc l at locBase + l and var inst i at instBase + i
+	void InlinePass::inlineDebug(Function& caller, CallNode* call, const Function& callee) {
 		DebugBody& to = *caller.getDebug();
 		const DebugBody& from = *callee.getDebug();
 		U32 scopeBase = (U32)to.scopes.size();
 		U32 locBase = (U32)to.locs.size() - 1;
+		U32 instBase = (U32)to.vars.size();
 		to.scopes.push_back({to.locs[call->getLoc()].scope, from.func, call->getLoc()});
 		for(U32 k = 1; k < from.scopes.size(); ++k) {
 			DebugScope s = from.scopes[k];
@@ -149,22 +150,12 @@ namespace rat {
 		for(Node* n : callee)
 			if(Node* c = mapped(n); c && n->getLoc() && !isStartProj(callee, n))
 				c->setLoc(locBase + n->getLoc());
-	}
-
-	// after inlineScopes, the callee scopes end the caller list
-	void InlinePass::inlineVars(Function& caller, const Function& callee) {
-		DebugBody& to = *caller.getDebug();
-		U32 scopeBase = (U32)(to.scopes.size() - callee.getDebug()->scopes.size());
-		U32 instBase = (U32)to.vars.size();
-		for(const DebugVarInst& v : callee.getDebug()->vars) {
-			DebugVarInst copy = v;
-			copy.scope = scopeBase + v.scope;
-			copy.slot = dyn_cast<AllocNode>(mapped(v.slot));
-			to.vars.push_back(copy);
-		}
-		// clones carry the callee bindings, the params bind the call arguments. a constant may be erased
-		// or from another callee, it is read for its value only
-		for(const DebugBinding& b : callee.getDebug()->bindings) {
+		for(const DebugVarInst& v : from.vars)
+			to.vars.push_back(
+					{v.var, scopeBase + v.scope, dyn_cast<AllocNode>(mapped(v.slot)), v.indirect});
+		// the clones carry the callee bindings, a constant may be erased or from another callee, it is
+		// read for its value only
+		for(const DebugBinding& b : from.bindings) {
 			Node* value = isa<ConstantNode>(b.value) ? b.value : mapped(b.value);
 			if(Node* anchor = mapped(b.anchor))
 				to.bind(instBase + b.inst, value, anchor, mapped(b.after));
@@ -185,10 +176,8 @@ namespace rat {
 	B32 InlinePass::inlineCallSite(Function& caller, CallNode* call, Function& callee) {
 		if(!cloneBody(caller, call, callee))
 			return false;
-		if(caller.getDebug() && callee.getDebug()) {
-			inlineScopes(caller, call, callee);
-			inlineVars(caller, callee);
-		}
+		if(caller.getDebug() && callee.getDebug())
+			inlineDebug(caller, call, callee);
 		wireClones(callee);
 		Merged m = mergeReturns(caller, callee);
 		if(!m.ctrl)

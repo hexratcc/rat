@@ -64,18 +64,8 @@ namespace rat {
 		DebugInfo* getDebugInfo() const;
 		void setDebugInfo(UniquePtr<DebugInfo> d);
 
-		struct FunctionIterator {
-			List<Function*>::const_iterator it;
-			Function* operator*() const { return *it; }
-			FunctionIterator& operator++() {
-				++it;
-				return *this;
-			}
-			B32 operator!=(const FunctionIterator& other) const { return it != other.it; }
-		};
-
-		FunctionIterator begin() const { return {funcs.begin()}; }
-		FunctionIterator end() const { return {funcs.end()}; }
+		List<Function*>::const_iterator begin() const { return funcs.begin(); }
+		List<Function*>::const_iterator end() const { return funcs.end(); }
 		U32 size() const { return (U32)funcs.size(); }
 	private:
 		String name;
