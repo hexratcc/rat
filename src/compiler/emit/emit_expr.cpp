@@ -374,9 +374,9 @@ namespace rat::cc {
 		Function::Var var = 0;
 		if(!isVoidRes)
 			var = fn.newVar("tern", irType(rt));
-		Function::Block* tB = fn.createBlock("tern.true");
-		Function::Block* fB = fn.createBlock("tern.false");
-		Function::Block* eB = fn.createBlock("tern.end");
+		Block* tB = fn.createBlock("tern.true");
+		Block* fB = fn.createBlock("tern.false");
+		Block* eB = fn.createBlock("tern.end");
 		fn.jumpif(pred, tB);
 		fn.jmp(fB);
 		fn.enterBlock(tB);

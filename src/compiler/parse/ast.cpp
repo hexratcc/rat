@@ -10,16 +10,8 @@ namespace rat::cc {
 		st->size = 2 * elemBytes;
 		st->align = elemBytes;
 		st->complete = true;
-		Field re;
-		re.name = arena.make<String>("__real");
-		re.type = elem;
-		re.offset = 0;
-		Field im;
-		im.name = arena.make<String>("__imag");
-		im.type = elem;
-		im.offset = elemBytes;
-		st->fields.push_back(re);
-		st->fields.push_back(im);
+		st->fields.push_back({arena.make<String>("__real"), elem, 0});
+		st->fields.push_back({arena.make<String>("__imag"), elem, elemBytes});
 		return st;
 	}
 
@@ -64,17 +56,9 @@ namespace rat::cc {
 			return r;
 		}
 		if(isFloating(a) || isFloating(b)) {
-			U32 bits = 64;
-			if(isFloating(a) && isFloating(b))
-				bits = a.bits > b.bits ? a.bits : b.bits;
-			else if(isFloating(a))
-				bits = a.bits;
-			else
-				bits = b.bits;
-			CType r;
-			r.bits = bits;
-			r.base = CType::Base::Float;
-			return r;
+			U32 aBits = isFloating(a) ? a.bits : 0;
+			U32 bBits = isFloating(b) ? b.bits : 0;
+			return {std::max(aBits, bBits), 0, 0, 0, 0, CType::Base::Float};
 		}
 		a = promote(a);
 		b = promote(b);

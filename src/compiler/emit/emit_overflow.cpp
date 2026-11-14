@@ -80,18 +80,11 @@ namespace rat::cc {
 			U32 m = a.bits > b.bits ? a.bits : b.bits;
 			return m + 1 <= 64;
 		}
-
-		CType ctWide(B32 uns) {
-			CType t;
-			t.bits = 64;
-			t.set(CType::Unsigned, uns);
-			return t;
-		}
 	} // namespace detail
 
 	Emitter::Wide Emitter::wideExtend(Function& fn, Node* v, CType from) {
 		Wide r;
-		r.lo = convert(fn, v, from, detail::ctWide(from.isUnsigned()));
+		r.lo = convert(fn, v, from, from.isUnsigned() ? ctUnsigned(64) : ctInt64());
 		if(from.isUnsigned())
 			r.hi = fn.constInt(r.lo->getType(), 0);
 		else
@@ -226,7 +219,7 @@ namespace rat::cc {
 		Node* value;
 		B32 sgn = detail::exactInSigned64(f.op, at, bt);
 		if(sgn || detail::exactInUnsigned64(f.op, at, bt)) {
-			CType w = detail::ctWide(!sgn);
+			CType w = sgn ? ctInt64() : ctUnsigned(64);
 			Node* r = fn.binary(f.op, convert(fn, an, at, w), convert(fn, bn, bt, w));
 			fits = fitsIn64(fn, r, rt, sgn);
 			value = convert(fn, r, w, rt);
@@ -239,7 +232,7 @@ namespace rat::cc {
 			else
 				r = wideAddSub(fn, wa, wb, f.op == Opcode::Sub);
 			fits = wideFits(fn, r, rt);
-			value = convert(fn, r.lo, detail::ctWide(true), rt);
+			value = convert(fn, r.lo, ctUnsigned(64), rt);
 		}
 		if(!f.predicate)
 			fn.store(a2.node, value);

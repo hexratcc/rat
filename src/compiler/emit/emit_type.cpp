@@ -261,8 +261,7 @@ namespace rat::cc {
 		case ExprKind::Call: {
 			if(e->call.callee) {
 				if(*e->call.callee == "__builtin_expect") {
-					out = CType{};
-					out.bits = 64;
+					out = ctInt64();
 					return true;
 				}
 				if(*e->call.callee == "__builtin_constant_p") {
@@ -346,8 +345,7 @@ namespace rat::cc {
 				if(last->kind == StmtKind::Expr && last->expr)
 					return typeOf(last->expr, out);
 			}
-			out = CType{};
-			out.base = CType::Base::Void;
+			out = ctVoid();
 			return true;
 		}
 		case ExprKind::Generic: {

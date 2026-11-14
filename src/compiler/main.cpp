@@ -131,15 +131,14 @@ namespace detail {
 
 	// the gcc and clang spellings, the last one wins
 	U32 parseDebugLevel(const String& arg) {
-		String g =
-				arg.size() <= 6 && arg.rfind("-ggdb", 0) == 0 ? "-g" + arg.substr(5) : arg; // -ggdbN is -gN
-		if(g == "-g" || g == "-gdwarf" || g == "-gdwarf-5")
+		if(arg == "-g" || arg == "-ggdb" || arg == "-gdwarf" || arg == "-gdwarf-5")
 			return 2;
-		if(g == "-gline-tables-only")
+		if(arg == "-gline-tables-only")
 			return 1;
-		if(g.size() != 3 || g[2] < '0' || g[2] > '3')
+		U32 digit = arg.rfind("-ggdb", 0) == 0 ? 5 : 2;
+		if(arg.size() != digit + 1 || arg[digit] < '0' || arg[digit] > '3')
 			cli::die(kTool, "unknown option '" + arg + "'");
-		return (U32)(g[2] - '0');
+		return (U32)(arg[digit] - '0');
 	}
 
 	Options parseArgs(I32 argc, C8** argv) {
@@ -262,15 +261,15 @@ namespace detail {
 		return 0;
 	}
 
-	I32 emitOne(const Options& opt, TokenStream* ts, Emit kind) {
+	I32 emitOne(const Options& opt, TokenStream& ts, Emit kind) {
 		std::ofstream file;
 		if(!cli::openOutput(kTool, pathFor(opt, kind), file, kind == Emit::X86))
 			return 1;
 		if(kind == Emit::Tok)
-			return emitTokens(*ts, file);
+			return emitTokens(ts, file);
 		if(kind == Emit::Ast)
-			return emitAstText(*ts, file);
-		return emitViaModule(opt, *ts, file);
+			return emitAstText(ts, file);
+		return emitViaModule(opt, ts, file);
 	}
 } // namespace detail
 
@@ -313,7 +312,7 @@ static I32 run(I32 argc, C8** argv) {
 		return std::cout << pped, 0;
 
 	for(::detail::Emit kind : opt.emits)
-		if(I32 rc = ::detail::emitOne(opt, &ts, kind))
+		if(I32 rc = ::detail::emitOne(opt, ts, kind))
 			return rc;
 	return 0;
 }

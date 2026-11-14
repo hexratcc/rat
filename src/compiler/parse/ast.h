@@ -118,6 +118,14 @@ namespace rat::cc {
 	};
 
 	constexpr CType ctInt() { return CType{}; }
+	// positional fields are bits, ptr, quals, vquals, rquals, base, mods
+	constexpr CType ctVoid() { return {32, 0, 0, 0, 0, CType::Base::Void}; }
+	constexpr CType ctVoidPtr() { return {32, 1, 0, 0, 0, CType::Base::Void}; }
+	constexpr CType ctUnsigned(U32 bits) {
+		return {bits, 0, 0, 0, 0, CType::Base::Int, CType::Unsigned};
+	}
+	constexpr CType ctInt64() { return {64}; } // no long spelling, what __builtin_expect yields
+	constexpr CType ctDouble() { return {64, 0, 0, 0, 0, CType::Base::Float}; }
 	constexpr B32 isPointer(CType t) { return t.ptr > 0; }
 	constexpr B32 isTopConst(CType t) { return (t.quals & (1u << t.ptr)) != 0; }
 	constexpr void setTopConst(CType& t) { t.quals |= (1u << t.ptr); }
@@ -544,6 +552,7 @@ namespace rat::cc {
 			undo.push_back({key, it->second, true});
 		table.erase(it);
 	}
+
 	String typeName(CType t);
 
 	struct FuncDef {
@@ -567,6 +576,11 @@ namespace rat::cc {
 	};
 
 	constexpr B32 isAssignOp(ExprOp op) { return op >= ExprOp::Assign && op <= ExprOp::XorAssign; }
+	// '%', shifts and bitwise operators
+	constexpr B32 isIntegerOnlyOp(ExprOp op) {
+		return op == ExprOp::Rem || op == ExprOp::Shl || op == ExprOp::Shr || op == ExprOp::BitAnd ||
+					 op == ExprOp::BitOr || op == ExprOp::BitXor;
+	}
 
 	constexpr B32 compoundBaseOp(ExprOp op, ExprOp& base) {
 		if(op < ExprOp::AddAssign || op > ExprOp::XorAssign)

@@ -200,9 +200,9 @@ namespace rat::cc {
 			return diag.fail("operand of logical operator must have scalar type");
 		Node* lpred = toBool(fn, lhs);
 		Function::Var var = fn.newVar("logic", i32);
-		Function::Block* rhsB = fn.createBlock(isAnd ? "and.rhs" : "or.rhs");
-		Function::Block* shortB = fn.createBlock(isAnd ? "and.short" : "or.short");
-		Function::Block* endB = fn.createBlock(isAnd ? "and.end" : "or.end");
+		Block* rhsB = fn.createBlock(isAnd ? "and.rhs" : "or.rhs");
+		Block* shortB = fn.createBlock(isAnd ? "and.short" : "or.short");
+		Block* endB = fn.createBlock(isAnd ? "and.end" : "or.end");
 		fn.jumpif(lpred, isAnd ? rhsB : shortB);
 		fn.jmp(isAnd ? shortB : rhsB);
 		fn.enterBlock(rhsB);
@@ -252,11 +252,36 @@ namespace rat::cc {
 		return {fromBool(fn, cmp), ctInt()};
 	}
 
-	Emitter::Value Emitter::emitBinary(Function& fn, const Expr* e) {
-		if(isAssignOp(e->binary.op))
-			return emitAssign(fn, e);
+	Emitter::Value Emitter::emitComplexBinary(Function& fn, ExprOp op, Value lhs, Value rhs) {
+		CType ct = completeComplex(usualArithmetic(lhs.type, rhs.type));
+		Value lc = toComplex(fn, lhs, ct);
+		Value rc = toComplex(fn, rhs, ct);
+		if(op != ExprOp::Eq && op != ExprOp::Ne)
+			return complexBinary(fn, op, lc, rc, ct);
+		Node* re = fn.compare(Opcode::FEq, complexReal(fn, lc), complexReal(fn, rc));
+		Node* im = fn.compare(Opcode::FEq, complexImag(fn, lc), complexImag(fn, rc));
+		Node* eq = fn.and_(re, im);
+		Node* res = op == ExprOp::Eq ? eq : fn.eq(eq, fn.constInt(i32, 0));
+		return {fromBool(fn, res), ctInt()};
+	}
 
-		if(e->binary.op == ExprOp::LogAnd || e->binary.op == ExprOp::LogOr)
+	// each operand promotes on its own, the result has the left type
+	Emitter::Value Emitter::emitShift(Function& fn, ExprOp op, Value lhs, Value rhs) {
+		CType lt = promote(lhs.type);
+		CType rt = promote(rhs.type);
+		Node* l = convert(fn, lhs.node, lhs.type, lt);
+		Node* r = convert(fn, rhs.node, rhs.type, rt);
+		Node* res = emitArith(fn, op, l, r, lt);
+		if(!res)
+			return {};
+		return {reduceBitfield(fn, res, lt), lt};
+	}
+
+	Emitter::Value Emitter::emitBinary(Function& fn, const Expr* e) {
+		ExprOp op = e->binary.op;
+		if(isAssignOp(op))
+			return emitAssign(fn, e);
+		if(op == ExprOp::LogAnd || op == ExprOp::LogOr)
 			return emitLogicalBinary(fn, e);
 
 		Value lhs = emitExpr(fn, e->binary.lhs);
@@ -265,66 +290,33 @@ namespace rat::cc {
 		Value rhs = emitExpr(fn, e->binary.rhs);
 		if(!rhs.node)
 			return {};
+		if(isComplexType(lhs.type) || isComplexType(rhs.type))
+			return emitComplexBinary(fn, op, lhs, rhs);
+		if(isIntegerOnlyOp(op) && (!isInteger(lhs.type) || !isInteger(rhs.type)))
+			return diag.fail("operands of this operator must have integer type");
 
-		if(isComplexType(lhs.type) || isComplexType(rhs.type)) {
-			ExprOp op = e->binary.op;
-			CType ct = completeComplex(usualArithmetic(lhs.type, rhs.type));
-			Value lc = toComplex(fn, lhs, ct);
-			Value rc = toComplex(fn, rhs, ct);
-			if(op == ExprOp::Eq || op == ExprOp::Ne) {
-				Node* re = fn.compare(Opcode::FEq, complexReal(fn, lc), complexReal(fn, rc));
-				Node* im = fn.compare(Opcode::FEq, complexImag(fn, lc), complexImag(fn, rc));
-				Node* eq = fn.and_(re, im);
-				Node* res = op == ExprOp::Eq ? eq : fn.eq(eq, fn.constInt(i32, 0));
-				return {fromBool(fn, res), ctInt()};
-			}
-			return complexBinary(fn, op, lc, rc, ct);
-		}
-
-		switch(e->binary.op) {
-		case ExprOp::Rem:
+		switch(op) {
 		case ExprOp::Shl:
 		case ExprOp::Shr:
-		case ExprOp::BitAnd:
-		case ExprOp::BitOr:
-		case ExprOp::BitXor:
-			if(!isInteger(lhs.type) || !isInteger(rhs.type))
-				return diag.fail("operands of this operator must have integer type");
-			break;
-		default:
-			break;
-		}
-
-		switch(e->binary.op) {
-		case ExprOp::Shl:
-		case ExprOp::Shr: {
-			CType lt = promote(lhs.type);
-			CType rt = promote(rhs.type);
-			Node* l = convert(fn, lhs.node, lhs.type, lt);
-			Node* r = convert(fn, rhs.node, rhs.type, rt);
-			Node* res = emitArith(fn, e->binary.op, l, r, lt);
-			if(!res)
-				return {};
-			return {reduceBitfield(fn, res, lt), lt};
-		}
+			return emitShift(fn, op, lhs, rhs);
 		case ExprOp::Lt:
 		case ExprOp::Gt:
 		case ExprOp::Le:
 		case ExprOp::Ge:
 		case ExprOp::Eq:
 		case ExprOp::Ne:
-			return emitComparison(fn, e->binary.op, lhs, rhs);
+			return emitComparison(fn, op, lhs, rhs);
 		default:
 			break;
 		}
 
 		if(isPointer(lhs.type) || isPointer(rhs.type))
-			return emitPtrArith(fn, e->binary.op, lhs, rhs);
+			return emitPtrArith(fn, op, lhs, rhs);
 
 		CType ct = usualArithmetic(lhs.type, rhs.type);
 		Node* l = convert(fn, lhs.node, lhs.type, ct);
 		Node* r = convert(fn, rhs.node, rhs.type, ct);
-		Node* res = emitArith(fn, e->binary.op, l, r, ct);
+		Node* res = emitArith(fn, op, l, r, ct);
 		if(!res)
 			return {};
 		return {reduceBitfield(fn, res, ct), ct};

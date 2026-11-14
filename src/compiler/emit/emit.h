@@ -14,6 +14,8 @@ namespace rat::cc {
 		U32 alignedChunkWidth(U32 offset, U32 size);
 		AbiClass mergeAbiClass(AbiClass a, AbiClass b);
 		void classifyBits(AbiClass (&cls)[2], U64 bitOffset, U64 bits, AbiClass c);
+		Pair<String, DebugType::Kind> debugBaseName(CType t);
+		B32 fpBuiltinSuffix(const String& name, const C8* stem);
 
 		// shared child traversal for AST scans
 		struct AstWalk {
@@ -269,6 +271,8 @@ namespace rat::cc {
 		Value assignComplex(Function& fn, const Expr* e, const LValue& lv, Value rhs);
 		Value emitIncDec(Function& fn, const Expr* expr);
 		Value emitBinary(Function& fn, const Expr* expr);
+		Value emitComplexBinary(Function& fn, ExprOp op, Value lhs, Value rhs);
+		Value emitShift(Function& fn, ExprOp op, Value lhs, Value rhs);
 		Value emitLogicalBinary(Function& fn, const Expr* expr);
 		Value emitComparison(Function& fn, ExprOp op, Value lhs, Value rhs);
 		Value emitPtrArith(Function& fn, ExprOp op, Value lhs, Value rhs);
@@ -302,7 +306,15 @@ namespace rat::cc {
 		Type* eightbyteType(AbiClass c);
 
 		// builtins
+		using BuiltinEmitter = B32 (Emitter::*)(Function& fn, const Expr* expr, Value& out);
 		B32 emitBuiltinCall(Function& fn, const Expr* expr, Value& out);
+		B32 emitVaBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitVaCopyBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitAllocaBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitJmpBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitExpectBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitConstantPBuiltin(Function& fn, const Expr* expr, Value& out);
+		B32 emitTrapBuiltin(Function& fn, const Expr* expr, Value& out);
 		B32 emitBitCountBuiltin(Function& fn, const Expr* expr, Value& out);
 		B32 emitOverflowBuiltin(Function& fn, const Expr* expr, Value& out);
 		B32 emitAbsBuiltin(Function& fn, const Expr* expr, Value& out);
@@ -312,6 +324,7 @@ namespace rat::cc {
 		B32 emitFrameBuiltin(Function& fn, const Expr* expr, Value& out);
 		B32 emitPrefetchBuiltin(Function& fn, const Expr* expr, Value& out);
 		static I64 typeClassOf(CType t);
+		Value voidValue(Function& fn);
 		Node* vaListRef(Function& fn, const Expr* ap);
 		B32 oneArg(const Expr* e);
 		Wide wideExtend(Function& fn, Node* v, CType from);

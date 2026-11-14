@@ -5,7 +5,7 @@ namespace rat::cc {
 		if(e->kind == ExprKind::Binary &&
 			 (e->binary.op == ExprOp::LogAnd || e->binary.op == ExprOp::LogOr)) {
 			B32 isAnd = e->binary.op == ExprOp::LogAnd;
-			Function::Block* rhsB = fn.createBlock(isAnd ? "and.rhs" : "or.rhs");
+			Block* rhsB = fn.createBlock(isAnd ? "and.rhs" : "or.rhs");
 			if(!emitCondBranch(fn, e->binary.lhs, isAnd ? rhsB : trueB, isAnd ? falseB : rhsB))
 				return false;
 			fn.enterBlock(rhsB);
@@ -22,9 +22,9 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitIf(Function& fn, const Stmt* s) {
-		Function::Block* thenB = fn.createBlock("if.then");
-		Function::Block* elseB = s->elseBody ? fn.createBlock("if.else") : nullptr;
-		Function::Block* endB = fn.createBlock("if.end");
+		Block* thenB = fn.createBlock("if.then");
+		Block* elseB = s->elseBody ? fn.createBlock("if.else") : nullptr;
+		Block* endB = fn.createBlock("if.end");
 		B32 reaches = !elseB;
 
 		if(!emitCondBranch(fn, s->expr, thenB, elseB ? elseB : endB))
@@ -55,9 +55,9 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitWhile(Function& fn, const Stmt* s) {
-		Function::Block* header = fn.createLoopHeader("while.header");
-		Function::Block* bodyB = fn.createBlock("while.body");
-		Function::Block* exitB = fn.createBlock("while.exit");
+		Block* header = fn.createLoopHeader("while.header");
+		Block* bodyB = fn.createBlock("while.body");
+		Block* exitB = fn.createBlock("while.exit");
 
 		fn.jmp(header);
 		fn.setInsertBlock(header);
@@ -79,9 +79,9 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitDoWhile(Function& fn, const Stmt* s) {
-		Function::Block* bodyB = fn.createLoopHeader("do.body");
-		Function::Block* condB = fn.createBlock("do.cond");
-		Function::Block* exitB = fn.createBlock("do.exit");
+		Block* bodyB = fn.createLoopHeader("do.body");
+		Block* condB = fn.createBlock("do.cond");
+		Block* exitB = fn.createBlock("do.exit");
 
 		fn.jmp(bodyB);
 		fn.setInsertBlock(bodyB);
@@ -116,10 +116,10 @@ namespace rat::cc {
 		if(s->forInit && !emitStmt(fn, s->forInit))
 			return false;
 
-		Function::Block* header = fn.createLoopHeader("for.header");
-		Function::Block* bodyB = fn.createBlock("for.body");
-		Function::Block* postB = fn.createBlock("for.post");
-		Function::Block* exitB = fn.createBlock("for.exit");
+		Block* header = fn.createLoopHeader("for.header");
+		Block* bodyB = fn.createBlock("for.body");
+		Block* postB = fn.createBlock("for.post");
+		Block* exitB = fn.createBlock("for.exit");
 
 		fn.jmp(header);
 		fn.setInsertBlock(header);
@@ -170,51 +170,38 @@ namespace rat::cc {
 		if(body->kind != StmtKind::Compound)
 			return diag.fail("switch body must be a block");
 
-		Function::Block* exitB = fn.createBlock("switch.exit");
+		Block* exitB = fn.createBlock("switch.exit");
 		List<const Stmt*> caseStmts;
 		const Stmt* defaultStmt = nullptr;
 		collectSwitchCases(body, caseStmts, defaultStmt);
 
-		Map<const Stmt*, Function::Block*> blocks;
-		List<I64> caseValues;
-		List<Function::Block*> caseBlocks;
+		Map<const Stmt*, Block*> blocks;
+		U64 bias = ct.isUnsigned() ? 0 : 1ull << 63; // keys order like the values
+		List<Pair<U64, Block*>> keyed;
 		for(const Stmt* c : caseStmts) {
 			I64 v;
 			if(!evalConst(c->expr, v))
 				return diag.fail("case label is not an integer constant expression");
-			for(I64 prev : caseValues) {
-				if(prev == v)
+			for(const auto& [key, block] : keyed) {
+				if(key == ((U64)v ^ bias))
 					return diag.fail("duplicate case value in switch");
 			}
-			Function::Block* b = fn.createBlock("switch.case");
-			blocks[c] = b;
-			caseValues.push_back(v);
-			caseBlocks.push_back(b);
+			keyed.push_back({(U64)v ^ bias, fn.createBlock("switch.case")});
+			blocks[c] = keyed.back().second;
 		}
-		Function::Block* defaultBlock = nullptr;
+		Block* defaultBlock = nullptr;
 		if(defaultStmt) {
 			defaultBlock = fn.createBlock("switch.default");
 			blocks[defaultStmt] = defaultBlock;
 		}
 
-		// dispatch
 		CaseSet cs{val, ct, {}, {}, defaultBlock ? defaultBlock : exitB};
-		B32 uns = ct.isUnsigned();
-		List<Pair<U64, U32>> keyed;
-		for(U32 i = 0; i < caseValues.size(); ++i) {
-			U64 key = (U64)caseValues[i];
-			if(!uns)
-				key ^= 1ull << 63;
-			keyed.push_back({key, i});
+		std::sort(keyed.begin(), keyed.end()); // keys are unique
+		for(const auto& [key, block] : keyed) {
+			cs.values.push_back((I64)(key ^ bias));
+			cs.blocks.push_back(block);
 		}
-		std::sort(keyed.begin(), keyed.end());
-		for(const auto& [key, i] : keyed) {
-			cs.values.push_back(caseValues[i]);
-			cs.blocks.push_back(caseBlocks[i]);
-		}
-		// the table's one indirect jump mispredicts badly in hot dispatch loops  so hot
-		//  switches stay on the well-predicted compare tree, enclosing-loop is our static hotness proxy
-		// (own switch frame is not pushed yet). cold switches still take the table
+		// a table's one indirect jump mispredicts in hot loops, so a switch in a loop stays a compare tree
 		B32 inLoop = false;
 		for(const LoopFrame& lf : func.loops)
 			if(!lf.isSwitch) {
@@ -357,7 +344,7 @@ namespace rat::cc {
 				continue;
 			}
 			if(fn.blockFinished() && !labelLike) {
-				Function::Block* dead = fn.createBlock("dead");
+				Block* dead = fn.createBlock("dead");
 				fn.enterBlock(dead);
 			}
 			if(!emitStmt(fn, child))
@@ -371,7 +358,7 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitCaseLabel(Function& fn, const Stmt* s) {
-		Function::Block* lbl = nullptr;
+		Block* lbl = nullptr;
 		if(!func.switches.empty()) {
 			auto it = func.switches.back().find(s);
 			if(it != func.switches.back().end())
@@ -483,7 +470,7 @@ namespace rat::cc {
 		auto it = func.labels.find(*s->label);
 		if(it == func.labels.end())
 			return diag.fail("internal: missing block for label '" + *s->label + "'");
-		Function::Block* lbl = it->second.block;
+		Block* lbl = it->second.block;
 		if(!fn.blockFinished())
 			fn.jmp(lbl);
 		fn.setInsertBlock(lbl);

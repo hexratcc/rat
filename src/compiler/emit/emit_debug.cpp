@@ -76,31 +76,40 @@ namespace rat::cc {
 		return a;
 	}
 
-	// clang's spelling, typeName folds signed char and the long variants into others
+	namespace detail {
+		// clang's spelling, typeName folds signed char and the long variants into others
+		Pair<String, DebugType::Kind> debugBaseName(CType t) {
+			using Kind = DebugType::Kind;
+			if(t.isComplex())
+				return {String(floatName(t.bits)) + " _Complex", Kind::ComplexFloat};
+			if(t.isFloat())
+				return {floatName(t.bits), Kind::Float};
+			String sign = t.isUnsigned() ? "unsigned " : "";
+			Kind kind = t.isUnsigned() ? Kind::Unsigned : Kind::Signed;
+			if(t.isLongLong())
+				return {sign + "long long", kind};
+			if(t.isLong())
+				return {sign + "long", kind};
+			switch(t.bits) {
+			case 1:
+				return {"_Bool", Kind::Bool};
+			case 8:
+				kind = t.isUnsigned() ? Kind::UnsignedChar : Kind::SignedChar;
+				if(t.isPlainChar())
+					return {sign + "char", kind};
+				return {t.isUnsigned() ? "unsigned char" : "signed char", kind};
+			default:
+				return {sign + intName(t.bits), kind};
+			}
+		}
+	} // namespace detail
+
 	DebugType* Emitter::debugBase(CType t) {
-		using Kind = DebugType::Kind;
-		String sign = t.isUnsigned() ? "unsigned " : "";
-		CType plain = t;
-		plain.quals = plain.vquals = plain.rquals = 0;
-		String name = typeName(plain);
-		if(t.bits == 8 && !t.isFloat() && !t.isPlainChar())
-			name = sign.empty() ? "signed char" : "unsigned char";
-		else if(t.isLongLong())
-			name = sign + "long long";
-		else if(t.isLong() && !t.isFloat())
-			name = sign + "long";
-		DebugType*& b = dbg.bases[name];
-		if(b)
-			return b;
-		Kind kind = t.isUnsigned() ? Kind::Unsigned : Kind::Signed;
-		if(t.bits == 8)
-			kind = t.isUnsigned() ? Kind::UnsignedChar : Kind::SignedChar;
-		if(t.bits == 1)
-			kind = Kind::Bool;
-		if(t.isFloat())
-			kind = t.isComplex() ? Kind::ComplexFloat : Kind::Float;
-		b = dbg.info->makeType(kind, name, (U32)byteSize(t));
-		return b;
+		auto [name, kind] = detail::debugBaseName(t);
+		DebugType*& base = dbg.bases[name];
+		if(!base)
+			base = dbg.info->makeType(kind, name, (U32)byteSize(t));
+		return base;
 	}
 
 	DebugType* Emitter::debugRecord(const StructType* st) {
