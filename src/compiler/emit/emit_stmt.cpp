@@ -352,20 +352,16 @@ namespace rat::cc {
 											child->kind == StmtKind::Default;
 			if(fn.blockFinished() && !labelLike && !containsLabel(child) &&
 				 !(!func.switches.empty() && containsSwitchCase(child))) {
-				if(child->kind == StmtKind::Decl && !declareDead(fn, child)) {
-					func.scopes.pop();
+				if(child->kind == StmtKind::Decl && !declareDead(fn, child))
 					return false;
-				}
 				continue;
 			}
 			if(fn.blockFinished() && !labelLike) {
 				Function::Block* dead = fn.createBlock("dead");
 				fn.enterBlock(dead);
 			}
-			if(!emitStmt(fn, child)) {
-				func.scopes.pop();
+			if(!emitStmt(fn, child))
 				return false;
-			}
 		}
 		restoreStack(fn, mark);
 		func.sp = mark ? mark : outerSp;

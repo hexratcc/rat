@@ -463,21 +463,21 @@ namespace rat::cc {
 			if(isAggregate(p.type) && regs[i].count) {
 				Node* slot = bindEightbytes(fn, p.type, regs[i], index);
 				if(p.name)
-					func.scopes.declare(*p.name, Local::mem(slot, p.type));
+					func.scopes.set(*p.name, Local::mem(slot, p.type));
 				continue;
 			}
 			Node* arg = fn.param(index++);
 			if(!p.name)
 				continue;
 			if(isAggregate(p.type)) {
-				func.scopes.declare(*p.name, Local::mem(arg, p.type));
+				func.scopes.set(*p.name, Local::mem(arg, p.type));
 			} else if(func.addrTaken.count(*p.name) || isTopVolatile(p.type) || dbg.keepLocals) {
 				Node* slot = fn.alloc(irType(p.type));
 				fn.store(slot, arg, isTopVolatile(p.type));
-				func.scopes.declare(*p.name, Local::mem(slot, p.type));
+				func.scopes.set(*p.name, Local::mem(slot, p.type));
 			} else {
 				Function::Var v = fn.declareLocal(*p.name, arg);
-				func.scopes.declare(*p.name, Local::inVar(v, p.type));
+				func.scopes.set(*p.name, Local::inVar(v, p.type));
 				if(isPointer(p.type) && isTopRestrict(p.type))
 					markRestrictParam(fn, v, index - 1);
 			}
@@ -539,15 +539,11 @@ namespace rat::cc {
 			if(!p.vlaBound)
 				continue;
 			diag.offset = p.offset;
-			if(!emitExpr(*fn, p.vlaBound).node) {
-				func.scopes.pop();
+			if(!emitExpr(*fn, p.vlaBound).node)
 				return false;
-			}
 		}
-		if(def->body && !emitStmt(*fn, def->body)) {
-			func.scopes.pop();
+		if(def->body && !emitStmt(*fn, def->body))
 			return false;
-		}
 		func.scopes.pop();
 		for(auto& [name, label] : func.labels)
 			fn->seal(label.block);

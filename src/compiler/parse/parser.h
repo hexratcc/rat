@@ -6,62 +6,6 @@
 #include "target_layout.h"
 
 namespace rat::cc {
-	template <typename V> struct ScopeMap {
-		struct Undo {
-			String name;
-			V prev;
-			B32 hadPrev;
-		};
-		Map<String, V> table;
-		List<Undo> undo;
-		List<U32> marks;
-
-		const V* get(const String& key) const; // null when absent
-		void push() { marks.push_back((U32)undo.size()); }
-		void pop();
-		void set(const String& key, V value);
-		void erase(const String& key);
-	};
-
-	template <typename V> const V* ScopeMap<V>::get(const String& key) const {
-		auto it = table.find(key);
-		return it == table.end() ? nullptr : &it->second;
-	}
-
-	template <typename V> void ScopeMap<V>::pop() {
-		U32 mark = marks.back();
-		marks.pop_back();
-		while(undo.size() > mark) {
-			Undo& u = undo.back();
-			if(u.hadPrev)
-				table.insert_or_assign(u.name, u.prev);
-			else
-				table.erase(u.name);
-			undo.pop_back();
-		}
-	}
-
-	template <typename V> void ScopeMap<V>::set(const String& key, V value) {
-		auto [it, inserted] = table.try_emplace(key, value);
-		if(inserted) {
-			if(!marks.empty())
-				undo.push_back({key, V{}, false});
-		} else {
-			if(!marks.empty())
-				undo.push_back({key, it->second, true});
-			it->second = value;
-		}
-	}
-
-	template <typename V> void ScopeMap<V>::erase(const String& key) {
-		auto it = table.find(key);
-		if(it == table.end())
-			return;
-		if(!marks.empty())
-			undo.push_back({key, it->second, true});
-		table.erase(it);
-	}
-
 	struct Parser {
 		Parser(TokenStream& lexer, Arena& arena, const TargetLayout& layout);
 

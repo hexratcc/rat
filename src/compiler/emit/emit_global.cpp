@@ -89,7 +89,7 @@ namespace rat::cc {
 			loc.isArray = arr;
 			loc.count = n;
 			loc.staticSymbol = arena.make<String>(sym);
-			func.scopes.declare(*d.name, loc);
+			func.scopes.set(*d.name, loc);
 		} else {
 			syms.globals[*d.name] = GlobalVariable{d.type, arr, n};
 		}

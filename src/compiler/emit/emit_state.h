@@ -48,23 +48,7 @@ namespace rat::cc {
 		}
 	};
 
-	// flat scope stack: one table + undo log rolled back on pop
-	struct Scopes {
-		void push();
-		void pop();
-		void declare(const String& name, Local local);
-		B32 lookup(const String& name, Local& out) const;
-		void clear();
-	private:
-		struct Undo {
-			const String* name; // table key, stable across rehash
-			Local prev;
-			B32 hadPrev;
-		};
-		Map<String, Local> table;
-		List<Undo> undo;
-		List<U32> marks;
-	};
+	using Scopes = ScopeMap<Local>;
 
 	struct LoopFrame {
 		Block* breakBlock = nullptr;

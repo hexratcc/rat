@@ -192,24 +192,18 @@ namespace rat::cc {
 			B32 last = (i + 1 == stmts.size());
 			if(last && child->kind == StmtKind::Expr && !fn.blockFinished()) {
 				result = emitExpr(fn, child->expr);
-				if(!result.node) {
-					func.scopes.pop();
+				if(!result.node)
 					return {};
-				}
 				break;
 			}
 			if(fn.blockFinished() && child->kind != StmtKind::Label && child->kind != StmtKind::Case &&
 				 child->kind != StmtKind::Default && !containsLabel(child)) {
-				if(child->kind == StmtKind::Decl && !declareDead(fn, child)) {
-					func.scopes.pop();
+				if(child->kind == StmtKind::Decl && !declareDead(fn, child))
 					return {};
-				}
 				continue;
 			}
-			if(!emitStmt(fn, child)) {
-				func.scopes.pop();
+			if(!emitStmt(fn, child))
 				return {};
-			}
 		}
 		func.scopes.pop();
 		if(!result.node)

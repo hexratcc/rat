@@ -1,46 +1,6 @@
 #include "emit/emit_state.h"
 
 namespace rat::cc {
-	void Scopes::push() { marks.push_back((U32)undo.size()); }
-
-	void Scopes::pop() {
-		U32 mark = marks.back();
-		marks.pop_back();
-		while(undo.size() > mark) {
-			Undo& u = undo.back();
-			auto it = table.find(*u.name);
-			if(u.hadPrev)
-				it->second = u.prev;
-			else
-				table.erase(it);
-			undo.pop_back();
-		}
-	}
-
-	void Scopes::declare(const String& name, Local local) {
-		auto [it, inserted] = table.try_emplace(name, local);
-		if(inserted) {
-			undo.push_back({&it->first, Local{}, false});
-		} else {
-			undo.push_back({&it->first, it->second, true});
-			it->second = local;
-		}
-	}
-
-	B32 Scopes::lookup(const String& name, Local& out) const {
-		auto found = table.find(name);
-		if(found == table.end())
-			return false;
-		out = found->second;
-		return true;
-	}
-
-	void Scopes::clear() {
-		table.clear();
-		undo.clear();
-		marks.clear();
-	}
-
 	void FunctionState::reset() {
 		returnType = {};
 		sretSlot = nullptr;
