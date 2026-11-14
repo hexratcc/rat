@@ -17,7 +17,6 @@ namespace rat {
 		List<U32> parseVRefs(const String& s);
 		void splitTypeToken(const String& after, String& typeStr, String& remainder);
 		B32 takeQuoted(const String& s, String& name, String& rest);
-		B32 hexDigit(C8 c, U8& v);
 		B32 decodeBytes(const String& s, List<U8>& out);
 		B32 parseIndex(const String& digits, U32& out);
 		B32 opcodeForMnemonic(const String& m, Opcode& op);
@@ -28,10 +27,7 @@ namespace rat {
 			Type* ty = nullptr;
 			I64 cval = 0;							 // Constant
 			U32 projIndex = 0;				 // Proj, lane selector of Extract and Shuffle
-			String projLabel;					 // Proj
-			String callee;						 // Call
-			String asmText;						 // Asm
-			String symbol;						 // Global
+			String name;							 // Proj label, Call callee, Asm template, Global symbol
 			Type* allocType = nullptr; // Alloc
 			B32 loopHeader = false;		 // Region
 			B32 isVolatile = false;		 // Load, Store
@@ -57,16 +53,13 @@ namespace rat {
 			B32 parseGlobal(const String& line);
 			B32 parseFunction(const String& header, std::istream& in);
 			B32 parseNodeLine(const String& line, ParsedNode& pn);
-			B32 parseFlaggedOperands(String body, const C8* keyword, B32& flag, ParsedNode& pn);
 			B32 parsePayload(const String& remainder, const String& line, ParsedNode& pn);
 			B32 parseProj(const String& remainder, const String& line, ParsedNode& pn);
 			B32 parseLaneOp(const String& remainder, const String& line, ParsedNode& pn);
 			B32 singleRef(const String& remainder, const String& error, ParsedNode& pn);
-			static B32 takeKeyword(String& body, const C8* word);
+			static B32 hasKeyword(const String& body, const C8* word);
 			static B32 takeSuffix(String& body, const C8* word);
 
-			B32 build(Function* fn, const List<ParsedNode>& nodes);
-			void seedStartStop(Function* fn, const List<ParsedNode>& nodes);
 			B32 ready(const ParsedNode& pn) const;
 			B32 materialize(Function* fn, const List<ParsedNode>& nodes);
 			Node* makeNode(Function* fn, const ParsedNode& pn);
@@ -75,9 +68,7 @@ namespace rat {
 
 			Node* operand(const ParsedNode& pn, U32 index);
 		private:
-			Map<U32, Node*> byId;			 // parsed id -> materialized node
-			Node* startCtrl = nullptr; // start control projection, if present
-			Node* startMem = nullptr;	 // Start memory projection, if present
+			Map<U32, Node*> byId; // parsed id -> materialized node
 		};
 	} // namespace detail
 

@@ -104,7 +104,6 @@ namespace rat {
 
 	Node* Function::convert(Opcode op, Node* in, Type* to) { return create<ConvertNode>(op, to, in); }
 	Node* Function::trunc(Node* in, Type* to) { return convert(Opcode::Trunc, in, to); }
-	Node* Function::sext(Node* in, Type* to) { return convert(Opcode::SExt, in, to); }
 	Node* Function::zext(Node* in, Type* to) { return convert(Opcode::ZExt, in, to); }
 
 	Node* Function::load(Type* ty, Node* ptr, B32 isVolatile) {
@@ -438,21 +437,19 @@ namespace rat {
 		return (unused && n != start && n != stop) || (effect && !n->getControlInput());
 	}
 
-	U32 Function::eraseMarked(const List<U8>& mark) {
+	void Function::eraseMarked(const List<U8>& mark) {
 		U32 kept = 0;
 		for(Node* n : nodes)
 			if(!mark[n->getId()])
 				nodes[kept++] = n;
 			else if(debug)
 				debug->retarget(n, nullptr);
-		U32 removed = (U32)nodes.size() - kept;
 		nodes.resize(kept);
-		return removed;
 	}
 
-	U32 Function::eliminateDeadNodes(B32 includeControl) {
+	void Function::eliminateDeadNodes(B32 includeControl) {
 		if(!includeControl && deadFreeAt == version)
-			return 0;										// unchanged since a sweep, which leaves no dead node
+			return;											// unchanged since a sweep, which leaves no dead node
 		List<U8> deadMark(nextId, 0); // id-indexed
 		List<Node*> work(nodes.begin(), nodes.end());
 		U32 count = 0;
@@ -473,10 +470,9 @@ namespace rat {
 			eraseMarked(deadMark);
 		}
 		deadFreeAt = version;
-		return count;
 	}
 
-	U32 Function::pruneUnreachable() {
+	void Function::pruneUnreachable() {
 		Set<Node*> dead;
 		List<Node*> work;
 		for(Node* n : nodes) {
@@ -495,16 +491,14 @@ namespace rat {
 					work.push_back(u);
 		}
 		if(dead.empty())
-			return 0;
+			return;
 		List<U8> deadMark(nextId, 0);
 		for(Node* n : dead) {
 			n->clearInputs();
 			deadMark[n->getId()] = 1;
 		}
-		U32 removed = eraseMarked(deadMark);
-		if(removed)
-			touch();
-		return removed;
+		eraseMarked(deadMark);
+		touch();
 	}
 
 	void Function::removeNode(Node* n) {

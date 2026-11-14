@@ -147,8 +147,7 @@ namespace rat {
 		return op == Opcode::StackAlloc || op == Opcode::StackSave || op == Opcode::StackRestore;
 	}
 	constexpr B32 isVectorUtilOpcode(Opcode op) {
-		return op == Opcode::Splat || op == Opcode::Extract || op == Opcode::Pack ||
-					 op == Opcode::Shuffle;
+		return op >= Opcode::Splat && op <= Opcode::Shuffle;
 	}
 } // namespace rat
 

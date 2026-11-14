@@ -355,19 +355,7 @@ namespace rat {
 	U32 ShuffleNode::getSource(U32 lane) const { return sel >> (kSourceBits * lane) & kSourceMask; }
 
 	B32 isControlNode(const Node* n) {
-		switch(n->getOpcode()) {
-		case Opcode::Start:
-		case Opcode::Stop:
-		case Opcode::Return:
-		case Opcode::Region:
-		case Opcode::If:
-		case Opcode::Switch:
-			return true;
-		case Opcode::Proj:
-			return n->getType()->isControl();
-		default:
-			return false;
-		}
+		return n->isCFG() || (isa<ProjNode>(n) && n->getType()->isControl());
 	}
 
 	Node* memoryInput(const Node* n) {

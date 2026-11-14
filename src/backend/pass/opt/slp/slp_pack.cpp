@@ -191,9 +191,9 @@ namespace rat {
 		LoadCanonPass::handoff() = {}; // a handoff from an earlier pipeline stage is stale
 	}
 
-	void SlpPackPass::printStats(const Module& module, std::ostream& os) const {
+	void SlpPackPass::printStats(const Module&, std::ostream& os) const {
 		const SlpStats& s = stats;
-		os << "slp[" << module.getName() << "]: windows " << s.windowsSeen << " packed "
+		os << "slp[module]: windows " << s.windowsSeen << " packed "
 			 << (s.packedUnguarded + s.packedGuarded) << " (static " << s.packedUnguarded << ", guarded "
 			 << s.packedGuarded << " in " << s.guardedRuns << " runs, " << s.guardChecks
 			 << " checks) reductions " << s.packedReduction << " rejected " << s.rejected << "\n";

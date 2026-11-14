@@ -116,7 +116,6 @@ namespace rat {
 
 		Node* convert(Opcode op, Node* in, Type* to);
 		Node* trunc(Node* in, Type* to);
-		Node* sext(Node* in, Type* to);
 		Node* zext(Node* in, Type* to);
 
 		Node* load(Type* ty, Node* ptr, B32 isVolatile = false);
@@ -187,8 +186,8 @@ namespace rat {
 		void markCleanFor(const void* pass);
 		B32 hasReturn() const;
 
-		U32 eliminateDeadNodes(B32 includeControl = false);
-		U32 pruneUnreachable();
+		void eliminateDeadNodes(B32 includeControl = false);
+		void pruneUnreachable();
 		void removeNode(Node* n);
 
 		friend struct Node;
@@ -199,7 +198,7 @@ namespace rat {
 		U32* allocSlots(U32 count) { return arena.makeArray<U32>(count); }
 		const C8* internString(const C8* s, U64 len) { return arena.internString(s, len); }
 		B32 isDeadNode(Node* n, B32 includeControl) const;
-		U32 eraseMarked(const List<U8>& mark);
+		void eraseMarked(const List<U8>& mark);
 
 		// ssa construction
 		Node* mem();

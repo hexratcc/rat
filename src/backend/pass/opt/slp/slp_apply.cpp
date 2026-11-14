@@ -42,19 +42,15 @@ namespace rat {
 			if(anchor.second < it->second.second)
 				it->second = anchor;
 		}
-		for(const auto& [key, anchor] : best)
-			anchors.try_emplace(key, anchor);
+		anchors.insert(best.begin(), best.end());
 	}
 
 	// the base of ptr's constant adds when it shares ptr's group
 	Pair<Node*, I64> SlpPackPass::Emitter::anchorOf(Node* ptr) {
 		Node* base = ptr;
-		BinaryNode* add = dyn_cast<BinaryNode>(base);
-		while(add && add->getOpcode() == Opcode::Add && isa<ConstantNode>(add->getRHS()) &&
-					add->getLHS()->getType()->isPtr()) {
-			base = add->getLHS();
-			add = dyn_cast<BinaryNode>(base);
-		}
+		while(base->getOpcode() == Opcode::Add && isa<ConstantNode>(base->getInput(1)) &&
+					base->getInput(0)->getType()->isPtr())
+			base = base->getInput(0);
 		Addr ptrAddr = cx.addrs.get(ptr);
 		Addr baseAddr = cx.addrs.get(base);
 		if(baseAddr.group != ptrAddr.group)
@@ -82,10 +78,8 @@ namespace rat {
 				vec.node = emitOp(vec, vecTy, plan);
 			else if(isSplat(vec.lanes))
 				vec.node = cx.fn.create<SplatNode>(vecTy, vec.lanes[0]);
-			else {
-				List<Node*> lanes(vec.lanes.begin(), vec.lanes.end());
-				vec.node = cx.fn.create<PackNode>(vecTy, lanes);
-			}
+			else
+				vec.node = cx.fn.create<PackNode>(vecTy, List<Node*>(vec.lanes.begin(), vec.lanes.end()));
 		}
 	}
 

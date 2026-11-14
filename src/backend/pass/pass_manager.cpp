@@ -26,21 +26,15 @@ namespace rat {
 		return machinePasses.emplace_back(std::move(p)).get();
 	}
 
-	void PassManager::record(const C8* name, U64 nanos) {
-		for(auto& t : timing) {
+	void PassManager::finish(const C8* name, U64 nanos, B32 changed, std::ostream* log) {
+		if(log)
+			*log << "; " << name << (changed ? " : changed\n" : " : unchanged\n");
+		for(PassTiming& t : timing)
 			if(t.name == name) {
 				t.nanos += nanos;
 				return;
 			}
-		}
 		timing.push_back({name, nanos});
-	}
-
-	B32 PassManager::finish(const C8* name, U64 nanos, B32 changed, std::ostream* log) {
-		record(name, nanos);
-		if(log)
-			*log << "; " << name << (changed ? " : changed\n" : " : unchanged\n");
-		return changed;
 	}
 
 	// passes [first, last) run function by function, callees first, so a callee is fully optimized

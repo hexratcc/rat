@@ -26,19 +26,16 @@ namespace rat {
 				"\033[95m",
 				"\033[96m",
 		};
-		static constexpr U32 TempColorCount = sizeof(TempColors) / sizeof(TempColors[0]);
 
 		explicit TextEmitterPass(std::ostream& os);
 
 		const C8* name() const override;
 		B32 run(Module& module, const TargetInfo& target) override;
 	private:
-		void emitModule(const Module& module);
 		void emitFunction(const Function& fn);
 		void emitNode(const Node* node);
 		void emitOperands(const Node* node);
 
-		void comment(const C8* text);
 		String quoteBytes(const List<U8>& bytes);
 		void ref(const Node* node);
 

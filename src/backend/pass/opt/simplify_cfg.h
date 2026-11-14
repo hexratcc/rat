@@ -18,7 +18,6 @@
 namespace rat {
 	struct IfNode;
 	struct Node;
-	struct PhiNode;
 	struct RegionNode;
 
 	struct SimplifyCFGPass : FunctionPass {
@@ -49,8 +48,8 @@ namespace rat {
 		static I32 speculationCost(Node* v, Node* phi, U32 depth);
 		B32 regionToSelect(Function& fn, RegionNode* r);
 	private:
-		List<Node*> ifs;
-		List<Node*> regions;
+		List<IfNode*> ifs;
+		List<RegionNode*> regions;
 		List<U8> reach; // id -> reachable control
 		// walk scratch
 		List<Node*> stack;

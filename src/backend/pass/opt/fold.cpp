@@ -294,14 +294,11 @@ namespace rat {
 			Node* base;
 			I64 c1;
 			if(op == Opcode::Add || op == Opcode::Sub) {
-				I64 c2 = cr->getValue();
-				B32 outerNeg = op == Opcode::Sub;
+				U64 t2 = op == Opcode::Sub ? (U64)0 - (U64)cr->getValue() : (U64)cr->getValue();
 				for(Opcode inner : {Opcode::Add, Opcode::Sub}) {
 					if(!matchVarConst(lhs, inner, base, c1))
 						continue;
-					B32 innerNeg = inner == Opcode::Sub;
-					U64 t1 = innerNeg ? (U64)0 - (U64)c1 : (U64)c1;
-					U64 t2 = outerNeg ? (U64)0 - (U64)c2 : (U64)c2;
+					U64 t1 = inner == Opcode::Sub ? (U64)0 - (U64)c1 : (U64)c1;
 					I64 sum = (I64)(t1 + t2);
 					I64 k = normalizeConst(sum, w);
 					if(w > 1 && w < 64 && k != sum)
@@ -329,7 +326,7 @@ namespace rat {
 
 		// hacker's delight 10-9
 		MagicU32 magicU32(U32 d) {
-			MagicU32 mag = {0, 0, false};
+			B32 add = false;
 			U32 nc = (U32)-1 - (U32)(-(I64)d) % d;
 			U32 p = 31;
 			U32 q1 = 0x80000000u / nc, r1 = 0x80000000u - q1 * nc;
@@ -346,20 +343,18 @@ namespace rat {
 				}
 				if(r2 + 1 >= d - r2) {
 					if(q2 >= 0x7FFFFFFFu)
-						mag.a = true;
+						add = true;
 					q2 = 2 * q2 + 1;
 					r2 = 2 * r2 + 1 - d;
 				} else {
 					if(q2 >= 0x80000000u)
-						mag.a = true;
+						add = true;
 					q2 = 2 * q2;
 					r2 = 2 * r2 + 1;
 				}
 				delta = d - 1 - r2;
 			} while(p < 64 && (q1 < delta || (q1 == delta && r1 == 0)));
-			mag.m = q2 + 1;
-			mag.s = p - 32;
-			return mag;
+			return {q2 + 1, p - 32, add};
 		}
 
 		// hacker's delight 10-4
@@ -388,12 +383,8 @@ namespace rat {
 				}
 				delta = ad - r2;
 			} while(q1 < delta || (q1 == delta && r1 == 0));
-			MagicS32 mag;
-			mag.m = (I32)(q2 + 1);
-			if(d < 0)
-				mag.m = -mag.m;
-			mag.s = p - 32;
-			return mag;
+			I32 m = (I32)(q2 + 1);
+			return {d < 0 ? -m : m, p - 32};
 		}
 
 		// x udiv d as a multiply-shift over a 64-bit widening (w == 32, d not a
@@ -498,7 +489,7 @@ namespace rat {
 
 		Node*
 		foldShiftOfShift(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs, B32 nsw) {
-			if(op != Opcode::Shl && op != Opcode::LShr && op != Opcode::AShr)
+			if(!isShiftOpcode(op))
 				return nullptr;
 			BinaryNode* in = dyn_cast<BinaryNode>(lhs);
 			ConstantNode* cb = dyn_cast<ConstantNode>(rhs);
@@ -540,9 +531,7 @@ namespace rat {
 
 			// normalize a lone constant to the RHS for commutative ops, so every rule
 			// below only has to look on one side
-			if(cl && !cr &&
-				 (op == Opcode::Add || op == Opcode::Mul || op == Opcode::And || op == Opcode::Or ||
-					op == Opcode::Xor)) {
+			if(cl && !cr && getOpcodeInfo(op).isCommutative) {
 				std::swap(lhs, rhs);
 				std::swap(cl, cr);
 			}
@@ -607,8 +596,7 @@ namespace rat {
 			if(lhs->getType()->getIntWidth() == 1) {
 				boolean = lhs;
 			} else if(ConvertNode* cv = dyn_cast<ConvertNode>(lhs)) {
-				if(cv->getOpcode() == Opcode::ZExt && cv->getOperand()->getType()->isInt() &&
-					 cv->getOperand()->getType()->getIntWidth() == 1)
+				if(cv->getOpcode() == Opcode::ZExt && cv->getOperand()->getType()->isInt(1))
 					boolean = cv->getOperand();
 			}
 			if(!boolean)
@@ -691,15 +679,12 @@ namespace rat {
 
 	U32 FoldPass::runOnFunction(Function& fn, const TargetInfo&) {
 		U32 changed = 0;
-		fresh = 0;
+		fresh = fn.idBound();
 		work.clear();
 		work.reserve(fn.size());
 		queued.assign(fn.idBound(), 0);
-		for(Node* n : fn) {
-			if(n->getId() >= fresh)
-				fresh = n->getId() + 1;
+		for(Node* n : fn)
 			push(n);
-		}
 
 		for(U32 i = 0; i < work.size(); ++i) {
 			Node* n = work[i];

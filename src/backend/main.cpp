@@ -58,9 +58,9 @@ namespace detail {
 		std::ostream& out = o.outputPath.empty() ? std::cout : outFile;
 
 		PassManager pm(target);
-		String err;
-		if(!buildPipeline(pm, o.passSpec, out, err))
-			return cli::error(kTool, err);
+		for(const String& name : splitTokens(o.passSpec))
+			if(!pm.add(createPass(name, out)))
+				return cli::error(kTool, "unknown pass '" + name + "'");
 		if(o.doVerify)
 			pm.add<VerifyPass>(std::cerr);
 		pm.add(createPass(emitter, out));

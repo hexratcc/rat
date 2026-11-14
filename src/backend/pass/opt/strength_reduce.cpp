@@ -9,15 +9,12 @@ namespace rat {
 		B32 matchLinearIV(PhiNode* p, I64& step, U32& recIdx) {
 			if(!p->getType()->isInt() || p->getValueCount() != 2)
 				return false;
-			for(U32 i = 0; i < 2; ++i) {
-				Node* v = p->getValue(i);
-				ConstantNode* c = offsetOf(v, p);
-				if(!c)
-					continue;
-				step = c->getValue();
-				recIdx = i;
-				return true;
-			}
+			for(U32 i = 0; i < 2; ++i)
+				if(ConstantNode* c = offsetOf(p->getValue(i), p)) {
+					step = c->getValue();
+					recIdx = i;
+					return true;
+				}
 			return false;
 		}
 

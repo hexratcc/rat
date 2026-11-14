@@ -11,6 +11,7 @@ namespace rat {
 	B32 Type::isControl() const { return kind == Control; }
 	B32 Type::isMemory() const { return kind == Memory; }
 	B32 Type::isInt() const { return kind == Int; }
+	B32 Type::isInt(U32 width) const { return kind == Int && bits == width; }
 	B32 Type::isFloat() const { return kind == Float; }
 	B32 Type::isPtr() const { return kind == Ptr; }
 	B32 Type::isTuple() const { return kind == Tuple; }

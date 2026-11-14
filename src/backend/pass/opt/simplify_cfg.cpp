@@ -202,12 +202,11 @@ namespace rat {
 	// keeps the ifs it did not fold
 	U32 SimplifyCFGPass::foldConstantIfs(Function& fn) {
 		U32 kept = 0;
-		for(Node* n : ifs) {
-			IfNode* iff = cast<IfNode>(n);
+		for(IfNode* iff : ifs) {
 			if(ConstantNode* c = dyn_cast<ConstantNode>(iff->getPredicate()))
 				foldIf(fn, iff, c->getValue() != 0);
 			else
-				ifs[kept++] = n;
+				ifs[kept++] = iff;
 		}
 		U32 folded = (U32)ifs.size() - kept;
 		ifs.resize(kept);
@@ -243,8 +242,7 @@ namespace rat {
 
 	U32 SimplifyCFGPass::dropDeadPreds() {
 		U32 changed = 0;
-		for(Node* n : regions) {
-			RegionNode* r = cast<RegionNode>(n);
+		for(RegionNode* r : regions) {
 			if(!reached(r))
 				continue;
 			for(U32 i = r->getPredecessorCount(); i-- > 0;)
@@ -259,8 +257,7 @@ namespace rat {
 	// an if with one used arm is straight-line control
 	U32 SimplifyCFGPass::foldDegenerateIfs(Function& fn) {
 		U32 changed = 0;
-		for(Node* n : ifs) {
-			IfNode* iff = cast<IfNode>(n);
+		for(IfNode* iff : ifs) {
 			ProjNode* thenP = iff->projection(IfNode::thenProjIndex());
 			ProjNode* elseP = iff->projection(IfNode::elseProjIndex());
 			B32 thenLive = thenP && thenP->hasUsers();
@@ -275,8 +272,7 @@ namespace rat {
 
 	U32 SimplifyCFGPass::collapseRegions() {
 		U32 changed = 0;
-		for(Node* n : regions) {
-			RegionNode* r = cast<RegionNode>(n);
+		for(RegionNode* r : regions) {
 			if(!reached(r) || r->getPredecessorCount() != 1)
 				continue;
 			for(PhiNode* phi : usersOfType<PhiNode>(r))
@@ -295,10 +291,10 @@ namespace rat {
 			ifs.clear();
 			regions.clear();
 			for(Node* n : fn) {
-				if(isa<IfNode>(n))
-					ifs.push_back(n);
-				else if(isa<RegionNode>(n))
-					regions.push_back(n);
+				if(IfNode* iff = dyn_cast<IfNode>(n))
+					ifs.push_back(iff);
+				else if(RegionNode* r = dyn_cast<RegionNode>(n))
+					regions.push_back(r);
 			}
 			U32 sweep = foldConstantIfs(fn);
 			reachableControl(fn);
@@ -306,8 +302,8 @@ namespace rat {
 			sweep += dropDeadPreds();
 			sweep += foldDegenerateIfs(fn);
 			sweep += collapseRegions();
-			for(Node* n : regions)
-				sweep += regionToSelect(fn, cast<RegionNode>(n));
+			for(RegionNode* r : regions)
+				sweep += regionToSelect(fn, r);
 			fn.eliminateDeadNodes(true);
 			changed += sweep;
 			if(!sweep)

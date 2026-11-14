@@ -170,8 +170,7 @@ namespace rat {
 			return false;
 		if(ops.altOp == kNoOp)
 			return true;
-		B32 binary =
-				getOpClass(ops.mainOp) == OpClass::Binary && getOpClass(ops.altOp) == OpClass::Binary;
+		B32 binary = isBinaryOpcode(ops.mainOp) && isBinaryOpcode(ops.altOp);
 		B32 shift = isShiftOpcode(ops.mainOp) || isShiftOpcode(ops.altOp);
 		// a blend lowers to SSE4.1 blendps
 		return cx.sse41 && binary && !shift && hasRule(ops.altOp, lane0);

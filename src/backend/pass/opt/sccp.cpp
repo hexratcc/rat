@@ -15,7 +15,7 @@ namespace rat {
 
 	B32 SCCPPass::isValueNode(Node* n) {
 		Opcode op = n->getOpcode();
-		return op == Opcode::Constant || op == Opcode::Phi || isArithmeticOpcode(op);
+		return op == Opcode::Phi || isArithmeticOpcode(op);
 	}
 
 	SCCPPass::Lattice SCCPPass::meet(Lattice a, Lattice b) {
@@ -23,9 +23,7 @@ namespace rat {
 			return b;
 		if(b.kind == Lattice::Kind::Top)
 			return a;
-		if(a.kind == Lattice::Kind::Bottom || b.kind == Lattice::Kind::Bottom)
-			return Lattice::bottom();
-		return a.value == b.value ? a : Lattice::bottom();
+		return a == b ? a : Lattice::bottom();
 	}
 
 	void SCCPPass::ensureSize(U32 id) {
@@ -127,14 +125,6 @@ namespace rat {
 			ssaWork.push_back(u);
 	}
 
-	SCCPPass::Lattice SCCPPass::evaluate(Node* n) {
-		if(ConstantNode* c = dyn_cast<ConstantNode>(n))
-			return Lattice::constant(c->getValue());
-		if(PhiNode* phi = dyn_cast<PhiNode>(n))
-			return evalPhi(phi);
-		return evalArith(n);
-	}
-
 	SCCPPass::Lattice SCCPPass::evalPhi(PhiNode* phi) {
 		RegionNode* r = dyn_cast<RegionNode>(phi->getInput(0));
 		if(!r)
@@ -150,7 +140,9 @@ namespace rat {
 		return res;
 	}
 
-	SCCPPass::Lattice SCCPPass::evalArith(Node* n) {
+	SCCPPass::Lattice SCCPPass::evaluate(Node* n) {
+		if(PhiNode* phi = dyn_cast<PhiNode>(n))
+			return evalPhi(phi);
 		Opcode op = n->getOpcode();
 		Node* lhs = n->getInput(0);
 		Node* rhs = n->getInputCount() > 1 ? n->getInput(1) : nullptr;
@@ -203,7 +195,7 @@ namespace rat {
 		U32 changed = 0;
 		List<Node*> work(fn.begin(), fn.end());
 		for(Node* n : work) {
-			if(isa<ConstantNode>(n) || !isValueNode(n) || !n->hasUsers())
+			if(!isValueNode(n) || !n->hasUsers())
 				continue;
 			Lattice l = get(n);
 			if(l.kind != Lattice::Kind::Constant)
@@ -221,8 +213,6 @@ namespace rat {
 	U32 SCCPPass::runOnFunction(Function& fn, const TargetInfo&) {
 		values.clear();
 		exec.clear();
-		flowWork.clear();
-		ssaWork.clear();
 		ensureSize(fn.size());
 		solve(fn);
 		return rewrite(fn);

@@ -3,7 +3,6 @@
 #include <iomanip>
 #include <ostream>
 
-#include "pass/pass.h"
 #include "string.h"
 
 #include "pass/verify.h"
@@ -102,16 +101,6 @@ namespace rat {
 	}
 
 	List<String> defaultOptPipeline() { return splitTokens(detail::kDefaultOpt); }
-
-	B32 buildPipeline(PassManager& pm, const String& spec, std::ostream& out, String& err) {
-		for(const String& name : splitTokens(spec)) {
-			UniquePtr<Pass> p = createPass(name, out);
-			if(!p)
-				return err = "unknown pass '" + name + "'", false;
-			pm.add(std::move(p));
-		}
-		return true;
-	}
 
 	void listPasses(std::ostream& os, B32 withMachine) {
 		os << "passes:\n";

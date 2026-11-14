@@ -114,9 +114,7 @@ namespace rat {
 				for(U32 i = 2; i < n->getInputCount(); ++i)
 					taken.push_back(n->getInput(i));
 		}
-		if(mayCarryRestrict(std::move(taken), restricts, ~0u))
-			return 0;
-		return restricts;
+		return mayCarryRestrict(std::move(taken), restricts, ~0u) ? 0 : restricts;
 	}
 
 	Node* AliasAnalysis::objectOf(Node* addr) const {

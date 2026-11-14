@@ -18,9 +18,8 @@ namespace rat {
 			if(bin)
 				rhsConst = dyn_cast<ConstantNode>(bin->getRHS()); // fold puts a lone constant on the right
 			Opcode op = n->getOpcode();
-			B32 sextOfI32 = op == Opcode::SExt && n->getInput(0)->getType()->isInt() &&
-											n->getInput(0)->getType()->getIntWidth() == 32;
-			B32 is64 = n->getType()->isInt() && n->getType()->getIntWidth() == 64;
+			B32 sextOfI32 = op == Opcode::SExt && n->getInput(0)->getType()->isInt(32);
+			B32 is64 = n->getType()->isInt(64);
 			B32 canSplit = bin && depth < kMaxRefineDepth && (is64 || (narrow && bin->isNsw()));
 			I64 maxShift = 63 - 32 * narrow;
 			B32 shlByConst = op == Opcode::Shl && rhsConst;

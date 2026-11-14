@@ -7,8 +7,6 @@
 #include <ostream>
 
 namespace rat {
-	void TextEmitterPass::comment(const C8* text) { *os << Green << text << Reset; }
-
 	String TextEmitterPass::quoteBytes(const List<U8>& bytes) {
 		// raw bytes as a quoted string: printable ASCII verbatim, everything
 		// else (and " and \) as a \HH hex escape, so the form round-trips
@@ -33,7 +31,7 @@ namespace rat {
 			return;
 		}
 		U32 id = node->getId();
-		*os << TempColors[id % TempColorCount] << 'v' << id << Reset;
+		*os << TempColors[id % std::size(TempColors)] << 'v' << id << Reset;
 	}
 
 	void TextEmitterPass::emitOperands(const Node* node) {
@@ -58,7 +56,7 @@ namespace rat {
 			*os << Green << "  #" << proj->getIndex() << Reset;
 			if(*proj->getLabel())
 				*os << Green << " \"" << proj->getLabel() << "\"" << Reset;
-			comment(" of ");
+			*os << Green << " of " << Reset;
 			ref(proj->getProducer());
 			return;
 		}
@@ -81,7 +79,7 @@ namespace rat {
 			break;
 		case Opcode::Region:
 			if(cast<RegionNode>(node)->isLoopHeader())
-				comment("  loop");
+				*os << Green << "  loop" << Reset;
 			break;
 		case Opcode::Load:
 			if(cast<LoadNode>(node)->isVolatile())
@@ -132,7 +130,12 @@ namespace rat {
 		*os << "}\n";
 	}
 
-	void TextEmitterPass::emitModule(const Module& module) {
+	TextEmitterPass::TextEmitterPass(std::ostream& os)
+	: os(&os) {}
+
+	const C8* TextEmitterPass::name() const { return "text-emitter"; }
+
+	B32 TextEmitterPass::run(Module& module, const TargetInfo&) {
 		B32 any = false;
 		for(const Global* g : module.globals()) {
 			*os << (g->isConstant() ? "const " : "var ") << g->getName() << " : ";
@@ -147,15 +150,6 @@ namespace rat {
 			any = true;
 			emitFunction(*fn);
 		}
-	}
-
-	TextEmitterPass::TextEmitterPass(std::ostream& os)
-	: os(&os) {}
-
-	const C8* TextEmitterPass::name() const { return "text-emitter"; }
-
-	B32 TextEmitterPass::run(Module& module, const TargetInfo&) {
-		emitModule(module);
 		return false;
 	}
 } // namespace rat

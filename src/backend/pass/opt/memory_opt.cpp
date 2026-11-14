@@ -48,9 +48,7 @@ namespace rat {
 	// dominator tree depth of the load's block, -1 when it has none
 	I32 MemoryOptPass::DomOrder::depth(const LoadNode* l) const {
 		I32 block = sched.blockOf(l);
-		if(block < 0)
-			return -1;
-		return sched.block(block).domDepth;
+		return block < 0 ? -1 : sched.block(block).domDepth;
 	}
 
 	B32 MemoryOptPass::forwardable(const AliasAnalysis& aa, StoreNode* s, LoadNode* l, U32 size) {
@@ -86,16 +84,15 @@ namespace rat {
 			buckets[BucketKey{defs[l->getId()], l->getType(), key}].push_back(l);
 		}
 		paired.clear();
-		for(auto& kv : buckets)
-			if(kv.second.size() >= 2)
-				paired.insert(paired.end(), kv.second.begin(), kv.second.end());
+		for(auto& [bucketKey, group] : buckets)
+			if(group.size() >= 2)
+				paired.insert(paired.end(), group.begin(), group.end());
 		if(paired.empty())
 			return 0; // nothing to CSE, skip the schedule
 
 		Schedule sched(fn, paired);
 		U32 removed = 0;
-		for(auto& kv : buckets) {
-			List<LoadNode*>& group = kv.second;
+		for(auto& [bucketKey, group] : buckets) {
 			if(group.size() < 2)
 				continue;
 			std::sort(group.begin(), group.end(), DomOrder{*this, sched});

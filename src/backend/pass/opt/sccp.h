@@ -56,7 +56,6 @@ namespace rat {
 		void visitSSA(Node* n);
 		Lattice evaluate(Node* n);
 		Lattice evalPhi(PhiNode* phi);
-		Lattice evalArith(Node* n);
 		void solve(Function& fn);
 		U32 rewrite(Function& fn);
 	private:

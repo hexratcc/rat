@@ -60,8 +60,7 @@ namespace rat {
 			changed = true;
 
 			for(const String& s : *outgoing[i]) {
-				auto rc = refCount.find(s);
-				if(rc == refCount.end() || rc->second == 0 || --rc->second != 0)
+				if(--refCount[s] != 0)
 					continue;
 				auto bn = byName.find(s);
 				if(bn == byName.end())

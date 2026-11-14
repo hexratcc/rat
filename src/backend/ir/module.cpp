@@ -14,50 +14,26 @@ namespace rat {
 	const List<U8>& Global::getInit() const { return init; }
 	const List<Reloc>& Global::getRelocs() const { return relocs; }
 
-	Module::Module(String name)
-	: name(std::move(name)) {}
-
-	const String& Module::getName() const { return name; }
-
 	DebugInfo* Module::getDebugInfo() const { return debug.get(); }
 	void Module::setDebugInfo(UniquePtr<DebugInfo> d) { debug = std::move(d); }
-
-	void Module::rebuildFuncIndex() const {
-		funcIndex.clear();
-		for(Function* fn : funcs)
-			funcIndex.emplace(fn->getName(), fn);
-		funcIndexValid = true;
-	}
-
-	void Module::rebuildGlobIndex() const {
-		globIndex.clear();
-		for(Global* g : globs)
-			globIndex.emplace(g->getName(), g);
-		globIndexValid = true;
-	}
 
 	Function* Module::createFunction(const String& name, const List<Type*>& params, Type* ret) {
 		Function* fn = arena.make<Function>(*this, name, params, ret);
 		funcs.push_back(fn);
-		if(funcIndexValid)
-			funcIndex.emplace(name, fn);
 		return fn;
 	}
 
 	Function* Module::getFunction(const String& name) const {
-		if(!funcIndexValid)
-			rebuildFuncIndex();
-		auto it = funcIndex.find(name);
-		return it == funcIndex.end() ? nullptr : it->second;
+		for(Function* fn : funcs)
+			if(fn->getName() == name)
+				return fn;
+		return nullptr;
 	}
 
-	B32 Module::removeFunction(Function* fn) {
+	void Module::removeFunction(Function* fn) {
 		auto it = std::find(funcs.begin(), funcs.end(), fn);
-		if(it == funcs.end())
-			return false;
-		funcs.erase(it);
-		funcIndexValid = false;
-		return true;
+		if(it != funcs.end())
+			funcs.erase(it);
 	}
 
 	Global* Module::createGlobal(
@@ -69,8 +45,7 @@ namespace rat {
 		}
 		Global* g = arena.make<Global>(name, type, isConst, std::move(init), std::move(relocs));
 		globs.push_back(g);
-		if(globIndexValid)
-			globIndex.emplace(name, g);
+		globIndex.emplace(name, g);
 		return g;
 	}
 
@@ -81,8 +56,6 @@ namespace rat {
 	}
 
 	Global* Module::getGlobal(const String& name) const {
-		if(!globIndexValid)
-			rebuildGlobIndex();
 		auto it = globIndex.find(name);
 		return it == globIndex.end() ? nullptr : it->second;
 	}

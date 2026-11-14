@@ -46,13 +46,9 @@ namespace rat {
 	};
 
 	struct Module : TypeContext {
-		explicit Module(String name = "module");
-
-		const String& getName() const;
-
 		Function* createFunction(const String& name, const List<Type*>& params, Type* ret);
 		Function* getFunction(const String& name) const;
-		B32 removeFunction(Function* fn);
+		void removeFunction(Function* fn);
 
 		Global* createGlobal(
 				const String& name, Type* type, B32 isConst, List<U8> init, List<Reloc> relocs = {});
@@ -66,20 +62,12 @@ namespace rat {
 
 		List<Function*>::const_iterator begin() const { return funcs.begin(); }
 		List<Function*>::const_iterator end() const { return funcs.end(); }
-		U32 size() const { return (U32)funcs.size(); }
 	private:
-		String name;
 		List<Function*> funcs;
 		List<Global*> globs;
 		UniquePtr<DebugInfo> debug;
 
-		mutable Map<String, Function*> funcIndex;
-		mutable Map<String, Global*> globIndex;
-		mutable B32 funcIndexValid = false;
-		mutable B32 globIndexValid = false;
-
-		void rebuildFuncIndex() const;
-		void rebuildGlobIndex() const;
+		Map<String, Global*> globIndex;
 	};
 } // namespace rat
 

@@ -176,9 +176,7 @@ namespace rat {
 																		SmallList<Node*, kMaxHops>& walk) {
 		if(PhiNode* phi = dyn_cast<PhiNode>(state)) {
 			// only a loop header's entry, the walk cannot compare the previous iteration's addresses
-			U32 count = phi->getValueCount();
-			if(phi->getRegion()->isLoopHeader())
-				count = 1;
+			U32 count = phi->getRegion()->isLoopHeader() ? 1 : phi->getValueCount();
 			for(U32 i = 0; i < count; ++i)
 				walk.push_back(phi->getValue(i));
 			return false;

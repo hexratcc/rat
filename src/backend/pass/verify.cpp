@@ -6,21 +6,15 @@
 #include "ir/type.h"
 #include "target/target.h"
 
-#include <algorithm>
 #include <ostream>
 
 namespace rat {
-	VerifyPass::FunctionVerifier::FunctionVerifier(const Function& fn, std::ostream& os)
-	: fn(fn),
-		os(os) {}
-
 	String VerifyPass::FunctionVerifier::vref(const Node* n) {
 		return n ? ("v" + std::to_string(n->getId())) : String("<null>");
 	}
 
 	void VerifyPass::FunctionVerifier::run() {
-		for(Node* n : fn)
-			inFn.insert(n);
+		inFn.insert(fn.begin(), fn.end());
 
 		if(!fn.getStart())
 			err(nullptr, "function has no Start node");
@@ -42,11 +36,7 @@ namespace rat {
 	}
 
 	B32 VerifyPass::FunctionVerifier::isCtrl(const Node* n) { return n && n->getType()->isControl(); }
-	B32 VerifyPass::FunctionVerifier::isMem(const Node* n) { return n && n->getType()->isMemory(); }
-	B32 VerifyPass::FunctionVerifier::isData(const Node* n) { return n && n->getType()->isData(); }
-	B32 VerifyPass::FunctionVerifier::isBool(const Type* t) {
-		return t->isInt() && t->getIntWidth() == 1;
-	}
+	B32 VerifyPass::FunctionVerifier::isBool(const Type* t) { return t->isInt(1); }
 
 	B32 VerifyPass::FunctionVerifier::listsAsInput(const Node* user, const Node* def) {
 		for(U32 i = 0, e = user->getInputCount(); i < e; ++i)
@@ -171,7 +161,7 @@ namespace rat {
 	void VerifyPass::FunctionVerifier::checkCtrlMem(const Node* n, const C8* what) {
 		if(!isCtrl(n->getInput(0)))
 			err(n, String(what) + " input 0 (control) is not control-typed");
-		if(!isMem(n->getInput(1)))
+		if(!n->getInput(1)->getType()->isMemory())
 			err(n, String(what) + " input 1 (memory) is not memory-typed");
 	}
 
@@ -279,12 +269,11 @@ namespace rat {
 	void VerifyPass::FunctionVerifier::checkPhi(const Node* n) {
 		const PhiNode* phi = cast<PhiNode>(n);
 		const Type* t = n->getType();
-		Node* reg = phi->getInput(0);
-		if(reg->getOpcode() != Opcode::Region) {
+		const RegionNode* r = dyn_cast<RegionNode>(phi->getInput(0));
+		if(!r) {
 			err(n, "Phi input 0 must be a Region");
 			return;
 		}
-		const RegionNode* r = cast<RegionNode>(reg);
 		if(phi->getValueCount() != r->getPredecessorCount())
 			err(n,
 					"Phi has " + std::to_string(phi->getValueCount()) + " values but its region " + vref(r) +
@@ -371,7 +360,7 @@ namespace rat {
 				err(n, "Load result type must be a data type");
 			return;
 		}
-		if(!isData(n->getInput(3)))
+		if(!n->getInput(3)->getType()->isData())
 			err(n, "Store value is not a data type");
 		if(!n->getType()->isMemory())
 			err(n, "Store result type must be memory");
@@ -435,8 +424,7 @@ namespace rat {
 		const Type* rt = n->getInput(1)->getType();
 		if(lt != n->getType())
 			err(n, "binary result type differs from its left operand");
-		B32 shift = op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr ||
-								op == Opcode::Rotl || op == Opcode::Rotr;
+		B32 shift = isShiftOpcode(op) || op == Opcode::Rotl || op == Opcode::Rotr;
 		if(lt->isPtr()) {
 			if(!(op == Opcode::Add || op == Opcode::Sub))
 				err(n, "pointer arithmetic supports only add/sub");
@@ -555,7 +543,7 @@ namespace rat {
 
 	B32 VerifyPass::run(Module& module, const TargetInfo&) {
 		for(const Function* fn : module)
-			FunctionVerifier(*fn, *os).run();
+			FunctionVerifier{*fn, *os, {}}.run();
 		return false;
 	}
 } // namespace rat

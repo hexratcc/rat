@@ -2,7 +2,6 @@
 
 #include "analysis/call_graph.h"
 #include "ir/function.h"
-#include "ir/module.h"
 #include "ir/node.h"
 #include "ir/type.h"
 
@@ -25,13 +24,6 @@ namespace rat {
 		return n != callee.getStart() && n != callee.getStop() && n->getOpcode() != Opcode::Return;
 	}
 
-	void InlinePass::mapNode(Node* key, Node* val) {
-		U32 id = key->getId();
-		if(id >= cloneMap.size())
-			cloneMap.resize(id + 1, nullptr);
-		cloneMap[id] = val;
-	}
-
 	Node* InlinePass::mapped(Node* key) const {
 		if(!key)
 			return nullptr;
@@ -45,12 +37,12 @@ namespace rat {
 	}
 
 	B32 InlinePass::cloneBody(Function& caller, CallNode* call, Function& callee) {
-		cloneMap.clear();
+		cloneMap.assign(callee.idBound(), nullptr);
 		for(ProjNode* p : usersOfType<ProjNode>(callee.getStart())) {
 			Node* incoming = incomingForStartProj(call, p->getIndex());
 			if(!incoming)
 				return false;
-			mapNode(p, incoming);
+			cloneMap[p->getId()] = incoming;
 		}
 
 		// shallow-clone every body node
@@ -60,7 +52,7 @@ namespace rat {
 			Node* c = cloneShell(caller, n);
 			if(!c)
 				return false;
-			mapNode(n, c);
+			cloneMap[n->getId()] = c;
 			if(CallNode* cc = dyn_cast<CallNode>(c))
 				worklist.push_back(cc);
 		}

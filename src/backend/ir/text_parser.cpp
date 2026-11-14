@@ -69,24 +69,12 @@ namespace rat {
 			return true;
 		}
 
-		B32 hexDigit(C8 c, U8& v) {
-			if(!std::isxdigit((U8)c))
-				return false;
-			if(std::isdigit((U8)c))
-				v = (U8)(c - '0');
-			else
-				v = (U8)(std::tolower((U8)c) - 'a' + 10);
-			return true;
-		}
-
 		B32 decodeBytes(const String& s, List<U8>& out) {
 			for(U32 i = 0; i < s.size();) {
 				if(s[i] == '\\') {
-					U8 hi;
-					U8 lo;
-					if(i + 2 >= s.size() || !hexDigit(s[i + 1], hi) || !hexDigit(s[i + 2], lo))
+					if(i + 2 >= s.size() || !std::isxdigit((U8)s[i + 1]) || !std::isxdigit((U8)s[i + 2]))
 						return false;
-					out.push_back((U8)((hi << 4) | lo));
+					out.push_back((U8)std::stoul(s.substr(i + 1, 2), nullptr, 16));
 					i += 3;
 				} else {
 					out.push_back((U8)s[i]);
@@ -307,7 +295,7 @@ namespace rat {
 			if(!closed)
 				return fail("missing '}' to close function " + name);
 
-			return build(fn, parsed);
+			return materialize(fn, parsed) && wireDeferredInputs(parsed);
 		}
 
 		B32 Parser::parseNodeLine(const String& line, ParsedNode& pn) {
@@ -335,13 +323,6 @@ namespace rat {
 			return parsePayload(trim(remainder), line, pn);
 		}
 
-		// operands after an optional leading keyword, flag tells whether it was there
-		B32 Parser::parseFlaggedOperands(String body, const C8* keyword, B32& flag, ParsedNode& pn) {
-			flag = takeKeyword(body, keyword);
-			pn.operands = parseVRefs(body);
-			return true;
-		}
-
 		B32 Parser::parsePayload(const String& remainder, const String& line, ParsedNode& pn) {
 			switch(pn.op) {
 			case Opcode::Constant: {
@@ -358,16 +339,11 @@ namespace rat {
 				return parseProj(remainder, line, pn);
 			case Opcode::Call:
 			case Opcode::Global: {
-				String name;
 				String rest;
-				if(!takeQuoted(remainder, name, rest))
+				if(!takeQuoted(remainder, pn.name, rest))
 					return fail("node is missing its quoted name: " + line);
-				if(pn.op == Opcode::Call) {
-					pn.callee = std::move(name);
+				if(pn.op == Opcode::Call)
 					pn.operands = parseVRefs(rest);
-				} else {
-					pn.symbol = std::move(name);
-				}
 				return true;
 			}
 			case Opcode::Asm: {
@@ -378,7 +354,7 @@ namespace rat {
 				List<U8> bytes;
 				if(!decodeBytes(text, bytes))
 					return fail("malformed asm template: " + line);
-				pn.asmText.assign(bytes.begin(), bytes.end());
+				pn.name.assign(bytes.begin(), bytes.end());
 				pn.operands = parseVRefs(rest);
 				return true;
 			}
@@ -388,31 +364,32 @@ namespace rat {
 				pn.allocType = parseType(remainder);
 				return pn.allocType != nullptr;
 			case Opcode::Region:
-				return parseFlaggedOperands(remainder, "loop", pn.loopHeader, pn);
+				pn.loopHeader = hasKeyword(remainder, "loop");
+				break;
 			case Opcode::Load:
 			case Opcode::Store:
-				return parseFlaggedOperands(remainder, "volatile", pn.isVolatile, pn);
+				pn.isVolatile = hasKeyword(remainder, "volatile");
+				break;
 			case Opcode::Add:
 			case Opcode::Sub:
 			case Opcode::Mul:
 			case Opcode::Shl:
-				return parseFlaggedOperands(remainder, "nsw", pn.nsw, pn);
+				pn.nsw = hasKeyword(remainder, "nsw");
+				break;
 			case Opcode::Extract:
 			case Opcode::Shuffle:
 				return parseLaneOp(remainder, line, pn);
 			default:
-				pn.operands = parseVRefs(remainder);
-				return true;
+				break;
 			}
+			pn.operands = parseVRefs(remainder); // a leading keyword holds no v ref
+			return true;
 		}
 
 		// a leading keyword followed by a space or the end
-		B32 Parser::takeKeyword(String& body, const C8* word) {
+		B32 Parser::hasKeyword(const String& body, const C8* word) {
 			U32 n = (U32)std::strlen(word);
-			if(body.rfind(word, 0) != 0 || (body.size() != n && !std::isspace((U8)body[n])))
-				return false;
-			body = body.substr(n);
-			return true;
+			return body.rfind(word, 0) == 0 && (body.size() == n || std::isspace((U8)body[n]));
 		}
 
 		// strip a trailing word that follows other text, then trim the rest
@@ -432,7 +409,7 @@ namespace rat {
 			if(index.size() < 2 || index[0] != '#' || !parseIndex(index.substr(1), pn.projIndex))
 				return fail("malformed proj (expected #index): " + line);
 			if(label.size() >= 2 && label.front() == '"' && label.back() == '"')
-				pn.projLabel = label.substr(1, label.size() - 2);
+				pn.name = label.substr(1, label.size() - 2);
 			return singleRef(remainder, "proj must reference exactly one producer: " + line, pn);
 		}
 
@@ -464,19 +441,6 @@ namespace rat {
 			return it->second;
 		}
 
-		void Parser::seedStartStop(Function* fn, const List<ParsedNode>& nodes) {
-			Node* start = fn->getStart();
-			startCtrl = start->projection(StartNode::controlProjIndex());
-			startMem = start->projection(StartNode::memoryProjIndex());
-
-			for(const ParsedNode& pn : nodes) {
-				if(pn.op == Opcode::Start)
-					byId[pn.id] = fn->getStart();
-				else if(pn.op == Opcode::Stop)
-					byId[pn.id] = fn->getStop();
-			}
-		}
-
 		// Region and Phi start without inputs, wireDeferredInputs wires them
 		Node* Parser::makeNode(Function* fn, const ParsedNode& pn) {
 			Opcode op = pn.op;
@@ -487,7 +451,7 @@ namespace rat {
 			if(op == Opcode::Constant)
 				return fn->create<ConstantNode>(pn.ty, pn.cval);
 			if(op == Opcode::Global)
-				return fn->create<GlobalNode>(pn.ty, pn.symbol);
+				return fn->create<GlobalNode>(pn.ty, pn.name);
 			if(op == Opcode::Alloc)
 				return fn->create<AllocNode>(pn.ty, pn.allocType);
 
@@ -514,11 +478,9 @@ namespace rat {
 			case Opcode::Switch:
 				return fn->create<SwitchNode>(pn.ty, in[0], in[1]);
 			case Opcode::Proj:
-				if(in[0] == fn->getStart() && pn.projIndex == StartNode::controlProjIndex() && startCtrl)
-					return startCtrl;
-				if(in[0] == fn->getStart() && pn.projIndex == StartNode::memoryProjIndex() && startMem)
-					return startMem;
-				return fn->create<ProjNode>(pn.ty, in[0], pn.projIndex, pn.projLabel.c_str());
+				if(in[0] == fn->getStart() && pn.projIndex < StartNode::paramProjIndex(0))
+					return fn->getStart()->projection(pn.projIndex); // the Function constructor made it
+				return fn->create<ProjNode>(pn.ty, in[0], pn.projIndex, pn.name.c_str());
 			case Opcode::Load: {
 				LoadNode* l = fn->create<LoadNode>(pn.ty, in[0], in[1], in[2]);
 				l->setVolatile(pn.isVolatile);
@@ -532,10 +494,10 @@ namespace rat {
 			case Opcode::Return:
 				return fn->create<ReturnNode>(pn.ty, in);
 			case Opcode::Call:
-				return fn->create<CallNode>(pn.ty, pn.callee, in);
+				return fn->create<CallNode>(pn.ty, pn.name, in);
 			case Opcode::Asm: {
 				U32 outs = pn.ty->isTuple() ? pn.ty->getTupleElementCount() - 2 : 0;
-				return fn->create<AsmNode>(pn.ty, pn.asmText, outs, in);
+				return fn->create<AsmNode>(pn.ty, pn.name, outs, in);
 			}
 			case Opcode::StackSave:
 				return fn->create<StackSaveNode>(pn.ty, in[0], in[1]);
@@ -575,16 +537,16 @@ namespace rat {
 
 		B32 Parser::materialize(Function* fn, const List<ParsedNode>& nodes) {
 			List<B32> done(nodes.size(), false);
-			U32 remaining = 0;
-			for(U32 k = 0; k < nodes.size(); ++k) {
-				if(nodes[k].op == Opcode::Start || nodes[k].op == Opcode::Stop)
-					done[k] = true; // seeded by seedStartStop
-				else
-					++remaining;
+			for(U32 k = 0; k < nodes.size(); ++k) { // Start and Stop exist already
+				if(nodes[k].op == Opcode::Start)
+					byId[nodes[k].id] = fn->getStart();
+				else if(nodes[k].op == Opcode::Stop)
+					byId[nodes[k].id] = fn->getStop();
+				done[k] = nodes[k].op == Opcode::Start || nodes[k].op == Opcode::Stop;
 			}
 
 			B32 progress = true;
-			while(remaining && progress) {
+			while(progress) {
 				progress = false;
 				for(U32 k = 0; k < nodes.size(); ++k) {
 					if(done[k] || !ready(nodes[k]))
@@ -594,7 +556,6 @@ namespace rat {
 						return false;
 					byId[nodes[k].id] = n;
 					done[k] = true;
-					--remaining;
 					progress = true;
 				}
 			}
@@ -619,11 +580,6 @@ namespace rat {
 				}
 			}
 			return true;
-		}
-
-		B32 Parser::build(Function* fn, const List<ParsedNode>& nodes) {
-			seedStartStop(fn, nodes);
-			return materialize(fn, nodes) && wireDeferredInputs(nodes);
 		}
 	} // namespace detail
 

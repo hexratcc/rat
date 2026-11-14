@@ -9,11 +9,11 @@ namespace rat {
 	struct Type {
 		enum Kind {
 			Control, // For control tokens
-			Memory,	 // For control tokens
+			Memory,	 // For memory states
 			Int,
 			Float,
 			Ptr,
-			Tuple, //  multi-result producers (Start/If/Call), reached via Proj
+			Tuple, // multi-result producers (Start/If/Call), reached via Proj
 			Array,
 			Vec
 		};
@@ -24,6 +24,7 @@ namespace rat {
 		B32 isControl() const;
 		B32 isMemory() const;
 		B32 isInt() const;
+		B32 isInt(U32 width) const;
 		B32 isFloat() const;
 		B32 isPtr() const;
 		B32 isTuple() const;

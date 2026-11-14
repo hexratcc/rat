@@ -32,8 +32,7 @@ namespace rat {
 		void printTimingReport(std::ostream& os) const;
 		void printStats(const Module& module, std::ostream& os) const;
 	private:
-		void record(const C8* name, U64 nanos);
-		B32 finish(const C8* name, U64 nanos, B32 changed, std::ostream* log);
+		void finish(const C8* name, U64 nanos, B32 changed, std::ostream* log);
 		void runFunctionPasses(U32 first, U32 last, Module& module, std::ostream* log);
 		void runMachine(Module& module, std::ostream* log);
 

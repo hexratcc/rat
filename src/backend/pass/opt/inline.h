@@ -14,8 +14,6 @@
 #include "pass/pass.h"
 
 namespace rat {
-	struct Function;
-	struct Module;
 	struct Node;
 	struct CallNode;
 
@@ -39,7 +37,6 @@ namespace rat {
 		static B32 isBodyNode(const Function& callee, Node* n);
 		static Node* incomingForStartProj(CallNode* call, U32 startProjIdx);
 		B32 shouldInline(const Function& caller, CallNode* call, Function* callee);
-		void mapNode(Node* key, Node* val);
 		Node* mapped(Node* key) const;
 		Node* resolve(Node* n) const;
 		B32 cloneBody(Function& caller, CallNode* call, Function& callee);

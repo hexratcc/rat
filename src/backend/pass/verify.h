@@ -8,7 +8,6 @@
 #include <iosfwd>
 
 namespace rat {
-	struct Function;
 	struct Node;
 	struct Type;
 
@@ -23,15 +22,11 @@ namespace rat {
 			std::ostream& os;
 			Set<const Node*> inFn;
 
-			FunctionVerifier(const Function& fn, std::ostream& os);
-
 			static String vref(const Node* n);
 
 			void run();
 			void err(const Node* n, const String& msg);
 			static B32 isCtrl(const Node* n);
-			static B32 isMem(const Node* n);
-			static B32 isData(const Node* n);
 			static B32 isBool(const Type* t);
 			static B32 listsAsInput(const Node* user, const Node* def);
 			B32 checkArity(const Node* n);
