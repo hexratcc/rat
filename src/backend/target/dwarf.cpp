@@ -223,10 +223,11 @@ namespace rat {
 			return out;
 		}
 
-		void offsetPair(List<U8>& out, U32 start, U32 end) {
+		// offsets are from the unit base, .text
+		void offsetPair(List<U8>& out, U32 textOff, U32 start, U32 end) {
 			out.push_back(DW_LE_offset_pair);
-			le::uleb(out, start);
-			le::uleb(out, end);
+			le::uleb(out, textOff + start);
+			le::uleb(out, textOff + end);
 		}
 
 		// appends d to .debug_info under its abbreviation code, declaring it once. a die that may have
@@ -261,14 +262,14 @@ namespace rat {
 		// unit base, .text
 		void DieWriter::pcRanges(Die& d, const List<PcRange>& r, U32 textOff) {
 			if(r.size() == 1) {
-				d.reloc(
-						DW_AT_low_pc, DW_FORM_addr, obj.sectionSymbol(ObjectFile::Text), textOff + r[0].start);
+				String textSym = obj.sectionSymbol(ObjectFile::Text);
+				d.reloc(DW_AT_low_pc, DW_FORM_addr, textSym, textOff + r[0].start);
 				return d.udata(DW_AT_high_pc, r[0].end - r[0].start);
 			}
 			String listSym = obj.sectionSymbol(ObjectFile::DebugRnglists);
 			d.reloc(DW_AT_ranges, DW_FORM_sec_offset, listSym, (I64)rnglists.size());
 			for(const PcRange& p : r)
-				offsetPair(rnglists, textOff + p.start, textOff + p.end);
+				offsetPair(rnglists, textOff, p.start, p.end);
 			rnglists.push_back(DW_LE_end_of_list);
 		}
 
@@ -293,8 +294,8 @@ namespace rat {
 				d.srcLoc(DW_AT_decl_file, t->decl);
 			if(t->elem)
 				d.type(DW_AT_type, t->elem);
-			B32 children = !t->members.empty() || k == Kind::Array || !t->params.empty() || t->variadic ||
-										 !t->enumerators.empty();
+			B32 hasChildLists = !t->members.empty() || !t->params.empty() || !t->enumerators.empty();
+			B32 children = hasChildLists || k == Kind::Array || t->variadic;
 			dieOff[t] = emit(tag, children, d);
 			for(const DebugType::Member& m : t->members) {
 				Die member;
@@ -372,13 +373,13 @@ namespace rat {
 			if(!v.symbol.empty()) {
 				d.reloc(DW_AT_location, DW_FORM_exprloc, v.symbol, 0);
 			} else if(frameOff != kNoFrameSlot) {
-				d.exprloc(DW_AT_location, locExpr({VarLoc::Kind::Frame, 0, frameOff}, false));
+				VarLoc frameSlot{VarLoc::Kind::Frame, 0, frameOff};
+				d.exprloc(DW_AT_location, locExpr(frameSlot, false));
 			} else if(!r.empty()) {
-				// list offsets are from the unit base, .text
 				String listSym = obj.sectionSymbol(ObjectFile::DebugLoclists);
 				d.reloc(DW_AT_location, DW_FORM_sec_offset, listSym, (I64)loclists.size());
 				for(const VarRange& range : r) {
-					offsetPair(loclists, tree.func.textOff + range.start, tree.func.textOff + range.end);
+					offsetPair(loclists, tree.func.textOff, range.start, range.end);
 					List<U8> expr = locExpr(range.loc, vi.indirect);
 					le::uleb(loclists, expr.size());
 					loclists.insert(loclists.end(), expr.begin(), expr.end());
@@ -524,8 +525,8 @@ namespace rat {
 		void writeLineSequence(List<U8>& out, U32 at, const EncodedFunc& func, ObjectFile& obj) {
 			out.insert(out.end(), {0, 1 + kPtrBytes, DW_LNE_set_address});
 			String textSym = obj.sectionSymbol(ObjectFile::Text);
-			obj.addReloc(
-					ObjectFile::DebugLine, at + (U32)out.size(), textSym, RelocKind::Abs64, func.textOff);
+			U32 relocAt = at + (U32)out.size();
+			obj.addReloc(ObjectFile::DebugLine, relocAt, textSym, RelocKind::Abs64, func.textOff);
 			le::put64(out, 0);
 			LineRow prev = {0, {1, 1, 0}}; // the state machine starts at file 1, line 1, column 0
 			for(const LineRow& row : func.lines) {
@@ -554,8 +555,8 @@ namespace rat {
 			out.insert(out.end(), {1, 1, 1, 0xfb, 14, 13, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1});
 			out.insert(out.end(), {1, DW_LNCT_path, DW_FORM_string, 1});
 			le::putString(out, di.compDir);
-			out.insert(out.end(),
-								 {2, DW_LNCT_path, DW_FORM_string, DW_LNCT_directory_index, DW_FORM_udata});
+			out.insert(out.end(), {2, DW_LNCT_path, DW_FORM_string});
+			out.insert(out.end(), {DW_LNCT_directory_index, DW_FORM_udata});
 			le::uleb(out, di.files.size());
 			for(const String& f : di.files) {
 				le::putString(out, f);
@@ -601,8 +602,8 @@ namespace rat {
 				U32 start = (U32)out.size();
 				le::put32(out, 0);
 				le::put32(out, start + 4); // back to the cie at 0
-				obj.addReloc(
-						ObjectFile::EhFrame, base + (U32)out.size(), textSym, RelocKind::Pc32, func.textOff);
+				U32 relocAt = base + (U32)out.size();
+				obj.addReloc(ObjectFile::EhFrame, relocAt, textSym, RelocKind::Pc32, func.textOff);
 				le::put32(out, 0);
 				le::put32(out, func.size);
 				out.push_back(0); // augmentation data length

@@ -43,7 +43,9 @@ namespace rat {
 					C8 c = after[end++];
 					if(c == '(')
 						++depth;
-					else if(c == ')' && --depth == 0)
+					else if(c == ')')
+						--depth;
+					if(depth == 0)
 						break;
 				}
 			} else if(after.rfind('<', 0) == 0) {
@@ -51,8 +53,10 @@ namespace rat {
 				if(end != String::npos)
 					++end;
 			}
+			if(end == String::npos)
+				end = after.size();
 			typeStr = after.substr(0, end);
-			remainder = end == String::npos ? "" : after.substr(end);
+			remainder = after.substr(end);
 		}
 
 		B32 takeQuoted(const String& s, String& name, String& rest) {
@@ -68,7 +72,10 @@ namespace rat {
 		B32 hexDigit(C8 c, U8& v) {
 			if(!std::isxdigit((U8)c))
 				return false;
-			v = (U8)(std::isdigit((U8)c) ? c - '0' : std::tolower((U8)c) - 'a' + 10);
+			if(std::isdigit((U8)c))
+				v = (U8)(c - '0');
+			else
+				v = (U8)(std::tolower((U8)c) - 'a' + 10);
 			return true;
 		}
 
@@ -90,6 +97,8 @@ namespace rat {
 		}
 
 		B32 parseIndex(const String& digits, U32& out) {
+			if(!allDigits(digits))
+				return false;
 			errno = 0;
 			U64 v = std::strtoul(digits.c_str(), nullptr, 10);
 			out = (U32)v;
@@ -306,8 +315,7 @@ namespace rat {
 			if(eq == String::npos)
 				return fail("expected ' = ' in: " + line);
 			String lhs = trim(line.substr(0, eq));
-			if(lhs.empty() || lhs[0] != 'v' || !allDigits(lhs.substr(1)) ||
-				 !parseIndex(lhs.substr(1), pn.id))
+			if(lhs.empty() || lhs[0] != 'v' || !parseIndex(lhs.substr(1), pn.id))
 				return fail("bad result name '" + lhs + "'");
 
 			String rest = line.substr(eq + 3);
@@ -421,8 +429,7 @@ namespace rat {
 			String index;
 			String label;
 			ss >> index >> label;
-			if(index.size() < 2 || index[0] != '#' || !allDigits(index.substr(1)) ||
-				 !parseIndex(index.substr(1), pn.projIndex))
+			if(index.size() < 2 || index[0] != '#' || !parseIndex(index.substr(1), pn.projIndex))
 				return fail("malformed proj (expected #index): " + line);
 			if(label.size() >= 2 && label.front() == '"' && label.back() == '"')
 				pn.projLabel = label.substr(1, label.size() - 2);
@@ -431,8 +438,7 @@ namespace rat {
 
 		B32 Parser::parseLaneOp(const String& remainder, const String& line, ParsedNode& pn) {
 			String laneTok = remainder.substr(0, remainder.find(' '));
-			if(laneTok.size() < 2 || laneTok[0] != '#' || !allDigits(laneTok.substr(1)) ||
-				 !parseIndex(laneTok.substr(1), pn.projIndex))
+			if(laneTok.size() < 2 || laneTok[0] != '#' || !parseIndex(laneTok.substr(1), pn.projIndex))
 				return fail("malformed lane selector (expected #index): " + line);
 			if(pn.op == Opcode::Shuffle) {
 				pn.operands = parseVRefs(remainder);
@@ -459,17 +465,9 @@ namespace rat {
 		}
 
 		void Parser::seedStartStop(Function* fn, const List<ParsedNode>& nodes) {
-			startCtrl = nullptr;
-			startMem = nullptr;
-			for(Node* u : fn->getStart()->getUsers()) {
-				ProjNode* p = dyn_cast<ProjNode>(u);
-				if(!p)
-					continue;
-				if(p->getIndex() == StartNode::controlProjIndex())
-					startCtrl = u;
-				else if(p->getIndex() == StartNode::memoryProjIndex())
-					startMem = u;
-			}
+			Node* start = fn->getStart();
+			startCtrl = start->projection(StartNode::controlProjIndex());
+			startMem = start->projection(StartNode::memoryProjIndex());
 
 			for(const ParsedNode& pn : nodes) {
 				if(pn.op == Opcode::Start)

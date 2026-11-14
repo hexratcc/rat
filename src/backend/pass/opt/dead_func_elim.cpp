@@ -26,9 +26,7 @@ namespace rat {
 	}
 
 	B32 DeadFuncElimPass::run(Module& module, const TargetInfo&) {
-		List<Function*> funcs;
-		for(Function* fn : module)
-			funcs.push_back(fn);
+		List<Function*> funcs(module.begin(), module.end());
 		const U32 n = (U32)funcs.size();
 
 		List<const List<String>*> outgoing(n);

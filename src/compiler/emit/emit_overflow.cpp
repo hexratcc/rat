@@ -68,8 +68,7 @@ namespace rat::cc {
 			U32 sb = signedWidth(b);
 			if(op == Opcode::Mul)
 				return sa + sb <= 65;
-			U32 m = sa > sb ? sa : sb;
-			return m + 1 <= 64;
+			return std::max(sa, sb) + 1 <= 64;
 		}
 
 		B32 exactInUnsigned64(Opcode op, CType a, CType b) {
@@ -77,14 +76,14 @@ namespace rat::cc {
 				return false;
 			if(op == Opcode::Mul)
 				return a.bits + b.bits <= 64;
-			U32 m = a.bits > b.bits ? a.bits : b.bits;
-			return m + 1 <= 64;
+			return std::max(a.bits, b.bits) + 1 <= 64;
 		}
 	} // namespace detail
 
 	Emitter::Wide Emitter::wideExtend(Function& fn, Node* v, CType from) {
 		Wide r;
-		r.lo = convert(fn, v, from, from.isUnsigned() ? ctUnsigned(64) : ctInt64());
+		CType wideType = from.isUnsigned() ? ctUnsigned(64) : ctInt64();
+		r.lo = convert(fn, v, from, wideType);
 		if(from.isUnsigned())
 			r.hi = fn.constInt(r.lo->getType(), 0);
 		else
@@ -176,19 +175,15 @@ namespace rat::cc {
 		detail::OvfForm f;
 		if(!detail::parseOverflowName(b, lay.longBits, f))
 			return false;
-		if(e->args.size() != 3) {
-			diag.fail("'" + b + "' expects three arguments");
-			return true;
-		}
+		if(e->args.size() != 3)
+			return failBuiltin("'" + b + "' expects three arguments");
 		Value a0 = emitExpr(fn, e->args[0]);
 		Value a1 = emitExpr(fn, e->args[1]);
 		Value a2 = emitExpr(fn, e->args[2]);
 		if(!a0.node || !a1.node || !a2.node)
 			return true;
-		if(!f.predicate && !isPointer(a2.type)) {
-			diag.fail("the last argument of '" + b + "' must be a pointer to an integer");
-			return true;
-		}
+		if(!f.predicate && !isPointer(a2.type))
+			return failBuiltin("the last argument of '" + b + "' must be a pointer to an integer");
 
 		CType at;
 		CType bt;
@@ -210,10 +205,8 @@ namespace rat::cc {
 			if(!f.predicate)
 				--rt.ptr;
 		}
-		if(!isInteger(at) || !isInteger(bt) || !isInteger(rt)) {
-			diag.fail("'" + b + "' works on integer types only");
-			return true;
-		}
+		if(!isInteger(at) || !isInteger(bt) || !isInteger(rt))
+			return failBuiltin("'" + b + "' works on integer types only");
 
 		Node* fits;
 		Node* value;
@@ -236,7 +229,8 @@ namespace rat::cc {
 		}
 		if(!f.predicate)
 			fn.store(a2.node, value);
-		out = {fromBool(fn, fn.eq(fits, fn.constBool(false))), ctInt()};
+		Node* overflowed = fn.eq(fits, fn.constBool(false));
+		out = {fromBool(fn, overflowed), ctInt()};
 		return true;
 	}
 } // namespace rat::cc

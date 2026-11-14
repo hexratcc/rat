@@ -29,7 +29,7 @@ namespace rat {
 		}
 
 		B32 parseShdrs(const List<U8>& img, List<SectionHeader>& out, const U8*& shstr, String& err) {
-			if(img.size() < 64 || img[0] != 0x7f || img[1] != 'E' || img[2] != 'L' || img[3] != 'F') {
+			if(img.size() < 64 || !hasElfMagic(img.data())) {
 				err = "not an ELF file";
 				return false;
 			}
@@ -150,16 +150,20 @@ namespace rat {
 
 		// comdat dup, drop only later copies' init and fini members (dup ctors corrupt state)
 		for(const SectionHeader& sh : shdrs) {
-			if(sh.type != SHT_GROUP || !(le::rd32(&im[sh.offset]) & GRP_COMDAT) || sh.link != symSec)
+			B32 comdat = sh.type == SHT_GROUP && (le::rd32(&im[sh.offset]) & GRP_COMDAT);
+			if(!comdat || sh.link != symSec)
 				continue;
-			String sig = (const C8*)(strtab + le::rd32(&im[sym.offset + (U64)sh.info * 24]));
+			const U8* sigSym = &im[sym.offset + (U64)sh.info * 24];
+			String sig = (const C8*)(strtab + le::rd32(sigSym));
 			if(sig.empty() || seenGroups.insert(sig).second)
 				continue;														 // first or unnamed, keep whole
 			for(U64 m = 1; m < sh.size / 4; ++m) { // entry 0 is flags word
 				U32 sidx = le::rd32(&im[sh.offset + m * 4]);
-				U8 b = sidx < obj.sections.size() ? obj.sections[sidx].bucket : (U8)BNone;
-				if(b == BInitArray || b == BFiniArray)
-					obj.sections[sidx].keep = false;
+				if(sidx >= obj.sections.size())
+					continue;
+				InSection& member = obj.sections[sidx];
+				if(member.bucket == BInitArray || member.bucket == BFiniArray)
+					member.keep = false;
 			}
 		}
 
@@ -175,9 +179,8 @@ namespace rat {
 			s.size = le::rd64(p + 16); // for commons value is the align
 			s.abs = s.shndx == SHN_ABS;
 			s.common = s.shndx == SHN_COMMON;
-			// a def in a dropped section is undefined too
-			s.undef =
-					!s.abs && !s.common && (s.shndx >= obj.sections.size() || !obj.sections[s.shndx].keep);
+			B32 inKeptSection = s.shndx < obj.sections.size() && obj.sections[s.shndx].keep;
+			s.undef = !s.abs && !s.common && !inKeptSection; // a def in a dropped section too
 			obj.syms.push_back(std::move(s));
 		}
 
@@ -186,12 +189,10 @@ namespace rat {
 			if(sh.type != SHT_RELA || sh.info >= obj.sections.size() || !obj.sections[sh.info].keep)
 				continue;
 			for(U64 at = sh.offset; at + 24 <= sh.offset + sh.size; at += 24) {
+				U64 offset = le::rd64(&im[at]);
 				U64 info = le::rd64(&im[at + 8]);
-				obj.rels.push_back({sh.info,
-														le::rd64(&im[at]),
-														(U32)(info >> 32),
-														(U32)info,
-														(I64)le::rd64(&im[at + 16])});
+				I64 addend = (I64)le::rd64(&im[at + 16]);
+				obj.rels.push_back({sh.info, offset, (U32)(info >> 32), (U32)info, addend});
 			}
 		}
 		return true;
@@ -239,14 +240,15 @@ namespace rat {
 	B32 loadLibrary(const String& path, Lib& lib, String& err) {
 		std::ifstream f(path, std::ios::binary);
 		List<U8> header, table;
-		if(!detail::readAt(f, 0, 64, header) || header[0] != 0x7f || header[1] != 'E' ||
-			 header[2] != 'L' || header[3] != 'F' || header[4] != ELFCLASS64 ||
-			 header[5] != ELFDATA2LSB || le::rd16(&header[58]) != 64) {
+		B32 isElf = detail::readAt(f, 0, 64, header) && hasElfMagic(header.data());
+		B32 is64Le = isElf && header[4] == ELFCLASS64 && header[5] == ELFDATA2LSB;
+		if(!is64Le || le::rd16(&header[58]) != 64) {
 			err = "not a 64-bit little-endian ELF library '" + path + "'";
 			return false;
 		}
 		U64 shnum = le::rd16(&header[60]);
-		if(!detail::readAt(f, le::rd64(&header[40]), shnum * 64, table)) {
+		U64 shoff = le::rd64(&header[40]);
+		if(!detail::readAt(f, shoff, shnum * 64, table)) {
 			err = "truncated section headers in '" + path + "'";
 			return false;
 		}
@@ -256,8 +258,8 @@ namespace rat {
 			if(le::rd32(sym + 4) != SHT_DYNSYM || link >= shnum)
 				continue;
 			const U8* str = &table[(U64)link * 64];
-			if(!detail::readAt(f, le::rd64(sym + 24), le::rd64(sym + 32), lib.dynsym) ||
-				 !detail::readAt(f, le::rd64(str + 24), le::rd64(str + 32), lib.dynstr))
+			B32 dynsymRead = detail::readAt(f, le::rd64(sym + 24), le::rd64(sym + 32), lib.dynsym);
+			if(!dynsymRead || !detail::readAt(f, le::rd64(str + 24), le::rd64(str + 32), lib.dynstr))
 				break;
 			lib.soname = path.substr(path.find_last_of('/') + 1);
 			return true;
@@ -291,13 +293,17 @@ namespace rat {
 			List<U8> header, phdrs, interp;
 			if(!readAt(f, 0, 64, header))
 				return String();
-			U16 phentsize = le::rd16(&header[54]), phnum = le::rd16(&header[56]);
-			if(phentsize < 56 || !readAt(f, le::rd64(&header[32]), (U64)phnum * phentsize, phdrs))
+			U64 phoff = le::rd64(&header[32]);
+			U16 phentsize = le::rd16(&header[54]);
+			U16 phnum = le::rd16(&header[56]);
+			if(phentsize < 56 || !readAt(f, phoff, (U64)phnum * phentsize, phdrs))
 				return String();
 			for(U16 i = 0; i < phnum; ++i) {
 				const U8* ph = &phdrs[(U64)i * phentsize];
-				if(le::rd32(ph) == PT_INTERP && readAt(f, le::rd64(ph + 8), le::rd64(ph + 32), interp))
-					return String((const C8*)interp.data(), strnlen((const C8*)interp.data(), interp.size()));
+				if(le::rd32(ph) != PT_INTERP || !readAt(f, le::rd64(ph + 8), le::rd64(ph + 32), interp))
+					continue;
+				const C8* path = (const C8*)interp.data();
+				return String(path, strnlen(path, interp.size())); // up to the nul
 			}
 			return String();
 		}

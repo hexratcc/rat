@@ -37,8 +37,7 @@ namespace rat {
 				continue;
 			}
 			// positional shared object is a lib
-			if(img.size() >= 18 && img[0] == 0x7f && img[1] == 'E' && img[2] == 'L' && img[3] == 'F' &&
-				 le::rd16(&img[16]) == ET_DYN) {
+			if(img.size() >= 18 && hasElfMagic(img.data()) && le::rd16(&img[16]) == ET_DYN) {
 				libFiles.push_back(p);
 				continue;
 			}
@@ -98,18 +97,15 @@ namespace rat {
 	}
 
 	B32 Linker::loadLibraries() {
-		List<String> want = opt.libs.empty() ? List<String>{"c", "m"} : opt.libs;
+		List<String> want = opt.libs;
+		if(want.empty())
+			want = {"c", "m"};
 		// _start calls __libc_start_main, so libc is always needed
-		B32 haveC = false;
-		for(const String& w : want)
-			if(w == "c")
-				haveC = true;
-		if(!haveC)
+		if(std::find(want.begin(), want.end(), "c") == want.end())
 			want.push_back("c");
 		List<String> paths = opt.libPaths;
 		// host lib dirs (nix/non-fhs) then fhs fallbacks
-		for(const String& d : hostLibDirs())
-			paths.push_back(d);
+		paths.insert(paths.end(), hostLibDirs().begin(), hostLibDirs().end());
 		paths.push_back("/lib/x86_64-linux-gnu");
 		paths.push_back("/usr/lib/x86_64-linux-gnu");
 		paths.push_back("/lib64");
@@ -141,10 +137,8 @@ namespace rat {
 						continue; // real def beats tentative
 					d.common = true;
 					d.defined = true;
-					if(s.size > d.comSize)
-						d.comSize = s.size;
-					if(s.value > d.comAlign)
-						d.comAlign = s.value ? s.value : 1;
+					d.comSize = std::max(d.comSize, s.size);
+					d.comAlign = std::max(d.comAlign, s.value);
 					d.isFunc = false;
 					continue;
 				}
@@ -213,13 +207,15 @@ namespace rat {
 				const InSym& s = obj.syms[r.sym];
 				if(obj.sections[r.secIdx].bucket == BDebug)
 					continue; // unresolved debug refs read as 0
-				if(s.undef && !globals.count(s.name) && !s.name.empty() && !detail::isLinkerSym(s.name))
+				B32 resolvedHere = !s.undef || globals.count(s.name) || detail::isLinkerSym(s.name);
+				if(!resolvedHere && !s.name.empty())
 					table.note(s.name, s.bind != STB_WEAK);
 			}
 		}
 		U32 totalRequired = 0;
 		for(const detail::Need& nd : table.needs)
-			totalRequired += nd.required ? 1 : 0;
+			if(nd.required)
+				++totalRequired;
 		U32 foundRequired = 0;
 		for(const String& path : libFiles) {
 			if(foundRequired == totalRequired)
@@ -248,8 +244,10 @@ namespace rat {
 				continue;
 			}
 			B32 isData = nd.type == STT_OBJECT;
+			Import::Kind kind = isData ? Import::Data : Import::Func;
+			U64 copySize = isData ? nd.size : 0; // the .bss COPY slot
 			importIndex.emplace(name, (U32)imports.size());
-			imports.push_back({isData ? Import::Data : Import::Func, 0, 0, isData ? nd.size : 0});
+			imports.push_back({kind, 0, 0, copySize});
 			importNames.push_back(name);
 		}
 		return true;
@@ -290,10 +288,14 @@ namespace rat {
 	}
 
 	B32 Linker::run() {
-		interp = !opt.interp.empty() ? opt.interp : hostLoader();
+		interp = opt.interp;
+		if(interp.empty())
+			interp = hostLoader();
 		if(interp.empty())
 			interp = detail::kInterp;
-		rpaths = !opt.rpaths.empty() ? opt.rpaths : hostLibDirs();
+		rpaths = opt.rpaths;
+		if(rpaths.empty())
+			rpaths = hostLibDirs();
 		if(!loadInputs())
 			return false;
 		if(!pullArchives())

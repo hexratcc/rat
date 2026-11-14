@@ -11,14 +11,14 @@ namespace rat::cc {
 		return st;
 	}
 
-	// the next slot that fits align; a union starts every member at 0
+	// the next slot that fits align, a union starts every member at 0
 	U64 Parser::placeMember(U64 size, U32 align, B32 isUnion, StructLayout& l) {
-		U64 at = isUnion ? 0 : alignUp(l.offset, align);
-		if(isUnion) {
-			if(size > l.offset)
-				l.offset = size;
-		} else {
+		U64 at = 0;
+		if(!isUnion) {
+			at = alignUp(l.offset, align);
 			l.offset = at + size;
+		} else if(size > l.offset) {
+			l.offset = size;
 		}
 		l.bitPos = l.offset * 8;
 		if(align > l.align)

@@ -20,8 +20,8 @@ namespace rat {
 		Address info{addr, 0, {}};
 		while(BinaryNode* b = dyn_cast<BinaryNode>(info.base)) {
 			Opcode op = b->getOpcode();
-			if((op != Opcode::Add && op != Opcode::Sub) || !b->getType()->isPtr() ||
-				 !b->getLHS()->getType()->isPtr())
+			B32 isAddSub = op == Opcode::Add || op == Opcode::Sub;
+			if(!isAddSub || !b->getType()->isPtr() || !b->getLHS()->getType()->isPtr())
 				break; // not pointer +/- integer arithmetic
 			Node* off = b->getRHS();
 			if(ConstantNode* co = dyn_cast<ConstantNode>(off))
@@ -114,7 +114,9 @@ namespace rat {
 				for(U32 i = 2; i < n->getInputCount(); ++i)
 					taken.push_back(n->getInput(i));
 		}
-		return mayCarryRestrict(std::move(taken), restricts, ~0u) ? 0 : restricts;
+		if(mayCarryRestrict(std::move(taken), restricts, ~0u))
+			return 0;
+		return restricts;
 	}
 
 	Node* AliasAnalysis::objectOf(Node* addr) const {
@@ -147,7 +149,8 @@ namespace rat {
 		I64 delta = (I64)((U64)a.constant - (U64)b.constant); // a = b + delta (wraps)
 		if(delta == 0)
 			return AliasResult::MustAlias;
-		if((a.constant < 0) != (b.constant < 0) && (delta < 0) != (a.constant < 0))
+		B32 signsDiffer = (a.constant < 0) != (b.constant < 0);
+		if(signsDiffer && (delta < 0) != (a.constant < 0))
 			return AliasResult::MayAlias; // delta wrapped
 		B32 apart = sizeA && sizeB && (delta >= (I64)sizeB || -delta >= (I64)sizeA);
 		return apart ? AliasResult::NoAlias : AliasResult::MayAlias;

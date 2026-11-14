@@ -83,8 +83,10 @@ namespace rat {
 				vec.node = emitOp(vec, vecTy, plan);
 			else if(isSplat(vec.lanes))
 				vec.node = cx.fn.create<SplatNode>(vecTy, vec.lanes[0]);
-			else
-				vec.node = cx.fn.create<PackNode>(vecTy, List<Node*>(vec.lanes.begin(), vec.lanes.end()));
+			else {
+				List<Node*> lanes(vec.lanes.begin(), vec.lanes.end());
+				vec.node = cx.fn.create<PackNode>(vecTy, lanes);
+			}
 		}
 	}
 
@@ -96,7 +98,9 @@ namespace rat {
 		Node* low = loadAt(vec, vecTy, vec.offset, plan);
 		if(!vec.permuted)
 			return low;
-		Node* high = vec.wideLoads == 2 ? loadAt(vec, vecTy, vec.offset + (I64)kVecBytes, plan) : low;
+		Node* high = low;
+		if(vec.wideLoads == 2)
+			high = loadAt(vec, vecTy, vec.offset + (I64)kVecBytes, plan);
 		return cx.fn.create<ShuffleNode>(vecTy, low, high, vec.sel);
 	}
 
@@ -225,7 +229,9 @@ namespace rat {
 			fails.push_back(fn.create<ProjNode>(ctrlTy, after, IfNode::elseProjIndex(), "slp.else"));
 			ctrl = fn.create<RegionNode>(ctrlTy, List<Node*>{beforeThen, afterThen});
 		}
-		elseP = fails.size() > 1 ? fn.create<RegionNode>(ctrlTy, fails) : fails[0];
+		elseP = fails[0];
+		if(fails.size() > 1)
+			elseP = fn.create<RegionNode>(ctrlTy, fails);
 		return ctrl;
 	}
 

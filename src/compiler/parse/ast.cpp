@@ -62,18 +62,16 @@ namespace rat::cc {
 		}
 		a = promote(a);
 		b = promote(b);
-		U32 pa = detail::intPrec(a), pb = detail::intPrec(b);
-		if(pa == pb && a.isUnsigned() == b.isUnsigned()) {
-			// keep the higher integer rank (long long > long > int)
-			U32 ra = a.isLongLong() ? 2u : (a.isLong() ? 1u : 0u);
-			U32 rb = b.isLongLong() ? 2u : (b.isLong() ? 1u : 0u);
-			return ra >= rb ? a : b;
+		if(a.isUnsigned() == b.isUnsigned()) {
+			U32 pa = detail::intPrec(a);
+			U32 pb = detail::intPrec(b);
+			if(pa != pb)
+				return pa > pb ? a : b;
+			return a.longRank() >= b.longRank() ? a : b; // keep the higher rank
 		}
-		if(a.isUnsigned() == b.isUnsigned())
-			return pa > pb ? a : b;
 		CType u = a.isUnsigned() ? a : b;
 		CType s = a.isUnsigned() ? b : a;
-		if((a.isUnsigned() ? pa : pb) >= (a.isUnsigned() ? pb : pa))
+		if(detail::intPrec(u) >= detail::intPrec(s))
 			return u;
 		return s;
 	}

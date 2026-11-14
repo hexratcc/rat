@@ -202,7 +202,8 @@ namespace rat {
 			U32 id = le::rd32(&m[idOff]);
 			if(id != 0 && id <= idOff) { // an fde, its cie starts id bytes back
 				U8 enc = detail::cieFdeEncoding(m, idOff - id + 4);
-				table.push_back({detail::fdeInitialLocation(m, idOff + 4, enc, ehVa), ehVa + off});
+				U64 pc = detail::fdeInitialLocation(m, idOff + 4, enc, ehVa);
+				table.push_back({pc, ehVa + off});
 			}
 			off = idOff + len;
 		}
@@ -291,30 +292,34 @@ namespace rat {
 			bucketAlign[BBss] = std::max(bucketAlign[BBss], d.comAlign);
 			bucketSize[BBss] = alignUp(bucketSize[BBss], d.comAlign);
 			d.addr = bucketSize[BBss]; // bucket-relative, absolutized in placeGlobals
-			bucketSize[BBss] += d.comSize ? d.comSize : 1;
+			bucketSize[BBss] += std::max<U64>(d.comSize, 1);
 		}
 	}
 
 	void Linker::sizeSections() {
-		U32 nFunc = 0, nData = 0, nGlob = 0;
+		U32 funcImports = 0;
 		for(const Import& im : imports)
-			(im.kind == Import::Func ? nFunc : nData)++;
+			if(im.kind == Import::Func)
+				++funcImports;
+		U32 dataImports = (U32)imports.size() - funcImports;
+		U32 globDatSlots = 0;
 		for(const GotSlot& g : gotSlots)
-			nGlob += g.isImport ? 1 : 0;
-		U32 nDyn = 1 + (U32)imports.size();
+			if(g.isImport)
+				++globDatSlots;
+		U32 dynSyms = 1 + (U32)imports.size();
 		for(U32 b = 0; b < BucketCount; ++b)
 			size[detail::kBucketSecs[b]] = bucketSize[b];
 
 		size[OInterp] = interp.size() + 1;
-		size[OHash] = (U64)(2 + nDyn + nDyn) * 4;
-		size[ODynsym] = (U64)nDyn * 24;
-		size[ORelaDyn] = (U64)(nData + nGlob) * 24; // COPY + GLOB_DAT
-		size[ORelaPlt] = (U64)nFunc * 24;
-		size[OPlt] = (U64)nFunc * detail::kPltEntSize;
+		size[OHash] = (U64)(2 + dynSyms + dynSyms) * 4;
+		size[ODynsym] = (U64)dynSyms * 24;
+		size[ORelaDyn] = (U64)(dataImports + globDatSlots) * 24; // COPY + GLOB_DAT
+		size[ORelaPlt] = (U64)funcImports * 24;
+		size[OPlt] = (U64)funcImports * detail::kPltEntSize;
 		U64 fdes = fdeTable().size();
 		size[OEhFrameHdr] = fdes ? 12 + fdes * 8 : 0;
 		size[OGot] = (U64)gotSlots.size() * 8;
-		size[OGotPlt] = (U64)(3 + nFunc) * 8;
+		size[OGotPlt] = (U64)(3 + funcImports) * 8;
 
 		size[ODynstr] = 1;
 		for(const String& nm : importNames)
@@ -324,15 +329,9 @@ namespace rat {
 		if(!rpaths.empty())
 			size[ODynstr] += detail::joinColon(rpaths).size() + 1;
 
-		U32 tags = (U32)neededLibs.size() + (rpaths.empty() ? 0 : 1);
-		tags += 6;											 // HASH STRTAB SYMTAB STRSZ SYMENT PLTGOT
-		tags += nFunc ? 3 : 0;					 // PLTRELSZ PLTREL JMPREL
-		tags += (nData + nGlob) ? 3 : 0; // RELA RELASZ RELAENT
-		tags += size[OInitArray] ? 2 : 0;
-		tags += size[OFiniArray] ? 2 : 0;
-		tags += 3; // FLAGS FLAGS_1 NULL
-		tags += 4; // slack
-		size[ODynamic] = (U64)tags * 16;
+		// only the entry count matters here, plus 4 spare entries. size[ODynamic] is still 0, so no padding
+		List<U8> scratchDynstr;
+		size[ODynamic] = dynamicTable(scratchDynstr, size[ORelaDyn]).size() + 4 * 16;
 	}
 
 	void Linker::place(OutSec s, U64 align, U64& cursor) {
@@ -386,7 +385,10 @@ namespace rat {
 					im.addr = vaddr[OPlt] + (U64)im.pltIndex * detail::kPltEntSize;
 				} else {
 					U64 bytes = im.size ? im.size : 8;
-					U64 align = bytes >= 16 ? 16 : (bytes >= 8 ? 8 : (bytes >= 4 ? 4 : 1));
+					U64 align = 1; // the largest of 4 8 16 not above bytes
+					for(U64 fit : {4, 8, 16})
+						if(bytes >= fit)
+							align = fit;
 					size[OBss] = alignUp(size[OBss], align);
 					im.addr = vaddr[OBss] + size[OBss];
 					size[OBss] += bytes;
@@ -411,8 +413,11 @@ namespace rat {
 	void Linker::defineLinkerSyms() {
 		for(const detail::LinkerSym& s : detail::kLinkerSyms) {
 			U64 addr = detail::kImageBase;
-			if(s.sec != kOutSecs)
-				addr = vaddr[s.sec] + (s.atEnd ? size[s.sec] : 0);
+			if(s.sec != kOutSecs) {
+				addr = vaddr[s.sec];
+				if(s.atEnd)
+					addr += size[s.sec];
+			}
 			linkerSyms[s.name] = addr;
 		}
 	}
@@ -517,33 +522,32 @@ namespace rat {
 		B32 isFunc = false, isTls = false;
 		if(!symbolTarget(obj, r.sym, S, isFunc, isTls))
 			return false;
-		I64 A = r.addend;
+		// wr keeps the low bytes, so wrapping unsigned math gives the signed results
+		U64 A = (U64)r.addend;
 		switch(r.type) {
 		case R_X86_64_64:
-			le::wr(patch, (U64)((I64)S + A), 8);
+			le::wr(patch, S + A, 8);
 			break;
 		case R_X86_64_PC32:
 		case R_X86_64_PLT32:
 		case R_X86_64_GOT32: // pc-rel to symbol (small model)
-			le::wr(patch, (U32)(I32)((I64)S + A - (I64)P), 4);
+			le::wr(patch, S + A - P, 4);
 			break;
 		case R_X86_64_PC64:
-			le::wr(patch, (U64)((I64)S + A - (I64)P), 8);
+			le::wr(patch, S + A - P, 8);
 			break;
 		case R_X86_64_32:
-			le::wr(patch, (U32)((I64)S + A), 4);
-			break;
 		case R_X86_64_32S:
-			le::wr(patch, (U32)(I32)((I64)S + A), 4);
+			le::wr(patch, S + A, 4);
 			break;
 		case R_X86_64_16:
-			le::wr(patch, (U16)((I64)S + A), 2);
+			le::wr(patch, S + A, 2);
 			break;
 		case R_X86_64_SIZE32:
-			le::wr(patch, (U32)((I64)obj.syms[r.sym].size + A), 4);
+			le::wr(patch, obj.syms[r.sym].size + A, 4);
 			break;
 		case R_X86_64_SIZE64:
-			le::wr(patch, (U64)((I64)obj.syms[r.sym].size + A), 8);
+			le::wr(patch, obj.syms[r.sym].size + A, 8);
 			break;
 		case R_X86_64_GOTPCREL:
 		case R_X86_64_GOTPCRELX:
@@ -552,20 +556,20 @@ namespace rat {
 			if(!gotSlots[slot].isImport)
 				gotSlots[slot].addr = S; // defined, the slot holds the address
 			U64 gAddr = vaddr[OGot] + (U64)slot * 8;
-			le::wr(patch, (U32)(I32)((I64)gAddr + A - (I64)P), 4);
+			le::wr(patch, gAddr + A - P, 4);
 			break;
 		}
 		case R_X86_64_TPOFF32:
 			// local-exec, neg offset from tp (end of tls block), S is block-relative
-			le::wr(patch, (U32)(I32)((I64)S + A - (I64)tlsSize), 4);
+			le::wr(patch, S + A - tlsSize, 4);
 			break;
 		case R_X86_64_GOTTPOFF: {
 			// initial-exec, got slot holds the local-exec offset, ref is pc-rel to slot
 			U32 slot = gotIndex[gotKey(oi, r)];
-			gotSlots[slot].addr = (U64)((I64)S - (I64)tlsSize);
+			gotSlots[slot].addr = S - tlsSize;
 			gotSlots[slot].isImport = false;
 			U64 gAddr = vaddr[OGot] + (U64)slot * 8;
-			le::wr(patch, (U32)(I32)((I64)gAddr + A - (I64)P), 4);
+			le::wr(patch, gAddr + A - P, 4);
 			break;
 		}
 		default:
@@ -607,8 +611,10 @@ namespace rat {
 				sh.link = 1; // .dynstr, never empty
 			secs.push_back({sh});
 		}
-		for(const DebugOut& d : debugOuts)
-			secs.push_back({headerOf({d.name.c_str(), SHT_PROGBITS, 0, d.align, 0}, names), &d.bytes});
+		for(const DebugOut& d : debugOuts) {
+			SectionInfo info{d.name.c_str(), SHT_PROGBITS, 0, d.align, 0};
+			secs.push_back({headerOf(info, names), &d.bytes});
+		}
 		secs.push_back({headerOf({".shstrtab", SHT_STRTAB, 0, 1, 0}, names), &names});
 		appendSections(out, secs, (U16)(secs.size() - 1));
 	}
@@ -663,32 +669,25 @@ namespace rat {
 			plt.insert(plt.end(), {0xff, 0x25});
 			le::put32(plt, (U32)(gotSlot - (entry + 6)));
 			plt.insert(plt.end(), detail::kPltEntSize - 6, 0x90);
-			le::put64(relaPlt, gotSlot);
-			le::put64(relaPlt, ((U64)im.dynIndex << 32) | R_X86_64_JUMP_SLOT);
-			le::put64(relaPlt, 0);
+			putRela(relaPlt, gotSlot, im.dynIndex, R_X86_64_JUMP_SLOT, 0);
 		}
 		return plt;
 	}
 
 	// COPY relocs for data imports, then defined slots hold their address and imports get a GLOB_DAT
 	List<U8> Linker::gotTable(List<U8>& relaDyn) const {
-		for(const Import& im : imports) {
-			if(im.kind != Import::Data)
-				continue;
-			le::put64(relaDyn, im.addr);
-			le::put64(relaDyn, ((U64)im.dynIndex << 32) | R_X86_64_COPY);
-			le::put64(relaDyn, 0);
-		}
+		for(const Import& im : imports)
+			if(im.kind == Import::Data)
+				putRela(relaDyn, im.addr, im.dynIndex, R_X86_64_COPY, 0);
 		List<U8> got;
 		for(U32 s = 0; s < gotSlots.size(); ++s) {
 			const GotSlot& g = gotSlots[s];
 			le::put64(got, g.addr); // 0 for imports
 			if(!g.isImport)
 				continue;
-			// g.dynIndex holds the import list index from assignGot
-			le::put64(relaDyn, vaddr[OGot] + (U64)s * 8);
-			le::put64(relaDyn, ((U64)imports[g.dynIndex].dynIndex << 32) | R_X86_64_GLOB_DAT);
-			le::put64(relaDyn, 0);
+			U64 slotAddr = vaddr[OGot] + (U64)s * 8;
+			U32 dynIndex = imports[g.dynIndex].dynIndex; // g.dynIndex is the import list index
+			putRela(relaDyn, slotAddr, dynIndex, R_X86_64_GLOB_DAT, 0);
 		}
 		return got;
 	}
@@ -741,8 +740,9 @@ namespace rat {
 		putFileHeader(out, ET_EXEC, entry, detail::kPhnum);
 		U64 phdrSize = (U64)detail::kPhnum * 56;
 		U64 rxSize = foff[OEhFrameHdr] + size[OEhFrameHdr];
-		U64 rwFileSize = foff[ODynamic] + size[ODynamic] - foff[OInitArray];
-		U64 rwMemSize = vaddr[OBss] + size[OBss] - vaddr[OInitArray];
+		detail::ProgramHeader rwLoad = segmentOf(PT_LOAD, PF_R | PF_W, OInitArray, detail::kPage);
+		rwLoad.fileSize = foff[ODynamic] + size[ODynamic] - foff[OInitArray];
+		rwLoad.memSize = vaddr[OBss] + size[OBss] - vaddr[OInitArray];
 		U64 tlsMemSize = size[OTdata] + size[OTbss];
 		detail::ProgramHeader ehFrame = {PT_NOTE, PF_R, 0, 0, 0, 0, 4}; // filler to keep phnum fixed
 		if(size[OEhFrameHdr])
@@ -751,13 +751,7 @@ namespace rat {
 				{PT_PHDR, PF_R, 64, detail::kImageBase + 64, phdrSize, phdrSize, 8},
 				segmentOf(PT_INTERP, PF_R, OInterp, 1),
 				{PT_LOAD, PF_R | PF_X, 0, detail::kImageBase, rxSize, rxSize, detail::kPage},
-				{PT_LOAD,
-				 PF_R | PF_W,
-				 foff[OInitArray],
-				 vaddr[OInitArray],
-				 rwFileSize,
-				 rwMemSize,
-				 detail::kPage},
+				rwLoad,
 				segmentOf(PT_DYNAMIC, PF_R | PF_W, ODynamic, 8),
 				{PT_TLS, PF_R, foff[OTdata], vaddr[OTdata], size[OTdata], tlsMemSize, 16},
 				ehFrame,

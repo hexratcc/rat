@@ -83,8 +83,9 @@ namespace rat {
 			work.pop_back();
 			if(++visits > kMaxCone)
 				return ~0u;
-			Node* mem = memoryInput(n);
-			U32 state = mem ? stateOf[mem->getId()] : 0;
+			U32 state = 0;
+			if(Node* mem = memoryInput(n))
+				state = stateOf[mem->getId()];
 			latest = std::max(latest, state);
 			if(state || isa<PhiNode>(n))
 				continue;

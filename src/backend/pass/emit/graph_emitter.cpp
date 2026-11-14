@@ -129,8 +129,8 @@ namespace rat {
 		}
 
 		void writeCell(std::ostream& os, C8 side, U32 port, U32 span, const String& text) {
-			os << "<td port=\"" << side << port << "\" colspan=\"" << span
-				 << "\" valign=\"bottom\">&#160;";
+			os << "<td port=\"" << side << port;
+			os << "\" colspan=\"" << span << "\" valign=\"bottom\">&#160;";
 			writeHtml(os, text);
 			os << "&#160;</td>";
 		}

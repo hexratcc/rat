@@ -139,15 +139,17 @@ namespace rat {
 			le::put16(out, type);
 			le::put16(out, EM_X86_64);
 			le::put32(out, EV_CURRENT);
+			U64 phdrOffset = phnum ? 64 : 0; // right after this header
+			U16 phdrEntrySize = phnum ? 56 : 0;
 			le::put64(out, entry);
-			le::put64(out, phnum ? 64 : 0); // e_phoff
-			le::put64(out, 0);
-			le::put32(out, 0);							// e_flags
-			le::put16(out, 64);							// e_ehsize
-			le::put16(out, phnum ? 56 : 0); // e_phentsize
+			le::put64(out, phdrOffset);
+			le::put64(out, 0);	// e_shoff
+			le::put32(out, 0);	// e_flags
+			le::put16(out, 64); // e_ehsize
+			le::put16(out, phdrEntrySize);
 			le::put16(out, phnum);
 			le::put16(out, 64); // e_shentsize
-			le::put32(out, 0);
+			le::put32(out, 0);	// e_shnum e_shstrndx
 		}
 
 		inline void putSectionHeader(List<U8>& out, const SectionHeader& sh) {
@@ -179,11 +181,20 @@ namespace rat {
 				out.insert(out.end(), s.bytes->begin(), s.bytes->end());
 			}
 			le::padTo(out, alignUp(out.size(), 8));
-			le::wr(&out[40], out.size(), 8);
-			le::wr(&out[60], secs.size(), 2);
-			le::wr(&out[62], shstrIndex, 2);
+			le::wr(&out[40], out.size(), 8);	// e_shoff
+			le::wr(&out[60], secs.size(), 2); // e_shnum
+			le::wr(&out[62], shstrIndex, 2);	// e_shstrndx
 			for(const OutSection& s : secs)
 				putSectionHeader(out, s.header);
+		}
+
+		inline B32 hasElfMagic(const U8* p) { return memcmp(p, "\177ELF", 4) == 0; }
+
+		// Elf64_Rela
+		inline void putRela(List<U8>& out, U64 offset, U32 sym, U32 type, I64 addend) {
+			le::put64(out, offset);
+			le::put64(out, ((U64)sym << 32) | type);
+			le::put64(out, (U64)addend);
 		}
 
 		// offset of name in a string table
@@ -206,11 +217,11 @@ namespace rat {
 
 		// sysv symbol hash
 		inline U32 sysvHash(const C8* name) {
-			U32 h = 0, g;
+			U32 h = 0;
 			for(const U8* s = (const U8*)name; *s; ++s) {
 				h = (h << 4) + *s;
-				if((g = h & 0xf0000000))
-					h ^= g >> 24;
+				U32 g = h & 0xf0000000;
+				h ^= g >> 24;
 				h &= ~g;
 			}
 			return h;

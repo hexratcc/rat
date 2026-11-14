@@ -32,17 +32,9 @@ namespace rat {
 		return n && n->getId() < reach.size() && reach[n->getId()];
 	}
 
-	void SimplifyCFGPass::collectPhis(Node* region) {
-		phis.clear();
-		for(Node* u : region->getUsers())
-			if(PhiNode* p = dyn_cast<PhiNode>(u))
-				phis.push_back(p);
-	}
-
 	void SimplifyCFGPass::removePred(RegionNode* r, U32 i) {
-		for(Node* u : r->getUsers())
-			if(PhiNode* p = dyn_cast<PhiNode>(u))
-				p->removeInput(1 + i);
+		for(PhiNode* p : usersOfType<PhiNode>(r))
+			p->removeInput(1 + i);
 		r->removeInput(i);
 	}
 
@@ -134,7 +126,9 @@ namespace rat {
 		I32 total = 1;
 		for(U32 i = 0, e = v->getInputCount(); i < e; ++i) {
 			Node* in = v->getInput(i);
-			I32 c = in ? speculationCost(in, phi, depth - 1) : -1;
+			if(!in)
+				return -1;
+			I32 c = speculationCost(in, phi, depth - 1);
 			if(c < 0)
 				return -1;
 			total += c;
@@ -161,7 +155,7 @@ namespace rat {
 		// predecessor slot carrying the then-edge
 		U32 thenSlot = a->getIndex() == IfNode::thenProjIndex() ? 0u : 1u;
 
-		collectPhis(r);
+		List<PhiNode*> phis = usersOfType<PhiNode>(r);
 		I32 cost = 0;
 		for(PhiNode* phi : phis) {
 			if(phi->getValueCount() != 2)
@@ -184,9 +178,9 @@ namespace rat {
 
 		for(PhiNode* phi : phis) {
 			Node* merged = phi->getValue(0);
+			Node* elseValue = phi->getValue(1 - thenSlot);
 			if(merged != phi->getValue(1))
-				merged = fn.create<SelectNode>(
-						phi->getType(), pred, phi->getValue(thenSlot), phi->getValue(1 - thenSlot));
+				merged = fn.create<SelectNode>(phi->getType(), pred, phi->getValue(thenSlot), elseValue);
 			phi->replaceAllUsesWith(merged);
 		}
 		// splice the merge out of the control chain, then drop the diamond
@@ -285,8 +279,7 @@ namespace rat {
 			RegionNode* r = cast<RegionNode>(n);
 			if(!reached(r) || r->getPredecessorCount() != 1)
 				continue;
-			collectPhis(r);
-			for(PhiNode* phi : phis)
+			for(PhiNode* phi : usersOfType<PhiNode>(r))
 				phi->replaceAllUsesWith(phi->getValue(0));
 			r->replaceAllUsesWith(r->getPredecessor(0));
 			++changed;

@@ -118,10 +118,8 @@ namespace rat::cc {
 			U32 nargs = (U32)e->args.size();
 			if(nargs < nparams || (!variadic && nargs > nparams)) {
 				if(variadic)
-					diag.fail("too few arguments to function call");
-				else
-					diag.fail("argument count does not match prototype");
-				return {};
+					return diag.fail("too few arguments to function call");
+				return diag.fail("argument count does not match prototype");
 			}
 		}
 		String sym;

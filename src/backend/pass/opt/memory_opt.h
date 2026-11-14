@@ -39,6 +39,7 @@ namespace rat {
 			const MemoryOptPass& pass;
 			const Schedule& sched;
 			B32 operator()(const LoadNode* a, const LoadNode* b) const;
+			I32 depth(const LoadNode* l) const;
 		};
 		static B32 forwardable(const AliasAnalysis& aa, StoreNode* s, LoadNode* l, U32 size);
 

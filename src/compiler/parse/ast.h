@@ -107,6 +107,12 @@ namespace rat::cc {
 		constexpr B32 isPlainChar() const { return has(PlainChar); }
 		constexpr B32 isLong() const { return has(Long); }
 		constexpr B32 isLongLong() const { return has(LongLong); }
+		// integer rank of the long variants, long long > long > int
+		constexpr U32 longRank() const {
+			if(isLongLong())
+				return 2;
+			return isLong() ? 1 : 0;
+		}
 		constexpr B32 isComplex() const { return has(Complex); }
 		constexpr B32 isFloat() const { return base == Base::Float; }
 		constexpr B32 isVoid() const { return base == Base::Void; }
@@ -166,9 +172,9 @@ namespace rat::cc {
 		if(!n)
 			return nullptr;
 		CType a = n->type;
-		B32 same = t.ptr == a.ptr && t.array == a.array && t.func == a.func && t.strukt == a.strukt &&
-							 t.base == a.base && t.bits == a.bits && t.mods == a.mods;
-		return same ? n : nullptr;
+		B32 sameDerivation = t.ptr == a.ptr && t.array == a.array && t.func == a.func;
+		B32 sameBase = t.strukt == a.strukt && t.base == a.base && t.bits == a.bits && t.mods == a.mods;
+		return sameDerivation && sameBase ? n : nullptr;
 	}
 
 	struct Field {
@@ -578,8 +584,8 @@ namespace rat::cc {
 	constexpr B32 isAssignOp(ExprOp op) { return op >= ExprOp::Assign && op <= ExprOp::XorAssign; }
 	// '%', shifts and bitwise operators
 	constexpr B32 isIntegerOnlyOp(ExprOp op) {
-		return op == ExprOp::Rem || op == ExprOp::Shl || op == ExprOp::Shr || op == ExprOp::BitAnd ||
-					 op == ExprOp::BitOr || op == ExprOp::BitXor;
+		B32 isBitwise = op >= ExprOp::BitAnd && op <= ExprOp::BitXor;
+		return op == ExprOp::Rem || op == ExprOp::Shl || op == ExprOp::Shr || isBitwise;
 	}
 
 	constexpr B32 compoundBaseOp(ExprOp op, ExprOp& base) {

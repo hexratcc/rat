@@ -24,34 +24,42 @@ namespace rat {
 		return n && sched->blockOf(n) == b ? plan.nodeEnd[n->getId()] : 0;
 	}
 
-	// where the record of bd goes in block b, past its value. src is past a call anchor, the effect
-	// before it in the source and the var's last record
-	U32 X86LowerPass::bindingPos(const DebugBinding& bd,
-															 I32 b,
-															 const BindingPlan& plan,
-															 U32& src) const {
-		src = std::max(plan.cursor[bd.inst], endIn(bd.after, b, plan));
+	// past a call anchor, the effect before it in the source and the var's last record
+	U32 X86LowerPass::sourcePos(const DebugBinding& bd, I32 b, const BindingPlan& plan) const {
+		U32 pos = std::max(plan.cursor[bd.inst], endIn(bd.after, b, plan));
 		if(const ProjNode* p = dyn_cast<ProjNode>(bd.anchor))
-			src = std::max(src, endIn(p->getProducer(), b, plan));
+			pos = std::max(pos, endIn(p->getProducer(), b, plan));
+		return pos;
+	}
+
+	// past the code of the value when this block has it
+	U32 X86LowerPass::valuePos(const DebugBinding& bd, I32 b, const BindingPlan& plan) const {
 		const Node* v = bd.value;
 		if(!v || isa<PhiNode>(v) || isa<ConstantNode>(v)) // constants may sit in another function
-			return src;
+			return 0;
 		const ProjNode* vp = dyn_cast<ProjNode>(v);
 		if(vp && isa<StartNode>(vp->getProducer())) // params are copied in by the prologue
-			return std::max(src, b == sched->rpo()[0] ? plan.prologueEnd : 0);
-		return std::max({src, endIn(v, b, plan), vp ? endIn(vp->getProducer(), b, plan) : 0});
+			return b == sched->rpo()[0] ? plan.prologueEnd : 0;
+		U32 pos = endIn(v, b, plan);
+		if(vp)
+			pos = std::max(pos, endIn(vp->getProducer(), b, plan));
+		return pos;
 	}
 
 	// a vreg, an integer constant or nothing
 	MachineOperand X86LowerPass::bindingLoc(const Node* value) const {
-		MachineOperand none = MachineOperand::none();
 		if(!value)
-			return none;
+			return MachineOperand::none();
 		const Type* t = value->getType();
-		if(const ConstantNode* c = dyn_cast<ConstantNode>(value))
-			return t->isInt() || t->isPtr() ? im(imm(c->getValue(), opWidth(t))) : none;
-		VReg v = vregOf[value->getId()];
-		return v == kNoVReg ? none : vr(v, opWidth(t));
+		const ConstantNode* c = dyn_cast<ConstantNode>(value);
+		if(c && (t->isInt() || t->isPtr()))
+			return im(imm(c->getValue(), opWidth(t)));
+		if(c) // other constants get no vreg, they may sit in another function
+			return MachineOperand::none();
+		VReg valueVReg = vregOf[value->getId()];
+		if(valueVReg == kNoVReg)
+			return MachineOperand::none();
+		return vr(valueVReg, opWidth(t));
 	}
 
 	// records hang off the instr they precede, outside the instr lists
@@ -59,8 +67,8 @@ namespace rat {
 		const DebugBody& body = *fn->getDebug();
 		for(U32 k = plan.first[b]; k < plan.first[b + 1]; ++k) {
 			const DebugBinding& bd = body.bindings[plan.order[k]];
-			U32 src = 0;
-			U32 pos = bindingPos(bd, b, plan, src);
+			U32 src = sourcePos(bd, b, plan);
+			U32 pos = std::max(src, valuePos(bd, b, plan));
 			plan.cursor[bd.inst] = pos;
 			if(pos > src) // the old value is gone, the new one not there yet
 				out->addDbg(mb->dbgBefore(src), bd.inst, bindingLoc(nullptr));

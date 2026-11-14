@@ -23,7 +23,9 @@ namespace rat {
 	// is their order inside a block
 	B32 MemoryOptPass::precedes(const LoadNode* a, const LoadNode* b) const {
 		U32 ha = chainHops[a->getId()], hb = chainHops[b->getId()];
-		return ha != hb ? ha < hb : a->getId() < b->getId(); // same hops, either may represent
+		if(ha != hb)
+			return ha < hb;
+		return a->getId() < b->getId(); // same hops, either may represent
 	}
 
 	B32 MemoryOptPass::dominates(const Schedule& sched, LoadNode* a, LoadNode* b) const {
@@ -37,10 +39,18 @@ namespace rat {
 
 	// dominators first, then by precedes
 	B32 MemoryOptPass::DomOrder::operator()(const LoadNode* a, const LoadNode* b) const {
-		I32 ba = sched.blockOf(a), bb = sched.blockOf(b);
-		I32 da = ba < 0 ? -1 : sched.block(ba).domDepth;
-		I32 db = bb < 0 ? -1 : sched.block(bb).domDepth;
-		return da != db ? da < db : pass.precedes(a, b);
+		I32 da = depth(a), db = depth(b);
+		if(da != db)
+			return da < db;
+		return pass.precedes(a, b);
+	}
+
+	// dominator tree depth of the load's block, -1 when it has none
+	I32 MemoryOptPass::DomOrder::depth(const LoadNode* l) const {
+		I32 block = sched.blockOf(l);
+		if(block < 0)
+			return -1;
+		return sched.block(block).domDepth;
 	}
 
 	B32 MemoryOptPass::forwardable(const AliasAnalysis& aa, StoreNode* s, LoadNode* l, U32 size) {
@@ -154,8 +164,8 @@ namespace rat {
 			if(!l->hasUsers())
 				continue;
 			PhiNode* m = dyn_cast<PhiNode>(defs[l->getId()]);
-			if(!m || !m->getType()->isMemory() || m->getValueCount() != 2 ||
-				 !m->getRegion()->isLoopHeader())
+			B32 twoArmMemoryPhi = m && m->getType()->isMemory() && m->getValueCount() == 2;
+			if(!twoArmMemoryPhi || !m->getRegion()->isLoopHeader())
 				continue;
 			ChainScan a = scanPhiSide(aa, m, 0, l);
 			ChainScan b = scanPhiSide(aa, m, 1, l);

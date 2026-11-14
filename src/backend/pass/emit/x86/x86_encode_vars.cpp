@@ -76,13 +76,11 @@ namespace rat {
 		U32 i = 0;
 		while(i < poison.size() && !(poison[i].loc == loc))
 			++i;
-		if(ok == kClean && i < poison.size())
+		if(i < poison.size() && ok == kClean)
 			poison.erase(poison.begin() + i);
-		else if(ok == kClean)
-			return;
 		else if(i < poison.size())
 			poison[i].okBits = ok;
-		else
+		else if(ok != kClean)
 			poison.push_back({loc, ok});
 	}
 
@@ -93,8 +91,10 @@ namespace rat {
 			U32 ok = okBits(vars.poison, loc);
 			if(rec.inst == kDbgKill)
 				setPoison(vars.poison, loc, std::min(ok, (U32)rec.loc.width));
+			else if(ok < rec.loc.width * 8u)
+				setLoc(vars.live, rec.inst, VarLoc{}, pc);
 			else
-				setLoc(vars.live, rec.inst, ok < rec.loc.width * 8u ? VarLoc{} : loc, pc);
+				setLoc(vars.live, rec.inst, loc, pc);
 		}
 	}
 
@@ -117,11 +117,11 @@ namespace rat {
 	}
 
 	// a partial write keeps the poison of the bits it leaves
-	void
-	X86EncodePass::writePoison(List<Poison>& poison, const MachineOperand& o, B32 partial, U32 flow) {
-		VarLoc loc = toVarLoc(o);
-		U32 left = partial ? okBits(poison, loc) : kClean;
-		setPoison(poison, loc, std::min(left, flow));
+	void X86EncodePass::writePoison(List<Poison>& poison, const VarLoc& loc, B32 partial, U32 flow) {
+		U32 ok = flow;
+		if(partial)
+			ok = std::min(ok, okBits(poison, loc));
+		setPoison(poison, loc, ok);
 	}
 
 	void X86EncodePass::passPoison(List<Poison>& poison, const MachineInstr& in) {
@@ -135,9 +135,9 @@ namespace rat {
 		poison.resize(kept);
 		for(const MachineOperand& d : in.defs)
 			if(d.isPhys() || d.kind == MachineOperand::Kind::FrameSlot)
-				writePoison(poison, d, d.width < 4, flow);
+				writePoison(poison, toVarLoc(d), d.width < 4, flow);
 		if(detail::isAnySlotStore(in))
-			writePoison(poison, in.uses[0], in.uses[1].width < 8, flow);
+			writePoison(poison, toVarLoc(in.uses[0]), in.uses[1].width < 8, flow);
 	}
 
 	// the epilogue ends all
@@ -152,11 +152,9 @@ namespace rat {
 				regs |= detail::physBit(d.phys);
 		U32 kept = 0;
 		for(const OpenVarRange& open : vars.live) {
-			B32 reg = open.loc.kind == VarLoc::Kind::Reg;
-			B32 frame = open.loc.kind == VarLoc::Kind::Frame;
-			B32 written =
-					(reg && (regs >> open.loc.reg) & 1) || (frame && writesSlot(in, open.loc.value));
-			if(ret || written)
+			B32 regWritten = open.loc.kind == VarLoc::Kind::Reg && ((regs >> open.loc.reg) & 1);
+			B32 slotWritten = open.loc.kind == VarLoc::Kind::Frame && writesSlot(in, open.loc.value);
+			if(ret || regWritten || slotWritten)
 				closeRange(open, pc);
 			else
 				vars.live[kept++] = open;
@@ -185,32 +183,37 @@ namespace rat {
 		return changed;
 	}
 
+	U32 X86EncodePass::pcOrNone(B32 emit) const { return emit ? a->here() : kNoPc; }
+
 	// the var state through block bi, from its in-state when tracked. emitting also encodes its code,
 	// solving passes no pcs
 	void X86EncodePass::walkBlock(U32 bi, VarState& vars, B32 emit) {
 		const MachineBlock& blk = fn->blocks[bi];
 		B32 track = !varsIn.empty();
-		U32 pc = emit ? a->here() : kNoPc;
+		U32 pc = pcOrNone(emit);
 		if(track)
 			vars = varsIn[bi];
 		for(OpenVarRange& open : vars.live)
 			open.start = pc;
-		I32 fallthrough = bi + 1 < fn->blocks.size() ? fn->blocks[bi + 1].id : -1;
+		I32 fallthrough = -1;
+		if(bi + 1 < fn->blocks.size())
+			fallthrough = fn->blocks[bi + 1].id;
 		for(const MachineInstr& in : blk.insts) {
-			U32 at = emit ? a->here() : kNoPc;
-			if(emit)
-				markLine(in.loc);
+			U32 at = pcOrNone(emit);
+			// a write ends its vars one byte in, so the instr start still shows them but no later pc does
+			U32 writeEnd = kNoPc;
 			if(track)
 				applyRecords(vars, in.dbg, at);
 			if(emit) {
+				markLine(in.loc);
 				emitInst(in, fallthrough);
 				markScope(in.loc, at, a->here());
+				writeEnd = std::min(at + 1, a->here());
 			}
-			// a write ends its vars one byte in, so the instr start still shows them but no later pc does
 			if(track)
-				clobber(vars, in, emit ? std::min(at + 1, a->here()) : kNoPc);
+				clobber(vars, in, writeEnd);
 		}
-		pc = emit ? a->here() : kNoPc;
+		pc = pcOrNone(emit);
 		if(track)
 			applyRecords(vars, blk.dbgEnd, pc);
 		for(const OpenVarRange& open : vars.live)
@@ -234,7 +237,8 @@ namespace rat {
 			return;
 		List<U8> reached(nb, 0);
 		List<U8> dirty(nb, 0);
-		reached[entry] = dirty[entry] = 1;
+		reached[entry] = 1;
+		dirty[entry] = 1;
 		VarState out;
 		for(B32 again = true; again;) {
 			again = false;
@@ -247,8 +251,10 @@ namespace rat {
 					I32 s = at[(U32)sid];
 					if(s < 0)
 						continue;
-					B32 changed = !reached[(U32)s] || meet(varsIn[(U32)s], out);
-					if(!reached[(U32)s])
+					B32 changed = true;
+					if(reached[(U32)s])
+						changed = meet(varsIn[(U32)s], out);
+					else
 						varsIn[(U32)s] = out;
 					reached[(U32)s] = 1;
 					dirty[(U32)s] |= changed;

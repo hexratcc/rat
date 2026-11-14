@@ -73,15 +73,14 @@ namespace rat {
 	}
 
 	// replaces at, keeping its debug location and records
-	MachineInstr
-	X86PeepholePass::makeCopy(PhysReg dst, PhysReg src, const MachineInstr& at, U32 width) {
+	MachineInstr X86PeepholePass::makeCopy(PhysReg dst, PhysReg src, const MachineInstr& at) {
 		MachineInstr m;
 		m.op = (MachineOpcode)X86Op::Copy;
 		m.regClass = at.regClass;
 		m.loc = at.loc;
 		m.dbg = at.dbg;
-		m.defs = {MachineOperand::fixed(dst, width)};
-		m.uses = {MachineOperand::fixed(src, width)};
+		m.defs = {MachineOperand::fixed(dst, at.defs[0].width)};
+		m.uses = {MachineOperand::fixed(src, at.defs[0].width)};
 		return m;
 	}
 
@@ -122,23 +121,22 @@ namespace rat {
 		U32 w = in.defs[0].width;
 		PhysReg d = in.defs[0].phys;
 		U32 v = st.slotValue(sl, w);
-		if(v != 0) {
-			if(st.valueOf(d) == v) { // the register already has it
-				keep = false;
-				return 1;
-			}
-			if(PhysReg src = st.regHolding(v, d); src != kNoReg) {
-				in = makeCopy(d, src, in, w);
-				st.setReg(d, v);
-				return 1;
-			}
-			st.setReg(d, v);
-		} else {
+		if(v == 0) {
 			v = st.fresh();
 			st.setReg(d, v);
 			st.setSlot(sl, w, v);
+			return 0;
 		}
-		return 0;
+		if(st.valueOf(d) == v) { // the register already has it
+			keep = false;
+			return 1;
+		}
+		PhysReg src = st.regHolding(v, d);
+		st.setReg(d, v);
+		if(src == kNoReg)
+			return 0;
+		in = makeCopy(d, src, in);
+		return 1;
 	}
 
 	void X86PeepholePass::stepOther(const MachineInstr& in) {
@@ -285,13 +283,13 @@ namespace rat {
 			break;
 		case X86Op::LShr:
 			if(immCount(in, cnt)) {
-				demandUses(in, cnt ? (outD << cnt) : outD, dem);
+				demandUses(in, outD << cnt, dem);
 				return;
 			}
 			break;
 		case X86Op::AShr:
 			if(immCount(in, cnt)) {
-				U64 m = cnt ? (outD << cnt) : outD;
+				U64 m = outD << cnt;
 				if(cnt && (outD >> (64 - cnt)))
 					m |= (U64)1 << 63; // the replicated sign bit
 				demandUses(in, m, dem);
@@ -344,8 +342,9 @@ namespace rat {
 				const MachineInstr& in = b.insts[i];
 				X86Op op = (X86Op)in.op;
 				U32 n = (U32)in.imm;
-				if(detail::isNormalize(op) && n > 0 && n < 64 && !in.defs.empty() && tracked(in.defs[0]) &&
-					 !(cur[in.defs[0].phys] & ~lowMask(n)) && flagSafeToDrop(b, i)) {
+				B32 normalizes = detail::isNormalize(op) && n > 0 && n < 64;
+				B32 trackedNormalize = normalizes && !in.defs.empty() && tracked(in.defs[0]);
+				if(trackedNormalize && !(cur[in.defs[0].phys] & ~lowMask(n)) && flagSafeToDrop(b, i)) {
 					drop[i] = true;
 					++here;
 					continue; // dead
@@ -395,11 +394,13 @@ namespace rat {
 			queued[bi] = false;
 			const MachineBlock& b = mf.blocks[bi];
 			slotBlockOut(b, liveIn, cur);
-			for(U32 i = slotPhase && !slots.touches[bi] ? 0 : (U32)b.insts.size(); i-- > 0;)
-				if(slotPhase)
-					slotStep(b.insts[i], slots, cur);
-				else
+			if(!slotPhase) {
+				for(U32 i = (U32)b.insts.size(); i-- > 0;)
 					transfer(b.insts[i], cur.data());
+			} else if(slots.touches[bi]) {
+				for(U32 i = (U32)b.insts.size(); i-- > 0;)
+					slotStep(b.insts[i], slots, cur);
+			}
 			if(!orInto(&liveIn[(U64)bi * cur.size()], cur))
 				continue;
 			for(I32 p : b.preds) // a grown live-in reaches the predecessors

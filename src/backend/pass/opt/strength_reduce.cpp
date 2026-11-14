@@ -11,7 +11,7 @@ namespace rat {
 				return false;
 			for(U32 i = 0; i < 2; ++i) {
 				Node* v = p->getValue(i);
-				ConstantNode* c = v ? offsetOf(v, p) : nullptr;
+				ConstantNode* c = offsetOf(v, p);
 				if(!c)
 					continue;
 				step = c->getValue();
@@ -29,8 +29,8 @@ namespace rat {
 
 		ConstantNode* affineScale(Node* u, PhiNode* p) {
 			Opcode op = u->getOpcode();
-			if(u->getInputCount() != 2 || (op != Opcode::Mul && op != Opcode::Shl) ||
-				 u->getType() != p->getType())
+			B32 mulOrShl = op == Opcode::Mul || op == Opcode::Shl;
+			if(u->getInputCount() != 2 || !mulOrShl || u->getType() != p->getType())
 				return nullptr;
 			if(op == Opcode::Shl && u->getInput(0) != p)
 				return nullptr; // k << p is not affine in p
@@ -55,12 +55,14 @@ namespace rat {
 			if(!cmp || cmp->getLHS() != p || !isa<ConstantNode>(cmp->getRHS()))
 				return nullptr;
 			Opcode op = cmp->getOpcode();
-			return op == Opcode::Slt || op == Opcode::Sle ? cmp : nullptr;
+			if(op != Opcode::Slt && op != Opcode::Sle)
+				return nullptr;
+			return cmp;
 		}
 
 		// k of u = p + k (null otherwise)
 		ConstantNode* offsetOf(Node* u, PhiNode* p) {
-			if(u->getOpcode() != Opcode::Add)
+			if(!u || u->getOpcode() != Opcode::Add)
 				return nullptr;
 			if(u->getInput(0) == p)
 				return dyn_cast<ConstantNode>(u->getInput(1));

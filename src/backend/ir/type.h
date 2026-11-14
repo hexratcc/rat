@@ -32,12 +32,8 @@ namespace rat {
 
 		U32 getIntWidth() const;
 		U32 getFloatWidth() const;
-		const List<Type*>& getTupleElements() const;
 		Type* getTupleElement(U32 index) const;
 		U32 getTupleElementCount() const;
-
-		Type* getArrayElement() const;
-		U32 getArrayCount() const;
 
 		Type* getVecElement() const;
 		U32 getVecLanes() const;
@@ -50,9 +46,9 @@ namespace rat {
 		friend struct TypeContext;
 
 		Kind kind;
-		U32 bits;
+		U32 bits; // width, or the count of an Array or Vec
 		U32 uid = 0;
-		List<Type*> elements;
+		List<Type*> elements; // tuple elements, or the one element of an Array or Vec
 	};
 
 	// interning context for types

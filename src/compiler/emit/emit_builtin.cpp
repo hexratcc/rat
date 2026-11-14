@@ -51,8 +51,8 @@ namespace rat::cc {
 		B32 isKnownBuiltin(const String& name) {
 			String stem = name.substr(10);
 			const C8* const* unimplementedEnd = std::end(kUnimplementedBuiltins);
-			return !builtinLibcName(name).empty() ||
-						 std::find(kUnimplementedBuiltins, unimplementedEnd, stem) != unimplementedEnd;
+			const C8* const* found = std::find(kUnimplementedBuiltins, unimplementedEnd, stem);
+			return !builtinLibcName(name).empty() || found != unimplementedEnd;
 		}
 	} // namespace detail
 
@@ -128,10 +128,20 @@ namespace rat::cc {
 		return diag.fail("'" + *e->call.callee + "' expects one argument");
 	}
 
+	// a failed builtin still counts as handled
+	B32 Emitter::failBuiltin(const String& msg) {
+		diag.fail(msg);
+		return true;
+	}
+
 	B32 Emitter::emitVaBuiltin(Function& fn, const Expr* e, Value& out) {
 		List<Node*> args;
 		for(U32 i = 0; i < e->args.size(); ++i) {
-			Node* n = i == 0 ? vaListRef(fn, e->args[i]) : emitExpr(fn, e->args[i]).node;
+			Node* n;
+			if(i == 0)
+				n = vaListRef(fn, e->args[i]);
+			else
+				n = emitExpr(fn, e->args[i]).node;
 			if(!n)
 				return true;
 			args.push_back(n);
@@ -142,10 +152,8 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitVaCopyBuiltin(Function& fn, const Expr* e, Value& out) {
-		if(e->args.size() != 2) {
-			diag.fail("__builtin_va_copy expects two arguments");
-			return true;
-		}
+		if(e->args.size() != 2)
+			return failBuiltin("__builtin_va_copy expects two arguments");
 		Node* dst = vaListRef(fn, e->args[0]);
 		if(!dst)
 			return true;
@@ -174,10 +182,10 @@ namespace rat::cc {
 	B32 Emitter::emitJmpBuiltin(Function& fn, const Expr* e, Value& out) {
 		const String& name = *e->call.callee;
 		B32 isSet = name == "__builtin_setjmp";
-		if(e->args.size() != (isSet ? 1u : 2u)) {
-			diag.fail("'" + name + "' expects " + (isSet ? "one argument" : "two arguments"));
-			return true;
-		}
+		U32 argCount = isSet ? 1 : 2;
+		const C8* expected = isSet ? "one argument" : "two arguments";
+		if(e->args.size() != argCount)
+			return failBuiltin("'" + name + "' expects " + expected);
 		Value buf = emitExpr(fn, e->args[0]);
 		if(!buf.node)
 			return true;
@@ -191,10 +199,8 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitExpectBuiltin(Function& fn, const Expr* e, Value& out) {
-		if(e->args.size() != 2) {
-			diag.fail("__builtin_expect expects two arguments");
-			return true;
-		}
+		if(e->args.size() != 2)
+			return failBuiltin("__builtin_expect expects two arguments");
 		Value exp = emitExpr(fn, e->args[0]);
 		if(!exp.node)
 			return true;
@@ -206,10 +212,8 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitConstantPBuiltin(Function& fn, const Expr* e, Value& out) {
-		if(e->args.size() != 1) {
-			diag.fail("__builtin_constant_p expects one argument");
-			return true;
-		}
+		if(e->args.size() != 1)
+			return failBuiltin("__builtin_constant_p expects one argument");
 		I64 v = 0;
 		B32 isConst = e->args[0]->kind == ExprKind::StrLit || evalConst(e->args[0], v);
 		out = {fn.constInt(i32, isConst ? 1 : 0), ctInt()};
@@ -266,7 +270,9 @@ namespace rat::cc {
 	// false when the operand is not an integer, the call then goes to libc
 	B32 Emitter::emitAbsBuiltin(Function& fn, const Expr* e, Value& out) {
 		const String& name = *e->call.callee;
-		String stem = name.rfind("__builtin_", 0) == 0 ? name.substr(10) : name;
+		String stem = name;
+		if(name.rfind("__builtin_", 0) == 0)
+			stem = name.substr(10);
 		CType at;
 		if(e->args.size() != 1 || !typeOf(e->args[0], at) || !isInteger(at))
 			return false;
@@ -283,12 +289,14 @@ namespace rat::cc {
 		Type* ty = irType(rt);
 		Node* x = convert(fn, v.node, v.type, rt);
 		Node* mask = fn.ashr(x, fn.constInt(ty, (I64)rt.bits - 1));
-		out = {fn.sub(fn.binary(Opcode::Xor, x, mask), mask), rt};
+		Node* flipped = fn.binary(Opcode::Xor, x, mask);
+		out = {fn.sub(flipped, mask), rt};
 		return true;
 	}
 
 	B32 Emitter::emitBswapBuiltin(Function& fn, const Expr* e, Value& out) {
-		U32 bits = (U32)std::stoul(e->call.callee->substr(sizeof("__builtin_bswap") - 1));
+		String widthDigits = e->call.callee->substr(sizeof("__builtin_bswap") - 1);
+		U32 bits = (U32)std::stoul(widthDigits);
 		if(!oneArg(e))
 			return true;
 		Value a = emitExpr(fn, e->args[0]);
@@ -307,10 +315,8 @@ namespace rat::cc {
 		if(!oneArg(e))
 			return true;
 		CType t;
-		if(!typeOf(e->args[0], t)) {
-			diag.fail("cannot classify the operand of '" + *e->call.callee + "'");
-			return true;
-		}
+		if(!typeOf(e->args[0], t))
+			return failBuiltin("cannot classify the operand of '" + *e->call.callee + "'");
 		out = {fn.constInt(i32, typeClassOf(t)), ctInt()};
 		return true;
 	}
@@ -342,10 +348,10 @@ namespace rat::cc {
 		Node* x = convert(fn, a.node, a.type, ft);
 		Type* ty = irType(ft);
 		if(kind == Sign) {
-			U32 sz = ft.bits == 128 ? 16u : ft.bits / 8;
-			U32 off = ft.bits == 128 ? 8u : 0u;
-			CType it = ctUnsigned(ft.bits == 128 ? 16u : ft.bits);
-			Node* slot = allocBytes(fn, sz);
+			B32 isX87 = ft.bits == 128; // the sign is the top bit of the 16 bits at byte 8
+			CType it = ctUnsigned(isX87 ? 16u : ft.bits);
+			U32 off = isX87 ? 8u : 0u;
+			Node* slot = allocBytes(fn, ft.bits / 8);
 			fn.store(slot, x);
 			Node* raw = fn.load(irType(it), offsetPtr(fn, slot, off));
 			Node* s = fn.lshr(raw, fn.constInt(irType(it), (I64)it.bits - 1));
@@ -377,10 +383,8 @@ namespace rat::cc {
 		if(!oneArg(e))
 			return true;
 		I64 level = 0;
-		if(!evalConst(e->args[0], level)) {
-			diag.fail("'" + name + "' expects a constant level");
-			return true;
-		}
+		if(!evalConst(e->args[0], level))
+			return failBuiltin("'" + name + "' expects a constant level");
 		if(level != 0) {
 			out = {fn.constInt(mod.getPtr(), 0), ctVoidPtr()};
 			return true;
@@ -390,10 +394,8 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitPrefetchBuiltin(Function& fn, const Expr* e, Value& out) {
-		if(e->args.empty()) {
-			diag.fail("'" + *e->call.callee + "' expects at least one argument");
-			return true;
-		}
+		if(e->args.empty())
+			return failBuiltin("'" + *e->call.callee + "' expects at least one argument");
 		Value a = emitExpr(fn, e->args[0]);
 		if(!a.node)
 			return true;
@@ -444,13 +446,12 @@ namespace rat::cc {
 			return true;
 		if(name.rfind("__builtin_", 0) != 0)
 			return false;
-		if(emitBitCountBuiltin(fn, e, out) || emitOverflowBuiltin(fn, e, out) ||
-			 emitFpClassBuiltin(fn, e, out))
+		if(emitBitCountBuiltin(fn, e, out) || emitOverflowBuiltin(fn, e, out))
 			return true;
-		if(!detail::isKnownBuiltin(name)) {
-			diag.fail("unsupported builtin '" + name + "'");
+		if(emitFpClassBuiltin(fn, e, out))
 			return true;
-		}
+		if(!detail::isKnownBuiltin(name))
+			return failBuiltin("unsupported builtin '" + name + "'");
 		return false;
 	}
 } // namespace rat::cc

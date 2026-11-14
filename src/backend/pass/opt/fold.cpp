@@ -6,9 +6,17 @@
 
 namespace rat {
 	namespace detail {
-		U64 maskW(I64 v, U32 w) { return w >= 64 ? (U64)v : (U64)v & (((U64)1 << w) - 1); }
+		U64 maskW(I64 v, U32 w) {
+			if(w >= 64)
+				return (U64)v;
+			return (U64)v & (((U64)1 << w) - 1);
+		}
 
-		I64 normalizeConst(I64 v, U32 w) { return w == 1 ? v & 1 : signExtend(v, w); }
+		I64 normalizeConst(I64 v, U32 w) {
+			if(w == 1)
+				return v & 1;
+			return signExtend(v, w);
+		}
 
 		B32 isConstWithValue(Node* n, I64 want) {
 			ConstantNode* c = dyn_cast<ConstantNode>(n);
@@ -529,8 +537,9 @@ namespace rat {
 			ConstantNode* cr = dyn_cast<ConstantNode>(rhs);
 			if(cl && cr) {
 				I64 res;
-				B32 folded = evalBinaryConst(op, w, cl->getValue(), cr->getValue(), res);
-				return folded ? constant(fn, ty, res) : nullptr;
+				if(!evalBinaryConst(op, w, cl->getValue(), cr->getValue(), res))
+					return nullptr;
+				return constant(fn, ty, res);
 			}
 
 			// normalize a lone constant to the RHS for commutative ops, so every rule
@@ -557,20 +566,22 @@ namespace rat {
 			if(!c || !ty->isInt())
 				return nullptr;
 			I64 r;
-			B32 folded = evalUnaryConst(op, ty->getIntWidth(), c->getValue(), r);
-			return folded ? constant(fn, ty, r) : nullptr;
+			if(!evalUnaryConst(op, ty->getIntWidth(), c->getValue(), r))
+				return nullptr;
+			return constant(fn, ty, r);
 		}
 
 		Node* foldCompare(Function& fn, Opcode op, Node* lhs, Node* rhs) {
-			Type* ty = lhs->getType();
-			if(!ty->isInt())
+			if(!lhs->getType()->isInt())
 				return nullptr;
+			U32 w = lhs->getType()->getIntWidth();
 			ConstantNode* cl = dyn_cast<ConstantNode>(lhs);
 			ConstantNode* cr = dyn_cast<ConstantNode>(rhs);
 			if(cl && cr) {
 				I64 res;
-				B32 folded = evalCompareConst(op, ty->getIntWidth(), cl->getValue(), cr->getValue(), res);
-				return folded ? fn.constBool(res != 0) : nullptr;
+				if(!evalCompareConst(op, w, cl->getValue(), cr->getValue(), res))
+					return nullptr;
+				return fn.constBool(res != 0);
 			}
 
 			if(lhs == rhs) {
@@ -622,8 +633,9 @@ namespace rat {
 			U32 srcW = operand->getType()->getIntWidth();
 			U32 dstW = destType->getIntWidth();
 			I64 r;
-			B32 folded = evalConvertConst(op, srcW, dstW, c->getValue(), r);
-			return folded ? constant(fn, destType, r) : nullptr;
+			if(!evalConvertConst(op, srcW, dstW, c->getValue(), r))
+				return nullptr;
+			return constant(fn, destType, r);
 		}
 
 		Node* simplify(Function& fn, Node* n) {

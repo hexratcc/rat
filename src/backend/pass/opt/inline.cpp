@@ -148,9 +148,11 @@ namespace rat {
 		for(Node* n : callee)
 			if(Node* c = mapped(n); c && n->getLoc() && !isStartProj(callee, n))
 				c->setLoc(locBase + n->getLoc());
-		for(const DebugVarInst& v : from.vars)
-			to.vars.push_back(
-					{v.var, scopeBase + v.scope, dyn_cast<AllocNode>(mapped(v.slot)), v.indirect});
+		for(DebugVarInst v : from.vars) {
+			v.scope += scopeBase;
+			v.slot = dyn_cast<AllocNode>(mapped(v.slot));
+			to.vars.push_back(v);
+		}
 		// the clones carry the callee bindings, a constant may be erased or from another callee, it is
 		// read for its value only
 		for(const DebugBinding& b : from.bindings) {
@@ -166,7 +168,9 @@ namespace rat {
 			return mem;
 		ProjNode* p = dyn_cast<ProjNode>(mem);
 		Node* producer = p ? p->getProducer() : nullptr;
-		return isa<CallNode>(producer) || isa<AsmNode>(producer) ? producer : nullptr;
+		if(isa<CallNode>(producer) || isa<AsmNode>(producer))
+			return producer;
+		return nullptr;
 	}
 
 	B32 InlinePass::inlineCallSite(Function& caller, CallNode* call, Function& callee) {

@@ -21,12 +21,8 @@ namespace rat {
 	U32 Type::getIntWidth() const { return bits; }
 	U32 Type::getFloatWidth() const { return bits; }
 
-	const List<Type*>& Type::getTupleElements() const { return elements; }
 	Type* Type::getTupleElement(U32 index) const { return elements[index]; }
 	U32 Type::getTupleElementCount() const { return (U32)elements.size(); }
-
-	Type* Type::getArrayElement() const { return elements[0]; }
-	U32 Type::getArrayCount() const { return bits; }
 
 	Type* Type::getVecElement() const { return elements[0]; }
 	U32 Type::getVecLanes() const { return bits; }
@@ -39,9 +35,8 @@ namespace rat {
 		case Ptr:
 			return ptrBytes;
 		case Array:
-			return getArrayCount() * getArrayElement()->byteSize(ptrBytes);
 		case Vec:
-			return getVecLanes() * getVecElement()->byteSize(ptrBytes);
+			return bits * elements[0]->byteSize(ptrBytes);
 		default:
 			return 0;
 		}
@@ -127,7 +122,7 @@ namespace rat {
 
 	Type* TypeContext::getTuple(const List<Type*>& elements) {
 		for(Type* existing : tuples)
-			if(existing->getTupleElements() == elements)
+			if(existing->elements == elements)
 				return existing;
 		Type* t = make(Type::Tuple, 0, elements);
 		tuples.push_back(t);

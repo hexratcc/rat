@@ -10,8 +10,9 @@ namespace rat {
 		if(!loadShape(lanes, vec) || !loadState(lanes, vec) || forwardBlocked(vec))
 			return kNoVector;
 		I32 laneCount = (I32)lanes.size();
-		// wide loads and a permute, or one load and a broadcast
-		vec.profit = vec.wideLoads ? laneCount - (I32)vec.wideLoads - vec.permuted : laneCount - 2;
+		vec.profit = laneCount - 2; // one load and a broadcast
+		if(vec.wideLoads)						// wide loads and a permute
+			vec.profit = laneCount - (I32)vec.wideLoads - vec.permuted;
 		vectors.push_back(vec);
 		return (U32)vectors.size() - 1;
 	}
@@ -175,7 +176,9 @@ namespace rat {
 																		SmallList<Node*, kMaxHops>& walk) {
 		if(PhiNode* phi = dyn_cast<PhiNode>(state)) {
 			// only a loop header's entry, the walk cannot compare the previous iteration's addresses
-			U32 count = phi->getRegion()->isLoopHeader() ? 1 : phi->getValueCount();
+			U32 count = phi->getValueCount();
+			if(phi->getRegion()->isLoopHeader())
+				count = 1;
 			for(U32 i = 0; i < count; ++i)
 				walk.push_back(phi->getValue(i));
 			return false;

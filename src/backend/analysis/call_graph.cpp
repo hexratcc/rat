@@ -62,7 +62,8 @@ namespace rat {
 			while(!dfs.empty()) {
 				auto [v, e] = dfs.back();
 				if(e == 0) {
-					index[v] = low[v] = next++;
+					index[v] = next++;
+					low[v] = index[v];
 					stack.push_back(v);
 					onStack[v] = 1;
 				}

@@ -95,9 +95,9 @@ namespace rat::cc {
 				return {"_Bool", Kind::Bool};
 			case 8:
 				kind = t.isUnsigned() ? Kind::UnsignedChar : Kind::SignedChar;
-				if(t.isPlainChar())
-					return {sign + "char", kind};
-				return {t.isUnsigned() ? "unsigned char" : "signed char", kind};
+				if(!t.isPlainChar() && !t.isUnsigned())
+					sign = "signed ";
+				return {sign + "char", kind};
 			default:
 				return {sign + intName(t.bits), kind};
 			}
@@ -169,7 +169,8 @@ namespace rat::cc {
 			Local l;
 			if(!dbg.describeVars || !p.name || !func.scopes.lookup(*p.name, l))
 				continue;
-			debugVar(fn, {*p.name, debugType(p.type), debugLoc(p.offset), "", true}, l, true);
+			DebugVar v{*p.name, debugType(p.type), debugLoc(p.offset), "", true};
+			debugVar(fn, std::move(v), l, true);
 		}
 	}
 
@@ -181,10 +182,12 @@ namespace rat::cc {
 	// a nested block gets a scope when it declares something, so shadowed names resolve right
 	U32 Emitter::debugEnterScope(Function& fn, const Stmt* s) {
 		U32 outer = dbg.scope;
+		if(!dbg.info || s == dbg.funcBody)
+			return outer;
 		B32 declares = false;
-		if(dbg.info && s->kind == StmtKind::For)
+		if(s->kind == StmtKind::For)
 			declares = s->forInit && s->forInit->kind == StmtKind::Decl;
-		else if(dbg.info && s != dbg.funcBody)
+		else
 			for(const Stmt* child : s->body)
 				declares |= child->kind == StmtKind::Decl;
 		if(declares) {
@@ -199,7 +202,9 @@ namespace rat::cc {
 	void Emitter::debugVar(Function& fn, DebugVar v, const Local& l, B32 hasValue) {
 		DebugBody& body = *fn.getDebug();
 		body.func->vars.push_back(std::make_unique<DebugVar>(std::move(v)));
-		AllocNode* slot = !l.staticSymbol && l.inMem() ? dyn_cast<AllocNode>(l.addr) : nullptr;
+		AllocNode* slot = nullptr;
+		if(!l.staticSymbol && l.inMem())
+			slot = dyn_cast<AllocNode>(l.addr);
 		body.vars.push_back({body.func->vars.back().get(), dbg.scope, slot});
 		U32 inst = (U32)body.vars.size() - 1;
 		if(l.staticSymbol || slot)
@@ -219,7 +224,8 @@ namespace rat::cc {
 		if(!dbg.describeVars || d.isExtern || !func.scopes.lookup(*d.name, l))
 			return;
 		String symbol = l.staticSymbol ? *l.staticSymbol : "";
-		DebugVar v{*d.name, debugObjectType(d.type, d.isArray, l.count), debugLoc(d.offset), symbol};
+		DebugType* type = debugObjectType(d.type, d.isArray, l.count);
+		DebugVar v{*d.name, type, debugLoc(d.offset), symbol};
 		debugVar(fn, std::move(v), l, d.init != nullptr);
 	}
 

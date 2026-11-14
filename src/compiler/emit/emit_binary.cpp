@@ -38,9 +38,10 @@ namespace rat::cc {
 	}
 
 	Node* Emitter::emitArith(Function& fn, ExprOp op, Node* l, Node* r, CType ct) {
+		U32 idx = (U32)op - (U32)ExprOp::Add;
 		if(isFloating(ct)) {
 			if(op >= ExprOp::Add && op <= ExprOp::Div) // Add..Div map onto FAdd..FDiv
-				return fn.binary((Opcode)((U32)Opcode::FAdd + ((U32)op - (U32)ExprOp::Add)), l, r);
+				return fn.binary((Opcode)((U32)Opcode::FAdd + idx), l, r);
 			return diag.fail("invalid operator on a floating-point operand");
 		}
 		struct Sel {
@@ -64,10 +65,10 @@ namespace rat::cc {
 		// clang-format on
 		static_assert(sizeof(kArith) / sizeof(kArith[0]) == (U32)ExprOp::BitXor - (U32)ExprOp::Add + 1,
 									"kArith must cover Add..BitXor");
-		U32 idx = (U32)op - (U32)ExprOp::Add;
 		if(op < ExprOp::Add || op > ExprOp::BitXor || kArith[idx].s == Opcode::Start)
 			return diag.fail("unsupported arithmetic operator");
-		Node* res = fn.binary(ct.isUnsigned() ? kArith[idx].u : kArith[idx].s, l, r);
+		Opcode arithOp = ct.isUnsigned() ? kArith[idx].u : kArith[idx].s;
+		Node* res = fn.binary(arithOp, l, r);
 		// signed overflow is undefined (C11 6.5p5). gcc defines a signed shl, so it gets no flag
 		if(!ct.isUnsigned() && (op == ExprOp::Add || op == ExprOp::Sub || op == ExprOp::Mul))
 			cast<BinaryNode>(res)->setNsw(true);
@@ -93,7 +94,9 @@ namespace rat::cc {
 			Node* newRe = fn.binary(isInc ? Opcode::FAdd : Opcode::FSub, re, one);
 			Value updated = makeComplex(fn, ct, newRe, im);
 			storeComplex(fn, lv.addr, ct, updated);
-			return isPre ? Value{lv.addr, ct} : makeComplex(fn, ct, re, im);
+			if(isPre)
+				return {lv.addr, ct};
+			return makeComplex(fn, ct, re, im);
 		}
 		Node* old = loadLValue(fn, lv);
 		Node* updated;
@@ -101,9 +104,12 @@ namespace rat::cc {
 			Node* delta = fn.constFloat(irType(type), 1.0);
 			updated = fn.binary(isInc ? Opcode::FAdd : Opcode::FSub, old, delta);
 		} else {
-			Node* delta =
-					isPointer(type) ? constSize(fn, byteSize(pointee(type))) : fn.constInt(irType(type), 1);
-			updated = isInc ? fn.add(old, delta) : fn.sub(old, delta);
+			Node* delta;
+			if(isPointer(type))
+				delta = constSize(fn, byteSize(pointee(type)));
+			else
+				delta = fn.constInt(irType(type), 1);
+			updated = fn.binary(isInc ? Opcode::Add : Opcode::Sub, old, delta);
 			// a signed type of int rank or more does not promote, so its overflow is undefined
 			if(!isPointer(type) && !type.isUnsigned() && type.bits >= 32)
 				cast<BinaryNode>(updated)->setNsw(true);
@@ -114,14 +120,14 @@ namespace rat::cc {
 	}
 
 	Emitter::Value Emitter::assignStruct(Function& fn, const Expr* e, const LValue& lv, Value rhs) {
-		CType targetType = lv.type;
 		if(e->binary.op != ExprOp::Assign)
 			return diag.fail("invalid compound assignment to a struct or union");
-		if(!isStruct(rhs.type) || rhs.type.strukt != targetType.strukt)
-			return diag.fail("assigning to '" + typeName(targetType) + "' from incompatible '" +
-											 typeName(rhs.type) + "'");
-		emitMemCopy(fn, lv.addr, rhs.node, targetType.strukt->size);
-		return {lv.addr, targetType};
+		if(!isStruct(rhs.type) || rhs.type.strukt != lv.type.strukt) {
+			String message = "assigning to '" + typeName(lv.type) + "' from incompatible '";
+			return diag.fail(message + typeName(rhs.type) + "'");
+		}
+		emitMemCopy(fn, lv.addr, rhs.node, lv.type.strukt->size);
+		return {lv.addr, lv.type};
 	}
 
 	Emitter::Value Emitter::assignComplex(Function& fn, const Expr* e, const LValue& lv, Value rhs) {
@@ -131,9 +137,8 @@ namespace rat::cc {
 			stored = {rhs.node, rhs.type};
 		} else {
 			ExprOp base;
-			B32 ok = compoundBaseOp(e->binary.op, base) && (base == ExprOp::Add || base == ExprOp::Sub ||
-																											base == ExprOp::Mul || base == ExprOp::Div);
-			if(!ok)
+			B32 isCompound = compoundBaseOp(e->binary.op, base);
+			if(!isCompound || base > ExprOp::Div) // complex takes Add..Div only
 				return diag.fail("invalid compound assignment to a complex operand");
 			CType opType = completeComplex(usualArithmetic(ct, rhs.type));
 			Value cur = toComplex(fn, {lv.addr, ct}, opType);
@@ -222,9 +227,14 @@ namespace rat::cc {
 
 	Emitter::Value Emitter::emitComparison(Function& fn, ExprOp op, Value lhs, Value rhs) {
 		B32 ptrCmp = isPointer(lhs.type) || isPointer(rhs.type);
-		CType ct = ptrCmp ? ctSize() : usualArithmetic(lhs.type, rhs.type);
-		Node* l = ptrCmp ? lhs.node : convert(fn, lhs.node, lhs.type, ct);
-		Node* r = ptrCmp ? rhs.node : convert(fn, rhs.node, rhs.type, ct);
+		CType ct = ctSize();
+		Node* l = lhs.node;
+		Node* r = rhs.node;
+		if(!ptrCmp) {
+			ct = usualArithmetic(lhs.type, rhs.type);
+			l = convert(fn, l, lhs.type, ct);
+			r = convert(fn, r, rhs.type, ct);
+		}
 		struct Sel {
 			Opcode f, s, u;
 			B32 swap;
@@ -242,13 +252,14 @@ namespace rat::cc {
 		static_assert(sizeof(kCmp) / sizeof(kCmp[0]) == (U32)ExprOp::Ne - (U32)ExprOp::Lt + 1,
 									"kCmp must cover Lt..Ne");
 		const Sel& sel = kCmp[(U32)op - (U32)ExprOp::Lt]; // caller guarantees Lt..Ne
+		Opcode intOp = ct.isUnsigned() ? sel.u : sel.s;
 		Node* cmp;
 		if(isFloating(ct))
 			cmp = fn.compare(sel.f, l, r);
 		else if(sel.swap)
-			cmp = fn.compare(ct.isUnsigned() ? sel.u : sel.s, r, l);
+			cmp = fn.compare(intOp, r, l);
 		else
-			cmp = fn.compare(ct.isUnsigned() ? sel.u : sel.s, l, r);
+			cmp = fn.compare(intOp, l, r);
 		return {fromBool(fn, cmp), ctInt()};
 	}
 
@@ -260,15 +271,15 @@ namespace rat::cc {
 			return complexBinary(fn, op, lc, rc, ct);
 		Node* re = fn.compare(Opcode::FEq, complexReal(fn, lc), complexReal(fn, rc));
 		Node* im = fn.compare(Opcode::FEq, complexImag(fn, lc), complexImag(fn, rc));
-		Node* eq = fn.and_(re, im);
-		Node* res = op == ExprOp::Eq ? eq : fn.eq(eq, fn.constInt(i32, 0));
+		Node* res = fn.and_(re, im);
+		if(op == ExprOp::Ne)
+			res = fn.eq(res, fn.constInt(i32, 0));
 		return {fromBool(fn, res), ctInt()};
 	}
 
-	// each operand promotes on its own, the result has the left type
-	Emitter::Value Emitter::emitShift(Function& fn, ExprOp op, Value lhs, Value rhs) {
-		CType lt = promote(lhs.type);
-		CType rt = promote(rhs.type);
+	// lhs converts to lt and rhs to rt, the result has type lt
+	Emitter::Value
+	Emitter::emitArithValue(Function& fn, ExprOp op, Value lhs, Value rhs, CType lt, CType rt) {
 		Node* l = convert(fn, lhs.node, lhs.type, lt);
 		Node* r = convert(fn, rhs.node, rhs.type, rt);
 		Node* res = emitArith(fn, op, l, r, lt);
@@ -298,7 +309,8 @@ namespace rat::cc {
 		switch(op) {
 		case ExprOp::Shl:
 		case ExprOp::Shr:
-			return emitShift(fn, op, lhs, rhs);
+			// each operand promotes on its own
+			return emitArithValue(fn, op, lhs, rhs, promote(lhs.type), promote(rhs.type));
 		case ExprOp::Lt:
 		case ExprOp::Gt:
 		case ExprOp::Le:
@@ -314,11 +326,6 @@ namespace rat::cc {
 			return emitPtrArith(fn, op, lhs, rhs);
 
 		CType ct = usualArithmetic(lhs.type, rhs.type);
-		Node* l = convert(fn, lhs.node, lhs.type, ct);
-		Node* r = convert(fn, rhs.node, rhs.type, ct);
-		Node* res = emitArith(fn, op, l, r, ct);
-		if(!res)
-			return {};
-		return {reduceBitfield(fn, res, ct), ct};
+		return emitArithValue(fn, op, lhs, rhs, ct, ct);
 	}
 } // namespace rat::cc

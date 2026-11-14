@@ -112,8 +112,7 @@ namespace rat {
 				{".debug_loclists", elf::SHT_PROGBITS,      0,                                   1,    0},
 		};
 		// clang-format on
-		static_assert(sizeof(kElfSections) / sizeof(kElfSections[0]) == ObjectFile::SectionCount,
-									"one entry per Section");
+		static_assert(std::size(kElfSections) == ObjectFile::SectionCount, "one entry per Section");
 
 		void coffName(List<U8>& out, List<U8>& strtab, const String& n);
 	} // namespace detail

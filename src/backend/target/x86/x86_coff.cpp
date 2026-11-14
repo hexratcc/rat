@@ -69,8 +69,8 @@ namespace rat {
 			// aux: section definition
 			le::put32(symtab, sectionSize((Section)s)); // length
 			le::put16(symtab, (U16)rels[s].size());			// number of relocations
-			le::padTo(symtab,
-								symtab.size() + 12); // line numbers, checksum, associated section, selection
+			// line numbers, checksum, associated section, selection
+			symtab.insert(symtab.end(), 12, 0);
 		}
 
 		index.assign(syms.size(), 0);
@@ -78,13 +78,12 @@ namespace rat {
 			const Sym& s = syms[i];
 			index[i] = (U32)(symtab.size() / detail::kSymEntSize);
 			detail::coffName(symtab, strtab, s.name);
-			le::put32(symtab, s.defined ? s.offset : 0);							// value
-			le::put16(symtab, s.defined ? (U16)((U32)s.sec + 1) : 0); // section (0 = undefined)
+			le::put32(symtab, s.defined ? s.offset : 0);				 // value
+			le::put16(symtab, s.defined ? (U16)(s.sec + 1) : 0); // section (0 = undefined)
 			le::put16(symtab, s.defined && s.isFunc ? detail::kSymTypeFunc : 0); // type
-			// undefined symbols must be EXTERNAL for linker to res
-			le::put8(symtab,
-							 !s.defined || s.global ? detail::IMAGE_SYM_CLASS_EXTERNAL
-																			: detail::IMAGE_SYM_CLASS_STATIC);
+			B32 external = !s.defined || s.global; // the linker resolves undefined ones
+			U8 symClass = external ? detail::IMAGE_SYM_CLASS_EXTERNAL : detail::IMAGE_SYM_CLASS_STATIC;
+			le::put8(symtab, symClass);
 			le::put8(symtab, 0); // no aux records
 		}
 		return symtab;
@@ -123,9 +122,9 @@ namespace rat {
 		List<U8> out;
 		le::put16(out, detail::IMAGE_FILE_MACHINE_AMD64);
 		le::put16(out, (U16)detail::kCoffSections);
-		le::put32(out, 0); // timestamp
-		le::put32(out, off);
-		le::put32(out, (U32)(symtab.size() / detail::kSymEntSize));
+		le::put32(out, 0);																					// timestamp
+		le::put32(out, off);																				// symbol table offset
+		le::put32(out, (U32)(symtab.size() / detail::kSymEntSize)); // symbol count
 		le::put32(out, 0); // optional header size, characteristics
 		for(U32 s = 0; s < detail::kCoffSections; ++s) {
 			detail::coffName(out, strtab, detail::kCoffSecs[s].name);

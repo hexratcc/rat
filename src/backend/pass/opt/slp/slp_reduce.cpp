@@ -89,7 +89,8 @@ namespace rat {
 		// finish shuffles by [laneCount / 4][round], nibble i is the source of lane i
 		constexpr U16 kFinishSel[2][2] = {{0x01}, {0x1032, 0x2301}};
 		for(U32 round = 0; round < laneCount / 2; ++round) {
-			Node* swapped = cx.fn.create<ShuffleNode>(vecTy, acc, acc, kFinishSel[laneCount / 4][round]);
+			U16 sel = kFinishSel[laneCount / 4][round];
+			Node* swapped = cx.fn.create<ShuffleNode>(vecTy, acc, acc, sel);
 			acc = cx.fn.create<BinaryNode>(op, vecTy, acc, swapped);
 		}
 		Node* result = cx.fn.create<ExtractNode>(seed.root->getType(), acc, 0);

@@ -61,12 +61,12 @@ namespace rat {
 		B32 variadic = info.maxInputs < 0;
 		if(count >= (U32)info.minInputs && (variadic || count <= (U32)info.maxInputs))
 			return true;
-		String maxStr = variadic ? "+" : "";
-		if(!variadic && info.maxInputs != info.minInputs)
-			maxStr = ".." + std::to_string(info.maxInputs);
-		err(n,
-				"expects " + std::to_string(info.minInputs) + maxStr + " inputs but has " +
-						std::to_string(count));
+		String range = std::to_string(info.minInputs);
+		if(variadic)
+			range += "+";
+		else if(info.maxInputs != info.minInputs)
+			range += ".." + std::to_string(info.maxInputs);
+		err(n, "expects " + range + " inputs but has " + std::to_string(count));
 		return false;
 	}
 
@@ -442,22 +442,16 @@ namespace rat {
 				err(n, "pointer arithmetic supports only add/sub");
 			else if(!rt->isInt())
 				err(n, "pointer arithmetic offset must be an integer");
-		} else if(lt->isInt() || lt->isVec()) {
-			// a shift amount is one scalar, also for a vector
-			if(shift) {
-				if(!rt->isInt())
-					err(n, "shift amount is not an integer");
-			} else if(rt != lt) {
-				err(n, "binary operands have different types");
-			}
-			if(lt->isVec() && !hasVectorLowering(op, lt->getVecElement()))
-				err(n, "binary opcode has no vector lowering");
-		} else if(lt->isFloat()) {
-			if(rt != lt)
-				err(n, "binary operands have different types");
-		} else {
+		} else if(!lt->isData()) {
 			err(n, "binary operates on a non-data type");
+		} else if(shift && !lt->isFloat()) { // a shift amount is one scalar, also for a vector
+			if(!rt->isInt())
+				err(n, "shift amount is not an integer");
+		} else if(rt != lt) {
+			err(n, "binary operands have different types");
 		}
+		if(lt->isVec() && !hasVectorLowering(op, lt->getVecElement()))
+			err(n, "binary opcode has no vector lowering");
 	}
 
 	// only the SSE4.1-lowerable subset may appear at vector types

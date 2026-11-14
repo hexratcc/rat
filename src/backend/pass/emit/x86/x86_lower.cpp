@@ -369,16 +369,18 @@ namespace rat {
 			return;
 		case Opcode::StackAlloc: {
 			VReg sz = gpValue(cast<StackAllocNode>(n)->getSize());
-			put(X86Op::StackAlloc, {vr(vregFor(n))}, {vr(sz)}).clobbers =
-					detail::scratchBits(); // rounds through the scratch regs
+			MachineInstr& m = put(X86Op::StackAlloc, {vr(vregFor(n))}, {vr(sz)});
+			m.clobbers = detail::scratchBits(); // rounds through the scratch regs
 			return;
 		}
 		case Opcode::StackSave:
 			put(X86Op::StackSave, {vr(vregFor(n))}, {});
 			return;
-		case Opcode::StackRestore:
-			put(X86Op::StackRestore, {}, {vr(gpValue(cast<StackRestoreNode>(n)->getSaved()))});
+		case Opcode::StackRestore: {
+			VReg saved = gpValue(cast<StackRestoreNode>(n)->getSaved());
+			put(X86Op::StackRestore, {}, {vr(saved)});
 			return;
+		}
 		case Opcode::Splat:
 			emitSplat(cast<SplatNode>(n));
 			return;
@@ -466,11 +468,8 @@ namespace rat {
 			if(fusableCompare(pred)) {
 				// fuse the compare into the branch: cmp lhs, rhs; jcc
 				U8 cc = emitCmp(cast<CompareNode>(pred));
-				put(X86Op::Br,
-						{},
-						{blockRef(blk.thenB), blockRef(blk.elseB)},
-						(I64)cc,
-						1); // cc in imm, no predicate
+				Ops targets = {blockRef(blk.thenB), blockRef(blk.elseB)};
+				put(X86Op::Br, {}, std::move(targets), (I64)cc, 1); // cc in imm, no predicate
 				return;
 			}
 			VReg p = gpValue(pred);

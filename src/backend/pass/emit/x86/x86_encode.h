@@ -137,10 +137,11 @@ namespace rat {
 		static void setPoison(List<Poison>& poison, const VarLoc& loc, U32 ok);
 		void applyRecords(VarState& vars, U32 chain, U32 pc);
 		static U32 poisonFlow(const List<Poison>& poison, const MachineInstr& in);
-		static void writePoison(List<Poison>& poison, const MachineOperand& o, B32 partial, U32 flow);
+		static void writePoison(List<Poison>& poison, const VarLoc& loc, B32 partial, U32 flow);
 		static void passPoison(List<Poison>& poison, const MachineInstr& in);
 		void clobber(VarState& vars, const MachineInstr& in, U32 pc);
 		static B32 meet(VarState& into, const VarState& from);
+		U32 pcOrNone(B32 emit) const;
 		void walkBlock(U32 bi, VarState& vars, B32 emit);
 		void solveVars();
 	private:

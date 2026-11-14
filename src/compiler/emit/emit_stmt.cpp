@@ -6,7 +6,9 @@ namespace rat::cc {
 			 (e->binary.op == ExprOp::LogAnd || e->binary.op == ExprOp::LogOr)) {
 			B32 isAnd = e->binary.op == ExprOp::LogAnd;
 			Block* rhsB = fn.createBlock(isAnd ? "and.rhs" : "or.rhs");
-			if(!emitCondBranch(fn, e->binary.lhs, isAnd ? rhsB : trueB, isAnd ? falseB : rhsB))
+			Block* lhsTrueB = isAnd ? rhsB : trueB;
+			Block* lhsFalseB = isAnd ? falseB : rhsB;
+			if(!emitCondBranch(fn, e->binary.lhs, lhsTrueB, lhsFalseB))
 				return false;
 			fn.enterBlock(rhsB);
 			return emitCondBranch(fn, e->binary.rhs, trueB, falseB);
@@ -23,7 +25,9 @@ namespace rat::cc {
 
 	B32 Emitter::emitIf(Function& fn, const Stmt* s) {
 		Block* thenB = fn.createBlock("if.then");
-		Block* elseB = s->elseBody ? fn.createBlock("if.else") : nullptr;
+		Block* elseB = nullptr;
+		if(s->elseBody)
+			elseB = fn.createBlock("if.else");
 		Block* endB = fn.createBlock("if.end");
 		B32 reaches = !elseB;
 
@@ -182,20 +186,21 @@ namespace rat::cc {
 			I64 v;
 			if(!evalConst(c->expr, v))
 				return diag.fail("case label is not an integer constant expression");
-			for(const auto& [key, block] : keyed) {
-				if(key == ((U64)v ^ bias))
+			U64 key = (U64)v ^ bias;
+			for(const auto& [seenKey, block] : keyed)
+				if(seenKey == key)
 					return diag.fail("duplicate case value in switch");
-			}
-			keyed.push_back({(U64)v ^ bias, fn.createBlock("switch.case")});
-			blocks[c] = keyed.back().second;
+			Block* caseB = fn.createBlock("switch.case");
+			keyed.push_back({key, caseB});
+			blocks[c] = caseB;
 		}
-		Block* defaultBlock = nullptr;
+		Block* defaultBlock = exitB;
 		if(defaultStmt) {
 			defaultBlock = fn.createBlock("switch.default");
 			blocks[defaultStmt] = defaultBlock;
 		}
 
-		CaseSet cs{val, ct, {}, {}, defaultBlock ? defaultBlock : exitB};
+		CaseSet cs{val, ct, {}, {}, defaultBlock};
 		std::sort(keyed.begin(), keyed.end()); // keys are unique
 		for(const auto& [key, block] : keyed) {
 			cs.values.push_back((I64)(key ^ bias));
@@ -204,10 +209,7 @@ namespace rat::cc {
 		// a table's one indirect jump mispredicts in hot loops, so a switch in a loop stays a compare tree
 		B32 inLoop = false;
 		for(const LoopFrame& lf : func.loops)
-			if(!lf.isSwitch) {
-				inLoop = true;
-				break;
-			}
+			inLoop |= !lf.isSwitch;
 		if(inLoop || !emitCaseTable(fn, cs))
 			emitCaseTree(fn, cs, 0, (U32)cs.values.size());
 		func.switches.push_back(std::move(blocks));
@@ -223,7 +225,7 @@ namespace rat::cc {
 			fn.jmp(exitB);
 			frame.exitReachable = true;
 		}
-		if(!defaultBlock)
+		if(!defaultStmt)
 			frame.exitReachable = true;
 
 		fn.seal(exitB);
@@ -275,7 +277,8 @@ namespace rat::cc {
 		U32 mid = lo + (hi - lo) / 2;
 		Block* ltB = fn.createBlock("switch.lt");
 		Node* pivot = fn.constInt(irType(cs.ct), cs.values[mid]);
-		fn.jumpif(fn.compare(cs.ct.isUnsigned() ? Opcode::Ult : Opcode::Slt, cs.val, pivot), ltB);
+		Opcode lessOp = cs.ct.isUnsigned() ? Opcode::Ult : Opcode::Slt;
+		fn.jumpif(fn.compare(lessOp, cs.val, pivot), ltB);
 		emitCaseTree(fn, cs, mid, hi); // fallthrough side: val >= pivot
 		fn.enterBlock(ltB);
 		emitCaseTree(fn, cs, lo, mid);
@@ -299,12 +302,9 @@ namespace rat::cc {
 		if(!s)
 			return false;
 		if(s->kind == StmtKind::Decl) {
-			for(const Declarator& d : s->decls) {
-				if(d.isStatic)
-					continue;
-				if(declMayBeVla(d))
+			for(const Declarator& d : s->decls)
+				if(!d.isStatic && declMayBeVla(d))
 					return true;
-			}
 			return false;
 		}
 		for(const Stmt* c : s->body)
@@ -337,13 +337,14 @@ namespace rat::cc {
 		for(const Stmt* child : s->body) {
 			B32 labelLike = child->kind == StmtKind::Label || child->kind == StmtKind::Case ||
 											child->kind == StmtKind::Default;
-			if(fn.blockFinished() && !labelLike && !containsLabel(child) &&
-				 !(!func.switches.empty() && containsSwitchCase(child))) {
+			B32 unreachable = fn.blockFinished() && !labelLike;
+			B32 inSwitch = !func.switches.empty();
+			if(unreachable && !containsLabel(child) && !(inSwitch && containsSwitchCase(child))) {
 				if(child->kind == StmtKind::Decl && !declareDead(fn, child))
 					return false;
 				continue;
 			}
-			if(fn.blockFinished() && !labelLike) {
+			if(unreachable) {
 				Block* dead = fn.createBlock("dead");
 				fn.enterBlock(dead);
 			}
@@ -546,10 +547,9 @@ namespace rat::cc {
 				return diag.fail("unsupported asm input constraint '" + *op.constraint + "'");
 			extra.push_back(op.expr);
 		}
-		for(U32 i = 0; i < tie.size(); ++i) {
+		for(U32 i = 0; i < tie.size(); ++i)
 			if(!tie[i] && !readsBack[i])
 				return diag.fail("asm output operand is not tied to an input, so it has no defined value");
-		}
 
 		List<Type*> outTypes;
 		List<Node*> args;

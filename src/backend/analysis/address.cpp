@@ -14,15 +14,17 @@ namespace rat {
 		// splits, an add or sub splits off only a constant and a shift stays below 31
 		void refineTerm(const Node* n, I64 scale, B32 narrow, I64& constant, Terms& terms, U32 depth) {
 			const BinaryNode* bin = dyn_cast<BinaryNode>(n);
-			// fold puts a lone constant on the right
-			const ConstantNode* rhsConst = bin ? dyn_cast<ConstantNode>(bin->getRHS()) : nullptr;
+			const ConstantNode* rhsConst = nullptr;
+			if(bin)
+				rhsConst = dyn_cast<ConstantNode>(bin->getRHS()); // fold puts a lone constant on the right
 			Opcode op = n->getOpcode();
 			B32 sextOfI32 = op == Opcode::SExt && n->getInput(0)->getType()->isInt() &&
 											n->getInput(0)->getType()->getIntWidth() == 32;
 			B32 is64 = n->getType()->isInt() && n->getType()->getIntWidth() == 64;
 			B32 canSplit = bin && depth < kMaxRefineDepth && (is64 || (narrow && bin->isNsw()));
-			B32 shlScales = op == Opcode::Shl && rhsConst && rhsConst->getValue() >= 0 &&
-											rhsConst->getValue() < 63 - 32 * narrow;
+			I64 maxShift = 63 - 32 * narrow;
+			B32 shlByConst = op == Opcode::Shl && rhsConst;
+			B32 shlScales = shlByConst && rhsConst->getValue() >= 0 && rhsConst->getValue() < maxShift;
 			if(scale == 0) // a cancelled var stays in the key, so a group's pointers share their vars
 				terms.push_back({n, 0});
 			else if(const ConstantNode* c = dyn_cast<ConstantNode>(n))
@@ -30,12 +32,16 @@ namespace rat {
 			else if(sextOfI32 && !narrow)
 				refineTerm(n->getInput(0), scale, true, constant, terms, depth + 1);
 			else if(canSplit && (op == Opcode::Add || op == Opcode::Sub) && (rhsConst || !narrow)) {
-				I64 rhsScale = op == Opcode::Sub ? wrapMul(scale, -1) : scale;
+				I64 rhsSign = op == Opcode::Sub ? -1 : 1;
+				I64 rhsScale = wrapMul(scale, rhsSign);
 				refineTerm(bin->getLHS(), scale, narrow, constant, terms, depth + 1);
 				refineTerm(bin->getRHS(), rhsScale, narrow, constant, terms, depth + 1);
 			} else if(canSplit && rhsConst && (op == Opcode::Mul || shlScales)) {
-				I64 factor = op == Opcode::Mul ? rhsConst->getValue() : (I64)1 << rhsConst->getValue();
-				refineTerm(bin->getLHS(), wrapMul(scale, factor), narrow, constant, terms, depth + 1);
+				I64 factor = rhsConst->getValue();
+				if(op == Opcode::Shl)
+					factor = (I64)1 << factor;
+				I64 lhsScale = wrapMul(scale, factor);
+				refineTerm(bin->getLHS(), lhsScale, narrow, constant, terms, depth + 1);
 			} else
 				terms.push_back({n, scale});
 		}
@@ -90,8 +96,11 @@ namespace rat {
 		detail::mergeTerms(key);
 		B32 hasTerms = !key.empty();
 		key.push_back({base, 0});
-		Addr* entry = hasTerms ? &termGroups.try_emplace(key).first->second
-													 : &baseGroups.try_emplace(base->getId()).first->second;
+		Addr* entry;
+		if(hasTerms)
+			entry = &termGroups.try_emplace(key).first->second;
+		else
+			entry = &baseGroups.try_emplace(base->getId()).first->second;
 		if(!entry->group) {
 			*entry = classifyBase(key);
 			entry->group = (U32)(termGroups.size() + baseGroups.size());
@@ -107,10 +116,11 @@ namespace rat {
 		Addr a;
 		const Node* base = terms.back().first;
 		if(restrictParams)
-			for(U32 i = 0; i + 1 < terms.size(); ++i)
-				if(AliasAnalysis::mayCarryRestrict(
-							 {terms[i].first}, restrictParams, AliasAnalysis::kMaxCarryCone))
+			for(U32 i = 0; i + 1 < terms.size(); ++i) {
+				const Node* var = terms[i].first;
+				if(AliasAnalysis::mayCarryRestrict({var}, restrictParams, AliasAnalysis::kMaxCarryCone))
 					return a;
+			}
 		I32 paramIndex = AliasAnalysis::paramIndex(base);
 		a.param = paramIndex >= 0;
 		if(const GlobalNode* global = dyn_cast<GlobalNode>(base)) {

@@ -53,10 +53,8 @@ namespace rat {
 			return true;
 		VReg s = sseValue(arg);
 		VReg d = vregFor(vp);
-		if(isSqrt)
-			put(X86Op::FSqrt, {vr(d, w)}, {vr(s, w)}, (I64)w);
-		else
-			put(X86Op::FAbs, {vr(d, w)}, {vr(s, w)}, (I64)w);
+		X86Op op = isSqrt ? X86Op::FSqrt : X86Op::FAbs;
+		put(op, {vr(d, w)}, {vr(s, w)}, (I64)w);
 		return true;
 	}
 
@@ -77,8 +75,8 @@ namespace rat {
 		Node* vp = c->projection(CallNode::valueProjIndex());
 		if(callee == "__builtin_va_start") {
 			VReg ptr = gpValue(c->getArg(0));
-			put(X86Op::VaStart, {}, {vr(ptr)}, (I64)fl->namedGp, (I64)fl->namedFp).clobbers =
-					detail::scratchBits();
+			MachineInstr& m = put(X86Op::VaStart, {}, {vr(ptr)}, (I64)fl->namedGp, (I64)fl->namedFp);
+			m.clobbers = detail::scratchBits();
 		} else if(callee == "__builtin_va_arg") {
 			emitVaArg(c);
 		} else if(callee == "__builtin_va_arg_aggregate") {
@@ -102,8 +100,10 @@ namespace rat {
 			if(c->getArgCount() >= 3)
 				if(ConstantNode* loc = dyn_cast<ConstantNode>(c->getArg(2)))
 					l = loc->getValue();
+			if(l < 0 || l > 3)
+				l = 3;
 			VReg p = gpValue(c->getArg(0));
-			put(X86Op::Prefetch, {}, {vr(p)}, 0, (I64)kHint[l < 0 || l > 3 ? 3 : l]);
+			put(X86Op::Prefetch, {}, {vr(p)}, 0, (I64)kHint[l]);
 		} else if(callee == "__builtin_frame_address") {
 			if(vp)
 				put(X86Op::FrameAddr, {vr(vregFor(vp))}, {}, 0);
@@ -237,11 +237,10 @@ namespace rat {
 			return;
 		}
 		if(rt && isX87Ty(rt)) { // st(0) return
-			if(!vp) {
+			if(vp)
+				put(X86Op::X87StoreMem, {sl(x87SlotOf(vp))}, {}, -1);
+			else
 				put(X86Op::X87StoreMem, {}, {}, -2); // pop the unused st(0)
-				return;
-			}
-			put(X86Op::X87StoreMem, {sl(x87SlotOf(vp))}, {}, -1);
 			return;
 		}
 		if(!vp || !rt)
@@ -435,16 +434,24 @@ namespace rat {
 		if(!rt)
 			return;
 		VReg ptr = gpValue(c->getArg(0));
-		VaArgKind kind = isX87Ty(rt) ? VaArgKind::X87 : (isSseTy(rt) ? VaArgKind::Sse : VaArgKind::Int);
+		VaArgKind kind = VaArgKind::Int;
+		if(isX87Ty(rt))
+			kind = VaArgKind::X87;
+		else if(isSseTy(rt))
+			kind = VaArgKind::Sse;
 		U32 w = opWidth(rt);
 		I64 desc = (I64)w;
 		if(kind == VaArgKind::Int && rt->isInt())
 			desc |= (I64)1 << 32; // sign-extend the fetched value
 		MachineOperand def;
-		if(kind == VaArgKind::X87)
-			def = MachineOperand::frameSlot(vp ? x87SlotOf(vp).s : reserve(16));
+		if(kind == VaArgKind::X87 && vp)
+			def = MachineOperand::frameSlot(x87SlotOf(vp).s);
+		else if(kind == VaArgKind::X87)
+			def = MachineOperand::frameSlot(reserve(16));
+		else if(vp)
+			def = vr(vregFor(vp), w);
 		else
-			def = vr(vp ? vregFor(vp) : fresh(classOf(rt)), w);
+			def = vr(fresh(classOf(rt)), w);
 		MachineInstr& m = put(X86Op::VaArg, {def}, {vr(ptr)}, (I64)kind, desc);
 		m.regClass = classOf(rt);
 		m.clobbers = detail::scratchBits();

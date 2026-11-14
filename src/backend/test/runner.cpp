@@ -11,7 +11,6 @@ using namespace rat;
 
 namespace detail {
 	struct RatTestFile {
-		String name;
 		List<String> passes;
 		String input;
 		String expect;
@@ -56,7 +55,6 @@ namespace detail {
 		while(std::getline(ss, line)) {
 			String t = trim(line);
 			if(t.rfind("@name", 0) == 0) {
-				tf.name = trim(t.substr(5));
 				section = 0;
 			} else if(t.rfind("@passes", 0) == 0) {
 				std::istringstream ps(t.substr(7));
@@ -102,10 +100,8 @@ namespace detail {
 		std::ifstream f(path);
 		if(f && readAll(f, text))
 			return true;
-		{
-			err = "cannot read file";
-			return false;
-		}
+		err = "cannot read file";
+		return false;
 	}
 
 	B32 runRatPasses(Module& mod, const List<String>& passes, String& err) {

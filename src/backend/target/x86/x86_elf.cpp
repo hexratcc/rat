@@ -12,6 +12,7 @@ namespace rat {
 		constexpr elf::SectionInfo kStrtab = {".strtab", elf::SHT_STRTAB, 0, 1, 0};
 		constexpr elf::SectionInfo kShstrtab = {".shstrtab", elf::SHT_STRTAB, 0, 1, 0};
 		constexpr elf::SectionInfo kNoteStack = {".note.GNU-stack", elf::SHT_PROGBITS, 0, 1, 0};
+		constexpr elf::SectionInfo kRela = {"", elf::SHT_RELA, elf::SHF_INFO_LINK, 8, kRelaEntSize};
 	} // namespace detail
 
 	U32 ObjectFile::elfSymtab(List<U8>& symtab,
@@ -42,9 +43,11 @@ namespace rat {
 			const Sym& s = syms[oi];
 			B32 placed = i != 0 && s.defined;
 			U8 bind = (i != 0 && s.global) ? elf::STB_GLOBAL : elf::STB_LOCAL;
-			U8 type = !placed ? elf::STT_NOTYPE : (s.isFunc ? elf::STT_FUNC : elf::STT_OBJECT);
+			U8 type = elf::STT_NOTYPE;
 			if(placed && s.isSection)
 				type = elf::STT_SECTION;
+			else if(placed)
+				type = s.isFunc ? elf::STT_FUNC : elf::STT_OBJECT;
 			U16 shndx = !placed ? elf::SHN_UNDEF : (U16)shIndex[s.sec];
 
 			le::put32(symtab, i == 0 ? 0u : nameOff[oi]);				// st_name
@@ -60,12 +63,8 @@ namespace rat {
 	List<U8> ObjectFile::elfRela(const List<const Rel*>& bucket, const List<U32>& remap) {
 		List<U8> out;
 		out.reserve(bucket.size() * detail::kRelaEntSize);
-		for(const Rel* r : bucket) {
-			U64 info = ((U64)remap[r->symIndex] << 32) | (U64)(U32)r->kind;
-			le::put64(out, r->offset);			// r_offset
-			le::put64(out, info);						// r_info
-			le::put64(out, (U64)r->addend); // r_addend
-		}
+		for(const Rel* r : bucket)
+			elf::putRela(out, r->offset, remap[r->symIndex], (U32)r->kind, r->addend);
 		return out;
 	}
 
@@ -92,8 +91,9 @@ namespace rat {
 				continue;
 			relaIndex[s] = (U32)secs.size();
 			String relaName = String(".rela") + info.name;
-			elf::SectionHeader rela = elf::headerOf(
-					{relaName.c_str(), elf::SHT_RELA, elf::SHF_INFO_LINK, 8, detail::kRelaEntSize}, shstr);
+			elf::SectionInfo relaInfo = detail::kRela;
+			relaInfo.name = relaName.c_str();
+			elf::SectionHeader rela = elf::headerOf(relaInfo, shstr);
 			rela.info = shIndex[s];
 			secs.push_back({rela, nullptr});
 		}

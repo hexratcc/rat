@@ -306,10 +306,9 @@ namespace rat::cc {
 				e = makeUnary(lb.offset, ExprOp::Deref, sum);
 			} else if(k == TokKind::Dot || k == TokKind::Arrow) {
 				Token t = advance();
+				const C8* opSpelling = k == TokKind::Arrow ? "->" : ".";
 				if(!check(TokKind::Identifier))
-					return fail(peek(),
-											"expected member name after '" + String(k == TokKind::Arrow ? "->" : ".") +
-													"'");
+					return fail(peek(), "expected member name after '" + String(opSpelling) + "'");
 				Token nameTok = advance();
 				Expr* m = makeExpr(ExprKind::Member, t.offset);
 				m->member.base = e;

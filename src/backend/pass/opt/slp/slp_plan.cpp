@@ -59,7 +59,9 @@ namespace rat {
 		U32 index = planLoad(lanes);
 		if(index == kNoVector)
 			index = planOp(lanes);
-		return index == kNoVector ? planGather(lanes) : index;
+		if(index == kNoVector)
+			index = planGather(lanes);
+		return index;
 	}
 
 	// a constant tuple stays a Pack, one pool load
@@ -217,8 +219,9 @@ namespace rat {
 
 	// how many operand tuples become vector inputs, 0 when they do not fit one vector op
 	U32 SlpPackPass::Plan::operandTuples(const Lanes& lanes, LaneOps& ops) {
-		// a shift amount is one scalar for all lanes
-		U32 tupleCount = isShiftOpcode(ops.mainOp) ? 1 : (U32)getOpcodeInfo(ops.mainOp).minInputs;
+		U32 tupleCount = (U32)getOpcodeInfo(ops.mainOp).minInputs;
+		if(isShiftOpcode(ops.mainOp))
+			tupleCount = 1; // the amount is one scalar for all lanes
 		for(U32 input = 0; input < tupleCount; ++input)
 			for(Node* n : ops.operands[input])
 				if(n->getType() != ops.operands[input][0]->getType())

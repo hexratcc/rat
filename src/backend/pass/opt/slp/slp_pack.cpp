@@ -74,7 +74,9 @@ namespace rat {
 
 	B32 SlpPackPass::Slp::pack(const Seed& seed) {
 		Plan plan(cx, seed);
-		I32 margin = plan.build() ? profitMargin(plan, cx.guards) : -1;
+		I32 margin = -1;
+		if(plan.build())
+			margin = profitMargin(plan, cx.guards);
 		if(margin < 0) {
 			++stats.rejected;
 			return false;

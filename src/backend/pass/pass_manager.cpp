@@ -118,8 +118,8 @@ namespace rat {
 		for(auto& t : sorted) {
 			F64 pct = 100.0 * static_cast<F64>(t.nanos) / static_cast<F64>(total);
 			F64 ms = static_cast<F64>(t.nanos) / 1e6;
-			os << separator << t.name << " " << std::fixed << std::setprecision(3) << ms << "ms ("
-				 << std::setprecision(2) << pct << "%)";
+			os << separator << t.name << " " << std::fixed << std::setprecision(3) << ms;
+			os << "ms (" << std::setprecision(2) << pct << "%)";
 			separator = ", ";
 		}
 		os << "\n";

@@ -144,9 +144,12 @@ namespace rat::cc {
 			return fn.ne(n, fn.constInt(irType(from), 0));
 		Node* r = n;
 		if(from.bits != to.bits) {
-			Type* dst = irType(to);
-			r = to.bits < from.bits ? fn.trunc(n, dst)
-															: (from.isUnsigned() ? fn.zext(n, dst) : fn.sext(n, dst));
+			Opcode resize = Opcode::SExt;
+			if(to.bits < from.bits)
+				resize = Opcode::Trunc;
+			else if(from.isUnsigned())
+				resize = Opcode::ZExt;
+			r = fn.convert(resize, n, irType(to));
 		}
 		return reduceBitfield(fn, r, to);
 	}
@@ -196,10 +199,10 @@ namespace rat::cc {
 			structType = base.type;
 			baseAddr = base.addr;
 		}
-		const Field* f = structType.strukt->find(*e->member.name);
+		const String& memberName = *e->member.name;
+		const Field* f = structType.strukt->find(memberName);
 		if(!f)
-			return diag.fail("no member named '" + *e->member.name + "' in '" + typeName(structType) +
-											 "'");
+			return diag.fail("no member named '" + memberName + "' in '" + typeName(structType) + "'");
 		out.kind = LValue::Kind::Addr;
 		out.addr = f->offset ? fn.add(baseAddr, constSize(fn, f->offset)) : baseAddr;
 		out.type = f->type;
@@ -319,9 +322,9 @@ namespace rat::cc {
 			Node* n = unit;
 			if(hi)
 				n = fn.shl(n, fn.constInt(ty, hi));
+			Opcode shiftDown = lv.type.isUnsigned() ? Opcode::LShr : Opcode::AShr;
 			if(lo)
-				n = lv.type.isUnsigned() ? fn.lshr(n, fn.constInt(ty, lo))
-																 : fn.ashr(n, fn.constInt(ty, lo));
+				n = fn.binary(shiftDown, n, fn.constInt(ty, lo));
 			Type* want = irType(lv.type);
 			return want == ty ? n : fn.trunc(n, want);
 		}
@@ -424,12 +427,12 @@ namespace rat::cc {
 		for(const Global* g : mod.globals()) {
 			if(!g->isAlias())
 				continue;
+			const String& name = g->getName();
 			const String& target = g->getAliasTarget();
 			const Global* t = mod.getGlobal(target);
 			if((t && !t->isAlias()) || mod.getFunction(target))
 				continue;
-			return diag.fail("alias '" + g->getName() + "' names '" + target +
-											 "', which is not defined here");
+			return diag.fail("alias '" + name + "' names '" + target + "', which is not defined here");
 		}
 		return true;
 	}
@@ -514,9 +517,11 @@ namespace rat::cc {
 			abi.ret = returnRegs(def->retType);
 		}
 		List<AbiRegs> regs = lowerParams(def, paramTypes, abi);
-		Type* retTy = sretReturn								 ? mod.getPtr()
-									: isVoidType(def->retType) ? nullptr
-																						 : irType(def->retType);
+		Type* retTy = nullptr;
+		if(sretReturn)
+			retTy = mod.getPtr();
+		else if(!isVoidType(def->retType))
+			retTy = irType(def->retType);
 		Function* fn = mod.createFunction(def->name, paramTypes, retTy);
 		FunctionAttrs& attrs = fn->getAttrs();
 		attrs.variadic = def->isVarArgs;
@@ -532,7 +537,8 @@ namespace rat::cc {
 		collectAddrTaken(def->body);
 		collectLabels(*fn, def->body);
 		func.scopes.push();
-		func.sp = stmtHasVla(def->body) ? fn->stackSave() : nullptr;
+		if(stmtHasVla(def->body))
+			func.sp = fn->stackSave();
 		bindFunctionParams(*fn, def, paramBase, regs);
 		debugFunction(*fn, def);
 		for(const Param& p : def->params) {

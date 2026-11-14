@@ -7,7 +7,9 @@ namespace rat {
 	// leaves right
 	void X86PeepholePass::killWrite(MachineFunc& mf, U32& chain, const MachineInstr& dropped) {
 		MachineOperand loc = dropped.defs.empty() ? dropped.uses[0] : dropped.defs[0];
-		loc.width = detail::isNormalize((X86Op)dropped.op) ? (U8)dropped.imm : 0;
+		loc.width = 0;
+		if(detail::isNormalize((X86Op)dropped.op))
+			loc.width = (U8)dropped.imm;
 		mf.addDbg(chain, kDbgKill, loc);
 	}
 
@@ -21,8 +23,10 @@ namespace rat {
 	// a fold reads the value it finds in place through its uses
 	B32 X86PeepholePass::holdsDiverged(const MachineInstr& in, const List<U32>& diverged) const {
 		for(const MachineOperand& o : in.uses) {
-			U32 v = o.isPhys() ? st.valueOf(o.phys) : 0;
-			if(o.kind == MachineOperand::Kind::FrameSlot)
+			U32 v = 0;
+			if(o.isPhys())
+				v = st.valueOf(o.phys);
+			else if(o.kind == MachineOperand::Kind::FrameSlot)
 				v = st.slotValue(o.slot, o.width);
 			if(v && std::find(diverged.begin(), diverged.end(), v) != diverged.end())
 				return true;

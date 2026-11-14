@@ -53,8 +53,7 @@ namespace rat {
 		B32 isPhys() const { return kind == Kind::Phys; }
 	};
 
-	// a debug var inst lives in loc from here on, a None loc is optimized out. a kDbgKill record marks
-	// loc wrong past its first width bits
+	// a debug var inst lives in loc from here on, a None loc is optimized out
 	struct DbgRec {
 		U32 inst;
 		MachineOperand loc;

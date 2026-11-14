@@ -272,7 +272,7 @@ namespace rat::cc {
 		Value emitIncDec(Function& fn, const Expr* expr);
 		Value emitBinary(Function& fn, const Expr* expr);
 		Value emitComplexBinary(Function& fn, ExprOp op, Value lhs, Value rhs);
-		Value emitShift(Function& fn, ExprOp op, Value lhs, Value rhs);
+		Value emitArithValue(Function& fn, ExprOp op, Value lhs, Value rhs, CType lt, CType rt);
 		Value emitLogicalBinary(Function& fn, const Expr* expr);
 		Value emitComparison(Function& fn, ExprOp op, Value lhs, Value rhs);
 		Value emitPtrArith(Function& fn, ExprOp op, Value lhs, Value rhs);
@@ -327,6 +327,7 @@ namespace rat::cc {
 		Value voidValue(Function& fn);
 		Node* vaListRef(Function& fn, const Expr* ap);
 		B32 oneArg(const Expr* e);
+		B32 failBuiltin(const String& msg);
 		Wide wideExtend(Function& fn, Node* v, CType from);
 		Wide wideAddSub(Function& fn, Wide a, Wide b, B32 sub);
 		Wide wideMul(Function& fn, Wide a, Wide b);

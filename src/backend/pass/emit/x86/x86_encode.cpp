@@ -584,8 +584,12 @@ namespace rat {
 		if(!f.getDebug())
 			return;
 		for(const DebugVarInst& v : f.getDebug()->vars) {
-			I32 off = v.slot ? fl->allocOff[v.slot->getId()] : detail::kNoSlot;
-			I32 cfaOff = off == detail::kNoSlot ? kNoFrameSlot : off - detail::kCfaFromRbp;
+			I32 cfaOff = kNoFrameSlot;
+			if(v.slot) {
+				I32 slotOff = fl->allocOff[v.slot->getId()];
+				if(slotOff != detail::kNoSlot)
+					cfaOff = slotOff - detail::kCfaFromRbp;
+			}
 			encodedFunc->varFrameOff.push_back(cfaOff);
 		}
 	}
@@ -646,8 +650,10 @@ namespace rat {
 	// like gcc's max-vartrack-size, huge functions keep their vars without locations
 	void X86EncodePass::trackVars(U32 instCount) {
 		varsIn.clear();
-		const DebugBody* body = encodedFunc ? encodedFunc->fn->getDebug() : nullptr;
-		if(body && fn->dbg.size() > 1 && (U64)instCount * body->vars.size() <= kMaxVarTrackCost)
+		if(!encodedFunc || fn->dbg.size() <= 1)
+			return;
+		const DebugBody* body = encodedFunc->fn->getDebug();
+		if(body && (U64)instCount * body->vars.size() <= kMaxVarTrackCost)
 			solveVars();
 	}
 

@@ -71,11 +71,11 @@ namespace rat {
 	void X86LowerPass::ld(VReg d, Slot s) { put(X86Op::Load, {vr(d)}, {sl(s)}); }
 
 	void X86LowerPass::ld(VReg d, U32 w, const AddrParts& a, B32 sign) {
-		put(X86Op::Load, {vr(d, w)}, addrUses(a), a.disp, sibBits(sign ? 1 : 0, a));
+		put(X86Op::Load, {vr(d, w)}, addrUses(a), a.disp, sibBits(sign, a));
 	}
 
 	void X86LowerPass::ld(VReg d, U32 w, VReg base, B32 sign) {
-		put(X86Op::Load, {vr(d, w)}, {vr(base)}, 0, sign ? 1 : 0);
+		put(X86Op::Load, {vr(d, w)}, {vr(base)}, 0, sign);
 	}
 
 	void X86LowerPass::st(VReg base, MachineOperand src) {
@@ -167,7 +167,8 @@ namespace rat {
 			opc = 0x15; // blendvpd
 		I64 desc = vecDesc(0x66, opc, 0x38);
 		movaps(xmm(0, 16), mask);
-		farith(X86Op::VArith, d, f, t, 16, desc).uses.push_back(xm(xmm(0, 16)));
+		MachineInstr& m = farith(X86Op::VArith, d, f, t, 16, desc);
+		m.uses.push_back(xm(xmm(0, 16)));
 	}
 
 	// x87

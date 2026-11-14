@@ -15,10 +15,9 @@ namespace rat {
 	// consecutive nodes mostly share a location, reuse the last entry then
 	U32 DebugBody::addLoc(SrcLoc src, U32 scope) {
 		const DebugLoc& last = locs.back();
-		if(locs.size() > 1 && last.scope == scope && last.src.file == src.file &&
-			 last.src.line == src.line && last.src.col == src.col)
-			return (U32)locs.size() - 1;
-		locs.push_back({src, scope});
+		B32 sameSrc = last.src.file == src.file && last.src.line == src.line && last.src.col == src.col;
+		if(locs.size() <= 1 || last.scope != scope || !sameSrc)
+			locs.push_back({src, scope});
 		return (U32)locs.size() - 1;
 	}
 	// a constant keeps its value wherever it sits, so it needs no link
@@ -42,9 +41,12 @@ namespace rat {
 
 	void DebugBody::mergeArm(Node* arm, Node* to) {
 		U32 id = arm->getId();
-		for(U32 r = id < refHead.size() ? refHead[id] : 0; r; r = refs[r - 1].next)
-			if(DebugBinding& b = bindings[refs[r - 1].binding]; b.anchor == arm)
-				b.value = nullptr;
+		if(id < refHead.size())
+			for(U32 r = refHead[id]; r; r = refs[r - 1].next) {
+				DebugBinding& b = bindings[refs[r - 1].binding];
+				if(b.anchor == arm)
+					b.value = nullptr;
+			}
 		retarget(arm, to);
 	}
 

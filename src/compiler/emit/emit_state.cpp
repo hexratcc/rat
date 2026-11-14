@@ -17,8 +17,10 @@ namespace rat::cc {
 	Failed Diagnostics::fail(const String& m) {
 		if(failed)
 			return {};
-		message =
-				m + " [@" + std::to_string(offset) + (function.empty() ? "" : " in " + function) + "]";
+		message = m + " [@" + std::to_string(offset);
+		if(!function.empty())
+			message += " in " + function;
+		message += "]";
 		failed = true;
 		return {};
 	}

@@ -111,10 +111,8 @@ namespace rat::cc {
 		}
 		if(!haveLen)
 			count = maxIdx + 1;
-		else if(maxIdx >= count) {
-			failTooManyInits();
-			return false;
-		}
+		else if(maxIdx >= count)
+			return failTooManyInits();
 		if(count > 0)
 			return true;
 		return failArrayCount();

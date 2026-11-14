@@ -92,7 +92,7 @@ namespace rat {
 		void describeVar(Die& d, const DebugVar& v);
 		void describeFunc(Die& d, const String& name, const DebugFunc& f, B32 external);
 		List<U8> locExpr(const VarLoc& loc, B32 indirect);
-		void offsetPair(List<U8>& out, U32 start, U32 end);
+		void offsetPair(List<U8>& out, U32 textOff, U32 start, U32 end);
 
 		struct ScopeTree {
 			const EncodedFunc& func;

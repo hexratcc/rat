@@ -212,14 +212,13 @@ namespace rat {
 		}
 	private:
 		void* allocate(U64 size, U64 align) {
-			C8* aligned = cur ? detail::alignPtr(cur, align) : nullptr;
-			if(!aligned || aligned + size > end) {
-				U64 chunkSize = size + align > detail::kDefaultChunk ? size + align : detail::kDefaultChunk;
+			if(!cur || detail::alignPtr(cur, align) + size > end) {
+				U64 chunkSize = std::max(size + align, detail::kDefaultChunk);
 				chunks.push_back(UniquePtr<C8[]>(new C8[chunkSize]));
 				cur = chunks.back().get();
 				end = cur + chunkSize;
-				aligned = detail::alignPtr(cur, align);
 			}
+			C8* aligned = detail::alignPtr(cur, align);
 			cur = aligned + size;
 			return aligned;
 		}

@@ -25,8 +25,7 @@ namespace rat {
 			}
 			std::sort(files.begin(), files.end());
 			std::sort(subdirs.begin(), subdirs.end());
-			for(const String& f : files)
-				out.push_back(f);
+			out.insert(out.end(), files.begin(), files.end());
 			for(const String& s : subdirs)
 				collectCases(s, ext, out);
 		}
@@ -51,11 +50,13 @@ namespace rat {
 					err = "unhandled exception";
 				}
 				std::lock_guard<std::mutex> lock(ioMtx);
-				std::cout << (ok ? "PASS  " : "FAIL  ") << cases[i] << (ok ? String() : ": " + err) << "\n";
-				if(ok)
+				if(ok) {
+					std::cout << "PASS  " << cases[i] << "\n";
 					++passed;
-				else
+				} else {
+					std::cout << "FAIL  " << cases[i] << ": " << err << "\n";
 					failures.push_back(cases[i]);
+				}
 			}
 		}
 	} // namespace detail
@@ -72,7 +73,8 @@ namespace rat {
 				String num = arg.substr(2);
 				if(num.empty() && i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9')
 					num = argv[++i];
-				jobs = (U32)std::max<I64>(1, std::strtol(num.c_str(), nullptr, 10));
+				I64 requestedJobs = std::strtol(num.c_str(), nullptr, 10);
+				jobs = (U32)std::max<I64>(1, requestedJobs);
 			} else {
 				cases.push_back(arg);
 			}

@@ -201,9 +201,7 @@ namespace rat {
 
 	U32 SCCPPass::rewrite(Function& fn) {
 		U32 changed = 0;
-		List<Node*> work;
-		for(Node* n : fn)
-			work.push_back(n);
+		List<Node*> work(fn.begin(), fn.end());
 		for(Node* n : work) {
 			if(isa<ConstantNode>(n) || !isValueNode(n) || !n->hasUsers())
 				continue;

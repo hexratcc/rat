@@ -116,7 +116,9 @@ namespace rat {
 			addWindow(seed, chain, next);
 			++stats.windowsSeen;
 		}
-		return pack(seed) ? (U32)seed.stores.size() : 0;
+		if(!pack(seed))
+			return 0;
+		return (U32)seed.stores.size();
 	}
 
 	// bytes / element size stores from chain[start] of one type and group that fill one span

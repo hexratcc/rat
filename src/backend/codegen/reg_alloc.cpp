@@ -279,7 +279,9 @@ namespace rat {
 					MachineOperand& o = fn->dbg[r].loc;
 					if(!o.isVReg() || cross[o.vreg])
 						continue;
-					if(!(k < blk.insts.size() && covers(o.vreg, u)) && !(k > 0 && covers(o.vreg, u - 1)))
+					B32 liveBefore = k < blk.insts.size() && covers(o.vreg, u);
+					B32 justWritten = k > 0 && covers(o.vreg, u - 1);
+					if(!liveBefore && !justWritten)
 						o = MachineOperand::none(o.width);
 				}
 			}
