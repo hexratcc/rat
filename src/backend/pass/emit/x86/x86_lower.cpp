@@ -85,7 +85,7 @@ namespace rat {
 	I32 X86LowerPass::reserve(U32 bytes, U32 align) {
 		align = std::clamp(align, 8u, 16u);
 		out->frameBytes += bytes;
-		out->frameBytes = (out->frameBytes + align - 1u) & ~(align - 1u);
+		out->frameBytes = (U32)alignUp(out->frameBytes, align);
 		return -(I32)out->frameBytes;
 	}
 
@@ -93,7 +93,7 @@ namespace rat {
 		for(const Node* n : sched->allocNodes()) {
 			const AllocNode* al = cast<AllocNode>(n);
 			U32 sz = std::max(al->getAllocType()->byteSize(ptrBytes), 8u);
-			fl->allocOff[n->getId()] = reserve((sz + 7u) & ~7u, al->getAlign());
+			fl->allocOff[n->getId()] = reserve((U32)alignUp(sz, 8), al->getAlign());
 		}
 		if(conv->x87ByRef && isX87Ty(fn->getReturnType()))
 			fl->sretSlot = reserve(8); // stash for the hidden x87 sret pointer
@@ -579,7 +579,7 @@ namespace rat {
 
 		I32 x86AllocSlot(MachineFunc& fn, U32, U32 width) {
 			fn.frameBytes += width < 8 ? 8 : width;
-			fn.frameBytes = (fn.frameBytes + 7u) & ~7u;
+			fn.frameBytes = (U32)alignUp(fn.frameBytes, 8);
 			return -(I32)fn.frameBytes;
 		}
 

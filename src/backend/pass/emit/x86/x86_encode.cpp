@@ -203,7 +203,7 @@ namespace rat {
 				targetIdx = i;
 		}
 
-		U32 total = ((U32)in.imm + conv->shadowBytes + 15u) & ~15u;
+		U32 total = (U32)alignUp((U32)in.imm + conv->shadowBytes, 16);
 		if(total)
 			a->subRegImm32(RSP, (I32)total);
 		I32 off = (I32)conv->shadowBytes;
@@ -219,7 +219,7 @@ namespace rat {
 			}
 			if(u.kind == MachineOperand::Kind::FrameSlot) {
 				if(u.width == 16) { // by-value x87
-					off = (off + 15) & ~15;
+					off = (I32)alignUp((U32)off, 16);
 					fldSlot(u);
 					a->fstpT(RSP, off);
 					off += 16;
@@ -626,7 +626,7 @@ namespace rat {
 	U32 X86EncodePass::planFrame() {
 		const MachineFunc& f = *fn;
 		U32 saveBytes = 8u * (U32)f.usedCalleeSaved.size();
-		frameSize = ((f.frameBytes + saveBytes + 15u) & ~15u) - saveBytes;
+		frameSize = (U32)alignUp(f.frameBytes + saveBytes, 16) - saveBytes;
 		hasDynAlloca = false;
 		B32 framey = f.frameBytes != 0 || saveBytes != 0 || fl->variadic;
 		U32 instCount = 0;

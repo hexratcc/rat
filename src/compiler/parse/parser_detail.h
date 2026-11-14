@@ -26,8 +26,6 @@ namespace rat::cc::detail {
 	B32 isTypeQualifier(TokKind kind);
 	B32 isQualOrStorage(TokKind kind);
 	B32 isTypeStart(TokKind kind);
-
-	U64 alignUp(U64 value, U32 align);
 } // namespace rat::cc::detail
 
 #endif

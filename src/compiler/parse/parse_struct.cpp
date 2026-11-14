@@ -13,7 +13,7 @@ namespace rat::cc {
 
 	// the next slot that fits align; a union starts every member at 0
 	U64 Parser::placeMember(U64 size, U32 align, B32 isUnion, StructLayout& l) {
-		U64 at = isUnion ? 0 : detail::alignUp(l.offset, align);
+		U64 at = isUnion ? 0 : alignUp(l.offset, align);
 		if(isUnion) {
 			if(size > l.offset)
 				l.offset = size;
@@ -77,7 +77,7 @@ namespace rat::cc {
 				l.offset = unitBytes;
 		} else {
 			if(w == 0 || l.bitPos % unitBits + (U32)w > unitBits)
-				l.bitPos = detail::alignUp(l.bitPos, unitBits);
+				l.bitPos = alignUp(l.bitPos, unitBits);
 			unitStart = l.bitPos / unitBits * unitBytes;
 		}
 		if(w > 0 && f.name) {
@@ -175,7 +175,7 @@ namespace rat::cc {
 		if(!expect(TokKind::RBrace, "'}'"))
 			return false;
 		st->align = l.align;
-		st->size = detail::alignUp(l.offset, l.align);
+		st->size = alignUp(l.offset, l.align);
 		st->complete = true;
 		return true;
 	}
@@ -223,7 +223,7 @@ namespace rat::cc {
 			return false;
 		if(declAlign > st->align) {
 			st->align = declAlign;
-			st->size = detail::alignUp(st->size, declAlign);
+			st->size = alignUp(st->size, declAlign);
 		}
 		CType t;
 		t.strukt = st;

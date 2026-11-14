@@ -53,10 +53,6 @@ namespace rat::cc {
 				return isQualOrStorage(kind);
 			}
 		}
-
-		U64 alignUp(U64 value, U32 align) {
-			return align <= 1 ? value : (value + align - 1) / align * align;
-		}
 	} // namespace detail
 
 	// a type keyword, qualifier, storage class or typedef name
