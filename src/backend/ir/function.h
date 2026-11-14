@@ -143,8 +143,7 @@ namespace rat {
 		List<Node*> inlineAsm(const String& text, const List<Type*>& outs, const Nodes& args);
 
 		// control
-		IfNode* iff(Node* predicate);
-		ProjNode* proj(Node* tuple, U32 index, Type* type, String label = "");
+		ProjNode* proj(Node* tuple, U32 index, Type* type, const C8* label);
 		PhiNode* phi(Type* type, RegionNode* region, const Nodes& values);
 
 		// block api
@@ -222,7 +221,7 @@ namespace rat {
 		// calls
 		void bindEffects(Node* n);
 		Node* emitCall(
-				const String& sym, const Nodes& ins, Type* ret, B32 indirect, B32 va, const CallAbi& abi);
+				const String& sym, Node* target, const Nodes& args, Type* ret, B32 va, const CallAbi& abi);
 
 		// signature
 		Module* mod;

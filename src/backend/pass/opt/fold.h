@@ -44,7 +44,7 @@ namespace rat {
 		Node* foldConvert(Function& fn, Opcode op, Node* operand, Type* destType);
 		Node* foldBinaryIdentity(Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, Node* rhs);
 		Node* foldSExtMask(Function& fn, Type* ty, Node* lhs, Node* rhs);
-		Node* foldRotate(Function& fn, Type* ty, U32 w, Node* lhs, Node* rhs);
+		Node* foldRotate(Function& fn, U32 w, Node* lhs, Node* rhs);
 		Node* foldBinaryReassoc(
 				Function& fn, Opcode op, Type* ty, U32 w, Node* lhs, ConstantNode* cr, B32 nsw);
 		Node*

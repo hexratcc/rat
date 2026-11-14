@@ -249,7 +249,6 @@ namespace rat {
 			Node* emitLoad(const Vector& vec, Type* vecTy, Plan& plan);
 			Node* loadAt(const Vector& vec, Type* ty, I64 offset, Plan& plan);
 			Node* emitOp(const Vector& vec, Type* vecTy, const Plan& plan);
-			Node* makeOp(Opcode op, Type* vecTy, Node* const* inputs);
 			Node* emitWideStores(const Plan& plan, Node* ctrl);
 			Node* emitGuardCascade(const Plan& plan, Node*& firstIf, Node*& elseP);
 			void moveToElse(const Plan& plan, Node* block, Node* elseP, const Check& check);

@@ -108,16 +108,13 @@ namespace rat {
 
 	// function entry
 	struct StartNode : Node {
-		StartNode(Function& fn, Type* tupleType, U32 paramCount);
+		StartNode(Function& fn, Type* tupleType);
 
 		// tuple producer whose projections are the entry control token, the initial memory state, and
 		// one projection per parameter
 		static constexpr U32 controlProjIndex() { return 0; }
 		static constexpr U32 memoryProjIndex() { return 1; }
 		static constexpr U32 paramProjIndex(U32 index) { return 2 + index; }
-		U32 getParamCount() const;
-	private:
-		U32 paramCount;
 	};
 
 	// function exit
@@ -136,15 +133,14 @@ namespace rat {
 	// carries one value per Region predecessor
 	struct RegionNode : Node {
 		// one input per predecessor control edge
-		RegionNode(Function& fn, Type* controlType, const List<Node*>& preds);
+		RegionNode(Function& fn, Type* controlType, const List<Node*>& preds, B32 loopHeader = false);
 
 		U32 getPredecessorCount() const;
 		Node* getPredecessor(U32 index) const;
 
 		B32 isLoopHeader() const;
-		void setLoopHeader(B32 value = true);
 	private:
-		B32 loopHeader = false;
+		B32 loopHeader;
 	};
 
 	struct IfNode : Node {
@@ -167,7 +163,6 @@ namespace rat {
 
 	// selects element from a tuple producer (Start, If, Call, Switch)
 	struct ProjNode : Node {
-		ProjNode(Function& fn, Type* type, Node* tuple, U32 index, const String& label = String());
 		ProjNode(Function& fn, Type* type, Node* tuple, U32 index, const C8* label);
 
 		Node* getProducer() const;
@@ -289,7 +284,6 @@ namespace rat {
 		CallNode(Function& fn,
 						 Type* tupleType,
 						 String callee,
-						 B32 returnsValue,
 						 const List<Node*>& controlMemoryArgs,
 						 B32 indirect = false);
 
@@ -313,7 +307,6 @@ namespace rat {
 		static constexpr U32 valueProjIndex() { return 2; }
 	private:
 		String callee;
-		B32 hasReturnValue;
 		B32 varArgs = true;
 		B32 indirect;
 		CallAbi abi;
@@ -486,7 +479,10 @@ namespace rat {
 	B32 isControlNode(const Node* n);
 	// the state a load, store, call, asm or stack op reads, else null
 	Node* memoryInput(const Node* n);
+	// same kind and payload with null inputs, null for Start, Stop, Return and MemMerge
 	Node* cloneShell(Function& into, const Node* n);
+	// a Binary, Unary, Compare, Convert or Select node of op on its inputs, null for other ops
+	Node* createArith(Function& fn, Opcode op, Type* type, Node* const* inputs);
 } // namespace rat
 
 #endif

@@ -163,11 +163,8 @@ namespace rat {
 	Node* AnchoredNode::getControl() const { return getInput(0); }
 	Node* AnchoredNode::getMemory() const { return getInput(1); }
 
-	StartNode::StartNode(Function& fn, Type* tupleType, U32 paramCount)
-	: Node(fn, Opcode::Start, tupleType, {}),
-		paramCount(paramCount) {}
-
-	U32 StartNode::getParamCount() const { return paramCount; }
+	StartNode::StartNode(Function& fn, Type* tupleType)
+	: Node(fn, Opcode::Start, tupleType, {}) {}
 
 	StopNode::StopNode(Function& fn, Type* controlType)
 	: Node(fn, Opcode::Stop, controlType, {}) {}
@@ -178,13 +175,13 @@ namespace rat {
 	B32 ReturnNode::hasValue() const { return getInputCount() > 2; }
 	Node* ReturnNode::getValue() const { return hasValue() ? getInput(2) : nullptr; }
 
-	RegionNode::RegionNode(Function& fn, Type* controlType, const List<Node*>& preds)
-	: Node(fn, Opcode::Region, controlType, preds) {}
+	RegionNode::RegionNode(Function& fn, Type* controlType, const List<Node*>& preds, B32 loopHeader)
+	: Node(fn, Opcode::Region, controlType, preds),
+		loopHeader(loopHeader) {}
 
 	U32 RegionNode::getPredecessorCount() const { return getInputCount(); }
 	Node* RegionNode::getPredecessor(U32 index) const { return getInput(index); }
 	B32 RegionNode::isLoopHeader() const { return loopHeader; }
-	void RegionNode::setLoopHeader(B32 value) { loopHeader = value; }
 
 	IfNode::IfNode(Function& fn, Type* tupleType, Node* control, Node* predicate)
 	: Node(fn, Opcode::If, tupleType, {control, predicate}) {}
@@ -198,11 +195,6 @@ namespace rat {
 	Node* SwitchNode::getControl() const { return getInput(0); }
 	Node* SwitchNode::getSelector() const { return getInput(1); }
 	U32 SwitchNode::getSlotCount() const { return getType()->getTupleElementCount(); }
-
-	ProjNode::ProjNode(Function& fn, Type* type, Node* tuple, U32 index, const String& label)
-	: Node(fn, Opcode::Proj, type, {tuple}),
-		index(index),
-		label(fn.internString(label.c_str(), label.size())) {}
 
 	ProjNode::ProjNode(Function& fn, Type* type, Node* tuple, U32 index, const C8* label)
 	: Node(fn, Opcode::Proj, type, {tuple}),
@@ -263,12 +255,10 @@ namespace rat {
 	CallNode::CallNode(Function& fn,
 										 Type* tupleType,
 										 String callee,
-										 B32 returnsValue,
 										 const List<Node*>& controlMemoryArgs,
 										 B32 indirect)
 	: AnchoredNode(fn, Opcode::Call, tupleType, controlMemoryArgs),
 		callee(std::move(callee)),
-		hasReturnValue(returnsValue),
 		indirect(indirect) {}
 
 	U32 AbiRegs::countOf(AbiClass c) const { return (U32)std::count(cls, cls + count, c); }
@@ -281,7 +271,7 @@ namespace rat {
 	// indirect calls reserve one extra input (index 2) for the target pointer
 	U32 CallNode::getArgCount() const { return getInputCount() - 2 - (indirect ? 1 : 0); }
 	Node* CallNode::getArg(U32 index) const { return getInput(2 + (indirect ? 1 : 0) + index); }
-	B32 CallNode::returnsValue() const { return hasReturnValue; }
+	B32 CallNode::returnsValue() const { return getType()->getTupleElementCount() == 3; }
 	B32 CallNode::isIndirect() const { return indirect; }
 	Node* CallNode::getTarget() const { return indirect ? getInput(2) : nullptr; }
 
@@ -392,21 +382,8 @@ namespace rat {
 		Type* t = n->getType();
 		List<Node*> nulls(n->getInputCount(), nullptr);
 		switch(op) {
-		case Opcode::Start:
-			return into.create<StartNode>(t, cast<StartNode>(n)->getParamCount());
-		case Opcode::Stop: {
-			StopNode* s = into.create<StopNode>(t);
-			for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
-				s->addInput(nullptr);
-			return s;
-		}
-		case Opcode::Return:
-			return into.create<ReturnNode>(t, nulls);
-		case Opcode::Region: {
-			RegionNode* r = into.create<RegionNode>(t, nulls);
-			r->setLoopHeader(cast<RegionNode>(n)->isLoopHeader());
-			return r;
-		}
+		case Opcode::Region:
+			return into.create<RegionNode>(t, nulls, cast<RegionNode>(n)->isLoopHeader());
 		case Opcode::If:
 			return into.create<IfNode>(t, nullptr, nullptr);
 		case Opcode::Switch:
@@ -431,8 +408,7 @@ namespace rat {
 		}
 		case Opcode::Call: {
 			const CallNode* c = cast<CallNode>(n);
-			CallNode* clone =
-					into.create<CallNode>(t, c->getCallee(), c->returnsValue(), nulls, c->isIndirect());
+			CallNode* clone = into.create<CallNode>(t, c->getCallee(), nulls, c->isIndirect());
 			clone->setAbi(c->getAbi());
 			return clone;
 		}
@@ -460,26 +436,31 @@ namespace rat {
 			return into.create<PackNode>(t, nulls);
 		case Opcode::Shuffle:
 			return into.create<ShuffleNode>(t, nullptr, nullptr, cast<ShuffleNode>(n)->getSelector());
-		case Opcode::Select:
-			return into.create<SelectNode>(t, nullptr, nullptr, nullptr);
 		default:
 			break;
 		}
-		switch(getOpClass(op)) {
-		case OpClass::Binary: {
-			BinaryNode* b = into.create<BinaryNode>(op, t, nullptr, nullptr);
+		Node* noInputs[3] = {};
+		Node* clone = createArith(into, op, t, noInputs);
+		if(BinaryNode* b = dyn_cast<BinaryNode>(clone))
 			b->setNsw(cast<BinaryNode>(n)->isNsw());
-			return b;
-		}
+		return clone;
+	}
+
+	Node* createArith(Function& fn, Opcode op, Type* type, Node* const* inputs) {
+		switch(getOpClass(op)) {
+		case OpClass::Binary:
+			return fn.create<BinaryNode>(op, type, inputs[0], inputs[1]);
 		case OpClass::Unary:
-			return into.create<UnaryNode>(op, t, nullptr);
+			return fn.create<UnaryNode>(op, type, inputs[0]);
 		case OpClass::Compare:
-			return into.create<CompareNode>(op, t, nullptr, nullptr);
+			return fn.create<CompareNode>(op, type, inputs[0], inputs[1]);
 		case OpClass::Convert:
-			return into.create<ConvertNode>(op, t, nullptr);
+			return fn.create<ConvertNode>(op, type, inputs[0]);
 		case OpClass::None:
 			break;
 		}
+		if(op == Opcode::Select)
+			return fn.create<SelectNode>(type, inputs[0], inputs[1], inputs[2]);
 		return nullptr;
 	}
 

@@ -69,8 +69,7 @@ namespace rat {
 		auto [anchor, anchorOffset] = it->second;
 		if(offset == anchorOffset)
 			return anchor;
-		Node* delta = cx.fn.create<ConstantNode>(cx.fn.types().getInt(64), offset - anchorOffset);
-		return cx.fn.create<BinaryNode>(Opcode::Add, ptr->getType(), anchor, delta);
+		return cx.fn.add(anchor, cx.fn.constInt(cx.fn.types().getInt(64), offset - anchorOffset));
 	}
 
 	// plan order puts operands first, so an Op finds their nodes
@@ -126,25 +125,11 @@ namespace rat {
 				inputs[i] = plan.vectors[vec.operands[i]].node;
 		if(vec.shiftAmount)
 			inputs[1] = vec.shiftAmount;
-		Node* result = makeOp(vec.mainOp, vecTy, inputs);
+		Node* result = createArith(cx.fn, vec.mainOp, vecTy, inputs);
 		if(vec.altOp == kNoOp)
 			return result;
-		return cx.fn.create<ShuffleNode>(vecTy, result, makeOp(vec.altOp, vecTy, inputs), vec.sel);
-	}
-
-	Node* SlpPackPass::Emitter::makeOp(Opcode op, Type* vecTy, Node* const* inputs) {
-		switch(getOpClass(op)) {
-		case OpClass::Binary:
-			return cx.fn.create<BinaryNode>(op, vecTy, inputs[0], inputs[1]);
-		case OpClass::Unary:
-			return cx.fn.create<UnaryNode>(op, vecTy, inputs[0]);
-		case OpClass::Compare:
-			return cx.fn.create<CompareNode>(op, vecTy, inputs[0], inputs[1]);
-		case OpClass::Convert:
-			return cx.fn.create<ConvertNode>(op, vecTy, inputs[0]);
-		default:
-			return cx.fn.create<SelectNode>(vecTy, inputs[0], inputs[1], inputs[2]);
-		}
+		Node* alt = createArith(cx.fn, vec.altOp, vecTy, inputs);
+		return cx.fn.create<ShuffleNode>(vecTy, result, alt, vec.sel);
 	}
 
 	void SlpPackPass::Emitter::commitRun(const Plan& plan) {
@@ -209,19 +194,17 @@ namespace rat {
 		Node* runPtr = seed.lowestStores[0]->getPointer();
 		U32 elemSize = seed.lowestStores[0]->getValue()->getType()->byteSize(cx.ptrBytes);
 		I64 runBytes = (I64)(seed.stores.size() * elemSize);
-		Node* runSize = fn.create<ConstantNode>(fn.types().getInt(64), runBytes);
-		Node* runEnd = fn.create<BinaryNode>(Opcode::Add, runPtr->getType(), runPtr, runSize);
+		Node* runEnd = fn.add(runPtr, fn.constInt(fn.types().getInt(64), runBytes));
 		Node* ctrl = seed.stores.back()->getControl();
 		List<Node*> fails;
 		for(const GuardRange& range : plan.guards) {
-			Node* rangeSize = fn.create<ConstantNode>(fn.types().getInt(64), range.end - range.begin);
-			Node* rangeEnd =
-					fn.create<BinaryNode>(Opcode::Add, range.ptr->getType(), range.ptr, rangeSize);
-			Node* endsBefore = fn.create<CompareNode>(Opcode::Ule, fn.boolTy(), rangeEnd, runPtr);
+			Node* rangeSize = fn.constInt(fn.types().getInt(64), range.end - range.begin);
+			Node* rangeEnd = fn.add(range.ptr, rangeSize);
+			Node* endsBefore = fn.compare(Opcode::Ule, rangeEnd, runPtr);
 			Node* before = fn.create<IfNode>(iffTy, ctrl, endsBefore);
 			Node* beforeThen = fn.create<ProjNode>(ctrlTy, before, IfNode::thenProjIndex(), "slp.then");
 			Node* beforeElse = fn.create<ProjNode>(ctrlTy, before, IfNode::elseProjIndex(), "slp.chk");
-			Node* startsAfter = fn.create<CompareNode>(Opcode::Ule, fn.boolTy(), runEnd, range.ptr);
+			Node* startsAfter = fn.compare(Opcode::Ule, runEnd, range.ptr);
 			Node* after = fn.create<IfNode>(iffTy, beforeElse, startsAfter);
 			Node* afterThen = fn.create<ProjNode>(ctrlTy, after, IfNode::thenProjIndex(), "slp.then");
 			if(fails.empty())

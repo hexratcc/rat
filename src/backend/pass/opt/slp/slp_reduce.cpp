@@ -84,18 +84,18 @@ namespace rat {
 		Node* acc = plan.tupleNode(0);
 		Type* vecTy = acc->getType();
 		for(U32 i = 1; i < plan.tupleVectors.size(); ++i)
-			acc = cx.fn.create<BinaryNode>(op, vecTy, acc, plan.tupleNode(i));
+			acc = cx.fn.binary(op, acc, plan.tupleNode(i));
 		U32 laneCount = vecTy->getVecLanes();
 		// finish shuffles by [laneCount / 4][round], nibble i is the source of lane i
 		constexpr U16 kFinishSel[2][2] = {{0x01}, {0x1032, 0x2301}};
 		for(U32 round = 0; round < laneCount / 2; ++round) {
 			U16 sel = kFinishSel[laneCount / 4][round];
 			Node* swapped = cx.fn.create<ShuffleNode>(vecTy, acc, acc, sel);
-			acc = cx.fn.create<BinaryNode>(op, vecTy, acc, swapped);
+			acc = cx.fn.binary(op, acc, swapped);
 		}
 		Node* result = cx.fn.create<ExtractNode>(seed.root->getType(), acc, 0);
 		for(Node* term : seed.scalarTerms)
-			result = cx.fn.create<BinaryNode>(op, seed.root->getType(), result, term);
+			result = cx.fn.binary(op, result, term);
 		seed.root->replaceAllUsesWith(result);
 	}
 } // namespace rat

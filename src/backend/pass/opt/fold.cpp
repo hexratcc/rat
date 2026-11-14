@@ -236,7 +236,7 @@ namespace rat {
 					return lhs;
 				if(isAllOnesConst(rhs, w))
 					return constant(fn, ty, -1);
-				return foldRotate(fn, ty, w, lhs, rhs);
+				return foldRotate(fn, w, lhs, rhs);
 			case Opcode::Add:
 			case Opcode::Shl:
 			case Opcode::LShr:
@@ -265,7 +265,7 @@ namespace rat {
 		}
 
 		// (x<<c)|(x>>(w-c)) == rotate (32/64-bit only, one rol/ror)
-		Node* foldRotate(Function& fn, Type* ty, U32 w, Node* lhs, Node* rhs) {
+		Node* foldRotate(Function& fn, U32 w, Node* lhs, Node* rhs) {
 			if(w != 32 && w != 64)
 				return nullptr;
 			BinaryNode* bl = dyn_cast<BinaryNode>(lhs);
@@ -282,7 +282,7 @@ namespace rat {
 			if(!cl || !cr || cl->getValue() <= 0 || cr->getValue() <= 0 ||
 				 cl->getValue() + cr->getValue() != (I64)w)
 				return nullptr;
-			return fn.create<BinaryNode>(Opcode::Rotr, ty, br->getLHS(), br->getRHS());
+			return fn.binary(Opcode::Rotr, br->getLHS(), br->getRHS());
 		}
 
 		// nsw holds when both ops have it and the folded constant is exact, the k != sum test
@@ -409,11 +409,9 @@ namespace rat {
 			} else { // 33-bit constant, t = hi32(prod), q = (((x - t) >> 1) + t) >> (s - 1)
 				Node* t = mkBin(fn, Opcode::LShr, i64, prod, 32);
 				Node* one = constant(fn, i64, 1);
-				Node* diff = fn.create<BinaryNode>(Opcode::Sub, i64, x64, t);
-				Node* half = fn.create<BinaryNode>(Opcode::LShr, i64, diff, one);
+				Node* half = fn.lshr(fn.sub(x64, t), one);
 				Node* shift = constant(fn, i64, (I64)mg.s - 1);
-				Node* sum = fn.create<BinaryNode>(Opcode::Add, i64, half, t);
-				q64 = fn.create<BinaryNode>(Opcode::LShr, i64, sum, shift);
+				q64 = fn.lshr(fn.add(half, t), shift);
 			}
 			return fn.create<ConvertNode>(Opcode::Trunc, ty, q64);
 		}
@@ -426,14 +424,14 @@ namespace rat {
 			Node* x64 = fn.create<ConvertNode>(Opcode::SExt, i64, x);
 			Node* hi = constant(fn, i64, 32);
 			Node* prod = mkBin(fn, Opcode::Mul, i64, x64, mg.m);
-			Node* q0 = fn.create<BinaryNode>(Opcode::AShr, i64, prod, hi);
+			Node* q0 = fn.ashr(prod, hi);
 			if(d > 0 && mg.m < 0)
-				q0 = fn.create<BinaryNode>(Opcode::Add, i64, q0, x64);
+				q0 = fn.add(q0, x64);
 			else if(d < 0 && mg.m > 0)
-				q0 = fn.create<BinaryNode>(Opcode::Sub, i64, q0, x64);
+				q0 = fn.sub(q0, x64);
 			Node* q = mkBin(fn, Opcode::AShr, i64, q0, (I64)mg.s);
 			Node* sign = mkBin(fn, Opcode::LShr, i64, q, 63);
-			q = fn.create<BinaryNode>(Opcode::Add, i64, q, sign); // add 1 if the quotient is negative
+			q = fn.add(q, sign); // add 1 if the quotient is negative
 			return fn.create<ConvertNode>(Opcode::Trunc, ty, q);
 		}
 
@@ -442,8 +440,7 @@ namespace rat {
 			Node* sign = mkBin(fn, Opcode::AShr, ty, x, (I64)w - 1);
 			Node* bias = mkBin(fn, Opcode::LShr, ty, sign, (I64)w - k);
 			Node* shift = constant(fn, ty, k);
-			Node* biased = fn.create<BinaryNode>(Opcode::Add, ty, x, bias);
-			return fn.create<BinaryNode>(Opcode::AShr, ty, biased, shift);
+			return fn.ashr(fn.add(x, bias), shift);
 		}
 
 		// quotient expansion for any supported constant divisor, or nullptr
@@ -491,8 +488,7 @@ namespace rat {
 			case Opcode::SRem:
 				if(ConstantNode* c = dyn_cast<ConstantNode>(rhs))
 					if(Node* q = buildDivByConst(fn, op, ty, w, lhs, c)) // r = x - (x / d) * d
-						return fn.create<BinaryNode>(
-								Opcode::Sub, ty, lhs, mkBin(fn, Opcode::Mul, ty, q, c->getValue()));
+						return fn.sub(lhs, mkBin(fn, Opcode::Mul, ty, q, c->getValue()));
 				break;
 			default:
 				break;
@@ -620,8 +616,7 @@ namespace rat {
 			// (b != 0) == b, (b == 1) == b, the other two are the complement
 			if((op == Opcode::Ne) == (cr->getValue() == 0))
 				return boolean;
-			Type* i1 = boolean->getType();
-			return fn.create<BinaryNode>(Opcode::Xor, i1, boolean, constant(fn, i1, 1));
+			return fn.binary(Opcode::Xor, boolean, constant(fn, boolean->getType(), 1));
 		}
 
 		Node* foldConvert(Function& fn, Opcode op, Node* operand, Type* destType) {

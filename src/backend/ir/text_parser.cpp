@@ -480,11 +480,8 @@ namespace rat {
 		// Region and Phi start without inputs, wireDeferredInputs wires them
 		Node* Parser::makeNode(Function* fn, const ParsedNode& pn) {
 			Opcode op = pn.op;
-			if(op == Opcode::Region) {
-				auto* reg = fn->create<RegionNode>(pn.ty, List<Node*>{});
-				reg->setLoopHeader(pn.loopHeader);
-				return reg;
-			}
+			if(op == Opcode::Region)
+				return fn->create<RegionNode>(pn.ty, List<Node*>{}, pn.loopHeader);
 			if(op == Opcode::Phi)
 				return fn->create<PhiNode>(pn.ty, List<Node*>{});
 			if(op == Opcode::Constant)
@@ -521,7 +518,7 @@ namespace rat {
 					return startCtrl;
 				if(in[0] == fn->getStart() && pn.projIndex == StartNode::memoryProjIndex() && startMem)
 					return startMem;
-				return fn->create<ProjNode>(pn.ty, in[0], pn.projIndex, pn.projLabel);
+				return fn->create<ProjNode>(pn.ty, in[0], pn.projIndex, pn.projLabel.c_str());
 			case Opcode::Load: {
 				LoadNode* l = fn->create<LoadNode>(pn.ty, in[0], in[1], in[2]);
 				l->setVolatile(pn.isVolatile);
@@ -534,10 +531,8 @@ namespace rat {
 			}
 			case Opcode::Return:
 				return fn->create<ReturnNode>(pn.ty, in);
-			case Opcode::Call: {
-				B32 rv = pn.ty->isTuple() && pn.ty->getTupleElementCount() == 3;
-				return fn->create<CallNode>(pn.ty, pn.callee, rv, in);
-			}
+			case Opcode::Call:
+				return fn->create<CallNode>(pn.ty, pn.callee, in);
 			case Opcode::Asm: {
 				U32 outs = pn.ty->isTuple() ? pn.ty->getTupleElementCount() - 2 : 0;
 				return fn->create<AsmNode>(pn.ty, pn.asmText, outs, in);
@@ -554,29 +549,17 @@ namespace rat {
 				return fn->create<ExtractNode>(pn.ty, in[0], pn.projIndex);
 			case Opcode::Shuffle:
 				return fn->create<ShuffleNode>(pn.ty, in[0], in[1], (U16)pn.projIndex);
-			case Opcode::Select:
-				return fn->create<SelectNode>(pn.ty, in[0], in[1], in[2]);
 			case Opcode::Pack:
 				return fn->create<PackNode>(pn.ty, in);
 			default:
 				break;
 			}
-			switch(getOpClass(op)) {
-			case OpClass::Binary: {
-				BinaryNode* b = fn->create<BinaryNode>(op, pn.ty, in[0], in[1]);
+			Node* n = createArith(*fn, op, pn.ty, in.data());
+			if(!n)
+				return failNull(String("cannot construct opcode '") + getOpcodeMnemonic(op) + "'");
+			if(BinaryNode* b = dyn_cast<BinaryNode>(n))
 				b->setNsw(pn.nsw);
-				return b;
-			}
-			case OpClass::Compare:
-				return fn->create<CompareNode>(op, pn.ty, in[0], in[1]);
-			case OpClass::Unary:
-				return fn->create<UnaryNode>(op, pn.ty, in[0]);
-			case OpClass::Convert:
-				return fn->create<ConvertNode>(op, pn.ty, in[0]);
-			case OpClass::None:
-				break;
-			}
-			return failNull(String("cannot construct opcode '") + getOpcodeMnemonic(op) + "'");
+			return n;
 		}
 
 		// a record is ready once every operand it references already exists, Region and Phi

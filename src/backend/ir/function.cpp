@@ -39,7 +39,7 @@ namespace rat {
 		List<Type*> startElems{ctrlTy(), memTy()};
 		startElems.insert(startElems.end(), paramTypes.begin(), paramTypes.end());
 
-		start = create<StartNode>(mod->getTuple(startElems), getParamCount());
+		start = create<StartNode>(mod->getTuple(startElems));
 		stop = create<StopNode>(ctrlTy());
 		paramCache.resize(paramTypes.size());
 
@@ -58,7 +58,7 @@ namespace rat {
 		Node*& p = paramCache[index];
 		if(!p) {
 			String label = "arg" + std::to_string(index);
-			p = proj(start, StartNode::paramProjIndex(index), paramTypes[index], std::move(label));
+			p = proj(start, StartNode::paramProjIndex(index), paramTypes[index], label.c_str());
 		}
 		return p;
 	}
@@ -145,12 +145,17 @@ namespace rat {
 		set(memVar, proj(n, CallNode::memoryProjIndex(), memTy(), "mem"));
 	}
 
+	// inputs are control, memory, the target pointer of an indirect call, then the call arguments
 	Node* Function::emitCall(
-			const String& sym, const Nodes& ins, Type* ret, B32 indirect, B32 va, const CallAbi& abi) {
+			const String& sym, Node* target, const Nodes& args, Type* ret, B32 va, const CallAbi& abi) {
+		List<Node*> ins{control(), mem()};
+		if(target)
+			ins.push_back(target);
+		ins.insert(ins.end(), args.begin(), args.end());
 		List<Type*> elems{ctrlTy(), memTy()};
 		if(ret)
 			elems.push_back(ret);
-		CallNode* c = create<CallNode>(mod->getTuple(elems), sym, ret != nullptr, ins, indirect);
+		CallNode* c = create<CallNode>(mod->getTuple(elems), sym, ins, target != nullptr);
 		c->setVarArgs(va);
 		c->setAbi(abi);
 		bindEffects(c);
@@ -161,17 +166,12 @@ namespace rat {
 
 	Node* Function::call(
 			const String& callee, Type* retType, const Nodes& args, B32 varArgs, const CallAbi& abi) {
-		List<Node*> ins{control(), mem()};
-		ins.insert(ins.end(), args.begin(), args.end());
-		return emitCall(callee, ins, retType, false, varArgs, abi);
+		return emitCall(callee, nullptr, args, retType, varArgs, abi);
 	}
 
 	Node* Function::callIndirect(
 			Node* target, Type* retType, const Nodes& args, B32 varArgs, const CallAbi& abi) {
-		// inputs are control, memory, target pointer, then the call arguments
-		List<Node*> ins{control(), mem(), target};
-		ins.insert(ins.end(), args.begin(), args.end());
-		return emitCall(String(), ins, retType, true, varArgs, abi);
+		return emitCall(String(), target, args, retType, varArgs, abi);
 	}
 
 	List<Node*> Function::inlineAsm(const String& text, const List<Type*>& outs, const Nodes& args) {
@@ -188,11 +188,8 @@ namespace rat {
 		return results;
 	}
 
-	IfNode* Function::iff(Node* predicate) {
-		return create<IfNode>(mod->getTuple({ctrlTy(), ctrlTy()}), control(), predicate);
-	}
-	ProjNode* Function::proj(Node* tuple, U32 index, Type* type, String label) {
-		return create<ProjNode>(type, tuple, index, std::move(label));
+	ProjNode* Function::proj(Node* tuple, U32 index, Type* type, const C8* label) {
+		return create<ProjNode>(type, tuple, index, label);
 	}
 	PhiNode* Function::phi(Type* type, RegionNode* region, const Nodes& values) {
 		List<Node*> ins{region};
@@ -204,8 +201,7 @@ namespace rat {
 
 	Function::Block* Function::createLoopHeader(String) {
 		Block* b = createBlock();
-		b->region = create<RegionNode>(ctrlTy(), List<Node*>{});
-		b->region->setLoopHeader();
+		b->region = create<RegionNode>(ctrlTy(), List<Node*>{}, true);
 		b->ctrl = b->region;
 		return b;
 	}
@@ -264,7 +260,7 @@ namespace rat {
 	void Function::jumpif(Node* cond, Block* target) {
 		Node* elseP = nullptr;
 		if(cur->ctrl) {
-			IfNode* branch = iff(cond);
+			IfNode* branch = create<IfNode>(mod->getTuple({ctrlTy(), ctrlTy()}), control(), cond);
 			Node* thenP = proj(branch, IfNode::thenProjIndex(), ctrlTy(), "then");
 			elseP = proj(branch, IfNode::elseProjIndex(), ctrlTy(), "else");
 			addEdge(thenP, target);

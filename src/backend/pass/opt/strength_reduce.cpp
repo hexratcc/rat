@@ -97,7 +97,7 @@ namespace rat {
 				cmp->replaceAllUsesWith(fn.create<CompareNode>(cmp->getOpcode(), cmp->getType(), q, rhs));
 			} else if(ConstantNode* c = offsetOf(u, p)) {
 				Node* k = constant(fn, i64, signExtend(c->getValue(), 32));
-				Node* sum = fn.create<BinaryNode>(Opcode::Add, i64, q, k);
+				Node* sum = fn.add(q, k);
 				List<Node*> sexts(u->getUsers().begin(), u->getUsers().end());
 				for(Node* s : sexts)
 					if(s != p)
@@ -130,7 +130,7 @@ namespace rat {
 		Type* i64 = fn.types().getInt(64);
 		Node* init64 = constant(fn, i64, lo);
 		PhiNode* q = fn.create<PhiNode>(i64, List<Node*>{p->getRegion(), init64, init64});
-		q->setInput(1 + recIdx, fn.create<BinaryNode>(Opcode::Add, i64, q, constant(fn, i64, step)));
+		q->setInput(1 + recIdx, fn.add(q, constant(fn, i64, step)));
 		List<Node*> users(p->getUsers().begin(), p->getUsers().end());
 		for(Node* u : users)
 			detail::widenUse(fn, u, p, q, cmp, bound);
@@ -173,9 +173,9 @@ namespace rat {
 				I64 scaledStep;
 				if(!evalBinaryConst(op, w, step, k, scaledStep))
 					continue;
-				Node* scaledInit = fn.create<BinaryNode>(op, ty, init, constant(fn, ty, k));
+				Node* scaledInit = fn.binary(op, init, constant(fn, ty, k));
 				PhiNode* q = fn.create<PhiNode>(ty, List<Node*>{region, scaledInit, scaledInit});
-				Node* stepNode = fn.create<BinaryNode>(Opcode::Add, ty, q, constant(fn, ty, scaledStep));
+				Node* stepNode = fn.add(q, constant(fn, ty, scaledStep));
 				q->setInput(1 + recIdx, stepNode);
 				mul->replaceAllUsesWith(q);
 				++changed;
