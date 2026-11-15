@@ -2,13 +2,6 @@
 
 namespace rat::cc {
 	namespace detail {
-		struct OvfForm {
-			Opcode op = Opcode::Add;
-			B32 predicate = false;
-			B32 typed = false;
-			CType fixed;
-		};
-
 		B32 stemOp(const String& s, U64 pos, Opcode& op) {
 			if(s.compare(pos, 3, "add") == 0)
 				op = Opcode::Add;
@@ -132,24 +125,15 @@ namespace rat::cc {
 	}
 
 	Node* Emitter::wideFits(Function& fn, Wide v, CType rt) {
-		Type* t = v.lo->getType();
-		U32 n = rt.bits;
 		Node* hiOk;
-		Node* loOk = nullptr;
-		if(rt.isUnsigned()) {
-			hiOk = fn.eq(v.hi, fn.constInt(t, 0));
-			if(n < 64)
-				loOk = fn.compare(Opcode::Ule, v.lo, fn.constInt(t, (I64)((1ull << n) - 1)));
-		} else {
+		if(rt.isUnsigned())
+			hiOk = fn.eq(v.hi, fn.constInt(v.lo->getType(), 0));
+		else
 			hiOk = fn.eq(v.hi, fn.ashr(v.lo, fn.constInt(i32, 63)));
-			if(n < 64) {
-				Node* biased = fn.add(v.lo, fn.constInt(t, (I64)(1ull << (n - 1))));
-				loOk = fn.compare(Opcode::Ule, biased, fn.constInt(t, (I64)((1ull << n) - 1)));
-			}
-		}
-		if(!loOk)
+		if(rt.bits >= 64)
 			return hiOk;
-		return fn.and_(hiOk, loOk);
+		// a narrower rt also checks the low half like an exact 64-bit result
+		return fn.and_(hiOk, fitsIn64(fn, v.lo, rt, true));
 	}
 
 	Node* Emitter::fitsIn64(Function& fn, Node* r, CType rt, B32 sgn) {
@@ -185,25 +169,17 @@ namespace rat::cc {
 		if(!f.predicate && !isPointer(a2.type))
 			return failBuiltin("the last argument of '" + b + "' must be a pointer to an integer");
 
-		CType at;
-		CType bt;
-		CType rt;
-		Node* an;
-		Node* bn;
+		CType at = a0.type, bt = a1.type, rt = a2.type;
+		Node* an = a0.node;
+		Node* bn = a1.node;
 		if(f.typed) {
 			at = f.fixed;
 			bt = f.fixed;
 			rt = f.fixed;
 			an = convert(fn, a0.node, a0.type, at);
 			bn = convert(fn, a1.node, a1.type, bt);
-		} else {
-			at = a0.type;
-			bt = a1.type;
-			an = a0.node;
-			bn = a1.node;
-			rt = a2.type;
-			if(!f.predicate)
-				--rt.ptr;
+		} else if(!f.predicate) {
+			--rt.ptr;
 		}
 		if(!isInteger(at) || !isInteger(bt) || !isInteger(rt))
 			return failBuiltin("'" + b + "' works on integer types only");

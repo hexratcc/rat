@@ -58,13 +58,8 @@ namespace rat::cc {
 
 	B32 Emitter::declareDead(Function& fn, const Stmt* s) {
 		for(const Declarator& d : s->decls) {
-			if(d.isExtern) {
-				if(!declareExtern(fn, d))
-					return false;
-				continue;
-			}
-			if(d.isStatic) {
-				if(!declareStatic(fn, d))
+			if(d.isExtern || d.isStatic) {
+				if(!emitOneDecl(fn, d))
 					return false;
 				continue;
 			}
@@ -112,17 +107,11 @@ namespace rat::cc {
 				CType re = complexElem(ct);
 				zeroSlot(fn, slot, ct.strukt->size);
 				const List<Expr*>& els = d.init->args;
-				if(!els.empty()) {
-					Value rv = emitExpr(fn, els[0]);
-					if(!rv.node)
+				for(U32 i = 0; i < els.size() && i < 2; ++i) { // real, then imaginary
+					Value v = emitExpr(fn, els[i]);
+					if(!v.node)
 						return false;
-					fn.store(slot, convert(fn, rv.node, rv.type, re));
-				}
-				if(els.size() > 1) {
-					Value iv = emitExpr(fn, els[1]);
-					if(!iv.node)
-						return false;
-					fn.store(offsetPtr(fn, slot, byteSize(re)), convert(fn, iv.node, iv.type, re));
+					fn.store(offsetPtr(fn, slot, i * byteSize(re)), convert(fn, v.node, v.type, re));
 				}
 			} else {
 				Value v = emitExpr(fn, d.init);
@@ -142,10 +131,7 @@ namespace rat::cc {
 			StoreSink sink(*this, fn, slot);
 			if(!initStructInit(sink, 0, d.type.strukt, d.init))
 				return false;
-			func.scopes.set(*d.name, Local::mem(slot, d.type));
-			return true;
-		}
-		if(d.init) {
+		} else if(d.init) {
 			Value v = emitExpr(fn, d.init);
 			if(!v.node)
 				return false;
@@ -243,7 +229,7 @@ namespace rat::cc {
 			return diag.fail("invalid initializer for an array");
 		if(!haveLen)
 			return failArrayUnknownSize(*d.name);
-		Node* slot = declSlot(fn, d, mod.getArray(irType(d.type), (U32)count), (U32)count * elemSize);
+		Node* slot = declSlot(fn, d, mod.getArray(elemTy, (U32)count), (U32)count * elemSize);
 		func.scopes.set(*d.name, Local::memArray(slot, d.type, (U32)count));
 		return true;
 	}

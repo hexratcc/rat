@@ -12,14 +12,12 @@ namespace rat::cc {
 	}
 
 	Node* Emitter::complexReal(Function& fn, const Value& v) {
-		CType elemTy = complexElem(v.type);
-		return fn.load(irType(elemTy), v.node);
+		return fn.load(irType(complexElem(v.type)), v.node);
 	}
 
 	Node* Emitter::complexImag(Function& fn, const Value& v) {
 		CType elemTy = complexElem(v.type);
-		U32 off = byteSize(elemTy);
-		return fn.load(irType(elemTy), offsetPtr(fn, v.node, off));
+		return fn.load(irType(elemTy), offsetPtr(fn, v.node, byteSize(elemTy)));
 	}
 
 	Emitter::Value Emitter::makeComplex(Function& fn, CType type, Node* re, Node* im) {

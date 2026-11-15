@@ -1,13 +1,8 @@
 #ifndef RAT_CC_EMIT_H
 #define RAT_CC_EMIT_H
 
-#include "parse/ast.h"
-#include "target_layout.h"
-
 #include "emit/emit_state.h"
-
-#include "ir/function.h"
-#include "ir/module.h"
+#include "target_layout.h"
 
 namespace rat::cc {
 	namespace detail {
@@ -16,6 +11,29 @@ namespace rat::cc {
 		void classifyBits(AbiClass (&cls)[2], U64 bitOffset, U64 bits, AbiClass c);
 		Pair<String, DebugType::Kind> debugBaseName(CType t);
 		B32 fpBuiltinSuffix(const String& name, const C8* stem);
+		U32 bitBuiltinWidth(const String& name, const C8* stem, U32 longBits);
+		B32 isKnownBuiltin(const String& name);
+
+		// a parsed __builtin_*_overflow name
+		struct OvfForm {
+			Opcode op = Opcode::Add;
+			B32 predicate = false;
+			B32 typed = false;
+			CType fixed;
+		};
+
+		B32 stemOp(const String& s, U64 pos, Opcode& op);
+		B32 parseOverflowName(const String& name, U32 longBits, OvfForm& out);
+		U32 signedWidth(CType t);
+		B32 exactInSigned64(Opcode op, CType a, CType b);
+		B32 exactInUnsigned64(Opcode op, CType a, CType b);
+		I64 narrowToType(I64 v, CType ty);
+		CType arithResultType(CType a, CType b);
+		B32 genericTypesMatch(const CType& a, const CType& b);
+		B32 funcTypesMatch(const FuncType* a, const FuncType* b);
+		B32 isLabeledStmt(const Stmt* s);
+		B32 isRegConstraint(const String& c, B32 isOutput, B32& readWrite);
+		B32 matchingConstraint(const String& c, U32& index);
 
 		// shared child traversal for AST scans
 		struct AstWalk {
@@ -93,7 +111,6 @@ namespace rat::cc {
 			const FuncType* ft = nullptr;
 			FunctionSignature sig;
 			B32 direct = false;
-			B32 prototyped = false;
 		};
 		// argument registers still free, sysv
 		struct ArgRegs {
@@ -175,7 +192,6 @@ namespace rat::cc {
 		Node* constSize(Function& fn, U64 value);
 		Node* allocBytes(Function& fn, U32 size, U32 align = 0);
 		Node* declSlot(Function& fn, const Declarator& d, Type* ty, U32 size);
-		Node* emitArrayElemCount(Function& fn, CType t);
 		Node* emitArrayByteSize(Function& fn, CType t);
 		Node* convert(Function& fn, Node* n, CType from, CType to);
 		Node* reduceBitfield(Function& fn, Node* n, CType t);

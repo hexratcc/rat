@@ -36,11 +36,9 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::initFlatStruct(InitSink& sink, U32 base, const StructType* st, const FlatList& src) {
-		B32 first = true;
 		for(U32 fi = 0; fi < st->fields.size() && src.pos < src.els.size(); ++fi) {
-			if(!first && src.des && (*src.des)[src.pos].isSet)
+			if(fi != 0 && src.des && (*src.des)[src.pos].isSet)
 				break;
-			first = false;
 			const Field& f = st->fields[fi];
 			if(f.anonMember() && !f.anonFirst())
 				continue;
@@ -56,20 +54,13 @@ namespace rat::cc {
 						return false;
 				} else if(!initFlatArray(sink, base + f.offset, f.type, f.count, src))
 					return false;
-				if(st->isUnion)
-					break;
-				continue;
-			}
-			if(f.isBitfield()) {
+			} else if(f.isBitfield()) {
 				if(!sink.bitfield(base + f.offset, f.type, f.bitWidth, f.bitOffset, src.els[src.pos]))
 					return false;
 				++src.pos;
-				if(st->isUnion)
-					break;
-				continue;
-			}
-			if(!initFlatObject(sink, base + f.offset, f.type, src))
+			} else if(!initFlatObject(sink, base + f.offset, f.type, src)) {
 				return false;
+			}
 			if(st->isUnion)
 				break;
 		}
@@ -115,10 +106,8 @@ namespace rat::cc {
 		return true;
 	}
 	B32 Emitter::StoreSink::charArray(U32 base, CType elem, U32 count, const Expr* e) {
-		if(!isCharType(elem)) {
-			emit.failStringNeedsCharArray();
-			return false;
-		}
+		if(!isCharType(elem))
+			return emit.failStringNeedsCharArray();
 		const String& bytes = *e->str.bytes;
 		Type* i8 = emit.mod.getInt(8);
 		U32 n = bytes.size() < count ? (U32)bytes.size() : count;
@@ -130,30 +119,21 @@ namespace rat::cc {
 		Value v = emit.emitExpr(fn, e);
 		if(!v.node)
 			return false;
-		Node* dst = emit.offsetPtr(fn, slot, off);
-		emit.emitMemCopy(fn, dst, v.node, ty.strukt->size);
+		emit.emitMemCopy(fn, emit.offsetPtr(fn, slot, off), v.node, ty.strukt->size);
 		return true;
 	}
 
 	void Emitter::encodeFloatBytes(CType dt, F80 v, List<U8>& out) {
-		if(dt.bits == 32) {
-			F32 f = (F32)v;
-			const U8* p = (const U8*)&f;
-			for(U32 i = 0; i < sizeof(f); ++i)
-				out.push_back(p[i]);
-		} else if(dt.bits == 128) {
-			// x86 extended precision
-			F80 ld = v;
-			const U8* p = (const U8*)&ld;
-			U32 n = byteSize(dt); // 16
-			for(U32 i = 0; i < n; ++i)
-				out.push_back(i < 10 ? p[i] : (U8)0);
-		} else {
-			F64 d = (F64)v;
-			const U8* p = (const U8*)&d;
-			for(U32 i = 0; i < sizeof(d); ++i)
-				out.push_back(p[i]);
-		}
+		F32 f = (F32)v;
+		F64 d = (F64)v;
+		const U8* p = (const U8*)&v; // x86 extended precision, 10 bytes padded to 16
+		if(dt.bits == 32)
+			p = (const U8*)&f;
+		else if(dt.bits == 64)
+			p = (const U8*)&d;
+		U32 size = byteSize(dt);
+		for(U32 i = 0; i < size; ++i)
+			out.push_back(i < 10 ? p[i] : (U8)0);
 	}
 
 	B32 Emitter::ImageSink::scalar(U32 off, CType dt, const Expr* e) {
@@ -164,10 +144,8 @@ namespace rat::cc {
 			return true;
 		if(isFloating(dt)) {
 			F80 d = 0;
-			if(!emit.evalFloatConst(e, d)) {
-				emit.failNonConstInit();
-				return false;
-			}
+			if(!emit.evalFloatConst(e, d))
+				return emit.failNonConstInit();
 			List<U8> fb;
 			emit.encodeFloatBytes(dt, d, fb);
 			for(U32 b = 0; b < fb.size() && off + b < img.size(); ++b)
@@ -178,10 +156,8 @@ namespace rat::cc {
 		if(!emit.evalConst(e, v)) {
 			String sym;
 			I64 add = 0;
-			if(!isPointer(dt) || !emit.evalAddrConst(e, sym, add)) {
-				emit.failNonConstInit();
-				return false;
-			}
+			if(!isPointer(dt) || !emit.evalAddrConst(e, sym, add))
+				return emit.failNonConstInit();
 			emit.data.setReloc(off, sym, add);
 			return true;
 		}
@@ -193,10 +169,8 @@ namespace rat::cc {
 
 	B32 Emitter::ImageSink::bitfield(U32 off, CType dt, U32 width, U32 bitOff, const Expr* e) {
 		I64 v = 0;
-		if(!emit.evalConst(e, v)) {
-			emit.failNonConstInit();
-			return false;
-		}
+		if(!emit.evalConst(e, v))
+			return emit.failNonConstInit();
 		U32 sz = emit.byteSize(dt);
 		U64 maskBits = width >= 64 ? ~0ull : ((1ull << width) - 1);
 		U64 placed = ((U64)v & maskBits) << bitOff;
@@ -210,10 +184,8 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::ImageSink::charArray(U32 base, CType elem, U32 count, const Expr* e) {
-		if(!isCharType(elem)) {
-			emit.failStringNeedsCharArray();
-			return false;
-		}
+		if(!isCharType(elem))
+			return emit.failStringNeedsCharArray();
 		const String& bytes = *e->str.bytes;
 		U32 n = bytes.size() < count ? (U32)bytes.size() : count;
 		for(U32 i = 0; i < n; ++i)
@@ -221,10 +193,7 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::ImageSink::structCopy(U32, CType, const Expr*) {
-		emit.failNonConstInit();
-		return false;
-	}
+	B32 Emitter::ImageSink::structCopy(U32, CType, const Expr*) { return emit.failNonConstInit(); }
 
 	const StructType* Emitter::anonGroupType(const StructType* st, U32 firstIdx) {
 		StructType* g = arena.make<StructType>();
@@ -258,12 +227,9 @@ namespace rat::cc {
 				const Field& f = ty.strukt->fields[fi];
 				if(f.anonMember() && !f.anonFirst())
 					continue;
-				CType fty = f.type;
-				if(f.isArray()) {
-					for(U32 i = 0; i < f.count && pos < els.size(); ++i)
-						flatConsumeObject(fty, els, pos);
-				} else
-					flatConsumeObject(fty, els, pos);
+				U32 count = f.isArray() ? f.count : 1;
+				for(U32 i = 0; i < count && pos < els.size(); ++i)
+					flatConsumeObject(f.type, els, pos);
 				if(ty.strukt->isUnion)
 					break;
 			}
@@ -318,9 +284,7 @@ namespace rat::cc {
 					return (U32)el->str.bytes->size() + 1;
 				if(el->kind == ExprKind::InitList && !des.next)
 					return flatArrayCount(flex.type, el->args);
-				List<Expr*> tail;
-				for(U32 j = i; j < els.size(); ++j)
-					tail.push_back(const_cast<Expr*>(els[j]));
+				List<Expr*> tail(els.begin() + i, els.end());
 				return flatArrayCount(flex.type, tail);
 			}
 			const Field& f = st->fields[cur];
@@ -328,11 +292,11 @@ namespace rat::cc {
 			if(el->kind == ExprKind::InitList ||
 				 (f.isArray() && isCharType(f.type) && el->kind == ExprKind::StrLit)) {
 				++i;
-			} else if(f.isArray()) {
-				for(U32 k = 0; k < f.count && i < els.size(); ++k)
+			} else {
+				U32 count = f.isArray() ? f.count : 1;
+				for(U32 k = 0; k < count && i < els.size(); ++k)
 					flatConsumeObject(f.type, els, i);
-			} else
-				flatConsumeObject(f.type, els, i);
+			}
 			++cur;
 		}
 		return 0;

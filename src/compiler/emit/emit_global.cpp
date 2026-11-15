@@ -9,12 +9,8 @@ namespace rat::cc {
 		if(it != data.stringPool.end())
 			return it->second;
 		String name = data.nextName("__ratcc_str");
-		List<U8> init;
-		init.reserve(bytes.size() + cw);
-		for(C8 c : bytes)
-			init.push_back((U8)c);
-		for(U32 i = 0; i < cw; ++i)
-			init.push_back(0);
+		List<U8> init(bytes.size() + cw, 0); // zero terminated
+		std::copy(bytes.begin(), bytes.end(), init.begin());
 		Global* g = mod.createGlobal(name, byteArrayType((U32)init.size()), true, std::move(init));
 		g->setLinkage(Global::Linkage::Internal);
 		data.stringPool.emplace(std::move(key), name);
@@ -44,7 +40,7 @@ namespace rat::cc {
 		I64 count = 0;
 		if(e->compound.isArray) {
 			if(e->compound.arrayLen)
-				ok = evalConst(e->compound.arrayLen, count) && count > 0;
+				ok = evalConst(e->compound.arrayLen, count);
 			else if(init->kind == ExprKind::StrLit)
 				count = (I64)init->str.bytes->size() + 1;
 			else if(init->kind == ExprKind::InitList)
@@ -172,9 +168,8 @@ namespace rat::cc {
 			}
 		} else if(d.init) {
 			return diag.fail("invalid initializer for an array");
-		} else {
-			if(!haveLen)
-				return failArrayUnknownSize(*d.name);
+		} else if(!haveLen) {
+			return failArrayUnknownSize(*d.name);
 		}
 
 		defineGlobal(d, sym, mod.getArray(irType(d.type), (U32)count), std::move(init));
@@ -201,21 +196,17 @@ namespace rat::cc {
 		if(flex > 0)
 			total += flex * byteSize(st->fields.back().type);
 		List<U8> init;
-
-		data.flexCount = flex;
-		B32 ok = true;
-		if(sinit && sinit->kind == ExprKind::InitList) {
+		if(sinit && sinit->kind != ExprKind::InitList)
+			return diag.fail("invalid initializer for struct '" + *d.name + "'");
+		if(sinit) {
 			init.assign(total, 0);
 			ImageSink sink(*this, init);
-			ok = initStructInit(sink, 0, st, sinit);
-		} else if(sinit) {
-			diag.fail("invalid initializer for struct '" + *d.name + "'");
-			ok = false;
+			data.flexCount = flex;
+			B32 ok = initStructInit(sink, 0, st, sinit);
+			data.flexCount = 0;
+			if(!ok)
+				return false;
 		}
-		data.flexCount = 0;
-		if(!ok)
-			return false;
-
 		defineGlobal(d, sym, byteArrayType(total), std::move(init));
 		bindGlobal(d, sym, fn, false, 0);
 		return true;
@@ -261,12 +252,8 @@ namespace rat::cc {
 	B32 Emitter::registerGlobalAlias(const Declarator& d) {
 		if(d.init)
 			return diag.fail("alias '" + *d.name + "' must not have an initializer");
-		I64 count = 0;
-		if(d.isArray && d.arrayLen && !evalConst(d.arrayLen, count))
-			count = 0;
 		mod.createAlias(*d.name, *d.aliasOf, irType(d.type))
 				->setLinkage(d.isStatic ? Global::Linkage::Internal : Global::Linkage::External);
-		syms.globals[*d.name] = GlobalVariable{d.type, d.isArray, (U32)count};
 		syms.aliases[*d.name] = *d.aliasOf;
 		return true;
 	}
@@ -278,9 +265,8 @@ namespace rat::cc {
 		for(const Stmt* decl : unit.globals) {
 			for(const Declarator& d : decl->decls) {
 				B32 defines = d.init != nullptr || !d.isExtern;
-				auto it = seen.find(*d.name);
-				if(it == seen.end()) {
-					seen[*d.name] = (U32)order.size();
+				auto [it, fresh] = seen.try_emplace(*d.name, (U32)order.size());
+				if(fresh) {
 					order.push_back(&d);
 					needsStorage.push_back(defines);
 					continue;
@@ -296,12 +282,9 @@ namespace rat::cc {
 		}
 		for(U32 gi = 0; gi < order.size(); ++gi) {
 			const Declarator& d = *order[gi];
-			if(d.aliasOf) {
-				if(!registerGlobalAlias(d))
-					return false;
-				continue;
-			}
-			if(!needsStorage[gi]) {
+			if(d.aliasOf && !registerGlobalAlias(d))
+				return false;
+			if(d.aliasOf || !needsStorage[gi]) {
 				I64 count = 0;
 				if(d.isArray && d.arrayLen)
 					evalConst(d.arrayLen, count);

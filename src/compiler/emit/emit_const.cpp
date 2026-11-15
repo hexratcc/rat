@@ -1,32 +1,26 @@
 #include "emit/emit.h"
 
 namespace rat::cc {
-	static I64 narrowToType(I64 v, CType ty) {
-		U32 bits = isPointer(ty) ? 64 : ty.bits;
-		if(bits == 1)
-			return v != 0;
-		if(bits >= 64)
-			return v;
-		U64 mask = ((U64)1 << bits) - 1;
-		U64 low = (U64)v & mask;
-		if(!ty.isUnsigned() && (low & ((U64)1 << (bits - 1))))
-			low |= ~mask; // sign-extend
-		return (I64)low;
-	}
+	namespace detail {
+		I64 narrowToType(I64 v, CType ty) {
+			U32 bits = isPointer(ty) ? 64 : ty.bits;
+			return wrapInt(v, bits, ty.isUnsigned());
+		}
 
-	static CType arithResultType(CType a, CType b) {
-		CType r = ctInt();
-		r.bits = a.bits >= b.bits ? a.bits : b.bits;
-		if(r.bits < 32)
-			r.bits = 32; // int promotion of sub-int operands
-		B32 au = a.isUnsigned() && a.bits >= 32;
-		B32 bu = b.isUnsigned() && b.bits >= 32;
-		if(a.bits == b.bits)
-			r.set(CType::Unsigned, au || bu);
-		else
-			r.set(CType::Unsigned, (a.bits > b.bits) ? au : bu);
-		return r;
-	}
+		CType arithResultType(CType a, CType b) {
+			CType r = ctInt();
+			r.bits = a.bits >= b.bits ? a.bits : b.bits;
+			if(r.bits < 32)
+				r.bits = 32; // int promotion of sub-int operands
+			B32 au = a.isUnsigned() && a.bits >= 32;
+			B32 bu = b.isUnsigned() && b.bits >= 32;
+			if(a.bits == b.bits)
+				r.set(CType::Unsigned, au || bu);
+			else
+				r.set(CType::Unsigned, (a.bits > b.bits) ? au : bu);
+			return r;
+		}
+	} // namespace detail
 
 	B32 Emitter::evalConstUnary(ExprOp op, I64 v, CType opTy, I64& out, CType& ty) {
 		ty = op == ExprOp::Not ? ctInt() : opTy;
@@ -50,8 +44,7 @@ namespace rat::cc {
 				if(!esz)
 					return false;
 				out = (a - b) / (I64)esz;
-				ty = ctSize();
-				ty.set(CType::Unsigned, false); // ptrdiff_t is signed
+				ty = ctPtrDiff();
 				return true;
 			}
 			CType pTy = ap ? aTy : bTy;
@@ -78,9 +71,9 @@ namespace rat::cc {
 			if(b < 0 || b >= (I64)ty.bits)
 				return false;
 			if(op == ExprOp::Shl)
-				out = narrowToType((I64)((U64)a << (U64)b), ty);
+				out = detail::narrowToType((I64)((U64)a << (U64)b), ty);
 			else if(ty.isUnsigned())
-				out = (I64)((U64)narrowToType(a, ty) >> (U64)b);
+				out = (I64)((U64)detail::narrowToType(a, ty) >> (U64)b);
 			else
 				out = a >> b;
 			return true;
@@ -88,18 +81,18 @@ namespace rat::cc {
 		default:
 			break;
 		}
-		CType rt = arithResultType(aTy, bTy);
-		U64 ua = (U64)narrowToType(a, rt), ub = (U64)narrowToType(b, rt);
+		CType rt = detail::arithResultType(aTy, bTy);
+		U64 ua = (U64)detail::narrowToType(a, rt), ub = (U64)detail::narrowToType(b, rt);
 		B32 u = rt.isUnsigned();
 		ty = (op >= ExprOp::Lt && op <= ExprOp::Ne) ? ctInt() : rt;
 		switch(op) {
 			// clang-format off
-		case ExprOp::Add:    out = narrowToType((I64)((U64)a + (U64)b), rt); return true;
-		case ExprOp::Sub:    out = narrowToType((I64)((U64)a - (U64)b), rt); return true;
-		case ExprOp::Mul:    out = narrowToType((I64)((U64)a * (U64)b), rt); return true;
-		case ExprOp::BitAnd: out = narrowToType(a & b, rt); return true;
-		case ExprOp::BitOr:  out = narrowToType(a | b, rt); return true;
-		case ExprOp::BitXor: out = narrowToType(a ^ b, rt); return true;
+		case ExprOp::Add:    out = detail::narrowToType((I64)((U64)a + (U64)b), rt); return true;
+		case ExprOp::Sub:    out = detail::narrowToType((I64)((U64)a - (U64)b), rt); return true;
+		case ExprOp::Mul:    out = detail::narrowToType((I64)((U64)a * (U64)b), rt); return true;
+		case ExprOp::BitAnd: out = detail::narrowToType(a & b, rt); return true;
+		case ExprOp::BitOr:  out = detail::narrowToType(a | b, rt); return true;
+		case ExprOp::BitXor: out = detail::narrowToType(a ^ b, rt); return true;
 		case ExprOp::Lt:     out = u ? ua < ub : a < b;     return true;
 		case ExprOp::Gt:     out = u ? ua > ub : a > b;     return true;
 		case ExprOp::Le:     out = u ? ua <= ub : a <= b;   return true;
@@ -112,9 +105,9 @@ namespace rat::cc {
 			if(!b || (!u && a == INT64_MIN && b == -1))
 				return false;
 			if(op == ExprOp::Div)
-				out = u ? (I64)(ua / ub) : narrowToType(a / b, rt);
+				out = u ? (I64)(ua / ub) : detail::narrowToType(a / b, rt);
 			else
-				out = u ? (I64)(ua % ub) : narrowToType(a % b, rt);
+				out = u ? (I64)(ua % ub) : detail::narrowToType(a % b, rt);
 			return true;
 		default:
 			return false;
@@ -162,7 +155,7 @@ namespace rat::cc {
 					return false;
 				out = (I64)fv;
 			}
-			out = narrowToType(out, ty);
+			out = detail::narrowToType(out, ty);
 			return true;
 		}
 		case ExprKind::Unary: {
@@ -236,18 +229,12 @@ namespace rat::cc {
 			if(!evalFloatConst(e->binary.lhs, a) || !evalFloatConst(e->binary.rhs, b))
 				return false;
 			switch(e->binary.op) {
-			case ExprOp::Add:
-				out = a + b;
-				return true;
-			case ExprOp::Sub:
-				out = a - b;
-				return true;
-			case ExprOp::Mul:
-				out = a * b;
-				return true;
-			case ExprOp::Div:
-				out = a / b;
-				return true;
+				// clang-format off
+			case ExprOp::Add: out = a + b; return true;
+			case ExprOp::Sub: out = a - b; return true;
+			case ExprOp::Mul: out = a * b; return true;
+			case ExprOp::Div: out = a / b; return true;
+			// clang-format on
 			default:
 				return false;
 			}

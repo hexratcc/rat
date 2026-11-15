@@ -62,12 +62,10 @@ namespace rat::cc {
 		const List<Expr*>& els = init->args;
 		U32 rowLen = elem.array ? elem.array->count : 0;
 		U32 cur = 0, maxIdx = 0;
-		B32 any = false;
 		for(U32 i = 0; i < els.size();) {
 			const Designator& des = init->designators[i];
 			if(des.isSet && des.isIndex)
 				cur = (U32)des.index;
-			any = true;
 			if(cur >= maxIdx)
 				maxIdx = cur;
 			const Expr* el = els[i];
@@ -90,7 +88,7 @@ namespace rat::cc {
 			}
 			++cur;
 		}
-		return any ? maxIdx + 1 : 0;
+		return els.empty() ? 0 : maxIdx + 1;
 	}
 
 	B32 Emitter::resolveArrayIndices(const Expr* init, B32 haveLen, I64& count, List<I64>& idx) {
@@ -159,20 +157,11 @@ namespace rat::cc {
 				++cur;
 				continue;
 			}
+			// the rest of the designator applies to a nested brace list
 			if(des.isSet && des.next) {
-				if(isArrayType(elem)) {
-					if(!initArrayInit(
-								 sink, off, arrayElem(elem), elem.array->count, wrapNested(des.next, el)))
-						return false;
-				} else if(isStruct(elem)) {
-					if(!initStructInit(sink, off, elem.strukt, wrapNested(des.next, el)))
-						return false;
-				} else {
+				if(!isArrayType(elem) && !isStruct(elem))
 					return diag.fail("designator selects a sub-object of a scalar element");
-				}
-				++cur;
-				++i;
-				continue;
+				el = wrapNested(des.next, el);
 			}
 			if((isStruct(elem) || isArrayType(elem)) && el->kind != ExprKind::InitList &&
 				 el->kind != ExprKind::CompoundLit &&
@@ -285,27 +274,17 @@ namespace rat::cc {
 						return false;
 				} else if(!initFlatStruct(sink, off, g, {els, i, &init->designators}))
 					return false;
-				for(++cur; cur < fields.size() && fields[cur].anonMember() && !fields[cur].anonFirst();
-						++cur)
-					;
+				++cur; // the loop head skips the rest of the group
 				continue;
 			}
 			U32 fcount = f.count;
 			if(f.isArray() && f.count == 0 && cur == fields.size() - 1)
 				fcount = data.flexCount;
+			// the rest of the designator applies to a nested brace list
 			if(des.isSet && des.next) {
-				if(f.isArray()) {
-					if(!initArrayInit(sink, off, f.type, fcount, wrapNested(des.next, el)))
-						return false;
-				} else if(isStruct(f.type)) {
-					if(!initStructInit(sink, off, f.type.strukt, wrapNested(des.next, el)))
-						return false;
-				} else {
+				if(!f.isArray() && !isStruct(f.type))
 					return diag.fail("designator selects a sub-object of a scalar member");
-				}
-				++cur;
-				++i;
-				continue;
+				el = wrapNested(des.next, el);
 			}
 			if(f.isArray() && el->kind != ExprKind::InitList && el->kind != ExprKind::StrLit) {
 				if(!initFlatArray(sink, off, f.type, fcount, {els, i}))

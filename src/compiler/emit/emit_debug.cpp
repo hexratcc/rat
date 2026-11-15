@@ -169,8 +169,7 @@ namespace rat::cc {
 			Local l;
 			if(!dbg.describeVars || !p.name || !func.scopes.lookup(*p.name, l))
 				continue;
-			DebugVar v{*p.name, debugType(p.type), debugLoc(p.offset), "", true};
-			debugVar(fn, std::move(v), l, true);
+			debugVar(fn, {*p.name, debugType(p.type), debugLoc(p.offset), "", true}, l, true);
 		}
 	}
 
@@ -225,8 +224,7 @@ namespace rat::cc {
 			return;
 		String symbol = l.staticSymbol ? *l.staticSymbol : "";
 		DebugType* type = debugObjectType(d.type, d.isArray, l.count);
-		DebugVar v{*d.name, type, debugLoc(d.offset), symbol};
-		debugVar(fn, std::move(v), l, d.init != nullptr);
+		debugVar(fn, {*d.name, type, debugLoc(d.offset), symbol}, l, d.init != nullptr);
 	}
 
 	void Emitter::debugGlobal(const Declarator& d) {

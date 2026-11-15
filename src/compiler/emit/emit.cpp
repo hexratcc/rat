@@ -37,19 +37,18 @@ namespace rat::cc {
 
 	// whole eightbytes, so register halves of an aggregate can be stored and loaded
 	Node* Emitter::allocBytes(Function& fn, U32 size, U32 align) {
-		return fn.alloc(byteArrayType((size + 7) & ~7u), align);
+		return fn.alloc(byteArrayType((U32)alignUp(size, 8)), align);
 	}
 
 	Node* Emitter::declSlot(Function& fn, const Declarator& d, Type* ty, U32 size) {
 		if(d.align <= 16)
 			return fn.alloc(ty, d.align);
 		Node* raw = fn.alloc(byteArrayType(size + d.align - 16), 16);
-		Type* sz = irType(ctSize());
-		return fn.and_(fn.add(raw, fn.constInt(sz, (I64)d.align - 1)), fn.constInt(sz, -(I64)d.align));
+		return fn.and_(fn.add(raw, constSize(fn, d.align - 1)), constSize(fn, -(I64)d.align));
 	}
 
-	Node* Emitter::emitArrayElemCount(Function& fn, CType t) {
-		Node* total = constSize(fn, 1);
+	Node* Emitter::emitArrayByteSize(Function& fn, CType t) {
+		Node* count = constSize(fn, 1);
 		CType cur = t;
 		while(isArrayType(cur)) {
 			Node* dim;
@@ -61,20 +60,10 @@ namespace rat::cc {
 			} else {
 				dim = constSize(fn, cur.array->count);
 			}
-			total = fn.mul(total, dim);
+			count = fn.mul(count, dim);
 			cur = cur.array->elem;
 		}
-		return total;
-	}
-
-	Node* Emitter::emitArrayByteSize(Function& fn, CType t) {
-		Node* count = emitArrayElemCount(fn, t);
-		if(!count)
-			return nullptr;
-		CType elem = t;
-		while(isArrayType(elem))
-			elem = elem.array->elem;
-		return fn.mul(count, constSize(fn, byteSize(elem)));
+		return fn.mul(count, constSize(fn, byteSize(cur)));
 	}
 
 	Type* Emitter::irType(CType t) {
@@ -101,15 +90,10 @@ namespace rat::cc {
 	}
 
 	Node* Emitter::convert(Function& fn, Node* n, CType from, CType to) {
-		if(isComplexType(to)) {
-			Value src{n, from};
-			return toComplex(fn, src, completeComplex(to)).node;
-		}
-		if(isComplexType(from)) {
-			Value src{n, from};
-			Node* re = complexReal(fn, src);
-			return convert(fn, re, complexElem(from), to);
-		}
+		if(isComplexType(to))
+			return toComplex(fn, {n, from}, completeComplex(to)).node;
+		if(isComplexType(from))
+			return convert(fn, complexReal(fn, {n, from}), complexElem(from), to);
 		if(isPointer(to) && !isPointer(from) && !isFloating(from)) {
 			if(n->getOpcode() == Opcode::Constant)
 				return fn.constInt(mod.getPtr(), cast<ConstantNode>(n)->getValue());
@@ -204,7 +188,7 @@ namespace rat::cc {
 		if(!f)
 			return diag.fail("no member named '" + memberName + "' in '" + typeName(structType) + "'");
 		out.kind = LValue::Kind::Addr;
-		out.addr = f->offset ? fn.add(baseAddr, constSize(fn, f->offset)) : baseAddr;
+		out.addr = offsetPtr(fn, baseAddr, f->offset);
 		out.type = f->type;
 		if(isTopVolatile(structType))
 			setTopVolatile(out.type);
@@ -294,17 +278,15 @@ namespace rat::cc {
 			return emitMemberLValue(fn, e, out);
 		if(e->kind == ExprKind::CompoundLit)
 			return emitCompoundLitLValue(fn, e, out);
-		{
-			CType st;
-			if(typeOf(e, st) && isStruct(st)) {
-				Value v = emitExpr(fn, e);
-				if(!v.node)
-					return false;
-				out.kind = LValue::Kind::Addr;
-				out.addr = v.node;
-				out.type = st;
-				return true;
-			}
+		CType st;
+		if(typeOf(e, st) && isStruct(st)) {
+			Value v = emitExpr(fn, e);
+			if(!v.node)
+				return false;
+			out.kind = LValue::Kind::Addr;
+			out.addr = v.node;
+			out.type = st;
+			return true;
 		}
 		return diag.fail("expression is not assignable");
 	}
@@ -389,8 +371,7 @@ namespace rat::cc {
 			auto prev = syms.functions.find(def->name);
 			if(prev != syms.functions.end()) {
 				sig.noInline |= prev->second.noInline;
-				if(prev->second.align > sig.align)
-					sig.align = prev->second.align; // an earlier declaration may carry it
+				sig.align = std::max(sig.align, prev->second.align); // an earlier declaration may carry it
 				if(def->unprototyped && !prev->second.unprototyped) {
 					prev->second.noInline = sig.noInline;
 					prev->second.align = sig.align;
@@ -411,16 +392,12 @@ namespace rat::cc {
 		}
 
 		for(const FuncDef* def : unit.functions) {
-			if(!def->body)
-				continue;
-			if(def->isExternInline)
+			if(!def->body || def->isExternInline)
 				continue;
 			if(!emitFunctionBody(def))
 				return false;
 		}
-		if(!checkAliases())
-			return false;
-		return !diag.failed;
+		return checkAliases() && !diag.failed;
 	}
 
 	B32 Emitter::checkAliases() {
@@ -444,14 +421,13 @@ namespace rat::cc {
 		for(const Param& p : def->params) {
 			AbiRegs r = takeArgRegs(p.type, free);
 			regs.push_back(r);
-			if(!isAggregate(p.type)) {
-				paramTypes.push_back(irType(p.type));
-			} else if(!r.count) {
-				paramTypes.push_back(mod.getPtr());
-				markByval(abi, (U32)paramTypes.size() - 1, p.type);
-			}
 			for(U32 k = 0; k < r.count; ++k)
 				paramTypes.push_back(eightbyteType(r.cls[k]));
+			if(r.count)
+				continue;
+			paramTypes.push_back(irType(p.type));
+			if(isAggregate(p.type))
+				markByval(abi, (U32)paramTypes.size() - 1, p.type);
 		}
 		return regs;
 	}
@@ -518,14 +494,12 @@ namespace rat::cc {
 		}
 		List<AbiRegs> regs = lowerParams(def, paramTypes, abi);
 		Type* retTy = nullptr;
-		if(sretReturn)
-			retTy = mod.getPtr();
-		else if(!isVoidType(def->retType))
+		if(!isVoidType(def->retType))
 			retTy = irType(def->retType);
 		Function* fn = mod.createFunction(def->name, paramTypes, retTy);
 		FunctionAttrs& attrs = fn->getAttrs();
 		attrs.variadic = def->isVarArgs;
-		attrs.noInline = def->isNoInline || syms.functions[def->name].noInline;
+		attrs.noInline = syms.functions[def->name].noInline;
 		attrs.align = syms.functions[def->name].align;
 		attrs.linkage = def->isStatic ? Linkage::Internal : Linkage::External;
 		attrs.abi = std::move(abi);
@@ -548,7 +522,7 @@ namespace rat::cc {
 			if(!emitExpr(*fn, p.vlaBound).node)
 				return false;
 		}
-		if(def->body && !emitStmt(*fn, def->body))
+		if(!emitStmt(*fn, def->body))
 			return false;
 		func.scopes.pop();
 		for(auto& [name, label] : func.labels)

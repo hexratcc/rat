@@ -3,13 +3,14 @@
 namespace rat::cc {
 	Emitter::Value Emitter::emitAddrOf(Function& fn, const Expr* e) {
 		if(e->unary.operand->kind == ExprKind::Ident) {
-			auto f = syms.functions.find(*e->unary.operand->ident.name);
+			const String& name = *e->unary.operand->ident.name;
+			auto f = syms.functions.find(name);
 			if(f != syms.functions.end())
-				return {fn.global(*e->unary.operand->ident.name), funcPtrType(f->second)};
+				return {fn.global(name), funcPtrType(f->second)};
 			Local loc;
-			if(func.scopes.lookup(*e->unary.operand->ident.name, loc) && loc.isArray)
+			if(func.scopes.lookup(name, loc) && loc.isArray)
 				return {loc.addr, pointerTo(loc.type)};
-			auto gvo = syms.globals.find(*e->unary.operand->ident.name);
+			auto gvo = syms.globals.find(name);
 			if(gvo != syms.globals.end() && gvo->second.isArray)
 				return emitExpr(fn, e->unary.operand);
 		}
@@ -138,29 +139,28 @@ namespace rat::cc {
 
 	Emitter::Value Emitter::emitSizeof(Function& fn, const Expr* e) {
 		CType sz = ctSize();
-		if(e->sizeOf.operand && e->sizeOf.operand->kind == ExprKind::Ident) {
-			Local loc;
-			if(func.scopes.lookup(*e->sizeOf.operand->ident.name, loc) && loc.lengthNode)
-				return {loc.lengthNode, sz};
-		}
-		if(!e->sizeOf.operand && hasVlaDim(e->sizeOf.type))
-			return {emitArrayByteSize(fn, e->sizeOf.type), sz};
-		if(e->sizeOf.operand) {
-			CType ot;
-			if(typeOf(e->sizeOf.operand, ot) && hasVlaDim(ot))
-				return {emitArrayByteSize(fn, ot), sz};
-		}
+		const Expr* operand = e->sizeOf.operand;
 		U64 n;
-		if(e->sizeOf.operand) {
-			if(!sizeofOperand(e->sizeOf.operand, n))
+		if(operand) {
+			if(operand->kind == ExprKind::Ident) {
+				Local loc;
+				if(func.scopes.lookup(*operand->ident.name, loc) && loc.lengthNode)
+					return {loc.lengthNode, sz};
+			}
+			CType ot;
+			if(typeOf(operand, ot) && hasVlaDim(ot))
+				return {emitArrayByteSize(fn, ot), sz};
+			if(!sizeofOperand(operand, n))
 				return {};
 		} else {
 			CType t = e->sizeOf.type;
+			if(hasVlaDim(t))
+				return {emitArrayByteSize(fn, t), sz};
 			if(isStruct(t) && (t.strukt == nullptr || !t.strukt->complete))
 				return diag.fail("sizeof applied to an incomplete type");
-			n = byteSize(e->sizeOf.type);
+			n = byteSize(t);
 		}
-		return {fn.constInt(irType(sz), n), sz};
+		return {constSize(fn, n), sz};
 	}
 
 	B32 Emitter::alignofValue(const Expr* e, U32& out) {
@@ -196,8 +196,7 @@ namespace rat::cc {
 					return {};
 				break;
 			}
-			if(fn.blockFinished() && child->kind != StmtKind::Label && child->kind != StmtKind::Case &&
-				 child->kind != StmtKind::Default && !containsLabel(child)) {
+			if(fn.blockFinished() && !detail::isLabeledStmt(child) && !containsLabel(child)) {
 				if(child->kind == StmtKind::Decl && !declareDead(fn, child))
 					return {};
 				continue;
@@ -269,7 +268,7 @@ namespace rat::cc {
 			U32 n;
 			if(!alignofValue(e, n))
 				return {};
-			return {fn.constInt(irType(ctSize()), n), ctSize()};
+			return {constSize(fn, n), ctSize()};
 		}
 		case ExprKind::VaArg: {
 			Node* ap = vaListRef(fn, e->vaArg.ap);
@@ -278,8 +277,7 @@ namespace rat::cc {
 			CType fetched = completeComplex(e->vaArg.type);
 			if(isAggregate(fetched))
 				return emitVaArgAggregate(fn, ap, fetched);
-			Node* r = fn.call("__builtin_va_arg", irType(e->vaArg.type), {ap});
-			return {r, e->vaArg.type};
+			return {fn.call("__builtin_va_arg", irType(e->vaArg.type), {ap}), e->vaArg.type};
 		}
 		case ExprKind::StmtExpr:
 			return emitStmtExpr(fn, e);
@@ -379,23 +377,18 @@ namespace rat::cc {
 		Block* eB = fn.createBlock("tern.end");
 		fn.jumpif(pred, tB);
 		fn.jmp(fB);
-		fn.enterBlock(tB);
-		Value tv = emitExpr(fn, e->ternary.whenTrue);
-		if(!tv.node)
-			return {};
-		if(!fn.blockFinished()) {
-			if(!isVoidRes)
-				fn.set(var, convert(fn, tv.node, tv.type, rt));
-			fn.jmp(eB);
-		}
-		fn.enterBlock(fB);
-		Value fv = emitExpr(fn, e->ternary.whenFalse);
-		if(!fv.node)
-			return {};
-		if(!fn.blockFinished()) {
-			if(!isVoidRes)
-				fn.set(var, convert(fn, fv.node, fv.type, rt));
-			fn.jmp(eB);
+		const Expr* arms[] = {e->ternary.whenTrue, e->ternary.whenFalse};
+		Block* armBlocks[] = {tB, fB};
+		for(U32 i = 0; i < 2; ++i) {
+			fn.enterBlock(armBlocks[i]);
+			Value v = emitExpr(fn, arms[i]);
+			if(!v.node)
+				return {};
+			if(!fn.blockFinished()) {
+				if(!isVoidRes)
+					fn.set(var, convert(fn, v.node, v.type, rt));
+				fn.jmp(eB);
+			}
 		}
 		fn.enterBlock(eB);
 		if(isVoidRes)
@@ -411,7 +404,7 @@ namespace rat::cc {
 			U32 elemSize = byteSize(ty);
 			I64 count = 0;
 			if(e->compound.arrayLen) {
-				if(!evalConst(e->compound.arrayLen, count) || count <= 0)
+				if(!evalConst(e->compound.arrayLen, count))
 					return failArrayCount();
 			} else if(init->kind == ExprKind::StrLit) {
 				count = (I64)init->str.bytes->size() + 1;
@@ -451,7 +444,6 @@ namespace rat::cc {
 		Value v = emitExpr(fn, se);
 		if(!v.node)
 			return {};
-		Node* val = convert(fn, v.node, v.type, ty);
-		return {val, ty};
+		return {convert(fn, v.node, v.type, ty), ty};
 	}
 } // namespace rat::cc

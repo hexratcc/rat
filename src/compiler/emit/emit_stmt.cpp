@@ -335,9 +335,7 @@ namespace rat::cc {
 			func.sp = mark;
 		}
 		for(const Stmt* child : s->body) {
-			B32 labelLike = child->kind == StmtKind::Label || child->kind == StmtKind::Case ||
-											child->kind == StmtKind::Default;
-			B32 unreachable = fn.blockFinished() && !labelLike;
+			B32 unreachable = fn.blockFinished() && !detail::isLabeledStmt(child);
 			B32 inSwitch = !func.switches.empty();
 			if(unreachable && !containsLabel(child) && !(inSwitch && containsSwitchCase(child))) {
 				if(child->kind == StmtKind::Decl && !declareDead(fn, child))
@@ -406,7 +404,7 @@ namespace rat::cc {
 			restoreStack(fn, func.loops.back().sp);
 			fn.jmp(func.loops.back().breakBlock);
 			return true;
-		case StmtKind::Continue: {
+		case StmtKind::Continue:
 			for(auto it = func.loops.rbegin(); it != func.loops.rend(); ++it) {
 				if(it->isSwitch)
 					continue;
@@ -415,7 +413,6 @@ namespace rat::cc {
 				return true;
 			}
 			return diag.fail("'continue' statement not in a loop");
-		}
 		case StmtKind::Return:
 			return emitReturn(fn, s);
 		case StmtKind::Expr:
@@ -488,26 +485,33 @@ namespace rat::cc {
 		return true;
 	}
 
-	static B32 isRegConstraint(const String& c, B32 isOutput, B32& readWrite) {
-		U32 i = 0;
-		readWrite = false;
-		if(isOutput) {
-			if(c.empty() || (c[0] != '=' && c[0] != '+'))
-				return false;
-			readWrite = c[0] == '+';
-			i = 1;
+	namespace detail {
+		B32 isLabeledStmt(const Stmt* s) {
+			StmtKind kind = s->kind;
+			return kind == StmtKind::Label || kind == StmtKind::Case || kind == StmtKind::Default;
 		}
-		if(i < c.size() && c[i] == '&')
-			++i;
-		return i + 1 == c.size() && c[i] == 'r';
-	}
 
-	static B32 matchingConstraint(const String& c, U32& index) {
-		if(c.size() != 1 || c[0] < '0' || c[0] > '9')
-			return false;
-		index = (U32)(c[0] - '0');
-		return true;
-	}
+		B32 isRegConstraint(const String& c, B32 isOutput, B32& readWrite) {
+			U32 i = 0;
+			readWrite = false;
+			if(isOutput) {
+				if(c.empty() || (c[0] != '=' && c[0] != '+'))
+					return false;
+				readWrite = c[0] == '+';
+				i = 1;
+			}
+			if(i < c.size() && c[i] == '&')
+				++i;
+			return i + 1 == c.size() && c[i] == 'r';
+		}
+
+		B32 matchingConstraint(const String& c, U32& index) {
+			if(c.size() != 1 || c[0] < '0' || c[0] > '9')
+				return false;
+			index = (U32)(c[0] - '0');
+			return true;
+		}
+	} // namespace detail
 
 	B32 Emitter::emitAsm(Function& fn, const Stmt* s) {
 		const AsmBlock* a = s->asmBlock;
@@ -522,7 +526,7 @@ namespace rat::cc {
 		for(U32 i = 0; i < a->outputs.size(); ++i) {
 			const AsmOperand& op = a->outputs[i];
 			B32 readWrite = false;
-			if(!isRegConstraint(*op.constraint, true, readWrite))
+			if(!detail::isRegConstraint(*op.constraint, true, readWrite))
 				return diag.fail("unsupported asm output constraint '" + *op.constraint + "'");
 			LValue lv;
 			if(!emitLValue(fn, op.expr, lv))
@@ -536,14 +540,14 @@ namespace rat::cc {
 		List<const Expr*> extra; // inputs that no output is tied to
 		for(const AsmOperand& op : a->inputs) {
 			U32 which = 0;
-			if(matchingConstraint(*op.constraint, which)) {
+			if(detail::matchingConstraint(*op.constraint, which)) {
 				if(which >= tie.size() || readsBack[which] || tie[which])
 					return diag.fail("asm matching constraint '" + *op.constraint + "' names no free output");
 				tie[which] = op.expr;
 				continue;
 			}
 			B32 readWrite = false;
-			if(!isRegConstraint(*op.constraint, false, readWrite))
+			if(!detail::isRegConstraint(*op.constraint, false, readWrite))
 				return diag.fail("unsupported asm input constraint '" + *op.constraint + "'");
 			extra.push_back(op.expr);
 		}

@@ -73,49 +73,47 @@ namespace rat::cc {
 		return true;
 	}
 
-	static B32 funcTypesMatch(const FuncType* a, const FuncType* b);
-
-	static B32 genericTypesMatch(const CType& a, const CType& b) {
-		if(a.ptr != b.ptr || a.quals != b.quals || a.vquals != b.vquals ||
-			 (a.func != nullptr) != (b.func != nullptr))
-			return false;
-		if(a.func && b.func)
-			return funcTypesMatch(a.func, b.func);
-		B32 aArr = a.array != nullptr && a.ptr == 0;
-		B32 bArr = b.array != nullptr && b.ptr == 0;
-		if(aArr != bArr)
-			return false;
-		if(aArr && bArr)
-			return a.array->count == b.array->count && genericTypesMatch(a.array->elem, b.array->elem);
-		if((a.strukt != nullptr) != (b.strukt != nullptr))
-			return false;
-		if(a.strukt && b.strukt)
-			return a.strukt == b.strukt;
-		if(a.isVoid() != b.isVoid() || a.isFloat() != b.isFloat() || a.bits != b.bits)
-			return false;
-		if(a.isFloat() || a.isVoid())
-			return true;
-		return a.isUnsigned() == b.isUnsigned() &&
-					 !(a.bits == 8 && a.isPlainChar() != b.isPlainChar()) &&
-					 !(a.bits == 32 && a.isLong() != b.isLong()) &&
-					 !(a.bits == 64 && a.isLongLong() != b.isLongLong());
-	}
-
-	static B32 funcTypesMatch(const FuncType* a, const FuncType* b) {
-		if(a->isVarArgs != b->isVarArgs || a->params.size() != b->params.size() ||
-			 !genericTypesMatch(a->ret, b->ret))
-			return false;
-		for(U32 i = 0; i < a->params.size(); ++i)
-			if(!genericTypesMatch(a->params[i].type, b->params[i].type))
+	namespace detail {
+		B32 genericTypesMatch(const CType& a, const CType& b) {
+			if(a.ptr != b.ptr || a.quals != b.quals || a.vquals != b.vquals ||
+				 (a.func != nullptr) != (b.func != nullptr))
 				return false;
-		return true;
-	}
+			if(a.func)
+				return funcTypesMatch(a.func, b.func);
+			if(isArrayType(a) != isArrayType(b))
+				return false;
+			if(isArrayType(a))
+				return a.array->count == b.array->count && genericTypesMatch(a.array->elem, b.array->elem);
+			if((a.strukt != nullptr) != (b.strukt != nullptr))
+				return false;
+			if(a.strukt)
+				return a.strukt == b.strukt;
+			if(a.isVoid() != b.isVoid() || a.isFloat() != b.isFloat() || a.bits != b.bits)
+				return false;
+			if(a.isFloat() || a.isVoid())
+				return true;
+			return a.isUnsigned() == b.isUnsigned() &&
+						 !(a.bits == 8 && a.isPlainChar() != b.isPlainChar()) &&
+						 !(a.bits == 32 && a.isLong() != b.isLong()) &&
+						 !(a.bits == 64 && a.isLongLong() != b.isLongLong());
+		}
+
+		B32 funcTypesMatch(const FuncType* a, const FuncType* b) {
+			if(a->isVarArgs != b->isVarArgs || a->params.size() != b->params.size() ||
+				 !genericTypesMatch(a->ret, b->ret))
+				return false;
+			for(U32 i = 0; i < a->params.size(); ++i)
+				if(!genericTypesMatch(a->params[i].type, b->params[i].type))
+					return false;
+			return true;
+		}
+	} // namespace detail
 
 	const Expr* Emitter::genericSelect(const Expr* e) {
 		CType ctrl;
 		if(!typeOf(e->generic.control, ctrl))
 			return nullptr;
-		if(ctrl.array != nullptr && ctrl.ptr == 0)
+		if(isArrayType(ctrl))
 			ctrl = decay(ctrl);
 		clearTopConst(ctrl);
 		clearTopVolatile(ctrl);
@@ -126,7 +124,7 @@ namespace rat::cc {
 				fallback = a.result;
 				continue;
 			}
-			if(genericTypesMatch(ctrl, a.type))
+			if(detail::genericTypesMatch(ctrl, a.type))
 				return a.result;
 		}
 		if(fallback)

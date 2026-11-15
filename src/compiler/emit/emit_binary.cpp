@@ -2,39 +2,34 @@
 
 namespace rat::cc {
 	Emitter::Value Emitter::emitPtrArith(Function& fn, ExprOp op, Value lhs, Value rhs) {
-		if(op == ExprOp::Add) {
-			if(isPointer(lhs.type) && isPointer(rhs.type))
-				return diag.fail("invalid operands to binary '+' (two pointers)");
-			Value p = isPointer(lhs.type) ? lhs : rhs;
-			Value i = isPointer(lhs.type) ? rhs : lhs;
-			if(!isInteger(i.type))
-				return diag.fail("pointer arithmetic requires an integer operand");
-			Node* idx = convert(fn, i.node, i.type, ctSize());
-			Node* stride = elemStride(fn, p.type);
-			if(!stride)
-				return {};
-			return {fn.add(p.node, fn.mul(idx, stride)), p.type};
-		}
-		if(op == ExprOp::Sub) {
-			if(isPointer(lhs.type) && isPointer(rhs.type)) {
-				CType pd = ctPtrDiff();
-				Node* la = fn.convert(Opcode::SExt, lhs.node, irType(pd));
-				Node* ra = fn.convert(Opcode::SExt, rhs.node, irType(pd));
-				Node* diff = fn.sub(la, ra); // byte difference
-				Node* stride = elemStride(fn, lhs.type);
-				if(!stride)
-					return {};
-				return {fn.sdiv(diff, stride), pd};
-			}
-			if(!isPointer(lhs.type) || !isInteger(rhs.type))
-				return diag.fail("invalid operands to binary '-'");
-			Node* idx = convert(fn, rhs.node, rhs.type, ctSize());
+		B32 bothPointers = isPointer(lhs.type) && isPointer(rhs.type);
+		if(op == ExprOp::Sub && bothPointers) {
+			CType pd = ctPtrDiff();
+			Node* la = fn.convert(Opcode::SExt, lhs.node, irType(pd));
+			Node* ra = fn.convert(Opcode::SExt, rhs.node, irType(pd));
+			Node* diff = fn.sub(la, ra); // byte difference
 			Node* stride = elemStride(fn, lhs.type);
 			if(!stride)
 				return {};
-			return {fn.sub(lhs.node, fn.mul(idx, stride)), lhs.type};
+			return {fn.sdiv(diff, stride), pd};
 		}
-		return diag.fail("invalid operands to binary expression on a pointer");
+		if(op != ExprOp::Add && op != ExprOp::Sub)
+			return diag.fail("invalid operands to binary expression on a pointer");
+		if(op == ExprOp::Add && bothPointers)
+			return diag.fail("invalid operands to binary '+' (two pointers)");
+		if(op == ExprOp::Sub && (!isPointer(lhs.type) || !isInteger(rhs.type)))
+			return diag.fail("invalid operands to binary '-'");
+		// pointer + integer in either order, or pointer - integer
+		Value p = isPointer(lhs.type) ? lhs : rhs;
+		Value i = isPointer(lhs.type) ? rhs : lhs;
+		if(!isInteger(i.type))
+			return diag.fail("pointer arithmetic requires an integer operand");
+		Node* idx = convert(fn, i.node, i.type, ctSize());
+		Node* stride = elemStride(fn, p.type);
+		if(!stride)
+			return {};
+		Opcode arith = op == ExprOp::Add ? Opcode::Add : Opcode::Sub;
+		return {fn.binary(arith, p.node, fn.mul(idx, stride)), p.type};
 	}
 
 	Node* Emitter::emitArith(Function& fn, ExprOp op, Node* l, Node* r, CType ct) {
@@ -252,15 +247,12 @@ namespace rat::cc {
 		static_assert(sizeof(kCmp) / sizeof(kCmp[0]) == (U32)ExprOp::Ne - (U32)ExprOp::Lt + 1,
 									"kCmp must cover Lt..Ne");
 		const Sel& sel = kCmp[(U32)op - (U32)ExprOp::Lt]; // caller guarantees Lt..Ne
-		Opcode intOp = ct.isUnsigned() ? sel.u : sel.s;
-		Node* cmp;
 		if(isFloating(ct))
-			cmp = fn.compare(sel.f, l, r);
-		else if(sel.swap)
-			cmp = fn.compare(intOp, r, l);
-		else
-			cmp = fn.compare(intOp, l, r);
-		return {fromBool(fn, cmp), ctInt()};
+			return {fromBool(fn, fn.compare(sel.f, l, r)), ctInt()};
+		if(sel.swap)
+			std::swap(l, r);
+		Opcode intOp = ct.isUnsigned() ? sel.u : sel.s;
+		return {fromBool(fn, fn.compare(intOp, l, r)), ctInt()};
 	}
 
 	Emitter::Value Emitter::emitComplexBinary(Function& fn, ExprOp op, Value lhs, Value rhs) {

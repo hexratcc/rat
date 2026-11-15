@@ -7,7 +7,6 @@ namespace rat::cc {
 			if(found != syms.functions.end()) {
 				c.direct = true;
 				c.sig = found->second;
-				c.prototyped = true;
 				return true;
 			}
 			Node* val = nullptr;
@@ -29,7 +28,6 @@ namespace rat::cc {
 			if(val && isFuncPtr(ct)) {
 				c.target = val;
 				c.ft = ct.func;
-				c.prototyped = true;
 			} else if(isObject) {
 				return diag.fail("called object is not a function or function pointer");
 			} else {
@@ -37,6 +35,7 @@ namespace rat::cc {
 				if(callee.rfind("__builtin_", 0) != 0 && syms.implicitFunctions.insert(callee).second)
 					diag.warnings.push_back("warning: implicit declaration of function '" + callee + "'");
 				c.direct = true;
+				c.sig.unprototyped = true;
 				if(!builtinReturnType(callee, lay.longBits, c.sig.returnType))
 					c.sig.returnType = ctInt();
 			}
@@ -49,7 +48,6 @@ namespace rat::cc {
 			return diag.fail("called object is not a function");
 		c.target = fpv.node;
 		c.ft = fpv.type.func;
-		c.prototyped = true;
 		return true;
 	}
 
@@ -113,7 +111,7 @@ namespace rat::cc {
 		B32 unproto = c.direct ? c.sig.unprototyped : c.ft->unprototyped;
 		B32 variadic = c.direct ? c.sig.isVarArgs : c.ft->isVarArgs;
 		B32 va = true;
-		if(c.prototyped && !unproto) {
+		if(!unproto) {
 			va = variadic;
 			U32 nargs = (U32)e->args.size();
 			if(nargs < nparams || (!variadic && nargs > nparams)) {
@@ -139,9 +137,7 @@ namespace rat::cc {
 		if(!emitArgs(fn, e, c, nparams, args))
 			return {};
 		Type* retTy = nullptr;
-		if(resultSlot)
-			retTy = mod.getPtr();
-		else if(!isVoidType(ret))
+		if(!isVoidType(ret))
 			retTy = irType(ret);
 		Node* call;
 		if(c.direct)

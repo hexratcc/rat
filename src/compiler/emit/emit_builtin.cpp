@@ -1,5 +1,7 @@
 #include "emit/emit.h"
 
+#include <limits>
+
 namespace rat::cc {
 	namespace detail {
 		U32 bitBuiltinWidth(const String& name, const C8* stem, U32 longBits) {
@@ -23,13 +25,6 @@ namespace rat::cc {
 				return false;
 			String suffix = name.substr(prefix.size());
 			return suffix.empty() || suffix == "f" || suffix == "l";
-		}
-
-		F64 f64Inf() {
-			U64 bits = 0x7ff0000000000000ull;
-			F64 v;
-			std::memcpy(&v, &bits, sizeof(v));
-			return v;
 		}
 
 		const C8* const kLibcBuiltins[] = {
@@ -362,8 +357,8 @@ namespace rat::cc {
 			out = {fromBool(fn, fn.compare(Opcode::FNe, x, x)), ctInt()};
 			return true;
 		}
-		Node* pos = fn.constFloat(ty, detail::f64Inf());
-		Node* neg = fn.constFloat(ty, -detail::f64Inf());
+		Node* pos = fn.constFloat(ty, std::numeric_limits<F64>::infinity());
+		Node* neg = fn.constFloat(ty, -std::numeric_limits<F64>::infinity());
 		if(kind == IsInf) {
 			Node* hi = fromBool(fn, fn.compare(Opcode::FEq, x, pos));
 			Node* lo = fromBool(fn, fn.compare(Opcode::FEq, x, neg));
