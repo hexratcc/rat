@@ -87,26 +87,18 @@ namespace rat {
 			return;
 		}
 		AddrParts a = matchAddr(s->getPointer());
-		if(isSseTy(val->getType())) {
-			VReg src = sseValue(val);
-			Ops uses = {addrBase(a), vr(src, w)};
-			if(a.hasIndex)
-				uses.push_back(vr(a.index));
-			put(X86Op::FStore, {}, std::move(uses), a.disp, sibBits(0, a));
-			return;
-		}
+		if(isSseTy(val->getType()))
+			return st(a, vr(sseValue(val), w), X86Op::FStore);
 		if(ConstantNode* c = dyn_cast<ConstantNode>(val)) {
 			I64 v = c->getValue();
-			if(w < 8 || v == (I64)(I32)v) {
-				st(a, im(imm(v, w)));
-				return;
-			}
+			if(w < 8 || v == (I64)(I32)v)
+				return st(a, im(imm(v, w)));
 		}
 		MachineOperand src = vr(gpValue(val), w);
 		// indexed reg store [base+index*scale+disp]=src has 3 gp uses; a vreg base lets all three
 		// spill at once but only 2 gp scratch exist, so fold the address into an lea and keep the
 		// store at <=2 gp uses
-		if(a.hasIndex && !a.frameBase) {
+		if(a.index != kNoVReg && !a.frameBase) {
 			VReg t = fresh(detail::kGp);
 			lea(t, a);
 			st(t, std::move(src));
@@ -143,10 +135,8 @@ namespace rat {
 	}
 
 	void X86LowerPass::signExtBits(VReg d, U32 bits) {
-		if(bits == 1) {
-			maskBits(d, 1);
-			return;
-		}
+		if(bits == 1)
+			return maskBits(d, 1);
 		if(bits > 0 && bits < 64)
 			put(X86Op::SignExtBits, {vr(d)}, {vr(d)}, (I64)bits);
 	}
@@ -207,14 +197,10 @@ namespace rat {
 		// clang-format on
 		static_assert((U32)Opcode::Rotr - (U32)Opcode::Add + 1 == 15, "kOps must cover Add..Rotr");
 		Opcode op = n->getOpcode();
-		if(n->getType() && n->getType()->isVec()) {
-			emitVecBinary(n);
-			return;
-		}
-		if(op >= Opcode::FAdd && op <= Opcode::FDiv) {
-			emitFloatBinary(n);
-			return;
-		}
+		if(n->getType() && n->getType()->isVec())
+			return emitVecBinary(n);
+		if(op >= Opcode::FAdd && op <= Opcode::FDiv)
+			return emitFloatBinary(n);
 		if(op < Opcode::Add || op > Opcode::Rotr)
 			return;
 		X86Op mop = kOps[(U32)op - (U32)Opcode::Add];
@@ -262,7 +248,6 @@ namespace rat {
 		a.base = s;
 		a.index = s;
 		a.scaleLog2 = sc;
-		a.hasIndex = true;
 		lea(d, a);
 	}
 
@@ -292,8 +277,7 @@ namespace rat {
 		String name(buf);
 		Global* g = mod->getGlobal(name);
 		if(!g) {
-			List<U8> init = bytes;
-			g = mod->createGlobal(name, mod->getArray(mod->getInt(8), 16), true, std::move(init));
+			g = mod->createGlobal(name, mod->getArray(mod->getInt(8), 16), true, bytes);
 			g->setLinkage(Global::Linkage::Internal);
 		}
 		return g->getName(); // outlives the machine code that names it
@@ -303,10 +287,8 @@ namespace rat {
 		Type* et = n->getType()->getVecElement();
 		U32 esz = et->byteSize(ptrBytes);
 		Opcode op = n->getOpcode();
-		if(op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr) {
-			emitVecShift(n);
-			return;
-		}
+		if(op == Opcode::Shl || op == Opcode::LShr || op == Opcode::AShr)
+			return emitVecShift(n);
 		U8 pfx = 0, opc = 0;
 		B32 esc38 = false;
 		// clang-format off
@@ -417,14 +399,11 @@ namespace rat {
 	void X86LowerPass::emitPack(PackNode* n) {
 		Type* et = n->getType()->getVecElement();
 		U32 esz = et->byteSize(ptrBytes);
-		U32 w = n->getLaneCount();
 		B32 isInt = !et->isFloat();
 		if(emitConstPack(n, esz))
 			return;
-		if(!sse41) {
-			emitPackMem(n, esz, isInt);
-			return;
-		}
+		if(!sse41)
+			return emitPackMem(n, esz, isInt);
 		List<U8> bytes = constLanes(n, esz);
 		B32 nonZero = std::count(bytes.begin(), bytes.end(), 0) < 16;
 		B32 fromPool = nonZero || isa<ConstantNode>(n->getLane(0));
@@ -433,7 +412,7 @@ namespace rat {
 			ldf(d, 16, vecPoolSym(bytes));
 		else
 			packLaneZero(n, d, esz, isInt);
-		for(U32 i = 0; i < w; ++i)
+		for(U32 i = 0; i < n->getLaneCount(); ++i)
 			if(!isa<ConstantNode>(n->getLane(i)) && (i || fromPool))
 				insertLane(d, n->getLane(i), i, esz, isInt);
 	}
@@ -524,10 +503,8 @@ namespace rat {
 	}
 
 	void X86LowerPass::emitShuffle(ShuffleNode* n) {
-		if(BinaryNode* sub = addSubOf(n)) {
-			emitAddSub(n, sub);
-			return;
-		}
+		if(BinaryNode* sub = addSubOf(n))
+			return emitAddSub(n, sub);
 		U8 sel = 0, mask = 0;
 		B32 inPlace = true;
 		shuffleDwords(n, sel, mask, inPlace);
@@ -628,18 +605,12 @@ namespace rat {
 
 	void X86LowerPass::emitUnary(UnaryNode* n) {
 		Opcode uop = n->getOpcode();
-		if(uop == Opcode::Clz || uop == Opcode::Ctz) {
-			emitBitScan(n, uop == Opcode::Clz);
-			return;
-		}
-		if(uop == Opcode::Popcnt) {
-			emitPopcnt(n);
-			return;
-		}
-		if(uop == Opcode::FNeg) {
-			emitFNeg(n);
-			return;
-		}
+		if(uop == Opcode::Clz || uop == Opcode::Ctz)
+			return emitBitScan(n, uop == Opcode::Clz);
+		if(uop == Opcode::Popcnt)
+			return emitPopcnt(n);
+		if(uop == Opcode::FNeg)
+			return emitFNeg(n);
 		U32 bits = intBits(n->getType());
 		VReg s = gpValue(n->getOperand());
 		VReg d = vregFor(n);
@@ -682,10 +653,8 @@ namespace rat {
 	// dst starts as the else-value, then cmov overwrites it when the flags say so
 	// the condition folds into the cmp when it is an integer compare used only here
 	void X86LowerPass::emitSelect(SelectNode* n) {
-		if(n->getType()->isVec()) {
-			emitVecSelect(n);
-			return;
-		}
+		if(n->getType()->isVec())
+			return emitVecSelect(n);
 		Node* cond = n->getCondition();
 		VReg d = vregFor(n);
 		// materialize both arms before the compare
@@ -811,28 +780,21 @@ namespace rat {
 	void X86LowerPass::emitConvert(ConvertNode* n) {
 		Node* src = n->getOperand();
 		Opcode op = n->getOpcode();
-		if(n->getType()->isVec()) {
-			emitVecConvert(n);
-			return;
-		}
-		if(isX87Ty(n->getType()) || isX87Ty(src->getType())) {
-			emitConvertX87(n, src, op);
-			return;
-		}
+		if(n->getType()->isVec())
+			return emitVecConvert(n);
+		if(isX87Ty(n->getType()) || isX87Ty(src->getType()))
+			return emitConvertX87(n, src, op);
 		switch(op) {
 		case Opcode::Trunc:
 		case Opcode::SExt:
 		case Opcode::ZExt:
-			emitIntResize(n, src);
-			return;
+			return emitIntResize(n, src);
 		case Opcode::SIToFP:
 		case Opcode::UIToFP:
-			emitIntToFP(n, src);
-			return;
+			return emitIntToFP(n, src);
 		case Opcode::FPToSI:
 		case Opcode::FPToUI:
-			emitFPToInt(n, src);
-			return;
+			return emitFPToInt(n, src);
 		case Opcode::FPExt:			// f32 -> f64: cvtss2sd
 		case Opcode::FPTrunc: { // f64 -> f32: cvtsd2ss
 			U32 sw = opWidth(src->getType());
@@ -909,10 +871,8 @@ namespace rat {
 		U32 w = opWidth(n->getType());
 		U32 sb = intBits(src->getType());
 		VReg s = gpValue(src);
-		if(isUnsigned && sb >= 64) {
-			emitU64ToFP(n, s, w);
-			return;
-		}
+		if(isUnsigned && sb >= 64)
+			return emitU64ToFP(n, s, w);
 		U32 sw = 8;
 		if(isUnsigned) {
 			VReg z = fresh(detail::kGp);
@@ -928,10 +888,8 @@ namespace rat {
 	void X86LowerPass::emitFPToInt(ConvertNode* n, Node* src) {
 		B32 isUnsigned = n->getOpcode() == Opcode::FPToUI;
 		U32 bits = intBits(n->getType());
-		if(isUnsigned && bits >= 64) {
-			emitFPToU64(n, src);
-			return;
-		}
+		if(isUnsigned && bits >= 64)
+			return emitFPToU64(n, src);
 		U32 w = opWidth(src->getType());
 		VReg s = sseValue(src);
 		VReg d = vregFor(n);
@@ -1071,14 +1029,11 @@ namespace rat {
 			return;
 		}
 		case Opcode::UIToFP:
-			emitUIntToX87(n, s, intBits(st));
-			return;
+			return emitUIntToX87(n, s, intBits(st));
 		case Opcode::FPToSI:
 		case Opcode::FPToUI: {
-			if(op == Opcode::FPToUI && intBits(n->getType()) >= 64) {
-				emitX87ToU64(n, x);
-				return;
-			}
+			if(op == Opcode::FPToUI && intBits(n->getType()) >= 64)
+				return emitX87ToU64(n, x);
 			VReg d = vregFor(n);
 			put(X86Op::X87ToInt, {vr(d)}, {sl(x)});
 			signExtBits(d, intBits(n->getType()));
@@ -1088,5 +1043,4 @@ namespace rat {
 			return;
 		}
 	}
-
 } // namespace rat

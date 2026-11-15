@@ -10,17 +10,12 @@
 #include "target/x86/x86_asm.h"
 
 namespace rat {
+	// allocatable plus scratch minus callee-saved, scratch is never callee-saved
 	U64 X86LowerPass::callerSavedClobbers() const {
-		// volatile = allocatable minus callee-saved, plus the encoder scratch regs
-		U64 cl = 0;
-		for(const RegClass& rc : regs->classes) {
-			for(PhysReg p : rc.allocatable)
-				cl |= detail::physBit(p);
+		U64 cl = allRegClobbers();
+		for(const RegClass& rc : regs->classes)
 			for(PhysReg p : rc.calleeSaved)
 				cl &= ~detail::physBit(p);
-			for(PhysReg p : rc.scratch)
-				cl |= detail::physBit(p);
-		}
 		return cl;
 	}
 
@@ -174,8 +169,8 @@ namespace rat {
 			}
 			U32 stackOff = as.nextMem(byval->bytes, byval->align).stackOff;
 			I64 placement = (I64)stackOff << 32 | byval->bytes;
-			args.push_back({MachineOperand::vr(gpValue(c->getArg(i))), Kind::Int, -1});
-			args.push_back({MachineOperand::immVal(placement), Kind::Int, -1});
+			args.push_back({vr(gpValue(c->getArg(i))), Kind::Int, -1});
+			args.push_back({im(imm(placement)), Kind::Int, -1});
 		}
 	}
 
@@ -259,8 +254,8 @@ namespace rat {
 	// rax then rdx, xmm0 then xmm1
 	MachineOperand X86LowerPass::returnReg(AbiClass c, U32& gp, U32& sse) {
 		if(c == AbiClass::Sse)
-			return MachineOperand::fixed(detail::xmmPhys(sse++), 8);
-		return MachineOperand::fixed(detail::gpPhys(gp++ ? RDX : RAX));
+			return xm(xmm(sse++));
+		return ph(gp++ ? RDX : RAX);
 	}
 
 	// the return registers into the slot after a call, or out of it before a ret
@@ -284,18 +279,16 @@ namespace rat {
 			AddrParts at = baseDisp(retSlot, (I32)(8 * k));
 			VReg v = fresh(cls);
 			if(move == ReturnMove::IntoSlot) {
-				mov(MachineOperand::vr(v), reg, cls);
-				if(cls == detail::kFp)
-					put(X86Op::FStore, {}, {addrBase(at), vr(v, 8)}, at.disp, sibBits(0, at));
-				else
-					st(at, MachineOperand::vr(v));
+				mov(vr(v), reg, cls);
+				X86Op store = cls == detail::kFp ? X86Op::FStore : X86Op::Store;
+				st(at, vr(v), store);
 				continue;
 			}
 			if(cls == detail::kFp)
 				ldf(v, 8, at);
 			else
 				ld(v, 8, at, false);
-			mov(reg, MachineOperand::vr(v), cls);
+			mov(reg, vr(v), cls);
 			uses.push_back(reg);
 		}
 		return uses;

@@ -20,25 +20,22 @@ namespace rat {
 	namespace detail {
 		B32 storeMayAliasLoad(const AliasAnalysis& aa, const StoreNode* st, const LoadNode* ld);
 		B32 earlierId(const Node* a, const Node* b);
-		Node* storedObject(const AliasAnalysis& aa, Node* w);
 	} // namespace detail
 
 	struct Schedule {
 		enum class TermKind {
 			Return, // block ends in a return
-			Branch, // block ends in a two-way If (thenB / elseB)
-			Goto,		// block falls through to a single successor region (gotoB)
-			Switch, // block ends in a multi-way branch (caseB, one per slot)
+			Branch, // block ends in a two-way If, succs are then and else
+			Goto,		// block falls through to a single successor region
+			Switch, // block ends in a multi-way branch, one succ per slot
 		};
 
 		struct Block {
 			Node* head = nullptr; // region, entry control proj, or if proj
 			TermKind term = TermKind::Return;
-			Node* termNode = nullptr;		// the return or if node (null for a goto)
-			I32 thenB = -1, elseB = -1; // branch successors
-			I32 gotoB = -1;							// goto successor (a region block)
-			I32 gotoPredIdx = -1;				// which predecessor slot of gotoB this edge is
-			List<I32> caseB;						// switch successors, slot order
+			Node* termNode = nullptr; // the return, if or switch node (null for a goto)
+			SmallList<I32, 2> succs;	// see TermKind
+			I32 gotoPredIdx = -1;			// which predecessor slot of the goto successor this edge is
 
 			I32 idom = -1;				 // immediate dominator (entry dominates itself)
 			I32 domDepth = 0;			 // depth in the dominator tree
@@ -60,8 +57,6 @@ namespace rat {
 		I32 blockOf(const Node* n) const;
 		I32 anchorBlock(const Node* ctrl) const;
 
-		U32 succCount(I32 b) const;
-		I32 succAt(I32 b, U32 i) const;
 		U32 predCount(I32 b) const;
 		B32 dominates(I32 a, I32 b) const;
 
@@ -94,8 +89,7 @@ namespace rat {
 		void scheduleLate(const List<Node*>& work, const List<I32>& early);
 		static Node* pendingUser(const Node* n, U32& next, const List<U8>& done);
 		I32 lateBlock(Node* n) const;
-		void placeLoads(const List<Node*>& loads, const List<I32>& early);
-		B32 place(Node* n, I32 late, const List<I32>& early);
+		void place(Node* n, I32 late, const List<I32>& early);
 		void buildBlockLists();
 		static B32 emitsEarly(const Node* n);
 		static void bucket(const List<Node*>& items,
@@ -111,7 +105,6 @@ namespace rat {
 		I32 lca(I32 a, I32 b) const;
 
 		I32 useBlock(Node* u, Node* n) const;
-		I32 predBlockForRegionInput(I32 regionBlock, U32 i) const;
 		I32 hoistTarget(const Node* n, I32 late, I32 early) const;
 		I32 homeBlock(Node* n) const;
 		B32 loadsGlobal(const Node* n) const;

@@ -71,7 +71,7 @@ namespace rat {
 			U32 pos = std::max(src, valuePos(bd, b, plan));
 			plan.cursor[bd.inst] = pos;
 			if(pos > src) // the old value is gone, the new one not there yet
-				out->addDbg(mb->dbgBefore(src), bd.inst, bindingLoc(nullptr));
+				out->addDbg(mb->dbgBefore(src), bd.inst, MachineOperand::none());
 			out->addDbg(mb->dbgBefore(pos), bd.inst, bindingLoc(bd.value));
 		}
 		for(U32 k = plan.first[b]; k < plan.first[b + 1]; ++k)

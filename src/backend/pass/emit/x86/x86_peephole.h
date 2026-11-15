@@ -107,7 +107,7 @@ namespace rat {
 
 		static B32 isAnySlotLoad(const MachineInstr& in);
 		static void slotBlockOut(const MachineBlock& b, const List<U64>& liveIn, List<U64>& cur);
-		static void slotStep(const MachineInstr& in, const TrackedSlots& slots, List<U64>& cur);
+		void slotStep(const MachineInstr& in, List<U64>& cur) const;
 		U32 elimDeadSlotStores(MachineFunc& mf);
 
 		ValueState st;

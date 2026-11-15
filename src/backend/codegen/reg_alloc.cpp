@@ -46,16 +46,18 @@ namespace rat {
 		}
 	} // namespace detail
 
-	void RegAllocPass::allocate(MachineFunc& f) {
-		fn = &f;
-		nv = f.nextVReg;
+	B32 RegAllocPass::run(Module&, const Function&, MachineFunc& mf, const TargetInfo& target) {
+		if(ri != target.registers())
+			setup(target);
+		fn = &mf;
+		nv = mf.nextVReg;
 		assert(nv <= detail::kCopyVRegMask && "too many vregs for a copy key");
 		usedCallee = 0;
 		copies.clear();
 		number();
 		liveness();
 		buildIntervals();
-		B32 dbg = f.dbg.size() > 1;
+		B32 dbg = mf.dbg.size() > 1;
 		if(dbg)
 			checkDebugLive();
 		coalesce();
@@ -66,6 +68,7 @@ namespace rat {
 		fn->usedCalleeSaved.clear();
 		for(U64 m = usedCallee; m; m &= m - 1)
 			fn->usedCalleeSaved.push_back((PhysReg)countTrailingZeros64(m));
+		return true;
 	}
 
 	B32 RegAllocPass::isCopy(const MachineInstr& in) const {
@@ -423,21 +426,15 @@ namespace rat {
 		std::sort(spilled.begin(), spilled.end());
 		List<Pair<I32, I32>> pool[kMaxRegClasses]; // (slot, end of its last holder)
 		for(const auto& [start, v] : spilled) {
-			Interval& t = iv[v];
 			U32 cls = fn->vregClass[v];
-			I32 end = t.segs.back().second;
-			B32 reused = false;
-			for(auto& [slot, freeAt] : pool[cls])
-				if(freeAt < start) {
-					t.slot = slot;
-					freeAt = end;
-					reused = true;
-					break;
-				}
-			if(reused)
-				continue;
-			t.slot = newSlot(cls);
-			pool[cls].emplace_back(t.slot, end);
+			List<Pair<I32, I32>>& slots = pool[cls];
+			U32 k = 0;
+			while(k < slots.size() && slots[k].second >= start)
+				++k;
+			if(k == slots.size())
+				slots.emplace_back(newSlot(cls), 0);
+			iv[v].slot = slots[k].first;
+			slots[k].second = iv[v].segs.back().second;
 		}
 	}
 
@@ -561,13 +558,6 @@ namespace rat {
 			blk.dbgEnd = fn->joinDbg(dbg, blk.dbgEnd);
 			blk.insts.swap(out);
 		}
-	}
-
-	B32 RegAllocPass::run(Module&, const Function&, MachineFunc& mf, const TargetInfo& target) {
-		if(ri != target.registers())
-			setup(target);
-		allocate(mf);
-		return true;
 	}
 
 	void RegAllocPass::setup(const TargetInfo& target) {

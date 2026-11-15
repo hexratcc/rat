@@ -16,9 +16,8 @@ namespace rat {
 		inline PhysReg gpPhys(Reg r) { return X86Target::kGpBase + (PhysReg)r; }
 		inline PhysReg xmmPhys(U32 n) { return X86Target::kXmmBase + n; }
 		inline U64 physBit(PhysReg p) { return (U64)1 << p; }
-		inline U64 scratchBits() {
-			return physBit(gpPhys(R10)) | physBit(gpPhys(R11));
-		} // encoder scratch
+		// the encoder scratch regs
+		inline U64 scratchBits() { return physBit(gpPhys(R10)) | physBit(gpPhys(R11)); }
 
 		constexpr I64 kX87MemBits = 80;
 
@@ -123,7 +122,7 @@ namespace rat {
 		VPackLane,	// [vec scratch + imm2>>1 * imm] = use[0]
 		VPack,			// dst = the vec scratch slot
 		VPackReg,		// dst = movd/movq of int lane use[0]
-		VInsertReg, // dst = use[0]
+		VInsertReg, // lane imm2 of dst = use[1], imm = elem bytes
 		VShuf,			// dst = pshufd(use[0], imm)
 		// x87 ops
 		X87LoadMem,	 // def(slot) = fld [use0 addr]; imm = mem width (4/8/80)
@@ -140,11 +139,11 @@ namespace rat {
 		X87Neg, // def(slot) = -use0(slot) (fchs)
 		X87Cmp, // def(gp) = use0(slot) CMP use1(slot); cc in imm, swap in imm2
 		// control / calls
-		Call, // direct (sym in sym) or indirect (target reg in use[0]); imm = xmmUsed
+		Call, // to the sym use, or through the r11 use when imm2 is set, imm = stack arg bytes
 		Ret,
 		Jmp,				// unconditional, target block in use[0].block
 		SwitchJump, // table jump: use[0] = selector reg, use[1..] = slot target blocks
-		Br,					// test+jcc: predicate in use[0], then in use[1].block, else in use[2].block
+		Br,					// jnz use[0] to use[1] else use[2], with imm2 set jcc imm to use[0] else use[1]
 		// variadic support
 		VaStart, // init va_list at [use0]; imm = gpOffset start, imm2 = fpOffset start
 		VaArg,	 // fetch next vararg into def; use0 = va_list ptr; imm = kind, imm2 = width

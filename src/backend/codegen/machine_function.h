@@ -6,8 +6,6 @@
 #include "target/target.h"
 
 namespace rat {
-	struct Function;
-
 	using VReg = U32;
 	using MachineOpcode = U32;
 

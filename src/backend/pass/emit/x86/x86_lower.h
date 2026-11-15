@@ -10,26 +10,6 @@
 #include "pass/pass.h"
 
 namespace rat {
-	struct BinaryNode;
-	struct CallNode;
-	struct AsmNode;
-	struct CompareNode;
-	struct ConstantNode;
-	struct ConvertNode;
-	struct Function;
-	struct ExtractNode;
-	struct LoadNode;
-	struct Node;
-	struct PackNode;
-	struct ProjNode;
-	struct SelectNode;
-	struct ShuffleNode;
-	struct ReturnNode;
-	struct SplatNode;
-	struct StoreNode;
-	struct Type;
-	struct UnaryNode;
-
 	namespace detail {
 		void x86Reload(MachineInstr& m, PhysReg dst, I32 slot, U32 cls, U32 width);
 		void x86Spill(MachineInstr& m, I32 slot, PhysReg src, U32 cls, U32 width);
@@ -47,7 +27,6 @@ namespace rat {
 			VReg index = 0;
 			U32 scaleLog2 = 0;
 			I32 disp = 0;
-			B32 hasIndex = false;
 			B32 frameBase = false; // rbp-rel
 		};
 		struct AddrMatch {
@@ -56,7 +35,6 @@ namespace rat {
 			Node* scaleNode = nullptr;
 			U32 scaleLog2 = 0;
 			I32 disp = 0;
-			B32 hasIndex = false;
 		};
 		using Kind = X86ArgAssigner::Kind;
 		using Ops = MachineOperands;
@@ -71,7 +49,6 @@ namespace rat {
 			OutOfSlot
 		};
 
-		void lowerFn(const Function& f, MachineFunc& mf, const TargetInfo& target);
 		void lowerBlocks();
 
 		// operand shorthands
@@ -126,7 +103,7 @@ namespace rat {
 		void ld(VReg d, U32 w, VReg base, B32 sign);
 		void st(VReg base, MachineOperand src);
 		void st(Slot d, Reg src);
-		void st(const AddrParts& a, MachineOperand src);
+		void st(const AddrParts& a, MachineOperand src, X86Op op = X86Op::Store);
 		// integer ALU
 		void alu(X86Op op, VReg d, VReg a, VReg b); // Add..Xor
 		void alu(X86Op op, VReg d, VReg a, Imm b);
@@ -276,8 +253,6 @@ namespace rat {
 		// per node id
 		List<VReg> vregOf;
 		List<I32> x87Slot;
-		List<Pair<PhiNode*, VReg>> phiMoves;
-		List<Pair<PhiNode*, Slot>> x87Moves;
 	};
 } // namespace rat
 

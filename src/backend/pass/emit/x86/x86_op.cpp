@@ -101,8 +101,7 @@ namespace rat {
 		};
 		// clang-format on
 
-		static_assert(sizeof(kX86OpInfo) / sizeof(kX86OpInfo[0]) == (U32)X86Op::Prefetch + 1,
-									"kX86OpInfo must cover every X86Op");
+		static_assert(std::size(kX86OpInfo) == (U32)X86Op::Prefetch + 1, "one per X86Op");
 
 		// clang-format off
 		constexpr const C8* kGpNames[16] = {"rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"};
@@ -185,7 +184,8 @@ namespace rat {
 						 op == X86Op::VExtract || op == X86Op::VShuf;
 		}
 
-		// bytes in the low 32 bits, then the alignment up to 16, the eightbyte count and 2 bits per class
+		// bytes in the low 32 bits, then the alignment up to 16
+		// then the eightbyte count and 2 bits per class
 		I64 packVaAggregate(const VaAggregate& agg) {
 			U64 desc = agg.bytes | (U64)std::min(agg.align, 16u) << 32 | (U64)agg.regs.count << 40;
 			for(U32 k = 0; k < 2; ++k)

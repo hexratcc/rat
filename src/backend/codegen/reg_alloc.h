@@ -34,7 +34,6 @@ namespace rat {
 		};
 
 		void setup(const TargetInfo& target);
-		void allocate(MachineFunc& f);
 		// intervals
 		void number();
 		void pinFixed(const MachineInstr& in, U64 u, B32 copy, U64& live);

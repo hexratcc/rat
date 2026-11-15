@@ -64,8 +64,7 @@ namespace rat {
 		}
 
 		I32 resolveJump(const MachineFunc& mf, I32 id) {
-			U32 hops = 0;
-			while(hops++ < 16) {
+			for(U32 hops = 0; hops < 16; ++hops) {
 				if(id < 0 || id >= (I32)mf.blocks.size())
 					break;
 				const MachineBlock& b = mf.blocks[(U32)id];

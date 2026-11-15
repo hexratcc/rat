@@ -255,45 +255,36 @@ namespace rat {
 			U64 m = outD & lowMask(n);
 			if(n > 0 && n < 64 && (outD & ~lowMask(n)))
 				m |= (U64)1 << (n - 1); // the copied sign bit
-			demandUses(in, m, dem);
-			return;
+			return demandUses(in, m, dem);
 		}
 		case X86Op::MaskBits:
-			demandUses(in, outD & lowMask((U32)in.imm), dem);
-			return;
+			return demandUses(in, outD & lowMask((U32)in.imm), dem);
 		case X86Op::Copy:
 		case X86Op::CMov:
 		case X86Op::And:
 		case X86Op::Or:
 		case X86Op::Xor:
 		case X86Op::Not:
-			demandUses(in, outD, dem);
-			return;
+			return demandUses(in, outD, dem);
 		case X86Op::Add:
 		case X86Op::Sub:
 		case X86Op::Mul:
 		case X86Op::Neg:
-			demandUses(in, carryMask(outD), dem);
-			return;
+			return demandUses(in, carryMask(outD), dem);
 		case X86Op::Shl:
-			if(immCount(in, cnt)) {
-				demandUses(in, outD >> cnt, dem);
-				return;
-			}
+			if(immCount(in, cnt))
+				return demandUses(in, outD >> cnt, dem);
 			break;
 		case X86Op::LShr:
-			if(immCount(in, cnt)) {
-				demandUses(in, outD << cnt, dem);
-				return;
-			}
+			if(immCount(in, cnt))
+				return demandUses(in, outD << cnt, dem);
 			break;
 		case X86Op::AShr:
 			if(immCount(in, cnt)) {
 				U64 m = outD << cnt;
 				if(cnt && (outD >> (64 - cnt)))
 					m |= (U64)1 << 63; // the replicated sign bit
-				demandUses(in, m, dem);
-				return;
+				return demandUses(in, m, dem);
 			}
 			break;
 		case X86Op::Store:
@@ -399,7 +390,7 @@ namespace rat {
 					transfer(b.insts[i], cur.data());
 			} else if(slots.touches[bi]) {
 				for(U32 i = (U32)b.insts.size(); i-- > 0;)
-					slotStep(b.insts[i], slots, cur);
+					slotStep(b.insts[i], cur);
 			}
 			if(!orInto(&liveIn[(U64)bi * cur.size()], cur))
 				continue;
@@ -425,7 +416,7 @@ namespace rat {
 		List<U32>& post = seed;
 		post.clear();
 		queued.assign(mf.blocks.size(), false);
-		List<std::pair<U32, U32>> stack; // block, next successor
+		List<Pair<U32, U32>> stack; // block, next successor
 		for(U32 root = 0; root < (U32)mf.blocks.size(); ++root) {
 			if(mf.blocks[root].id < 0 || queued[root])
 				continue;
@@ -475,8 +466,7 @@ namespace rat {
 	U32 X86PeepholePass::TrackedSlots::key(I32 s) const { return slotKey(s, keys); }
 
 	// walk one instruction backwards over the tracked-slot liveness bits
-	void
-	X86PeepholePass::slotStep(const MachineInstr& in, const TrackedSlots& slots, List<U64>& cur) {
+	void X86PeepholePass::slotStep(const MachineInstr& in, List<U64>& cur) const {
 		if(detail::isAnySlotStore(in)) {
 			U32 k = slots.key(in.uses[0].slot);
 			U32 bit = slots.index[k];
@@ -484,17 +474,12 @@ namespace rat {
 				cur[bit >> 6] &= ~((U64)1 << (bit & 63)); // full overwrite
 			return;
 		}
-		if(isAnySlotLoad(in)) {
-			U32 bit = slots.index[slots.key(in.uses[0].slot)];
-			if(bit != kNoBit)
-				cur[bit >> 6] |= (U64)1 << (bit & 63);
+		if(!isAnySlotLoad(in) && !in.isCall)
 			return;
-		}
-		if(in.isCall)
-			for(const MachineOperand& u : in.uses)
-				if(u.isFrameSlot())
-					if(U32 bit = slots.index[slots.key(u.slot)]; bit != kNoBit)
-						cur[bit >> 6] |= (U64)1 << (bit & 63);
+		for(const MachineOperand& u : in.uses)
+			if(u.isFrameSlot())
+				if(U32 bit = slots.index[slots.key(u.slot)]; bit != kNoBit)
+					cur[bit >> 6] |= (U64)1 << (bit & 63);
 	}
 
 	// a slot is tracked while it is only touched through the spill store and
@@ -572,7 +557,7 @@ namespace rat {
 						continue; // dead
 					}
 				}
-				slotStep(in, slots, cur);
+				slotStep(in, cur);
 			}
 			removed += here;
 			if(here)

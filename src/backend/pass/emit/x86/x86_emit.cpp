@@ -53,15 +53,14 @@ namespace rat {
 	}
 
 	void X86LowerPass::lea(VReg d, const AddrParts& a) {
-		Ops uses = {addrBase(a), vr(a.index)};
-		put(X86Op::Lea, {vr(d)}, std::move(uses), a.disp, a.scaleLog2 & 3);
+		put(X86Op::Lea, {vr(d)}, {addrBase(a), vr(a.index)}, a.disp, a.scaleLog2 & 3);
 	}
 
 	// integer memory
 
 	X86LowerPass::Ops X86LowerPass::addrUses(const AddrParts& a) {
 		Ops uses = {addrBase(a)};
-		if(a.hasIndex)
+		if(a.index != kNoVReg)
 			uses.push_back(vr(a.index));
 		return uses;
 	}
@@ -84,11 +83,11 @@ namespace rat {
 
 	void X86LowerPass::st(Slot d, Reg src) { put(X86Op::Store, {}, {sl(d), ph(src)}); }
 
-	void X86LowerPass::st(const AddrParts& a, MachineOperand src) {
+	void X86LowerPass::st(const AddrParts& a, MachineOperand src, X86Op op) {
 		Ops uses = {addrBase(a), std::move(src)};
-		if(a.hasIndex)
+		if(a.index != kNoVReg)
 			uses.push_back(vr(a.index));
-		put(X86Op::Store, {}, std::move(uses), a.disp, sibBits(0, a));
+		put(op, {}, std::move(uses), a.disp, sibBits(0, a));
 	}
 
 	// integer ALU
@@ -136,10 +135,7 @@ namespace rat {
 	}
 
 	void X86LowerPass::varith(VReg d, VReg a, VReg b, U8 pfx, U8 opc, B32 esc38) {
-		U8 esc = 0;
-		if(esc38)
-			esc = 0x38;
-		farith(X86Op::VArith, d, a, b, 16, vecDesc(pfx, opc, esc));
+		farith(X86Op::VArith, d, a, b, 16, vecDesc(pfx, opc, esc38 ? 0x38 : 0));
 	}
 
 	// d = a op b with an immediate operand, esc is the 0f38/0f3a escape byte or 0
@@ -167,8 +163,7 @@ namespace rat {
 			opc = 0x15; // blendvpd
 		I64 desc = vecDesc(0x66, opc, 0x38);
 		movaps(xmm(0, 16), mask);
-		MachineInstr& m = farith(X86Op::VArith, d, f, t, 16, desc);
-		m.uses.push_back(xm(xmm(0, 16)));
+		farith(X86Op::VArith, d, f, t, 16, desc).uses.push_back(xm(xmm(0, 16)));
 	}
 
 	// x87
@@ -177,5 +172,4 @@ namespace rat {
 	void X86LowerPass::fldSlot(Slot d, Slot s) {
 		put(X86Op::X87FromSse, {sl(d)}, {sl(s)}, detail::kX87MemBits);
 	}
-
 } // namespace rat

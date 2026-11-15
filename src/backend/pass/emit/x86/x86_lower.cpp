@@ -123,9 +123,7 @@ namespace rat {
 	U32 X86LowerPass::classOf(const Type* t) const {
 		if(isX87Ty(t))
 			return detail::kX87;
-		if(t && (t->isFloat() || t->isVec()))
-			return detail::kFp;
-		return detail::kGp;
+		return isSseTy(t) ? detail::kFp : detail::kGp;
 	}
 
 	VReg X86LowerPass::fresh(U32 cls) { return out->newVReg(cls); }
@@ -205,7 +203,7 @@ namespace rat {
 	}
 
 	I64 X86LowerPass::sibBits(I64 sign, const AddrParts& a) {
-		return (sign & 1) | (a.hasIndex ? 2 : 0) | ((I64)(a.scaleLog2 & 3) << 2);
+		return (sign & 1) | (a.index != kNoVReg ? 2 : 0) | ((I64)(a.scaleLog2 & 3) << 2);
 	}
 
 	X86LowerPass::AddrMatch X86LowerPass::decodeAddr(Node* ptr) {
@@ -231,7 +229,6 @@ namespace rat {
 				continue;
 			m.base = ops[1 - i];
 			m.scaleNode = ops[i];
-			m.hasIndex = true;
 			return m;
 		}
 		return m;
@@ -242,14 +239,13 @@ namespace rat {
 		AddrParts a;
 		a.disp = m.disp;
 		a.scaleLog2 = m.scaleLog2;
-		a.hasIndex = m.hasIndex;
 		if(AllocNode* al = dyn_cast<AllocNode>(m.base)) {
 			a.frameBase = true;
 			a.disp += fl->allocOff[al->getId()];
 		} else {
 			a.base = gpValue(m.base);
 		}
-		if(m.hasIndex)
+		if(m.index)
 			a.index = gpValue(m.index);
 		return a;
 	}
@@ -266,7 +262,7 @@ namespace rat {
 			return false;
 		AddrMatch m = decodeAddr(n);
 		I64 c;
-		if(!m.hasIndex && !immOf(add->getRHS(), c) && !immOf(add->getLHS(), c))
+		if(!m.index && !immOf(add->getRHS(), c) && !immOf(add->getLHS(), c))
 			return false;
 		for(Node* u : n->getUsers()) {
 			// x87 memory ops carry the operand width in imm and cannot fold a
@@ -347,24 +343,19 @@ namespace rat {
 		Opcode op = n->getOpcode();
 		switch(op) {
 		case Opcode::Global:
-			lea(vregFor(n), cast<GlobalNode>(n)->getSymbol());
-			return;
+			return lea(vregFor(n), cast<GlobalNode>(n)->getSymbol());
 		case Opcode::Constant:
 			if(isSseTy(n->getType()) && !onlyUsedBy(n, Opcode::Pack))
 				fpConstLoad(cast<ConstantNode>(n), vregFor(n));
 			return;
 		case Opcode::Store:
-			emitStore(cast<StoreNode>(n));
-			return;
+			return emitStore(cast<StoreNode>(n));
 		case Opcode::Load:
-			emitLoad(cast<LoadNode>(n));
-			return;
+			return emitLoad(cast<LoadNode>(n));
 		case Opcode::Call:
-			emitCall(cast<CallNode>(n));
-			return;
+			return emitCall(cast<CallNode>(n));
 		case Opcode::Asm:
-			emitAsm(cast<AsmNode>(n));
-			return;
+			return emitAsm(cast<AsmNode>(n));
 		case Opcode::Alloc:
 			return;
 		case Opcode::StackAlloc: {
@@ -382,20 +373,15 @@ namespace rat {
 			return;
 		}
 		case Opcode::Splat:
-			emitSplat(cast<SplatNode>(n));
-			return;
+			return emitSplat(cast<SplatNode>(n));
 		case Opcode::Extract:
-			emitExtract(cast<ExtractNode>(n));
-			return;
+			return emitExtract(cast<ExtractNode>(n));
 		case Opcode::Pack:
-			emitPack(cast<PackNode>(n));
-			return;
+			return emitPack(cast<PackNode>(n));
 		case Opcode::Shuffle:
-			emitShuffle(cast<ShuffleNode>(n));
-			return;
+			return emitShuffle(cast<ShuffleNode>(n));
 		case Opcode::Select:
-			emitSelect(cast<SelectNode>(n));
-			return;
+			return emitSelect(cast<SelectNode>(n));
 		default:
 			break;
 		}
@@ -431,8 +417,8 @@ namespace rat {
 
 	// parallel-move semantics
 	void X86LowerPass::emitPhiCopies(I32 targetBlock, I32 predIdx) {
-		phiMoves.clear();
-		x87Moves.clear();
+		List<Pair<PhiNode*, VReg>> phiMoves;
+		List<Pair<PhiNode*, Slot>> x87Moves;
 		for(Node* n : sched->phis(targetBlock)) {
 			PhiNode* phi = cast<PhiNode>(n);
 			Node* v = phi->getValue(predIdx);
@@ -461,33 +447,32 @@ namespace rat {
 		const Schedule::Block& blk = sched->block(b);
 		switch(blk.term) {
 		case Schedule::TermKind::Return:
-			emitReturn(cast<ReturnNode>(blk.termNode));
-			return;
+			return emitReturn(cast<ReturnNode>(blk.termNode));
 		case Schedule::TermKind::Branch: {
 			Node* pred = cast<IfNode>(blk.termNode)->getPredicate();
 			if(fusableCompare(pred)) {
 				// fuse the compare into the branch: cmp lhs, rhs; jcc
 				U8 cc = emitCmp(cast<CompareNode>(pred));
-				Ops targets = {blockRef(blk.thenB), blockRef(blk.elseB)};
+				Ops targets = {blockRef(blk.succs[0]), blockRef(blk.succs[1])};
 				put(X86Op::Br, {}, std::move(targets), (I64)cc, 1); // cc in imm, no predicate
 				return;
 			}
 			VReg p = gpValue(pred);
-			put(X86Op::Br, {}, {vr(p), blockRef(blk.thenB), blockRef(blk.elseB)});
+			put(X86Op::Br, {}, {vr(p), blockRef(blk.succs[0]), blockRef(blk.succs[1])});
 			return;
 		}
 		case Schedule::TermKind::Switch: {
 			// per-edge trampoline blocks carry phi copies, so the table jump is direct
 			VReg sel = gpValue(cast<SwitchNode>(blk.termNode)->getSelector());
 			Ops uses = {vr(sel)};
-			for(I32 t : blk.caseB)
+			for(I32 t : blk.succs)
 				uses.push_back(blockRef(t));
 			put(X86Op::SwitchJump, {}, std::move(uses)).clobbers = detail::scratchBits();
 			return;
 		}
 		case Schedule::TermKind::Goto:
-			emitPhiCopies(blk.gotoB, blk.gotoPredIdx);
-			put(X86Op::Jmp, {}, {blockRef(blk.gotoB)});
+			emitPhiCopies(blk.succs[0], blk.gotoPredIdx);
+			put(X86Op::Jmp, {}, {blockRef(blk.succs[0])});
 			return;
 		}
 	}
@@ -506,7 +491,7 @@ namespace rat {
 			block.id = b;
 			block.loopDepth = sched->block(b).loopDepth;
 			block.insts.reserve(sched->nodes(b).size() * 2 + 4);
-			block.succs.reserve(sched->succCount(b));
+			block.succs = sched->block(b).succs;
 			block.preds.reserve(sched->predCount(b));
 			mb = &block;
 			if(i == 0) {
@@ -526,11 +511,8 @@ namespace rat {
 				placeBindings(b, plan);
 		}
 		for(I32 b : order)
-			for(U32 i = 0, e = sched->succCount(b); i < e; ++i) {
-				I32 s = sched->succAt(b, i);
-				out->blocks[b].succs.push_back(s);
+			for(I32 s : sched->block(b).succs)
 				out->blocks[s].preds.push_back(b);
-			}
 	}
 
 	B32 X86LowerPass::run(Module& module,
@@ -538,11 +520,6 @@ namespace rat {
 												MachineFunc& mf,
 												const TargetInfo& target) {
 		mod = &module;
-		lowerFn(f, mf, target);
-		return true;
-	}
-
-	void X86LowerPass::lowerFn(const Function& f, MachineFunc& mf, const TargetInfo& target) {
 		conv = &x86CallConv(target.getTriple().os);
 		regs = target.registers();
 		ptrBytes = target.getPointerSizeInBytes();
@@ -553,13 +530,13 @@ namespace rat {
 		sched = &s;
 		out = &mf;
 		fl = &frame;
-		mb = nullptr;
 		vregOf.assign(f.idBound(), kNoVReg);
 		x87Slot.assign(f.idBound(), detail::kNoSlot);
 		curLoc = 0;
 		frame.allocOff.assign(f.idBound(), detail::kNoSlot);
 		lowerBlocks();
 		mf.aux = std::make_unique<X86FrameLayout>(std::move(frame)); // the layout rides along on mf.aux
+		return true;
 	}
 
 	namespace detail {

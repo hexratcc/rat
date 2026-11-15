@@ -22,7 +22,9 @@ namespace rat {
 		List<Node*> work(loads.begin(), loads.end());
 		List<I32> early(fn.idBound(), -1);
 		scheduleEarly(work, early);
-		placeLoads(work, early);
+		// a load's placement reads only early and its home block, so one pass is final
+		for(Node* n : work)
+			place(n, homeBlock(n), early);
 	}
 
 	void Schedule::buildBlocks() {
@@ -105,16 +107,16 @@ namespace rat {
 		predStart.assign(nb + 1, 0);
 		for(I32 b = 0; b < (I32)nb; ++b) {
 			setTerminator(b, walkBlock(b));
-			for(U32 i = 0, e = succCount(b); i < e; ++i)
-				++predStart[succAt(b, i) + 1];
+			for(I32 s : blocks[b].succs)
+				++predStart[s + 1];
 		}
 		for(U32 b = 0; b < nb; ++b)
 			predStart[b + 1] += predStart[b];
 		predFlat.resize(predStart[nb]);
 		List<I32> fill(predStart.begin(), predStart.end() - 1);
 		for(I32 b = 0; b < (I32)nb; ++b)
-			for(U32 i = 0, e = succCount(b); i < e; ++i)
-				predFlat[fill[succAt(b, i)]++] = b;
+			for(I32 s : blocks[b].succs)
+				predFlat[fill[s]++] = b;
 	}
 
 	void Schedule::pin(Node* n, I32 b) {
@@ -175,51 +177,21 @@ namespace rat {
 			t.term = TermKind::Switch;
 			t.termNode = sw;
 			for(U32 k = 0, e = sw->getSlotCount(); k < e; ++k)
-				t.caseB.push_back(headBlock(requireProj(sw, k)));
+				t.succs.push_back(headBlock(requireProj(sw, k)));
 		} else if(end.ifTerm) {
 			t.term = TermKind::Branch;
 			t.termNode = end.ifTerm;
-			t.thenB = headBlock(requireProj(end.ifTerm, IfNode::thenProjIndex()));
-			t.elseB = headBlock(requireProj(end.ifTerm, IfNode::elseProjIndex()));
+			t.succs.push_back(headBlock(requireProj(end.ifTerm, IfNode::thenProjIndex())));
+			t.succs.push_back(headBlock(requireProj(end.ifTerm, IfNode::elseProjIndex())));
 		} else if(end.retTerm) {
 			t.term = TermKind::Return;
 			t.termNode = end.retTerm;
 		} else {
 			assert(end.gotoRegion && "block has no terminator");
 			t.term = TermKind::Goto;
-			t.gotoB = headBlock(end.gotoRegion);
+			t.succs.push_back(headBlock(end.gotoRegion));
 			t.gotoPredIdx = end.gotoIdx;
 		}
-	}
-
-	U32 Schedule::succCount(I32 b) const {
-		const Block& t = blocks[b];
-		switch(t.term) {
-		case TermKind::Branch:
-			return 2;
-		case TermKind::Goto:
-			return 1;
-		case TermKind::Switch:
-			return (U32)t.caseB.size();
-		case TermKind::Return:
-			return 0;
-		}
-		return 0;
-	}
-
-	I32 Schedule::succAt(I32 b, U32 i) const {
-		const Block& t = blocks[b];
-		switch(t.term) {
-		case TermKind::Branch:
-			return i == 0 ? t.thenB : t.elseB;
-		case TermKind::Goto:
-			return t.gotoB;
-		case TermKind::Switch:
-			return t.caseB[i];
-		case TermKind::Return:
-			break;
-		}
-		return -1;
 	}
 
 	U32 Schedule::predCount(I32 b) const { return (U32)(predStart[b + 1] - predStart[b]); }
@@ -241,8 +213,8 @@ namespace rat {
 		stack.push_back({entryBlock, 0});
 		while(!stack.empty()) {
 			Frame& f = stack.back();
-			if(f.next < succCount(f.block)) {
-				I32 s = succAt(f.block, f.next++);
+			if(f.next < blocks[f.block].succs.size()) {
+				I32 s = blocks[f.block].succs[f.next++];
 				if(!visited[s]) {
 					visited[s] = 1;
 					stack.push_back({s, 0});
@@ -319,8 +291,7 @@ namespace rat {
 		List<I32> backNext;						 // back-edge -> next edge of the same header
 		List<I32> backFrom;						 // back-edge -> tail block
 		for(I32 b = 0; b < count; ++b)
-			for(U32 i = 0, e = succCount(b); i < e; ++i) {
-				I32 s = succAt(b, i);
+			for(I32 s : blocks[b].succs) {
 				if(!dominates(s, b)) // b -> s is a back-edge; s is a loop header
 					continue;
 				backFrom.push_back(b);
@@ -440,35 +411,22 @@ namespace rat {
 			I32 next = blocks[cur].idom;
 			if(next == cur)
 				break;
-			if(trapping && succCount(next) != 1)
+			if(trapping && blocks[next].succs.size() != 1)
 				break;
 			cur = next;
 		}
 		return pick;
 	}
 
+	// pinned nodes and the call or asm a projection reads are placed already, -1 is no constraint
 	I32 Schedule::fixedDataBlock(Node* n, const List<I32>& early) const {
 		if(isFloating(n))
 			return early[n->getId()];
-		switch(n->getOpcode()) {
-		case Opcode::Phi:
-			return blockOfHead(cast<PhiNode>(n)->getRegion());
-		case Opcode::Store:
-		case Opcode::Call:
-		case Opcode::Asm:
-		case Opcode::StackAlloc:
-		case Opcode::StackSave:
-		case Opcode::StackRestore:
-			return blockOf(n);
-		case Opcode::Proj: {
-			Node* prod = cast<ProjNode>(n)->getProducer();
-			if(isa<CallNode>(prod) || isa<AsmNode>(prod))
-				return blockOf(prod); // call/asm value/control projection
-			return -1;
-		}
-		default:
-			return -1; // no constraint
-		}
+		if(PhiNode* phi = dyn_cast<PhiNode>(n))
+			return blockOfHead(phi->getRegion());
+		if(ProjNode* p = dyn_cast<ProjNode>(n))
+			return blockOf(p->getProducer());
+		return blockOf(n);
 	}
 
 	// depth-first, inputs before users, so each node is visited once with its inputs final
@@ -526,7 +484,7 @@ namespace rat {
 			I32 acc = -1;
 			for(U32 i = 0, e = phi->getValueCount(); i < e; ++i)
 				if(phi->getValue(i) == n)
-					acc = lca(acc, predBlockForRegionInput(rb, i));
+					acc = lca(acc, ctrlBlock(blocks[rb].head->getInput(i)));
 			return acc < 0 ? rb : acc;
 		}
 		I32 b = nodeBlock[u->getId()];
@@ -537,26 +495,17 @@ namespace rat {
 		return -1;
 	}
 
-	I32 Schedule::predBlockForRegionInput(I32 rb, U32 i) const {
-		return ctrlBlock(blocks[rb].head->getInput(i));
-	}
-
-	B32 Schedule::place(Node* n, I32 late, const List<I32>& early) {
-		U32 id = n->getId();
-		I32 pick = hoistTarget(n, late, early[id]);
-		if(nodeBlock[id] == pick)
-			return false;
-		nodeBlock[id] = pick;
-		return true;
+	void Schedule::place(Node* n, I32 late, const List<I32>& early) {
+		nodeBlock[n->getId()] = hoistTarget(n, late, early[n->getId()]);
 	}
 
 	void Schedule::scheduleLate(const List<Node*>& work, const List<I32>& early) {
 		List<U8> done(fn.idBound(), 0);
 		List<Pair<Node*, U32>> stack; // node, next user
-		for(U32 wi = (U32)work.size(); wi > 0; --wi) {
-			if(done[work[wi - 1]->getId()])
+		for(U32 wi = (U32)work.size(); wi-- > 0;) {
+			if(done[work[wi]->getId()])
 				continue;
-			stack.push_back({work[wi - 1], 0});
+			stack.push_back({work[wi], 0});
 			while(!stack.empty()) {
 				Node* n = stack.back().first;
 				if(Node* u = pendingUser(n, stack.back().second, done)) {
@@ -590,14 +539,7 @@ namespace rat {
 		I32 late = -1;
 		for(Node* u : n->getUsers())
 			late = lca(late, useBlock(u, n));
-		return late; // -1: no placed use
-	}
-
-	// a load's placement reads only early and its home block, never another
-	// node's late block, so it is final after one pass
-	void Schedule::placeLoads(const List<Node*>& loads, const List<I32>& early) {
-		for(Node* n : loads)
-			place(n, homeBlock(n), early);
+		return late; // -1 when no use is placed
 	}
 
 	I32 Schedule::blockOf(const Node* n) const { return n ? nodeBlock[n->getId()] : -1; }
@@ -696,14 +638,6 @@ namespace rat {
 		}
 
 		B32 earlierId(const Node* a, const Node* b) { return a->getId() < b->getId(); }
-
-		// the object a store writes, null for other writers
-		Node* storedObject(const AliasAnalysis& aa, Node* w) {
-			StoreNode* st = dyn_cast<StoreNode>(w);
-			if(!st)
-				return nullptr;
-			return aa.objectOf(st->getPointer());
-		}
 	} // namespace detail
 
 	I32 Schedule::TopoScratch::local(const Node* n) const { return n ? localOf[n->getId()] : -1; }
@@ -902,7 +836,8 @@ namespace rat {
 			I32 w = s.chain[p];
 			Node* obj = nullptr;
 			if(w >= 0)
-				obj = detail::storedObject(aa, nodes[w]);
+				if(StoreNode* st = dyn_cast<StoreNode>(nodes[w]))
+					obj = aa.objectOf(st->getPointer());
 			if(obj) {
 				s.nextWild[p] = s.nextWild[p + 1];
 				s.byObject.push_back({obj->getId(), (I32)p});

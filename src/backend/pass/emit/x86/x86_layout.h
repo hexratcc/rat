@@ -18,8 +18,6 @@
 namespace rat {
 	struct MachineBlock;
 	struct MachineFunc;
-	struct MachineInstr;
-	struct MachineOperand;
 
 	namespace detail {
 		constexpr U32 kLoopAlign = 64;
