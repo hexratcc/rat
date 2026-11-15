@@ -32,7 +32,7 @@ A `Function` owns its nodes and exposes two layers of API ([`IR/Function.h`](./i
 
 Emission happens into the current insertion block (`setInsertBlock`). A block collects its predecessor control edges as other blocks jump to it, and must be `seal()`ed once no further predecessors can appear. Sealing completes any pending phis. The memory state is threaded through the same variable mechanism, so loads and stores get the right memory edge for free.
 ```cpp
-Module mod("demo");
+Module mod;
 
 // int clamp0(int x) { if (x < 0) x = 0; return x; }
 Type* i32 = mod.getInt(32);

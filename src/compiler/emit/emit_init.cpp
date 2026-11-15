@@ -2,10 +2,9 @@
 
 namespace rat::cc {
 	const Expr* Emitter::peelAggregateCompound(const Expr* el) {
-		if(el->kind == ExprKind::CompoundLit && !el->compound.isArray && el->compound.init &&
-			 el->compound.init->kind == ExprKind::InitList)
-			return el->compound.init;
-		return el;
+		if(el->kind != ExprKind::CompoundLit || el->compound.isArray || !el->compound.init)
+			return el;
+		return el->compound.init->kind == ExprKind::InitList ? el->compound.init : el;
 	}
 
 	Expr* Emitter::wrapNested(const Designator* sub, const Expr* val) {
@@ -69,19 +68,18 @@ namespace rat::cc {
 			if(cur >= maxIdx)
 				maxIdx = cur;
 			const Expr* el = els[i];
+			B32 braced = el->kind == ExprKind::InitList || el->kind == ExprKind::CompoundLit;
 			if(des.isSet && des.next && isArrayType(elem) && des.next->isIndex) {
 				U32 rowFree = (U32)des.next->index + 1 < rowLen ? rowLen - ((U32)des.next->index + 1) : 0;
 				U32 j = i + 1;
-				for(; j < els.size() && !init->designators[j].isSet && rowFree > 0; ++j, --rowFree)
-					;
+				for(; j < els.size() && !init->designators[j].isSet && rowFree > 0; ++j)
+					--rowFree;
 				i = j;
-			} else if(isArrayType(elem) && el->kind != ExprKind::InitList &&
-								el->kind != ExprKind::CompoundLit && el->kind != ExprKind::StrLit) {
+			} else if(isArrayType(elem) && !braced && el->kind != ExprKind::StrLit) {
 				U32 rowFree = rowLen;
 				U32 j = i;
-				for(; j < els.size() && rowFree > 0 && (j == i || !init->designators[j].isSet);
-						++j, --rowFree)
-					;
+				for(; j < els.size() && rowFree > 0 && (j == i || !init->designators[j].isSet); ++j)
+					--rowFree;
 				i = j;
 			} else {
 				++i;
@@ -123,9 +121,10 @@ namespace rat::cc {
 		U32 rowLen = elem.array->count;
 		U32 rowFree = (U32)des.next->index + 1 < rowLen ? rowLen - ((U32)des.next->index + 1) : 0;
 		U32 j = i + 1;
-		for(; j < els.size() && !init->designators[j].isSet && rowFree > 0; ++j, --rowFree) {
+		for(; j < els.size() && !init->designators[j].isSet && rowFree > 0; ++j) {
 			row->args.push_back(els[j]);
 			row->designators.push_back(Designator{});
+			--rowFree;
 		}
 		if(!initArrayInit(sink, off, arrayElem(elem), elem.array->count, row))
 			return false;
@@ -163,23 +162,23 @@ namespace rat::cc {
 					return diag.fail("designator selects a sub-object of a scalar element");
 				el = wrapNested(des.next, el);
 			}
-			if((isStruct(elem) || isArrayType(elem)) && el->kind != ExprKind::InitList &&
-				 el->kind != ExprKind::CompoundLit &&
-				 !(isArrayType(elem) && elemIsChar && el->kind == ExprKind::StrLit)) {
+			B32 braced = el->kind == ExprKind::InitList || el->kind == ExprKind::CompoundLit;
+			B32 charString = isArrayType(elem) && elemIsChar && el->kind == ExprKind::StrLit;
+			if((isStruct(elem) || isArrayType(elem)) && !braced && !charString) {
 				if(!initFlatObject(sink, off, elem, {els, i, &init->designators}))
 					return false;
 				++cur;
 				continue;
 			}
+			const Expr* peeled = peelAggregateCompound(el);
 			if(isArrayType(elem)) {
-				if(elemIsChar && el->kind == ExprKind::StrLit) {
+				if(charString) {
 					if(!sink.charArray(off, arrayElem(elem), elem.array->count, el))
 						return false;
-				} else if(!initArrayInit(
-											sink, off, arrayElem(elem), elem.array->count, peelAggregateCompound(el)))
+				} else if(!initArrayInit(sink, off, arrayElem(elem), elem.array->count, peeled))
 					return false;
 			} else if(isStruct(elem)) {
-				if(!initStructInit(sink, off, elem.strukt, peelAggregateCompound(el)))
+				if(!initStructInit(sink, off, elem.strukt, peeled))
 					return false;
 			} else if(!sink.scalar(off, elem, el))
 				return false;
@@ -292,8 +291,8 @@ namespace rat::cc {
 				++cur;
 				continue;
 			}
-			if(!f.isArray() && isStruct(f.type) && el->kind != ExprKind::InitList &&
-				 el->kind != ExprKind::CompoundLit) {
+			B32 braced = el->kind == ExprKind::InitList || el->kind == ExprKind::CompoundLit;
+			if(!f.isArray() && isStruct(f.type) && !braced) {
 				if(!initFlatObject(sink, off, f.type, {els, i}))
 					return false;
 				++cur;

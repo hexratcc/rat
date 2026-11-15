@@ -83,8 +83,8 @@ namespace rat {
 		}
 		check.setRoles(plan, true);
 		// the first innerReadersDie is an early reject, kept lanes can only make it fail
-		B32 ok = check.innerReadersDie(seed) && (I32)check.markKeptLanes(plan) <= margin &&
-						 check.innerReadersDie(seed);
+		B32 ok = check.innerReadersDie(seed) && (I32)check.markKeptLanes(plan) <= margin;
+		ok = ok && check.innerReadersDie(seed);
 		if(ok)
 			apply(plan);
 		check.setRoles(plan, false);
@@ -193,10 +193,11 @@ namespace rat {
 
 	void SlpPackPass::printStats(const Module&, std::ostream& os) const {
 		const SlpStats& s = stats;
-		os << "slp[module]: windows " << s.windowsSeen << " packed "
-			 << (s.packedUnguarded + s.packedGuarded) << " (static " << s.packedUnguarded << ", guarded "
-			 << s.packedGuarded << " in " << s.guardedRuns << " runs, " << s.guardChecks
-			 << " checks) reductions " << s.packedReduction << " rejected " << s.rejected << "\n";
+		U32 packed = s.packedUnguarded + s.packedGuarded;
+		os << "slp[module]: windows " << s.windowsSeen << " packed " << packed;
+		os << " (static " << s.packedUnguarded << ", guarded " << s.packedGuarded;
+		os << " in " << s.guardedRuns << " runs, " << s.guardChecks << " checks)";
+		os << " reductions " << s.packedReduction << " rejected " << s.rejected << "\n";
 	}
 
 	U32 SlpPackPass::runOnFunction(Function& fn, const TargetInfo& target) {

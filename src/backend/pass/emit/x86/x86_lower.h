@@ -138,6 +138,7 @@ namespace rat {
 		I64 sibBits(I64 sign, const AddrParts& a);
 		Ops addrUses(const AddrParts& a);
 		VReg sseValue(Node* n);
+		VReg classValue(Node* n, U32 cls);
 		const String& fpPoolSym(U64 bits, U32 width);
 		void fpConstLoad(ConstantNode* c, VReg dst);
 		Slot x87Value(Node* n);

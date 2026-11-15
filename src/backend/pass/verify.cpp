@@ -225,8 +225,8 @@ namespace rat {
 			err(n, "If input 0 (control) is not control-typed");
 		if(!isBool(iff->getPredicate()->getType()))
 			err(n, "If predicate must be i1");
-		if(!(t->isTuple() && t->getTupleElementCount() == 2 && t->getTupleElement(0)->isControl() &&
-				 t->getTupleElement(1)->isControl()))
+		B32 isPair = t->isTuple() && t->getTupleElementCount() == 2;
+		if(!(isPair && t->getTupleElement(0)->isControl() && t->getTupleElement(1)->isControl()))
 			err(n, "If type must be (ctrl, ctrl)");
 		for(Node* u : n->getUsers())
 			if(u->getOpcode() == Opcode::Proj && cast<ProjNode>(u)->getIndex() > 1)
@@ -253,10 +253,11 @@ namespace rat {
 		const ProjNode* p = cast<ProjNode>(n);
 		Node* prod = p->getProducer();
 		Opcode po = prod->getOpcode();
-		if(!(po == Opcode::Start || po == Opcode::If || po == Opcode::Call || po == Opcode::Switch ||
-				 po == Opcode::Asm)) {
-			err(n,
-					"Proj producer " + vref(prod) + " is not a multi-output node (Start/If/Call/Switch/Asm)");
+		B32 branches = po == Opcode::If || po == Opcode::Switch;
+		B32 multiOutput = branches || po == Opcode::Start || po == Opcode::Call || po == Opcode::Asm;
+		if(!multiOutput) {
+			String producer = "Proj producer " + vref(prod);
+			err(n, producer + " is not a multi-output node (Start/If/Call/Switch/Asm)");
 		} else if(!prod->getType()->isTuple()) {
 			err(n, "Proj producer is not tuple-typed");
 		} else if(p->getIndex() >= prod->getType()->getTupleElementCount()) {
@@ -274,10 +275,10 @@ namespace rat {
 			err(n, "Phi input 0 must be a Region");
 			return;
 		}
-		if(phi->getValueCount() != r->getPredecessorCount())
-			err(n,
-					"Phi has " + std::to_string(phi->getValueCount()) + " values but its region " + vref(r) +
-							" has " + std::to_string(r->getPredecessorCount()) + " predecessors");
+		if(phi->getValueCount() != r->getPredecessorCount()) {
+			String preds = vref(r) + " has " + std::to_string(r->getPredecessorCount()) + " predecessors";
+			err(n, "Phi has " + std::to_string(phi->getValueCount()) + " values but its region " + preds);
+		}
 		if(!(t->isData() || t->isMemory()))
 			err(n, "Phi type must be a data or memory type");
 		for(U32 i = 0, e = phi->getValueCount(); i < e; ++i)
@@ -412,9 +413,9 @@ namespace rat {
 			return;
 		}
 		U32 ptrBytes = TargetInfo::kPointerSizeInBits / 8;
-		B32 mask = t->isVec() && t->getVecElement()->isInt() && t->getVecLanes() == in->getVecLanes() &&
-							 t->byteSize(ptrBytes) == in->byteSize(ptrBytes);
-		if(!mask)
+		B32 intLanes = t->isVec() && t->getVecElement()->isInt();
+		B32 sameLanes = intLanes && t->getVecLanes() == in->getVecLanes();
+		if(!sameLanes || t->byteSize(ptrBytes) != in->byteSize(ptrBytes))
 			err(n, "vector comparison result must be an integer lane mask");
 	}
 
@@ -449,8 +450,9 @@ namespace rat {
 		// Mul and AShr lower only at 32-bit lanes
 		if(op == Opcode::Mul || op == Opcode::AShr)
 			return et->getIntWidth() == 32;
-		return op == Opcode::Add || op == Opcode::Sub || op == Opcode::And || op == Opcode::Or ||
-					 op == Opcode::Xor || op == Opcode::Shl || op == Opcode::LShr;
+		B32 bitwise = op == Opcode::And || op == Opcode::Or || op == Opcode::Xor;
+		B32 shift = op == Opcode::Shl || op == Opcode::LShr;
+		return bitwise || shift || op == Opcode::Add || op == Opcode::Sub;
 	}
 
 	void VerifyPass::FunctionVerifier::checkUnary(const Node* n) {
@@ -527,11 +529,11 @@ namespace rat {
 		Node* stop = fn.getStop();
 		if(!stop)
 			return;
-		for(U32 i = 0, e = stop->getInputCount(); i < e; ++i)
-			if(stop->getInput(i) && stop->getInput(i)->getOpcode() != Opcode::Return)
-				err(stop,
-						"Stop input " + std::to_string(i) + " (" + vref(stop->getInput(i)) +
-								") is not a Return");
+		for(U32 i = 0, e = stop->getInputCount(); i < e; ++i) {
+			Node* in = stop->getInput(i);
+			if(in && in->getOpcode() != Opcode::Return)
+				err(stop, "Stop input " + std::to_string(i) + " (" + vref(in) + ") is not a Return");
+		}
 		if(stop->getInputCount() == 0)
 			err(stop, "function never returns (Stop has no Return inputs)");
 	}

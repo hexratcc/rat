@@ -15,6 +15,7 @@ namespace rat {
 	namespace detail {
 		B32 allDigits(const String& s);
 		List<U32> parseVRefs(const String& s);
+		String nodeRef(U32 id); // "v<id>"
 		void splitTypeToken(const String& after, String& typeStr, String& remainder);
 		B32 takeQuoted(const String& s, String& name, String& rest);
 		B32 decodeBytes(const String& s, List<U8>& out);

@@ -365,7 +365,7 @@ namespace rat::cc {
 			out = {fn.or_(hi, lo), ctInt()};
 			return true;
 		}
-		// finite: strictly inside the infinities, which a NaN never is
+		// finite means strictly inside the infinities, which a NaN never is
 		Node* hi = fromBool(fn, fn.compare(Opcode::FLt, x, pos));
 		Node* lo = fromBool(fn, fn.compare(Opcode::FGt, x, neg));
 		out = {fn.and_(hi, lo), ctInt()};
@@ -399,8 +399,8 @@ namespace rat::cc {
 			evalConst(e->args[1], rw);
 		if(e->args.size() > 2)
 			evalConst(e->args[2], loc);
-		List<Node*> args = {
-				convert(fn, a.node, a.type, ctVoidPtr()), fn.constInt(i32, rw), fn.constInt(i32, loc)};
+		Node* addr = convert(fn, a.node, a.type, ctVoidPtr());
+		List<Node*> args = {addr, fn.constInt(i32, rw), fn.constInt(i32, loc)};
 		fn.call(*e->call.callee, nullptr, args, false);
 		out = voidValue(fn);
 		return true;

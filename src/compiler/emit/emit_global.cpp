@@ -65,8 +65,8 @@ namespace rat::cc {
 			else
 				ok = sink.scalar(0, ty, init);
 			if(ok) {
-				Global* g = mod.createGlobal(
-						name, byteArrayType(total), false, std::move(img), std::move(data.relocs));
+				Type* imgTy = byteArrayType(total);
+				Global* g = mod.createGlobal(name, imgTy, false, std::move(img), std::move(data.relocs));
 				g->setLinkage(Global::Linkage::Internal);
 			}
 		}
@@ -216,8 +216,8 @@ namespace rat::cc {
 		if(d.type.isVoid() && !isPointer(d.type))
 			return diag.fail("variable '" + *d.name + "' has incomplete type 'void'");
 		const Expr* dinit = d.init;
-		if(dinit && dinit->kind == ExprKind::InitList && dinit->args.size() == 1 &&
-			 dinit->args[0]->kind != ExprKind::InitList)
+		B32 singleBraced = dinit && dinit->kind == ExprKind::InitList && dinit->args.size() == 1;
+		if(singleBraced && dinit->args[0]->kind != ExprKind::InitList)
 			dinit = dinit->args[0];
 		U64 value = 0;
 		List<U8> init;
@@ -252,8 +252,8 @@ namespace rat::cc {
 	B32 Emitter::registerGlobalAlias(const Declarator& d) {
 		if(d.init)
 			return diag.fail("alias '" + *d.name + "' must not have an initializer");
-		mod.createAlias(*d.name, *d.aliasOf, irType(d.type))
-				->setLinkage(d.isStatic ? Global::Linkage::Internal : Global::Linkage::External);
+		Linkage linkage = d.isStatic ? Linkage::Internal : Linkage::External;
+		mod.createAlias(*d.name, *d.aliasOf, irType(d.type))->setLinkage(linkage);
 		syms.aliases[*d.name] = *d.aliasOf;
 		return true;
 	}

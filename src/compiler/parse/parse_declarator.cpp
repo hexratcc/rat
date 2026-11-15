@@ -232,7 +232,7 @@ namespace rat::cc {
 	}
 
 	// the length of an array declarator: the bound as written, or the count of a typedef'd array
-	// type; null when unsized
+	// type, null when unsized
 	Expr* Parser::declaredArrayLen(const DeclResult& r) {
 		if(r.outerBound)
 			return r.outerBound;

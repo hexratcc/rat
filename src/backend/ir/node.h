@@ -1,6 +1,6 @@
 // a function body is a single graph of nodes, control flow, memory state, and data values are all
 // just typed edges between nodes:
-// - data:    ordinary values (int/float/ptr); free to float anywhere the schedule allows, order is
+// - data:    ordinary values (int/float/ptr), free to float anywhere the schedule allows, order is
 //            implied purely by dependencies
 // - control: a token that threads through Start -> if/region/... -> return, nodes that must execute
 //            at a particular point (load, store, call, terminators) take it as an input

@@ -65,8 +65,8 @@ namespace rat {
 
 	// already materialized, or anchored to control this rewrite does not touch
 	B32 SimplifyCFGPass::freeValue(Node* v) {
-		if(isa<ConstantNode>(v) || isa<GlobalNode>(v) || isa<AllocNode>(v) || isa<ProjNode>(v) ||
-			 isa<PhiNode>(v))
+		B32 materialized = isa<ConstantNode>(v) || isa<GlobalNode>(v) || isa<AllocNode>(v);
+		if(materialized || isa<ProjNode>(v) || isa<PhiNode>(v))
 			return true;
 		return !v->hasSideEffects() && v->getControlInput() != nullptr;
 	}

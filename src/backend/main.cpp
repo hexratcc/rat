@@ -33,9 +33,11 @@ namespace detail {
 	}
 
 	B32 valueArg(I32 argc, C8** argv, I32& i, Options& o) {
-		return cli::value(kTool, argc, argv, i, "-passes", o.passSpec) ||
-					 cli::value(kTool, argc, argv, i, "-emit", o.emitKind) ||
-					 cli::value(kTool, argc, argv, i, "-o", o.outputPath);
+		if(cli::value(kTool, argc, argv, i, "-passes", o.passSpec))
+			return true;
+		if(cli::value(kTool, argc, argv, i, "-emit", o.emitKind))
+			return true;
+		return cli::value(kTool, argc, argv, i, "-o", o.outputPath);
 	}
 
 	I32 execute(const Options& o) {
@@ -49,8 +51,10 @@ namespace detail {
 
 		Generic64 target;
 		Module module;
-		if(!parseText(source, module, std::cerr))
-			return std::cerr << kTool << ": parse error\n", 1;
+		if(!parseText(source, module, std::cerr)) {
+			cli::error(kTool, "parse error");
+			return 1;
+		}
 
 		std::ofstream outFile;
 		if(!o.outputPath.empty() && !cli::openOutput(kTool, o.outputPath, outFile))
@@ -76,8 +80,10 @@ namespace detail {
 		for(I32 i = 1; i < argc; ++i) {
 			String arg = argv[i];
 			cli::stdFlags(kTool, arg, usage);
-			if(arg == "-list-passes")
-				return listPasses(std::cout, false), 0;
+			if(arg == "-list-passes") {
+				listPasses(std::cout, false);
+				return 0;
+			}
 			if(arg == "-stats")
 				o.stats = true;
 			else if(arg == "-verify")

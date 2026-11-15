@@ -158,7 +158,8 @@ namespace rat::cc {
 		DebugFunc& df = *dbg.info->funcs.back();
 		df.name = def->name;
 		df.decl = debugLoc(def->offset);
-		df.ret = dbg.describeVars ? debugType(def->retType) : nullptr;
+		if(dbg.describeVars)
+			df.ret = debugType(def->retType);
 		df.external = !def->isStatic;
 		df.variadic = def->isVarArgs;
 		fn.setDebug(std::make_unique<DebugBody>());

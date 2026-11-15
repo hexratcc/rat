@@ -57,8 +57,10 @@ namespace rat::cc {
 			if(i + 1 >= n || s[i] != '\\')
 				return 0;
 			C8 k = s[i + 1];
-			U64 ndig = (k == 'u') ? 4 : (k == 'U') ? 8 : 0;
-			if(ndig == 0 || i + 2 + ndig > n)
+			if(k != 'u' && k != 'U')
+				return 0;
+			U64 ndig = k == 'u' ? 4 : 8;
+			if(i + 2 + ndig > n)
 				return 0;
 			for(U64 d = 0; d < ndig; ++d)
 				if(!isHexDigit(s[i + 2 + d]))
@@ -166,7 +168,7 @@ namespace rat::cc {
 				out.push_back('\n');
 		}
 
-		// longest-match punctuator length at s[i]; assumes s[i] starts one
+		// longest-match punctuator length at s[i], s[i] must start one
 		inline U64 punctLen(const String& s, U64 i, U64 n) {
 			C8 c = s[i];
 			C8 d = i + 1 < n ? s[i + 1] : '\0';
@@ -302,8 +304,8 @@ namespace rat::cc {
 			U64 n = s.size();
 			for(++j; j < n;) {
 				C8 d = s[j];
-				if((d == 'e' || d == 'E' || d == 'p' || d == 'P') && j + 1 < n &&
-					 (s[j + 1] == '+' || s[j + 1] == '-'))
+				B32 isExp = d == 'e' || d == 'E' || d == 'p' || d == 'P';
+				if(isExp && j + 1 < n && (s[j + 1] == '+' || s[j + 1] == '-'))
 					j += 2;
 				else if(isIdentCont(d) || d == '.')
 					++j;

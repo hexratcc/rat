@@ -50,8 +50,8 @@ namespace rat {
 		seed.scalarTerms.assign(terms.begin() + vectorCount * laneCount, terms.end());
 		I32 finishOps = 2 * (I32)(laneCount / 2) + 1; // shuffle and op per round, then the extract
 		// termCount - 1 scalar ops become vectorCount - 1 vector ops, finishOps and the scalar terms
-		seed.profit =
-				(I32)termCount - 1 - (I32)seed.scalarTerms.size() - ((I32)vectorCount - 1 + finishOps);
+		I32 vectorOps = (I32)vectorCount - 1 + finishOps;
+		seed.profit = (I32)termCount - 1 - (I32)seed.scalarTerms.size() - vectorOps;
 		return pack(seed);
 	}
 
@@ -62,8 +62,8 @@ namespace rat {
 		while(!todo.empty()) {
 			Node* n = todo.back();
 			todo.pop_back();
-			B32 isStep = n->getOpcode() == root->getOpcode() && n->getType() == root->getType() &&
-									 (n == root || n->getUsers().size() == 1);
+			B32 sameOp = n->getOpcode() == root->getOpcode() && n->getType() == root->getType();
+			B32 isStep = sameOp && (n == root || n->getUsers().size() == 1);
 			// a step replaces n by its two inputs, which can each end as a term
 			if(!isStep || terms.size() + todo.size() + 2 > kMaxTerms) {
 				terms.push_back(n);

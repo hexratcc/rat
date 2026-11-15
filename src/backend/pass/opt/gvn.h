@@ -25,8 +25,9 @@ namespace rat {
 			U32 in0 = ~0u, in1 = ~0u;
 
 			B32 operator==(const GVNKey& o) const {
-				return op == o.op && type == o.type && payload == o.payload && in0 == o.in0 &&
-							 in1 == o.in1 && (sym == o.sym || (sym && o.sym && *sym == *o.sym));
+				if(op != o.op || type != o.type || payload != o.payload || in0 != o.in0 || in1 != o.in1)
+					return false;
+				return sym == o.sym || (sym && o.sym && *sym == *o.sym);
 			}
 		};
 

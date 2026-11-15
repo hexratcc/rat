@@ -95,7 +95,7 @@ namespace rat {
 				return st(a, im(imm(v, w)));
 		}
 		MachineOperand src = vr(gpValue(val), w);
-		// indexed reg store [base+index*scale+disp]=src has 3 gp uses; a vreg base lets all three
+		// indexed reg store [base+index*scale+disp]=src has 3 gp uses, a vreg base lets all three
 		// spill at once but only 2 gp scratch exist, so fold the address into an lea and keep the
 		// store at <=2 gp uses
 		if(a.index != kNoVReg && !a.frameBase) {
@@ -183,7 +183,7 @@ namespace rat {
 		mov(d, lhs);
 		I64 iv = 0;
 		if(!immOf(n->getRHS(), iv))
-			return; // degenerate; should not happen
+			return; // degenerate, should not happen
 		Imm cnt = imm(iv & (bits - 1));
 		put(op, {vr(d)}, {vr(d), im(cnt)}, (I64)bits);
 		signExtBits(d, bits); // restore in-register sign-extended convention
@@ -623,8 +623,8 @@ namespace rat {
 		}
 	}
 
-	// flag-setting cmp only; the caller emits its own jcc/setcc consumer
-	// cmp lhs, rhs; returns the cc that tests the compare
+	// flag-setting cmp only, the caller emits its own jcc/setcc consumer
+	// cmp lhs, rhs, returns the cc that tests the compare
 	U8 X86LowerPass::emitCmp(CompareNode* n) {
 		if(n->getOpcode() < Opcode::FEq) {
 			VReg lhs = gpValue(n->getLHS());
@@ -637,7 +637,7 @@ namespace rat {
 			}
 			return detail::kIntCc[(U32)n->getOpcode() - (U32)Opcode::Eq];
 		}
-		// ucomis lhs, rhs (swap keeps lt/le NaN-correct); returns the cc that tests the compare
+		// ucomis lhs, rhs (swap keeps lt/le NaN-correct), returns the cc that tests the compare
 		U32 w = opWidth(n->getLHS()->getType());
 		U32 idx = (U32)n->getOpcode() - (U32)Opcode::FEq;
 		VReg lhs = sseValue(n->getLHS());
@@ -891,7 +891,7 @@ namespace rat {
 		VReg d = vregFor(n);
 		I64 desc = cvtDesc(Asm::ssePrefixByte(w), 0x2c, isUnsigned || bits > 32);
 		put(X86Op::Cvt, {vr(d)}, {vr(s, w)}, desc).regClass = detail::kGp;
-		signExtBits(d, bits); // cvtt writes a whole register; restore the convention
+		signExtBits(d, bits); // cvtt writes a whole register, restore the convention
 	}
 
 	Pair<VReg, VReg> X86LowerPass::splitHalves(VReg s) {

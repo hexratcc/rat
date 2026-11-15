@@ -203,10 +203,13 @@ namespace rat {
 				loads.push_back(l);
 		defs.assign(fn.idBound(), nullptr);
 		chainHops.assign(fn.idBound(), 0);
-		for(LoadNode* l : loads)
-			if(l->hasUsers())
-				defs[l->getId()] = effectiveDef(
-						aa, l->getMemory(), l->getPointer(), aa.getAccessSize(l), chainHops[l->getId()]);
+		for(LoadNode* l : loads) {
+			if(!l->hasUsers())
+				continue;
+			U32 id = l->getId();
+			U32 size = aa.getAccessSize(l);
+			defs[id] = effectiveDef(aa, l->getMemory(), l->getPointer(), size, chainHops[id]);
+		}
 
 		U32 removed = forwardStores(aa);
 		removed += cseLoads(fn, aa);

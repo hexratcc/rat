@@ -72,8 +72,8 @@ namespace rat {
 		if(StoreNode* st = dyn_cast<StoreNode>(n))
 			type = st->getValue()->getType();
 		Access access{addrs.get(n->getInput(2)), type->byteSize(ptrBytes)}; // input 2 is the pointer
-		if(!access.size || access.size > kVecBytes || access.addr.offset > kMaxOffset ||
-			 access.addr.offset < -kMaxOffset)
+		I64 offset = access.addr.offset;
+		if(!access.size || access.size > kVecBytes || offset > kMaxOffset || offset < -kMaxOffset)
 			access.addr = Addr{};
 		return access;
 	}
@@ -109,9 +109,8 @@ namespace rat {
 		for(U32 windows = 1; observed && windows < kMaxRunWindows; ++windows) {
 			if(!windowAt(chain, start + windows * first.laneCount, bytes, next))
 				break;
-			B32 continues = next.group == first.group && next.laneCount == first.laneCount &&
-											next.offset == first.offset + (I64)(windows * bytes);
-			if(!continues)
+			B32 sameShape = next.group == first.group && next.laneCount == first.laneCount;
+			if(!sameShape || next.offset != first.offset + (I64)(windows * bytes))
 				break;
 			addWindow(seed, chain, next);
 			++stats.windowsSeen;

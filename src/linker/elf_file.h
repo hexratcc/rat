@@ -47,7 +47,7 @@ namespace rat {
 		constexpr U8 STB_WEAK = 2;
 		constexpr U8 STB_GNU_UNIQUE = 10; // global def
 		constexpr U8 STT_NOTYPE = 0;
-		constexpr U8 STT_OBJECT = 1; // data import -> COPY; else PLT
+		constexpr U8 STT_OBJECT = 1; // data import -> COPY, else PLT
 		constexpr U8 STT_FUNC = 2;
 		constexpr U8 STT_SECTION = 3;
 		constexpr U8 STT_TLS = 6;

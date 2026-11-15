@@ -202,9 +202,12 @@ namespace rat {
 		} else if(width == 4) {
 			flags = sign ? (U8)kMemW : (U8)0;
 			opcode = sign ? 0x63 : 0x8b; // movsxd / mov r32
-		} else {											 // movzx/movsx
+		} else if(width == 1) {				 // movzx/movsx r, r/m8
 			flags = kMemW | kMemEsc;
-			opcode = width == 1 ? (sign ? 0xbe : 0xb6) : (sign ? 0xbf : 0xb7);
+			opcode = sign ? 0xbe : 0xb6;
+		} else { // movzx/movsx r, r/m16
+			flags = kMemW | kMemEsc;
+			opcode = sign ? 0xbf : 0xb7;
 		}
 	}
 
@@ -382,7 +385,11 @@ namespace rat {
 		b(0x00);
 	}
 
-	U8 Asm::ssePrefixByte(U32 width) { return width == 16 ? 0 : width == 4 ? 0xf3 : 0xf2; }
+	U8 Asm::ssePrefixByte(U32 width) {
+		if(width == 16)
+			return 0;
+		return width == 4 ? 0xf3 : 0xf2;
+	}
 	void Asm::loadXmm(U32 xmm, Reg base, I32 disp, U32 width) {
 		memOp(ssePrefixByte(width), kMemEsc, 0x10, xmm, base, disp);
 	}

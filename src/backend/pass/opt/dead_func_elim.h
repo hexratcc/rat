@@ -1,6 +1,6 @@
 // dead function elimination: drop internal ('static') functions that nothing
 // in the module refers to. A function with external linkage is visible to
-// other translation units and is always kept; an internal function is removed
+// other translation units and is always kept, an internal function is removed
 // once it has no direct callers and its address is not taken anywhere. Removals
 // are iterated to a fixpoint so a chain of internal helpers that only call one
 // another falls away together.

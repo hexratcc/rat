@@ -60,56 +60,59 @@ namespace detail {
 	// gnu-ld flags we ignore together with their separate argument
 	const String kSkipArg = " --version-script -soname --soname --hash-style -m -z -T -R"
 													" --defsym --exclude-libs -plugin --sysroot -a ";
+
+	I32 run(I32 argc, C8** argv) {
+		LinkOptions opt;
+		opt.output = "a.out";
+
+		List<String> args = expandArgs(argc, argv);
+		for(U64 i = 0; i < args.size(); ++i) {
+			String arg = args[i];
+			cli::stdFlags(kTool, arg, usage);
+			if(arg == "-o")
+				opt.output = nextArg(args, i, "-o");
+			else if(arg == "-target") {
+				String t = nextArg(args, i, "-target");
+				if(t != "linux" && t != "windows")
+					return cli::error(kTool, "unknown -target '" + t + "'");
+				opt.target = t == "linux" ? LinkTarget::LinuxX64 : LinkTarget::WindowsX64;
+			} else if(arg == "-e" || arg == "--entry")
+				opt.entry = nextArg(args, i, "-e");
+			else if(arg.rfind("--dynamic-linker=", 0) == 0)
+				opt.interp = arg.substr(17);
+			else if(arg == "-dynamic-linker" || arg == "--dynamic-linker")
+				opt.interp = nextArg(args, i, "-dynamic-linker");
+			else if(arg.rfind("-rpath=", 0) == 0)
+				opt.rpaths.push_back(arg.substr(7));
+			else if(arg == "-rpath" || arg == "--rpath")
+				opt.rpaths.push_back(nextArg(args, i, "-rpath"));
+			else if(arg == "-L" || arg == "--library-path")
+				opt.libPaths.push_back(nextArg(args, i, "-L"));
+			else if(arg.rfind("-L", 0) == 0)
+				opt.libPaths.push_back(arg.substr(2));
+			else if(arg == "-l" || arg == "--library")
+				opt.libs.push_back(nextArg(args, i, "-l"));
+			else if(arg.rfind("-l", 0) == 0)
+				opt.libs.push_back(arg.substr(2));
+			else if(kSkipArg.find(" " + arg + " ") != String::npos)
+				nextArg(args, i, arg.c_str()); // ignore flag + arg
+			else if(arg.size() > 1 && arg[0] == '-')
+				continue; // ignore unknown driver flags
+			else
+				opt.inputs.push_back(arg);
+		}
+
+		if(opt.inputs.empty())
+			return cli::error(kTool, "no input files");
+
+		String err;
+		if(link(opt, err))
+			return 0;
+		std::cerr << kTool << ": " << err << "\n";
+		return 1;
+	}
 } // namespace detail
 
-static I32 run(I32 argc, C8** argv) {
-	LinkOptions opt;
-	opt.output = "a.out";
-
-	List<String> args = ::detail::expandArgs(argc, argv);
-	for(U64 i = 0; i < args.size(); ++i) {
-		String arg = args[i];
-		cli::stdFlags(::detail::kTool, arg, ::detail::usage);
-		if(arg == "-o")
-			opt.output = ::detail::nextArg(args, i, "-o");
-		else if(arg == "-target") {
-			String t = ::detail::nextArg(args, i, "-target");
-			if(t != "linux" && t != "windows")
-				return cli::error(::detail::kTool, "unknown -target '" + t + "'");
-			opt.target = t == "linux" ? LinkTarget::LinuxX64 : LinkTarget::WindowsX64;
-		} else if(arg == "-e" || arg == "--entry")
-			opt.entry = ::detail::nextArg(args, i, "-e");
-		else if(arg.rfind("--dynamic-linker=", 0) == 0)
-			opt.interp = arg.substr(17);
-		else if(arg == "-dynamic-linker" || arg == "--dynamic-linker")
-			opt.interp = ::detail::nextArg(args, i, "-dynamic-linker");
-		else if(arg.rfind("-rpath=", 0) == 0)
-			opt.rpaths.push_back(arg.substr(7));
-		else if(arg == "-rpath" || arg == "--rpath")
-			opt.rpaths.push_back(::detail::nextArg(args, i, "-rpath"));
-		else if(arg == "-L" || arg == "--library-path")
-			opt.libPaths.push_back(::detail::nextArg(args, i, "-L"));
-		else if(arg.rfind("-L", 0) == 0)
-			opt.libPaths.push_back(arg.substr(2));
-		else if(arg == "-l" || arg == "--library")
-			opt.libs.push_back(::detail::nextArg(args, i, "-l"));
-		else if(arg.rfind("-l", 0) == 0)
-			opt.libs.push_back(arg.substr(2));
-		else if(::detail::kSkipArg.find(" " + arg + " ") != String::npos)
-			::detail::nextArg(args, i, arg.c_str()); // ignore flag + arg
-		else if(arg.size() > 1 && arg[0] == '-')
-			continue; // ignore unknown driver flags
-		else
-			opt.inputs.push_back(arg);
-	}
-
-	if(opt.inputs.empty())
-		return cli::error(::detail::kTool, "no input files");
-
-	String err;
-	if(!link(opt, err))
-		return std::cerr << ::detail::kTool << ": " << err << "\n", 1;
-	return 0;
+I32 main(I32 argc, C8** argv) {
+	return cli::guardedMain(::detail::kTool, ::detail::run, argc, argv);
 }
-
-I32 main(I32 argc, C8** argv) { return cli::guardedMain(::detail::kTool, run, argc, argv); }

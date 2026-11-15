@@ -86,7 +86,7 @@ namespace rat::cc {
 		constexpr U64 kBytes1 = 0x0101010101010101ull;
 		U64 bytesEq(U64 w, C8 b);
 
-		// trigraph + splice + newline norm in one copy; sparse LineMarks
+		// trigraph + splice + newline norm in one copy, sparse LineMarks
 		void splice(const String& src, String& out, List<LineMark>& marks);
 
 		// non-owning token view (directive operands, expansion input)

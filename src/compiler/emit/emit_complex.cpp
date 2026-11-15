@@ -73,8 +73,9 @@ namespace rat::cc {
 			Node* denom = fn.binary(Opcode::FAdd, cc, dd);
 			Node* rnum = fn.binary(Opcode::FAdd, ac, bd);
 			Node* inum = fn.binary(Opcode::FSub, bc, ad);
-			return makeComplex(
-					fn, ct, fn.binary(Opcode::FDiv, rnum, denom), fn.binary(Opcode::FDiv, inum, denom));
+			Node* im = fn.binary(Opcode::FDiv, inum, denom);
+			Node* re = fn.binary(Opcode::FDiv, rnum, denom);
+			return makeComplex(fn, ct, re, im);
 		}
 		default:
 			return diag.fail("invalid operator on a complex operand");

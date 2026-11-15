@@ -58,8 +58,9 @@ namespace rat {
 	}
 
 	B32 X86PeepholePass::isRegCopy(const MachineInstr& in) {
-		return (X86Op)in.op == X86Op::Copy && in.defs.size() == 1 && in.uses.size() == 1 &&
-					 in.defs[0].isPhys() && in.uses[0].isPhys();
+		if((X86Op)in.op != X86Op::Copy || in.defs.size() != 1 || in.uses.size() != 1)
+			return false;
+		return in.defs[0].isPhys() && in.uses[0].isPhys();
 	}
 
 	// makeSpill: uses[0] = frame slot, uses[1] = source register
@@ -442,16 +443,20 @@ namespace rat {
 	// defs[0] = register, uses[0] = frame slot
 	B32 X86PeepholePass::isAnySlotLoad(const MachineInstr& in) {
 		X86Op op = (X86Op)in.op;
-		return (op == X86Op::Load || op == X86Op::FLoad) && in.defs.size() == 1 &&
-					 in.defs[0].isPhys() && in.uses.size() == 1 && in.uses[0].isFrameSlot();
+		if((op != X86Op::Load && op != X86Op::FLoad) || in.defs.size() != 1 || in.uses.size() != 1)
+			return false;
+		return in.defs[0].isPhys() && in.uses[0].isFrameSlot();
 	}
 
 	// union of successor live-ins, everything for open blocks
 	// inline: called per block in the demand fixpoints
 	inline void
 	X86PeepholePass::slotBlockOut(const MachineBlock& b, const List<U64>& liveIn, List<U64>& cur) {
-		B32 open = b.succs.empty() && !b.insts.empty() && (X86Op)b.insts.back().op != X86Op::Ret &&
-							 (X86Op)b.insts.back().op != X86Op::Ud2;
+		B32 open = false;
+		if(b.succs.empty() && !b.insts.empty()) {
+			X86Op last = (X86Op)b.insts.back().op;
+			open = last != X86Op::Ret && last != X86Op::Ud2;
+		}
 		U64 stride = cur.size();
 		U64* out = cur.data();
 		std::fill(out, out + stride, open ? kAllBits : 0);

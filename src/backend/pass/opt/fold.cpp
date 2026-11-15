@@ -274,13 +274,15 @@ namespace rat {
 				return nullptr;
 			if(bl->getOpcode() == Opcode::LShr && br->getOpcode() == Opcode::Shl)
 				std::swap(bl, br);
-			if(bl->getOpcode() != Opcode::Shl || br->getOpcode() != Opcode::LShr ||
-				 bl->getLHS() != br->getLHS())
+			if(bl->getOpcode() != Opcode::Shl || br->getOpcode() != Opcode::LShr)
+				return nullptr;
+			if(bl->getLHS() != br->getLHS())
 				return nullptr;
 			ConstantNode* cl = dyn_cast<ConstantNode>(bl->getRHS());
 			ConstantNode* cr = dyn_cast<ConstantNode>(br->getRHS());
-			if(!cl || !cr || cl->getValue() <= 0 || cr->getValue() <= 0 ||
-				 cl->getValue() + cr->getValue() != (I64)w)
+			if(!cl || !cr || cl->getValue() <= 0 || cr->getValue() <= 0)
+				return nullptr;
+			if(cl->getValue() + cr->getValue() != (I64)w)
 				return nullptr;
 			return fn.binary(Opcode::Rotr, br->getLHS(), br->getRHS());
 		}
@@ -589,8 +591,9 @@ namespace rat {
 		// collapse boolean re-tests, comparing an i1 (possibly zero-extended)
 		// against 0/1 yields the i1 itself or its complement
 		Node* foldBoolRetest(Function& fn, Opcode op, Node* lhs, ConstantNode* cr) {
-			if((op != Opcode::Eq && op != Opcode::Ne) || !cr ||
-				 (cr->getValue() != 0 && cr->getValue() != 1))
+			if((op != Opcode::Eq && op != Opcode::Ne) || !cr)
+				return nullptr;
+			if(cr->getValue() != 0 && cr->getValue() != 1)
 				return nullptr;
 			Node* boolean = nullptr;
 			if(lhs->getType()->getIntWidth() == 1) {

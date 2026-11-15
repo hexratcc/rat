@@ -81,10 +81,12 @@ namespace rat {
 		Node* base = ptr;
 		for(U32 hops = 0; hops < detail::kMaxPtrHops; ++hops) {
 			BinaryNode* step = dyn_cast<BinaryNode>(base);
-			if(!step || (step->getOpcode() != Opcode::Add && step->getOpcode() != Opcode::Sub) ||
-				 !step->getLHS()->getType()->isPtr())
+			if(!step)
 				break;
-			I64 sign = step->getOpcode() == Opcode::Sub ? -1 : 1;
+			Opcode op = step->getOpcode();
+			if((op != Opcode::Add && op != Opcode::Sub) || !step->getLHS()->getType()->isPtr())
+				break;
+			I64 sign = op == Opcode::Sub ? -1 : 1;
 			detail::refineTerm(step->getRHS(), sign, false, offset, key, 0);
 			base = step->getLHS();
 		}

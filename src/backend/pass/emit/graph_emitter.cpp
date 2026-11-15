@@ -26,6 +26,26 @@ namespace rat {
 			}
 		}
 
+		// inputs after ctrl and mem
+		String memOperandName(const Node* n, U32 k) {
+			switch(n->getOpcode()) {
+			case Opcode::Load:
+				return "addr";
+			case Opcode::Store:
+				return k == 0 ? "addr" : "val";
+			case Opcode::Call:
+				if(cast<CallNode>(n)->isIndirect())
+					return k == 0 ? "tgt" : std::to_string(k - 1);
+				return std::to_string(k);
+			case Opcode::StackAlloc:
+				return "size";
+			case Opcode::StackRestore:
+				return "saved";
+			default:
+				return std::to_string(k);
+			}
+		}
+
 		String portName(const Node* n, U32 i) {
 			switch(n->getOpcode()) {
 			case Opcode::If:
@@ -33,34 +53,22 @@ namespace rat {
 			case Opcode::Switch:
 				return i == 0 ? "ctrl" : "sel";
 			case Opcode::Load:
-				return i == 0 ? "ctrl" : i == 1 ? "mem" : "addr";
 			case Opcode::Store:
-				return i == 0 ? "ctrl" : i == 1 ? "mem" : i == 2 ? "addr" : "val";
 			case Opcode::Return:
 			case Opcode::Asm:
-				return i == 0 ? "ctrl" : i == 1 ? "mem" : std::to_string(i - 2);
-			case Opcode::Call: {
-				if(i == 0)
-					return "ctrl";
-				if(i == 1)
-					return "mem";
-				const auto* c = cast<CallNode>(n);
-				if(c->isIndirect())
-					return i == 2 ? "tgt" : std::to_string(i - 3);
-				return std::to_string(i - 2);
-			}
+			case Opcode::Call:
+			case Opcode::StackAlloc:
+			case Opcode::StackSave:
+			case Opcode::StackRestore:
+				if(i < 2)
+					return i == 0 ? "ctrl" : "mem";
+				return memOperandName(n, i - 2);
 			case Opcode::Phi:
 				return i == 0 ? "region" : std::to_string(i - 1);
 			case Opcode::Proj:
 				return "src";
 			case Opcode::Stop:
 				return "ret";
-			case Opcode::StackAlloc:
-				return i == 0 ? "ctrl" : i == 1 ? "mem" : "size";
-			case Opcode::StackSave:
-				return i == 0 ? "ctrl" : "mem";
-			case Opcode::StackRestore:
-				return i == 0 ? "ctrl" : i == 1 ? "mem" : "saved";
 			case Opcode::Splat:
 				return "val";
 			case Opcode::Extract:
@@ -145,8 +153,7 @@ namespace rat {
 
 			os << "    ";
 			writeId(os, fnIndex, n);
-			os << " [label=<<table border=\"0\" cellborder=\"1\" cellspacing=\"0\" "
-						"cellpadding=\"3\">";
+			os << " [label=<<table border=\"0\" cellborder=\"1\" cellspacing=\"0\" cellpadding=\"3\">";
 			if(in) {
 				os << "<tr>";
 				for(U32 i = 0; i < in; ++i)

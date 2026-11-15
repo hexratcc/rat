@@ -9,8 +9,9 @@ namespace rat::cc {
 			case ExprKind::Binary:
 				return walkExpr(w, e->binary.lhs) && walkExpr(w, e->binary.rhs);
 			case ExprKind::Ternary:
-				return walkExpr(w, e->ternary.cond) && walkExpr(w, e->ternary.whenTrue) &&
-							 walkExpr(w, e->ternary.whenFalse);
+				if(!walkExpr(w, e->ternary.cond) || !walkExpr(w, e->ternary.whenTrue))
+					return false;
+				return walkExpr(w, e->ternary.whenFalse);
 			case ExprKind::Comma:
 				return walkExpr(w, e->comma.lhs) && walkExpr(w, e->comma.rhs);
 			case ExprKind::Cast:
@@ -34,7 +35,7 @@ namespace rat::cc {
 			}
 		}
 
-		// args holds the call arguments and the initializer-list elements; it is
+		// args holds the call arguments and the initializer-list elements. It is
 		// empty for every other kind, so it is walked last for all of them.
 		B32 walkExpr(AstWalk& w, const Expr* e) {
 			if(!e)

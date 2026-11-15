@@ -43,10 +43,8 @@ namespace rat::cc {
 		}
 		if(!expect(TokKind::RParen, "')'"))
 			return nullptr;
-		return makeInt(kw,
-									 off,
-									 64,
-									 (U8)(CType::Unsigned | CType::Long | (lay.longBits < 64 ? CType::LongLong : 0)));
+		U8 sizeMods = (U8)(CType::Unsigned | CType::Long | (lay.longBits < 64 ? CType::LongLong : 0));
+		return makeInt(kw, off, 64, sizeMods);
 	}
 
 	// type-spec abstract-declarator
@@ -107,9 +105,9 @@ namespace rat::cc {
 		}
 		String bytes;
 		for(const Token& t : parts) {
-			B32 read = unitBytes == 1 ? parseStringLiteral(t, bytes)
-																: parseWideStringLiteral(t, unitBytes, bytes);
-			if(!read)
+			if(unitBytes == 1 && !parseStringLiteral(t, bytes))
+				return nullptr;
+			if(unitBytes != 1 && !parseWideStringLiteral(t, unitBytes, bytes))
 				return nullptr;
 		}
 		Expr* e = makeExpr(ExprKind::StrLit, parts[0].offset);
@@ -141,7 +139,12 @@ namespace rat::cc {
 		if(end == text.c_str() || *end != '\0')
 			return fail(lit, "invalid floating constant '" + text + "'");
 		Expr* e = makeExpr(ExprKind::FloatLit, lit.offset);
-		e->floatLit = {value, isFloat ? 32u : (isLongDouble ? 128u : 64u), isImaginary};
+		U32 bits = 64;
+		if(isFloat)
+			bits = 32;
+		else if(isLongDouble)
+			bits = 128;
+		e->floatLit = {value, bits, isImaginary};
 		return e;
 	}
 
@@ -260,8 +263,10 @@ namespace rat::cc {
 		for(;;) {
 			TokKind k = peek().kind;
 			if(k == TokKind::LParen) {
-				B32 isVaArg = e->kind == ExprKind::Ident && *e->ident.name == "__builtin_va_arg";
-				e = isVaArg ? parseVaArg() : parseCall(e);
+				if(e->kind == ExprKind::Ident && *e->ident.name == "__builtin_va_arg")
+					e = parseVaArg();
+				else
+					e = parseCall(e);
 				if(!e)
 					return nullptr;
 			} else if(k == TokKind::LBracket) {

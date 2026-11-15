@@ -48,9 +48,11 @@ namespace rat {
 	// the base of ptr's constant adds when it shares ptr's group
 	Pair<Node*, I64> SlpPackPass::Emitter::anchorOf(Node* ptr) {
 		Node* base = ptr;
-		while(base->getOpcode() == Opcode::Add && isa<ConstantNode>(base->getInput(1)) &&
-					base->getInput(0)->getType()->isPtr())
+		while(base->getOpcode() == Opcode::Add && isa<ConstantNode>(base->getInput(1))) {
+			if(!base->getInput(0)->getType()->isPtr())
+				break;
 			base = base->getInput(0);
+		}
 		Addr ptrAddr = cx.addrs.get(ptr);
 		Addr baseAddr = cx.addrs.get(base);
 		if(baseAddr.group != ptrAddr.group)
@@ -99,14 +101,16 @@ namespace rat {
 
 	// a load of type ty at offset of vec's group from vec.mem, or an earlier vector's equal load
 	Node* SlpPackPass::Emitter::loadAt(const Vector& vec, Type* ty, I64 offset, Plan& plan) {
+		Node* control = vec.lowestLoad->getControl();
 		Addr addr = cx.addrs.get(vec.lowestLoad->getPointer());
 		addr.offset = offset;
-		for(const auto& [ld, ldAddr] : plan.loads)
-			if(ld->getType() == ty && ld->getMemory() == vec.mem && ldAddr.group == addr.group &&
-				 ldAddr.offset == offset && ld->getControl() == vec.lowestLoad->getControl())
+		for(const auto& [ld, ldAddr] : plan.loads) {
+			B32 sameAccess = ld->getType() == ty && ldAddr.group == addr.group && ldAddr.offset == offset;
+			if(sameAccess && ld->getMemory() == vec.mem && ld->getControl() == control)
 				return ld;
-		Node* ptr = anchorPtr(vec.lowestLoad->getPointer(), offset, vec.lowestLoad->getControl());
-		LoadNode* ld = cx.fn.create<LoadNode>(ty, vec.lowestLoad->getControl(), vec.mem, ptr);
+		}
+		Node* ptr = anchorPtr(vec.lowestLoad->getPointer(), offset, control);
+		LoadNode* ld = cx.fn.create<LoadNode>(ty, control, vec.mem, ptr);
 		plan.loads.push_back({ld, addr});
 		return ld;
 	}
@@ -258,8 +262,8 @@ namespace rat {
 		while(!states.empty()) {
 			Node* state = states.back();
 			states.pop_back();
-			if(auto it = runAt.find(state);
-				 it != runAt.end() && guardedRuns[it->second].block == guarded.block) {
+			auto it = runAt.find(state);
+			if(it != runAt.end() && guardedRuns[it->second].block == guarded.block) {
 				guardedRuns[it->second].firstIf->setInput(0, region);
 				foundLater = true;
 			}

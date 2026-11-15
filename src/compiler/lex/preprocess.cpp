@@ -226,8 +226,9 @@ namespace rat::cc {
 		void Preprocessor::applyPragmaOperators(List<PpToken>& toks, const String& path) {
 			U64 kept = 0;
 			for(U64 i = 0; i < toks.size(); ++i) {
-				if(toks[i].kind == Pk::Id && toks[i].text == idPragma && i + 3 < toks.size() &&
-					 isPunct(toks[i + 1], "(") && toks[i + 2].kind == Pk::Str && isPunct(toks[i + 3], ")")) {
+				B32 isPragma = toks[i].kind == Pk::Id && toks[i].text == idPragma && i + 3 < toks.size();
+				B32 hasStringArg = isPragma && isPunct(toks[i + 1], "(") && toks[i + 2].kind == Pk::Str;
+				if(hasStringArg && isPunct(toks[i + 3], ")")) {
 					List<PpToken> body = lexFragment(destringize(*toks[i + 2].text), intern(path));
 					doPragma(PpSpan(body), path);
 					i += 3; // the loop steps past the last of the four tokens

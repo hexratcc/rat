@@ -88,12 +88,11 @@ namespace rat {
 			I32 index = paramIndex(c);
 			if(isRestrictParam(index, restricts))
 				return true;
-			if(index >= 0 || op == Opcode::Constant || op == Opcode::Load || op == Opcode::Proj ||
-				 isIdentified(c))
+			B32 notDerived = op == Opcode::Constant || op == Opcode::Load || op == Opcode::Proj;
+			if(index >= 0 || notDerived || isIdentified(c))
 				continue;
-			B32 pure = isArithmeticOpcode(op) || isVectorUtilOpcode(op) || op == Opcode::Select ||
-								 op == Opcode::Phi;
-			if(!pure)
+			B32 merge = op == Opcode::Select || op == Opcode::Phi;
+			if(!merge && !isArithmeticOpcode(op) && !isVectorUtilOpcode(op))
 				return true;
 			for(U32 i = 0; i < c->getInputCount(); ++i)
 				if(const Node* in = c->getInput(i); in && in->getType() && in->getType()->isData())

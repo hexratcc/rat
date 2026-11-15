@@ -194,9 +194,11 @@ namespace rat {
 			return false;
 		if(call->returnsValue() != callee->returnsValue())
 			return false;
-		if(call->returnsValue() &&
-			 call->getType()->getTupleElement(CallNode::valueProjIndex()) != callee->getReturnType())
-			return false;
+		if(call->returnsValue()) {
+			Type* valueType = call->getType()->getTupleElement(CallNode::valueProjIndex());
+			if(valueType != callee->getReturnType())
+				return false;
+		}
 		if(call->getArgCount() != callee->getParamCount())
 			return false;
 		for(U32 i = 0, e = call->getArgCount(); i < e; ++i)
@@ -216,8 +218,9 @@ namespace rat {
 
 		// clones of inlined calls append to the worklist, so one scan inlines transitively
 		U32 count = 0;
-		for(U32 i = 0; i < worklist.size() && count < kMaxInlinesPerFunction && caller.size() <= limit;
-				++i) {
+		for(U32 i = 0; i < worklist.size() && count < kMaxInlinesPerFunction; ++i) {
+			if(caller.size() > limit)
+				break;
 			CallNode* c = worklist[i];
 			Function* callee = graph->lookup(c->getCallee());
 			if(shouldInline(caller, c, callee) && inlineCallSite(caller, c, *callee))

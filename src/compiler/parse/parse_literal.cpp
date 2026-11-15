@@ -169,9 +169,17 @@ namespace rat::cc {
 			}
 		}
 
-		bits = (isLongLong || (isLong && lay.longBits >= 64)) ? 64 : (isLong ? lay.longBits : 32);
-		return (U8)((isUnsigned ? CType::Unsigned : 0) | (isLong ? CType::Long : 0) |
-								(isLongLong ? CType::LongLong : 0));
+		bits = isLong ? lay.longBits : 32;
+		if(isLongLong)
+			bits = 64;
+		U8 mods = 0;
+		if(isUnsigned)
+			mods |= CType::Unsigned;
+		if(isLong)
+			mods |= CType::Long;
+		if(isLongLong)
+			mods |= CType::LongLong;
+		return mods;
 	}
 
 	// after \ : ucn | simple-escape | ? | x hex-digit... | octal-digit [octal-digit [octal-digit]]
@@ -275,7 +283,8 @@ namespace rat::cc {
 	B32 Parser::parseStringLiteral(const Token& tok, String& out) {
 		const String& s = lex.text(tok);
 		B32 isU8 = s.size() > 1 && s[0] == 'u' && s[1] == '8';
-		U32 maxVal = isU8 ? 0xFFu : detail::escapeMaxVal(s.size() ? s[0] : '"');
+		C8 prefix = s.size() ? s[0] : '"';
+		U32 maxVal = isU8 ? 0xFFu : detail::escapeMaxVal(prefix);
 		U32 i = 0;
 		U32 end = 0;
 		detail::quotedRange(s, '"', i, end);

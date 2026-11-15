@@ -76,10 +76,10 @@ namespace rat::cc {
 		if(ts.files.empty())
 			ts.files.push_back(path);
 		U32 eofLine = ts.toks.empty() ? 1 : ts.toks.back().line;
-		detail::pushToken(
-				ts, {TokKind::Eof, 0, eofLine, 1, file}, pp.interner.intern(std::string_view()));
+		const String* emptyText = pp.interner.intern(std::string_view());
+		detail::pushToken(ts, {TokKind::Eof, 0, eofLine, 1, file}, emptyText);
 
-		// tokens reference interned spellings; take ownership of the pool
+		// tokens reference interned spellings, take ownership of the pool
 		ts.ownedText = std::move(pp.interner.store);
 		return true;
 	}

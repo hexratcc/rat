@@ -214,7 +214,11 @@ namespace rat::cc {
 			t.base = CType::Base::Void;
 		} else if(isFloat || w.of(TokKind::KwDouble) || isComplex) {
 			t.base = CType::Base::Float;
-			t.bits = isFloat ? 32 : (w.of(TokKind::KwDouble) && longCount >= 1 ? 128 : 64);
+			t.bits = 64;
+			if(isFloat)
+				t.bits = 32;
+			else if(w.of(TokKind::KwDouble) && longCount >= 1)
+				t.bits = 128;
 			t.set(CType::Complex, isComplex);
 			if(isComplex)
 				t.strukt = complexStruct(t);

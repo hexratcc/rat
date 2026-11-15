@@ -119,7 +119,7 @@ namespace rat::cc {
 	}
 
 	// [ alias ( string-literal... ) | asm ( string-literal... ) | noinline | alignas ]...
-	// the markers the preprocessor leaves behind, in any order; an asm label is rejected
+	// the markers the preprocessor leaves behind, in any order. An asm label is rejected
 	B32 Parser::parseDeclAttributes(const String*& aliasOut, B32& noInlineOut, U32& alignOut) {
 		for(;;) {
 			if(accept(TokKind::KwAlias)) {

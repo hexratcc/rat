@@ -107,8 +107,8 @@ namespace rat {
 		I64 end = a.addr.offset + (I64)a.size;
 		for(I64 from = a.addr.offset; from < end;) { // each 16-byte block
 			I64 to = SlpPackPass::blockEnd(from, end);
-			std::array<U32, SlpPackPass::kVecBytes>& writers =
-					blocks[SlpPackPass::pairKey(a.addr.group, from >> SlpPackPass::kVecShift)];
+			U64 blockKey = SlpPackPass::pairKey(a.addr.group, from >> SlpPackPass::kVecShift);
+			std::array<U32, SlpPackPass::kVecBytes>& writers = blocks[blockKey];
 			for(I64 byte = from; byte < to; ++byte)
 				writers[byte & (SlpPackPass::kVecBytes - 1)] = store;
 			from = to;

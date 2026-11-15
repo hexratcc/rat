@@ -298,6 +298,13 @@ namespace rat {
 		return true;
 	}
 
+	// n in a gp or sse vreg, by cls
+	VReg X86LowerPass::classValue(Node* n, U32 cls) {
+		if(cls == detail::kFp)
+			return sseValue(n);
+		return gpValue(n);
+	}
+
 	VReg X86LowerPass::sseValue(Node* n) {
 		if(ConstantNode* c = dyn_cast<ConstantNode>(n)) {
 			if(vregOf[n->getId()] != kNoVReg)
@@ -389,7 +396,7 @@ namespace rat {
 			if(n->getType()->isVec())
 				return; // a lane mask, each vector select re-emits it
 			if(branchOnlyCompare(n))
-				return; // no value users; each If re-emits the compare fused with its jcc
+				return; // no value users, each If re-emits the compare fused with its jcc
 			if(selectOnlyCompare(n))
 				return; // each select re-emits it fused with its cmov
 			emitCompare(cast<CompareNode>(n));
@@ -434,7 +441,7 @@ namespace rat {
 				continue;
 			}
 			VReg t = fresh(cls);
-			moveValue(t, cls == detail::kFp ? sseValue(v) : gpValue(v), cls, opWidth(phi->getType()));
+			moveValue(t, classValue(v, cls), cls, opWidth(phi->getType()));
 			phiMoves.push_back({phi, t});
 		}
 		for(const auto& [phi, t] : phiMoves)
@@ -451,7 +458,7 @@ namespace rat {
 		case Schedule::TermKind::Branch: {
 			Node* pred = cast<IfNode>(blk.termNode)->getPredicate();
 			if(fusableCompare(pred)) {
-				// fuse the compare into the branch: cmp lhs, rhs; jcc
+				// fuse the compare into the branch, cmp lhs, rhs then jcc
 				U8 cc = emitCmp(cast<CompareNode>(pred));
 				Ops targets = {blockRef(blk.succs[0]), blockRef(blk.succs[1])};
 				put(X86Op::Br, {}, std::move(targets), (I64)cc, 1); // cc in imm, no predicate

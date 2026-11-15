@@ -151,8 +151,11 @@ namespace rat::cc {
 			B32 isFloat = false;
 			C8 c1 = charAt(s, n, i + 1);
 			B32 hex = charAt(s, n, i) == '0' && (c1 == 'x' || c1 == 'X');
-			B32 ok = hex ? scanHexNumber(s, n, i, isFloat, err) : scanDecNumber(s, n, i, isFloat, err);
-			return ok && scanSuffix(s, n, i, isFloat, kind, err);
+			if(hex && !scanHexNumber(s, n, i, isFloat, err))
+				return false;
+			if(!hex && !scanDecNumber(s, n, i, isFloat, err))
+				return false;
+			return scanSuffix(s, n, i, isFloat, kind, err);
 		}
 
 		B32 scanQuoted(const C8* s, U32 n, U32& i, C8 quote, const C8* unterminated, String& err) {

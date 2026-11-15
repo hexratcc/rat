@@ -61,16 +61,14 @@ namespace rat::cc {
 				return b;
 			if(!b)
 				return a;
+			const List<const String*>& an = a->names;
+			const List<const String*>& bn = b->names;
 			List<const String*> names;
-			names.reserve(a->names.size() + b->names.size());
-			std::set_union(a->names.begin(),
-										 a->names.end(),
-										 b->names.begin(),
-										 b->names.end(),
-										 std::back_inserter(names));
-			if(names.size() == a->names.size())
+			names.reserve(an.size() + bn.size());
+			std::set_union(an.begin(), an.end(), bn.begin(), bn.end(), std::back_inserter(names));
+			if(names.size() == an.size())
 				return a; // b is a subset of a
-			if(names.size() == b->names.size())
+			if(names.size() == bn.size())
 				return b; // a is a subset of b
 			return internHide(std::move(names));
 		}
@@ -225,7 +223,7 @@ namespace rat::cc {
 			return applyHideSet(os, hs);
 		}
 
-		// drop placemarkers, union hide set into every token; memoize on the
+		// drop placemarkers, union hide set into every token, memoize on the
 		// incoming set (nearly always repeated)
 		List<PpToken> Preprocessor::applyHideSet(List<PpToken>& os, const HideSet* hs) {
 			List<PpToken> res;
@@ -315,8 +313,8 @@ namespace rat::cc {
 						continue;
 					if(w.text == idNoinline || w.text == idNoinline2)
 						noinl = true;
-					if((w.text == idAlias || w.text == idAlias2) && i + 2 < arg.size() &&
-						 isPunct(arg[i + 1], "(") && arg[i + 2].kind == Pk::Str)
+					B32 isAlias = (w.text == idAlias || w.text == idAlias2) && i + 2 < arg.size();
+					if(isAlias && isPunct(arg[i + 1], "(") && arg[i + 2].kind == Pk::Str)
 						aliasTarget = &arg[i + 2];
 				}
 			}
@@ -331,8 +329,10 @@ namespace rat::cc {
 				os.push_back(n);
 				PpToken lp = makeToken(Pk::Punct, "(");
 				PpToken rp = makeToken(Pk::Punct, ")");
-				lp.line = rp.line = at.line;
-				lp.col = rp.col = at.col;
+				lp.line = at.line;
+				lp.col = at.col;
+				rp.line = at.line;
+				rp.col = at.col;
 				os.push_back(lp);
 				os.push_back(*aliasTarget);
 				os.push_back(rp);
@@ -359,7 +359,9 @@ namespace rat::cc {
 			if(t.text == idLine) {
 				n = makeToken(Pk::Num, std::to_string((U64)((I64)t.line + lineDelta)));
 			} else if(t.text == idFile) {
-				String file = fileName.empty() ? (t.file ? *t.file : String()) : fileName;
+				String file = fileName;
+				if(file.empty() && t.file)
+					file = *t.file;
 				n = makeToken(Pk::Str, "\"" + file + "\"");
 			} else {
 				return false;
@@ -504,9 +506,8 @@ namespace rat::cc {
 			for(U64 k = 0; k < m.body.size(); ++k) {
 				if(!isPunct(m.body[k], "#"))
 					continue;
-				B32 okOperand = k + 1 < m.body.size() && m.body[k + 1].kind == Pk::Id &&
-												formalIndex(m, m.body[k + 1].text) >= 0;
-				if(!okOperand)
+				B32 hasIdOperand = k + 1 < m.body.size() && m.body[k + 1].kind == Pk::Id;
+				if(!hasIdOperand || formalIndex(m, m.body[k + 1].text) < 0)
 					return fail("'#' is not followed by a macro parameter");
 			}
 			return true;

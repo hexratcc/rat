@@ -58,8 +58,7 @@ namespace rat::cc {
 				{Opcode::Xor, Opcode::Xor},   // BitXor
 		};
 		// clang-format on
-		static_assert(sizeof(kArith) / sizeof(kArith[0]) == (U32)ExprOp::BitXor - (U32)ExprOp::Add + 1,
-									"kArith must cover Add..BitXor");
+		static_assert(std::size(kArith) == (U32)ExprOp::BitXor - (U32)ExprOp::Add + 1, "one per op");
 		if(op < ExprOp::Add || op > ExprOp::BitXor || kArith[idx].s == Opcode::Start)
 			return diag.fail("unsupported arithmetic operator");
 		Opcode arithOp = ct.isUnsigned() ? kArith[idx].u : kArith[idx].s;
@@ -165,19 +164,19 @@ namespace rat::cc {
 		if(isComplexType(targetType))
 			return assignComplex(fn, e, lv, rhs);
 
+		ExprOp op = e->binary.op;
 		Node* stored = nullptr;
-		if(e->binary.op == ExprOp::Assign) {
+		if(op == ExprOp::Assign) {
 			stored = convert(fn, rhs.node, rhs.type, targetType);
-		} else if(isPointer(targetType) &&
-							(e->binary.op == ExprOp::AddAssign || e->binary.op == ExprOp::SubAssign)) {
-			ExprOp op = e->binary.op == ExprOp::AddAssign ? ExprOp::Add : ExprOp::Sub;
-			Value res = emitPtrArith(fn, op, {loadLValue(fn, lv), targetType}, rhs);
+		} else if(isPointer(targetType) && (op == ExprOp::AddAssign || op == ExprOp::SubAssign)) {
+			ExprOp arith = op == ExprOp::AddAssign ? ExprOp::Add : ExprOp::Sub;
+			Value res = emitPtrArith(fn, arith, {loadLValue(fn, lv), targetType}, rhs);
 			if(!res.node)
 				return {};
 			stored = res.node;
 		} else {
 			ExprOp base;
-			if(!compoundBaseOp(e->binary.op, base))
+			if(!compoundBaseOp(op, base))
 				return diag.fail("unsupported assignment operator");
 			CType ct = usualArithmetic(targetType, rhs.type);
 			Node* l = convert(fn, loadLValue(fn, lv), targetType, ct);
@@ -244,8 +243,7 @@ namespace rat::cc {
 				{Opcode::FNe, Opcode::Ne, Opcode::Ne, false},   // Ne
 		};
 		// clang-format on
-		static_assert(sizeof(kCmp) / sizeof(kCmp[0]) == (U32)ExprOp::Ne - (U32)ExprOp::Lt + 1,
-									"kCmp must cover Lt..Ne");
+		static_assert(std::size(kCmp) == (U32)ExprOp::Ne - (U32)ExprOp::Lt + 1, "one per op");
 		const Sel& sel = kCmp[(U32)op - (U32)ExprOp::Lt]; // caller guarantees Lt..Ne
 		if(isFloating(ct))
 			return {fromBool(fn, fn.compare(sel.f, l, r)), ctInt()};

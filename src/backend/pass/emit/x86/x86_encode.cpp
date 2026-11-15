@@ -39,7 +39,7 @@ namespace rat {
 		stash(R11);
 	}
 
-	// kind in imm, width and sign in imm2; the value address is in r11
+	// kind in imm, width and sign in imm2, the value address is in r11
 	void X86EncodePass::vaLoadResult(const MachineInstr& in) {
 		VaArgKind kind = (VaArgKind)in.imm;
 		if(kind == VaArgKind::Aggregate)
@@ -151,8 +151,9 @@ namespace rat {
 			a->addRegImm32(R11, 8);
 			a->storeMem(R10, 0, R11, 8);
 			unstash(R11);
-			B32 byRef = kind == VaArgKind::X87 ||
-									(kind == VaArgKind::Aggregate && !detail::unpackVaAggregate(in.imm2).regs.count);
+			B32 byRef = kind == VaArgKind::X87;
+			if(kind == VaArgKind::Aggregate)
+				byRef = !detail::unpackVaAggregate(in.imm2).regs.count;
 			if(byRef)
 				a->load64(R11, R11, 0); // slot holds a pointer to the value
 		} else if(kind == VaArgKind::X87)
@@ -274,9 +275,9 @@ namespace rat {
 		// lea r10,[rip+table]; movsxd r11,[r10+sel*4]; add r11,r10; jmp r11
 		// entries are offsets from the table base, so it is PIC, no relocations
 		Reg sel = gpOf(in.uses[0]);
-		// a spilled selector reloads into scratch r10/r11; route around it
+		// a spilled selector reloads into scratch r10/r11, route around it
 		Reg base = sel == R10 ? R11 : R10;
-		Reg entry = base == R10 ? R11 : R10; // may alias sel: read before written
+		Reg entry = base == R10 ? R11 : R10; // may alias sel, read before written
 		PendingTable t;
 		t.leaDispAt = a->leaRipDisp(base);
 		for(U32 i = 1; i < (U32)in.uses.size(); ++i)
@@ -290,7 +291,7 @@ namespace rat {
 	void X86EncodePass::emitBr(const MachineInstr& in, I32 fallthrough) {
 		U8 cc;
 		I32 thenB, elseB;
-		if(in.imm2) { // fused: flags already set by the preceding cmp; cc in imm
+		if(in.imm2) { // fused, the preceding cmp set the flags, cc in imm
 			cc = (U8)in.imm;
 			thenB = in.uses[0].block;
 			elseB = in.uses[1].block;
@@ -605,8 +606,9 @@ namespace rat {
 		X86Op op = (X86Op)in.op;
 		if(in.isCall || op == X86Op::FrameAddr)
 			return true;
-		if(op == X86Op::VaStart || op == X86Op::VaArg || op == X86Op::RetAddr || op == X86Op::SetJmp ||
-			 op == X86Op::LongJmp || (op >= X86Op::X87LoadMem && op <= X86Op::X87Cmp))
+		B32 isX87 = op >= X86Op::X87LoadMem && op <= X86Op::X87Cmp;
+		B32 isSetLongJmp = op == X86Op::SetJmp || op == X86Op::LongJmp;
+		if(op == X86Op::VaStart || op == X86Op::VaArg || op == X86Op::RetAddr || isSetLongJmp || isX87)
 			return true; // reading [rbp+8] or jumping across frames needs rbp to survive
 		if(op == X86Op::FLoad && !in.uses.empty() && in.uses[0].isImm())
 			return true; // materializes through the rbp scratch slot
@@ -690,14 +692,14 @@ namespace rat {
 
 	void X86EncodePass::emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes) {
 		const List<U8>& init = g->getInit();
+		const List<Reloc>& relocs = g->getRelocs();
 		U32 size = g->getType()->byteSize(ptrBytes);
 		if(size == 0)
 			size = (U32)init.size();
 		if(size == 0)
 			size = 1;
 
-		B32 allZero =
-				g->getRelocs().empty() && std::all_of(init.begin(), init.end(), std::logical_not<U8>());
+		B32 allZero = relocs.empty() && std::all_of(init.begin(), init.end(), std::logical_not<U8>());
 		ObjectFile::Section sec = ObjectFile::Data;
 		if(allZero)
 			sec = ObjectFile::Bss;
@@ -715,7 +717,7 @@ namespace rat {
 		}
 		obj.defineSymbol(g->getName(), sec, off, !g->isInternal(), false);
 
-		for(const Reloc& r : g->getRelocs())
+		for(const Reloc& r : relocs)
 			obj.addReloc(sec, off + r.offset, r.symbol, RelocKind::Abs64, r.addend);
 	}
 

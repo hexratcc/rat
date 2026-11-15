@@ -11,7 +11,7 @@ namespace rat {
 
 	constexpr VReg kNoVReg = 0;
 
-	// trivial, so inline operand storage costs nothing to construct; build one through the factories
+	// trivial, so inline operand storage costs nothing to construct, build one through the factories
 	struct MachineOperand {
 		enum class Kind : U8 {
 			None,

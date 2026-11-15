@@ -96,9 +96,10 @@ namespace rat::cc {
 			constexpr U64 kShiftMask = 63;
 			if(op == "<<")
 				return Val{a.u << (b.u & kShiftMask), a.isU};
-			if(op == ">>")
-				return a.isU ? Val{a.u >> (b.u & kShiftMask), true}
-										 : Val{(U64)((I64)a.u >> (b.u & kShiftMask)), false};
+			if(op == ">>") {
+				U64 shift = b.u & kShiftMask;
+				return a.isU ? Val{a.u >> shift, true} : Val{(U64)((I64)a.u >> shift), false};
+			}
 			if(op == "<")
 				return truthVal(u ? a.u < b.u : (I64)a.u < (I64)b.u);
 			if(op == "<=")

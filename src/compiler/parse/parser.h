@@ -51,7 +51,7 @@ namespace rat::cc {
 		B32 parseEnumerators(NamedType& e);
 		B32 parseStructSpec(CType& out);
 		struct StructLayout {
-			U64 offset = 0; // bytes used so far; the union's widest member
+			U64 offset = 0; // bytes used so far, for a union its widest member
 			U32 align = 1;
 			U32 bitPos = 0; // next free bit of a struct
 		};
@@ -73,9 +73,9 @@ namespace rat::cc {
 				Func
 			};
 			Kind kind = Kind::Pointer;
-			U64 count = 0;						// Pointer: star count; Array: element count, 0 when not constant
-			Expr* bound = nullptr;		// Array: the bound as written
-			FuncType* func = nullptr; // Func: parameter list
+			U64 count = 0;						// stars of a Pointer, elements of an Array (0 when not constant)
+			Expr* bound = nullptr;		// bound of an Array as written
+			FuncType* func = nullptr; // parameter list of a Func
 		};
 		struct DeclResult {
 			B32 allowOldStyle = false;		// in: an old-style name list may end the declarator
@@ -83,7 +83,7 @@ namespace rat::cc {
 			U32 offset = 0;								// of the name
 			CType type;
 			B32 outerArray = false;			// the declarator itself ends in an array suffix
-			Expr* outerBound = nullptr; // its bound as written; null for []
+			Expr* outerBound = nullptr; // its bound as written, null for []
 			U32 align = 0;							// raised by alignas inside the declarator
 		};
 		void parsePointers(CType& t);

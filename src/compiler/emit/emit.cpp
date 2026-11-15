@@ -270,7 +270,9 @@ namespace rat::cc {
 				return diag.fail("'__real__'/'__imag__' require a complex lvalue");
 			CType re = complexElem(base.type);
 			out.kind = LValue::Kind::Addr;
-			out.addr = e->unary.op == ExprOp::Imag ? offsetPtr(fn, base.addr, byteSize(re)) : base.addr;
+			out.addr = base.addr;
+			if(e->unary.op == ExprOp::Imag)
+				out.addr = offsetPtr(fn, base.addr, byteSize(re));
 			out.type = re;
 			return true;
 		}
@@ -308,7 +310,9 @@ namespace rat::cc {
 			if(lo)
 				n = fn.binary(shiftDown, n, fn.constInt(ty, lo));
 			Type* want = irType(lv.type);
-			return want == ty ? n : fn.trunc(n, want);
+			if(want == ty)
+				return n;
+			return fn.trunc(n, want);
 		}
 		return fn.load(irType(lv.type), lv.addr, isVolatile);
 	}
@@ -327,9 +331,13 @@ namespace rat::cc {
 			U64 shifted = maskBits << lv.bitOffset;
 			Node* unit = fn.load(ty, lv.addr, isVolatile);
 			Node* cleared = fn.and_(unit, fn.constInt(ty, (I64)~shifted));
-			Node* wide = value->getType() == ty ? value : fn.zext(value, ty);
+			Node* wide = value;
+			if(value->getType() != ty)
+				wide = fn.zext(value, ty);
 			Node* masked = fn.and_(wide, fn.constInt(ty, (I64)maskBits));
-			Node* placed = lv.bitOffset ? fn.shl(masked, fn.constInt(ty, lv.bitOffset)) : masked;
+			Node* placed = masked;
+			if(lv.bitOffset)
+				placed = fn.shl(masked, fn.constInt(ty, lv.bitOffset));
 			fn.store(lv.addr, fn.or_(cleared, placed), isVolatile);
 			return;
 		}
@@ -337,7 +345,9 @@ namespace rat::cc {
 	}
 
 	Node* Emitter::offsetPtr(Function& fn, Node* base, U64 byteOff) {
-		return byteOff ? fn.add(base, constSize(fn, byteOff)) : base;
+		if(!byteOff)
+			return base;
+		return fn.add(base, constSize(fn, byteOff));
 	}
 
 	void Emitter::emitMemCopy(Function& fn, Node* dst, Node* src, U32 size) {
@@ -387,8 +397,8 @@ namespace rat::cc {
 		for(const FuncDef* def : unit.functions) {
 			if(!def->aliasOf || mod.getGlobal(def->name))
 				continue;
-			mod.createAlias(def->name, *def->aliasOf, mod.getInt(8))
-					->setLinkage(def->isStatic ? Global::Linkage::Internal : Global::Linkage::External);
+			Linkage linkage = def->isStatic ? Linkage::Internal : Linkage::External;
+			mod.createAlias(def->name, *def->aliasOf, mod.getInt(8))->setLinkage(linkage);
 		}
 
 		for(const FuncDef* def : unit.functions) {
@@ -465,8 +475,10 @@ namespace rat::cc {
 
 	Node* Emitter::bindEightbytes(Function& fn, CType t, const AbiRegs& regs, U32& index) {
 		Node* slot = allocBytes(fn, (U32)byteSize(t), alignOf(t));
-		for(U32 k = 0; k < regs.count; ++k)
-			fn.store(offsetPtr(fn, slot, 8 * k), fn.param(index++));
+		for(U32 k = 0; k < regs.count; ++k) {
+			Node* eightbyte = fn.param(index++);
+			fn.store(offsetPtr(fn, slot, 8 * k), eightbyte);
+		}
 		return slot;
 	}
 
@@ -506,7 +518,8 @@ namespace rat::cc {
 
 		func.reset();
 		func.returnType = def->retType;
-		func.sretSlot = sretReturn ? fn->param(0) : nullptr;
+		if(sretReturn)
+			func.sretSlot = fn->param(0);
 		U32 paramBase = sretReturn ? 1 : 0;
 		collectAddrTaken(def->body);
 		collectLabels(*fn, def->body);
@@ -537,7 +550,7 @@ namespace rat::cc {
 		}
 		fn->setLoc(0); // nodes later passes create carry no line
 		// statements emitted into unreachable blocks leave anchored nodes with a
-		// null control input behind; drop them so every backend sees a graph
+		// null control input behind. Drop them so every backend sees a graph
 		// where the anchor invariant holds even without any opt passes
 		fn->pruneUnreachable();
 		return true;

@@ -188,8 +188,8 @@ namespace rat {
 	void RegAllocPass::noteCopy(const MachineInstr& in, U32 level) {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& s = in.uses[0];
-		if(d.isVReg() && s.isVReg() && !cross[d.vreg] && !cross[s.vreg] &&
-			 fn->vregClass[d.vreg] == fn->vregClass[s.vreg])
+		B32 sameClassVRegs = d.isVReg() && s.isVReg() && fn->vregClass[d.vreg] == fn->vregClass[s.vreg];
+		if(sameClassVRegs && !cross[d.vreg] && !cross[s.vreg])
 			copies.push_back((U64)(detail::kMaxLevel - level) << 60 | (U64)d.vreg << 30 | s.vreg);
 		else if(d.isVReg() && s.isPhys())
 			iv[d.vreg].hint = s.phys;
@@ -308,8 +308,10 @@ namespace rat {
 
 	// path halving
 	VReg RegAllocPass::find(VReg v) {
-		while(iv[v].root != v)
-			v = iv[v].root = iv[iv[v].root].root;
+		while(iv[v].root != v) {
+			iv[v].root = iv[iv[v].root].root;
+			v = iv[v].root;
+		}
 		return v;
 	}
 
@@ -355,8 +357,8 @@ namespace rat {
 		for(U64 c : copies) {
 			VReg a = find((VReg)(c >> 30) & detail::kCopyVRegMask);
 			VReg b = find((VReg)c & detail::kCopyVRegMask);
-			if(a != b && iv[a].segs.size() + iv[b].segs.size() <= detail::kMaxBundleSegs &&
-				 !overlaps(a, b))
+			U64 bundleSegs = iv[a].segs.size() + iv[b].segs.size();
+			if(a != b && bundleSegs <= detail::kMaxBundleSegs && !overlaps(a, b))
 				merge(a, b);
 		}
 		for(VReg v = 1; v < nv; ++v) {

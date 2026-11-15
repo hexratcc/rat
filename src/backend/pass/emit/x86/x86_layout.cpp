@@ -118,7 +118,7 @@ namespace rat {
 		}
 
 		// order blocks into fallthrough chains: each block followed by a successor
-		// where possible so branches fall through; unreachable blocks dropped
+		// where possible so branches fall through, unreachable blocks dropped
 		void chainLayout(MachineFunc& mf) {
 			U32 n = (U32)mf.blocks.size();
 			if(n < 2)

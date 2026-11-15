@@ -16,7 +16,8 @@ namespace rat::cli {
 
 	// "<tool>: <msg>", returns 2
 	inline I32 error(const C8* tool, const String& msg) {
-		return std::cerr << tool << ": " << msg << "\n", 2;
+		std::cerr << tool << ": " << msg << "\n";
+		return 2;
 	}
 
 	// error + exit(2)
@@ -24,51 +25,62 @@ namespace rat::cli {
 
 	// -h/-help/--help and -version/--version, shared by every tool
 	inline void stdFlags(const C8* tool, const String& arg, void (*usage)(std::ostream&)) {
-		if(arg == "-h" || arg == "-help" || arg == "--help")
-			usage(std::cout), std::exit(0);
-		if(arg == "-version" || arg == "--version")
-			printVersion(std::cout, tool), std::exit(0);
+		if(arg == "-h" || arg == "-help" || arg == "--help") {
+			usage(std::cout);
+			std::exit(0);
+		}
+		if(arg == "-version" || arg == "--version") {
+			printVersion(std::cout, tool);
+			std::exit(0);
+		}
 	}
 
 	// -name <v> and -name=<v>, advances i past a consumed argument
 	inline B32 value(const C8* tool, I32 argc, C8** argv, I32& i, const C8* name, String& out) {
 		String arg = argv[i];
 		U64 n = std::strlen(name);
-		if(arg.rfind(name, 0) == 0 && arg.size() > n && arg[n] == '=')
-			return out = arg.substr(n + 1), true;
+		if(arg.rfind(name, 0) == 0 && arg.size() > n && arg[n] == '=') {
+			out = arg.substr(n + 1);
+			return true;
+		}
 		if(arg != name)
 			return false;
 		if(++i >= argc)
 			die(tool, arg + " expects an argument");
-		return out = argv[i], true;
+		out = argv[i];
+		return true;
 	}
 
 	// "" reads stdin
 	inline B32 readInput(const C8* tool, const String& path, String& source) {
-		if(path.empty()) {
-			if(readAll(std::cin, source))
-				return true;
-			return error(tool, "cannot read '<stdin>'"), false;
-		}
-		std::ifstream f(path);
-		if(f && readAll(f, source))
+		std::ifstream file;
+		if(!path.empty())
+			file.open(path);
+		std::istream& in = path.empty() ? std::cin : file;
+		if(in && readAll(in, source))
 			return true;
-		return error(tool, "cannot read '" + path + "'"), false;
+		String shownPath = path.empty() ? "<stdin>" : path;
+		error(tool, "cannot read '" + shownPath + "'");
+		return false;
 	}
 
 	inline B32 openOutput(const C8* tool, const String& path, std::ofstream& f, B32 binary = false) {
 		f.open(path, binary ? std::ios::binary : std::ios::out);
-		return f || (std::cerr << tool << ": cannot write '" << path << "'\n", false);
+		if(f)
+			return true;
+		error(tool, "cannot write '" + path + "'");
+		return false;
 	}
 
 	inline I32 guardedMain(const C8* tool, I32 (*run)(I32, C8**), I32 argc, C8** argv) {
 		try {
 			return run(argc, argv);
 		} catch(const std::exception& e) {
-			return std::cerr << tool << ": internal error: " << e.what() << "\n", 3;
+			std::cerr << tool << ": internal error: " << e.what() << "\n";
 		} catch(...) {
-			return std::cerr << tool << ": internal error\n", 3;
+			std::cerr << tool << ": internal error\n";
 		}
+		return 3;
 	}
 } // namespace rat::cli
 

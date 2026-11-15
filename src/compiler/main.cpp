@@ -30,7 +30,7 @@ namespace detail {
 
 	struct Options {
 		String input;						 // root input file ("" => stdin)
-		String output = "a.out"; // -o base; x86 object lands here
+		String output = "a.out"; // -o base, x86 object lands here
 		List<Emit> emits;				 // requested -emit kinds (in order)
 		U32 optLevel = 0;
 		String passSpec;					// -fpasses=: exact opt pipeline
@@ -156,8 +156,6 @@ namespace detail {
 		return argv[i];
 	}
 
-	B32 setFlag(const String& arg, const C8* name, B32& out) { return arg == name && (out = true); }
-
 	// the gcc and clang spellings, the last one wins
 	U32 parseDebugLevel(const String& arg) {
 		if(arg == "-g" || arg == "-ggdb" || arg == "-gdwarf" || arg == "-gdwarf-5")
@@ -175,22 +173,30 @@ namespace detail {
 		for(I32 i = 1; i < argc; ++i) {
 			String arg = argv[i];
 			cli::stdFlags(kTool, arg, usage);
-			if(arg == "-list-passes")
-				listPasses(std::cout, true), std::exit(0);
-			else if(arg == "-O0" || arg == "-O1" || arg == "-O")
+			if(arg == "-list-passes") {
+				listPasses(std::cout, true);
+				std::exit(0);
+			} else if(arg == "-O0" || arg == "-O1" || arg == "-O")
 				opt.optLevel = arg != "-O0";
-			else if(setFlag(arg, "-E", opt.preprocessOnly) || setFlag(arg, "-nostdinc", opt.noStdInc) ||
-							setFlag(arg, "-undef", opt.noPredefs) ||
-							setFlag(arg, "-ftime-passes", opt.timePasses) ||
-							setFlag(arg, "-fpass-stats", opt.passStats))
-				;
+			else if(arg == "-E")
+				opt.preprocessOnly = true;
+			else if(arg == "-nostdinc")
+				opt.noStdInc = true;
+			else if(arg == "-undef")
+				opt.noPredefs = true;
+			else if(arg == "-ftime-passes")
+				opt.timePasses = true;
+			else if(arg == "-fpass-stats")
+				opt.passStats = true;
 			else if(arg.rfind("-g", 0) == 0)
 				opt.debugLevel = parseDebugLevel(arg);
 			else if(String spec; cli::value(kTool, argc, argv, i, "-emit", spec))
 				parseEmit(spec, opt.emits);
-			else if(cli::value(kTool, argc, argv, i, "-target", opt.targetSpec) ||
-							cli::value(kTool, argc, argv, i, "-fpasses", opt.passSpec) ||
-							cli::value(kTool, argc, argv, i, "-fmachine-passes", opt.machineSpec))
+			else if(cli::value(kTool, argc, argv, i, "-target", opt.targetSpec))
+				;
+			else if(cli::value(kTool, argc, argv, i, "-fpasses", opt.passSpec))
+				;
+			else if(cli::value(kTool, argc, argv, i, "-fmachine-passes", opt.machineSpec))
 				;
 			else if(arg.rfind("-f", 0) == 0 && createPass(arg.substr(2), std::cerr))
 				opt.extraPasses.push_back(arg.substr(2));
@@ -217,12 +223,16 @@ namespace detail {
 	// dump the pp token stream the parser sees, with file, line, column, kind and spelling of each token
 	I32 emitTokens(const TokenStream& ts, std::ostream& os) {
 		for(const Token& tok : ts.toks) {
-			os << ts.files[tok.file] << ":" << tok.line << ":" << tok.col << "\t"
-				 << tokKindName(tok.kind);
-			if(tok.kind == TokKind::Error)
-				return os << "\t" << ts.error() << "\n", 1;
-			if(tok.kind == TokKind::Eof)
-				return os << "\n", 0;
+			const String& file = ts.files[tok.file];
+			os << file << ":" << tok.line << ":" << tok.col << "\t" << tokKindName(tok.kind);
+			if(tok.kind == TokKind::Error) {
+				os << "\t" << ts.error() << "\n";
+				return 1;
+			}
+			if(tok.kind == TokKind::Eof) {
+				os << "\n";
+				return 0;
+			}
 			os << "\t'" << ts.text(tok) << "'\n";
 		}
 		return 0;
@@ -265,11 +275,14 @@ namespace detail {
 		F64 emitMs = msSince(t0);
 		for(const String& w : emitter.warnings())
 			std::cerr << ts.file() << ": " << w << "\n";
-		if(!emitOk)
-			return std::cerr << ts.file() << ": " << emitter.error() << "\n", 1;
-		if(opt.timePasses)
-			std::cerr << "frontend: read " << gReadMs << "ms, preprocess+tokens " << gPpMs << "ms, parse "
-								<< parseMs << "ms, ast-to-ir " << emitMs << "ms\n";
+		if(!emitOk) {
+			std::cerr << ts.file() << ": " << emitter.error() << "\n";
+			return 1;
+		}
+		if(opt.timePasses) {
+			std::cerr << "frontend: read " << gReadMs << "ms, preprocess+tokens " << gPpMs << "ms, ";
+			std::cerr << "parse " << parseMs << "ms, ast-to-ir " << emitMs << "ms\n";
+		}
 
 		PassManager& pm = *new PassManager(target);
 		addPasses(pm, opt, os);
@@ -291,51 +304,56 @@ namespace detail {
 			return emitAstText(ts, file);
 		return emitViaModule(opt, ts, file);
 	}
-} // namespace detail
 
-static I32 run(I32 argc, C8** argv) {
-	::detail::Options opt = ::detail::parseArgs(argc, argv);
+	I32 run(I32 argc, C8** argv) {
+		Options opt = parseArgs(argc, argv);
 
-	if(!opt.targetSpec.empty()) {
-		TargetTriple triple;
-		String err;
-		if(!TargetTriple::parse(opt.targetSpec, triple, err))
-			return cli::error(::detail::kTool, err);
-		::detail::targetTriple() = triple;
+		if(!opt.targetSpec.empty()) {
+			TargetTriple triple;
+			String err;
+			if(!TargetTriple::parse(opt.targetSpec, triple, err))
+				return cli::error(kTool, err);
+			targetTriple() = triple;
+		}
+
+		String source;
+		PhaseClock::time_point tRead = PhaseClock::now();
+		if(!cli::readInput(kTool, opt.input, source))
+			return 1;
+		String path = opt.input.empty() ? "<stdin>" : opt.input;
+		gReadMs = msSince(tRead);
+
+		if(!opt.noStdInc)
+			opt.pp.includeDirs.push_back(builtinIncludeDir());
+		if(!opt.noPredefs)
+			source = builtinPredefs(targetTriple()) + "#line 1 \"" + path + "\"\n" + source;
+
+		// only -E needs serialized text, every -emit kind runs off the pp token stream
+		B32 needText = opt.preprocessOnly, needToks = !opt.emits.empty();
+
+		String pped;
+		String ppErr;
+		TokenStream& ts = *new TokenStream; // never freed, as the compile state
+		PhaseClock::time_point tPp = PhaseClock::now();
+		B32 ppOk = !needText || preprocess(path, source, opt.pp, pped, ppErr);
+		if(ppOk && needToks)
+			ppOk = preprocessToTokens(path, source, opt.pp, ts, ppErr);
+		gPpMs = msSince(tPp);
+		if(!ppOk) {
+			cli::error(kTool, ppErr);
+			return 1;
+		}
+		if(opt.preprocessOnly) {
+			std::cout << pped;
+			return 0;
+		}
+
+		for(Emit kind : opt.emits)
+			if(I32 rc = emitOne(opt, ts, kind))
+				return rc;
+		return 0;
 	}
-
-	String source;
-	::detail::PhaseClock::time_point tRead = ::detail::PhaseClock::now();
-	if(!cli::readInput(::detail::kTool, opt.input, source))
-		return 1;
-	String path = opt.input.empty() ? "<stdin>" : opt.input;
-	::detail::gReadMs = ::detail::msSince(tRead);
-
-	if(!opt.noStdInc)
-		opt.pp.includeDirs.push_back(builtinIncludeDir());
-	if(!opt.noPredefs)
-		source = builtinPredefs(::detail::targetTriple()) + "#line 1 \"" + path + "\"\n" + source;
-
-	// only -E needs serialized text; every -emit kind runs off the pp token stream
-	B32 needText = opt.preprocessOnly, needToks = !opt.emits.empty();
-
-	String pped;
-	String ppErr;
-	TokenStream& ts = *new TokenStream; // never freed, as the compile state
-	::detail::PhaseClock::time_point tPp = ::detail::PhaseClock::now();
-	B32 ppOk = (!needText || preprocess(path, source, opt.pp, pped, ppErr)) &&
-						 (!needToks || preprocessToTokens(path, source, opt.pp, ts, ppErr));
-	::detail::gPpMs = ::detail::msSince(tPp);
-	if(!ppOk)
-		return std::cerr << ::detail::kTool << ": " << ppErr << "\n", 1;
-	if(opt.preprocessOnly)
-		return std::cout << pped, 0;
-
-	for(::detail::Emit kind : opt.emits)
-		if(I32 rc = ::detail::emitOne(opt, ts, kind))
-			return rc;
-	return 0;
-}
+} // namespace detail
 
 I32 main(I32 argc, C8** argv) {
 #ifdef __GLIBC__
@@ -344,5 +362,5 @@ I32 main(I32 argc, C8** argv) {
 	mallopt(M_MMAP_THRESHOLD, 1 << 29);
 	mallopt(M_TOP_PAD, 1 << 26);
 #endif
-	return cli::guardedMain(::detail::kTool, run, argc, argv);
+	return cli::guardedMain(::detail::kTool, ::detail::run, argc, argv);
 }

@@ -69,11 +69,11 @@ namespace rat::cc {
 		}
 		if(isComplexType(v.type) && e->unary.op == ExprOp::Pos)
 			return v;
-		if(isComplexType(v.type) && e->unary.op == ExprOp::Neg)
-			return makeComplex(fn,
-												 v.type,
-												 fn.unary(Opcode::FNeg, complexReal(fn, v)),
-												 fn.unary(Opcode::FNeg, complexImag(fn, v)));
+		if(isComplexType(v.type) && e->unary.op == ExprOp::Neg) {
+			Node* im = fn.unary(Opcode::FNeg, complexImag(fn, v));
+			Node* re = fn.unary(Opcode::FNeg, complexReal(fn, v));
+			return makeComplex(fn, v.type, re, im);
+		}
 		switch(e->unary.op) {
 		case ExprOp::Pos: {
 			if(!isInteger(v.type) && !isFloating(v.type))
@@ -101,9 +101,10 @@ namespace rat::cc {
 				return diag.fail("wrong type argument to unary exclamation mark");
 			if(isComplexType(v.type))
 				return {fromBool(fn, fn.eq(toBool(fn, v), fn.constInt(i32, 1))), ctInt()};
-			if(isFloating(v.type))
-				return {fromBool(fn, fn.compare(Opcode::FEq, v.node, fn.constFloat(irType(v.type), 0.0))),
-								ctInt()};
+			if(isFloating(v.type)) {
+				Node* zero = fn.constFloat(irType(v.type), 0.0);
+				return {fromBool(fn, fn.compare(Opcode::FEq, v.node, zero)), ctInt()};
+			}
 			return {fromBool(fn, fn.eq(v.node, fn.constInt(irType(v.type), 0))), ctInt()};
 		default:
 			return diag.fail("unsupported unary operator");
@@ -248,12 +249,10 @@ namespace rat::cc {
 			Value v = emitExpr(fn, e->cast.operand);
 			if(!v.node)
 				return {};
-			if(!isVoidType(castTy) && !isAggregate(castTy) && isAggregate(v.type) &&
-				 !isComplexType(v.type)) {
-				return diag.fail("cannot cast a struct or union to a scalar type");
-			}
 			if(isVoidType(castTy))
 				return {v.node, castTy};
+			if(!isAggregate(castTy) && isAggregate(v.type) && !isComplexType(v.type))
+				return diag.fail("cannot cast a struct or union to a scalar type");
 			if(isPointer(v.type) && !isPointer(castTy) && !isFloating(castTy) && !castTy.isVoid()) {
 				if(castTy.bits == 1)
 					return {fn.ne(v.node, fn.constInt(mod.getPtr(), 0)), castTy};
@@ -416,8 +415,11 @@ namespace rat::cc {
 			if(count <= 0)
 				return failArrayCount();
 			U32 total = (U32)count * elemSize;
-			Node* slot =
-					isAggregate(ty) ? allocBytes(fn, total) : fn.alloc(mod.getArray(elemTy, (U32)count));
+			Node* slot;
+			if(isAggregate(ty))
+				slot = allocBytes(fn, total);
+			else
+				slot = fn.alloc(mod.getArray(elemTy, (U32)count));
 			zeroSlot(fn, slot, total);
 			StoreSink sink(*this, fn, slot);
 			if(init->kind == ExprKind::StrLit) {

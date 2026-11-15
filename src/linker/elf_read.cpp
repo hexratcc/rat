@@ -121,8 +121,8 @@ namespace rat {
 		}
 		// compressed debug sections are not read, drop all of the object's debug info
 		if(debugCompressed) {
-			std::cerr << "ratl: warning: '" << path
-								<< "': compressed debug sections, debug info dropped\n";
+			const C8* dropped = "': compressed debug sections, debug info dropped\n";
+			std::cerr << "ratl: warning: '" << path << dropped;
 			for(InSection& s : obj.sections)
 				if(s.bucket == BDebug)
 					s.keep = false;

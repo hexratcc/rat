@@ -289,8 +289,8 @@ namespace rat::cc {
 			}
 			const Field& f = st->fields[cur];
 			const Expr* el = els[i];
-			if(el->kind == ExprKind::InitList ||
-				 (f.isArray() && isCharType(f.type) && el->kind == ExprKind::StrLit)) {
+			B32 charString = f.isArray() && isCharType(f.type) && el->kind == ExprKind::StrLit;
+			if(el->kind == ExprKind::InitList || charString) {
 				++i;
 			} else {
 				U32 count = f.isArray() ? f.count : 1;

@@ -94,9 +94,9 @@ namespace rat {
 
 	I32 Schedule::ctrlBlock(Node* ctrl) const {
 		Node* c = ctrl;
-		I32 b;
-		while((b = headIndex[c->getId()]) < 0)
+		while(headIndex[c->getId()] < 0)
 			c = cast<ProjNode>(c)->getProducer()->getControlInput();
+		I32 b = headIndex[c->getId()];
 		for(Node* p = ctrl; p != c; p = cast<ProjNode>(p)->getProducer()->getControlInput())
 			headIndex[p->getId()] = b;
 		return b;
@@ -292,7 +292,7 @@ namespace rat {
 		List<I32> backFrom;						 // back-edge -> tail block
 		for(I32 b = 0; b < count; ++b)
 			for(I32 s : blocks[b].succs) {
-				if(!dominates(s, b)) // b -> s is a back-edge; s is a loop header
+				if(!dominates(s, b)) // b -> s is a back-edge, s is a loop header
 					continue;
 				backFrom.push_back(b);
 				backNext.push_back(backHead[s]);
@@ -348,8 +348,9 @@ namespace rat {
 			return true;
 		if(op == Opcode::Constant)
 			return n->getType()->isFloat() && n->getType()->getFloatWidth() != 128;
-		return op == Opcode::Load || op == Opcode::Select || isArithmeticOpcode(op) ||
-					 isVectorUtilOpcode(op);
+		if(op == Opcode::Load || op == Opcode::Select)
+			return true;
+		return isArithmeticOpcode(op) || isVectorUtilOpcode(op);
 	}
 
 	B32 Schedule::mayTrap(const Node* n) {
@@ -621,9 +622,11 @@ namespace rat {
 		scratch.localOf.assign(fn.idBound(), -1);
 		scratch.stHead.assign(fn.idBound(), -1);
 		AliasAnalysis aa(8, AliasAnalysis::restrictFacts(fn));
-		for(U32 b = 0; b < nb; ++b)
-			topoOrder(
-					nodeFlat.data() + nodeStart[b], (U32)(nodeStart[b + 1] - nodeStart[b]), aa, scratch);
+		for(U32 b = 0; b < nb; ++b) {
+			Node** blockNodes = nodeFlat.data() + nodeStart[b];
+			U32 nodeCount = (U32)(nodeStart[b + 1] - nodeStart[b]);
+			topoOrder(blockNodes, nodeCount, aa, scratch);
+		}
 	}
 
 	B32 Schedule::isMemWriter(const Node* n) {
@@ -632,9 +635,9 @@ namespace rat {
 
 	namespace detail {
 		B32 storeMayAliasLoad(const AliasAnalysis& aa, const StoreNode* st, const LoadNode* ld) {
-			return aa.alias(
-								 st->getPointer(), aa.getAccessSize(st), ld->getPointer(), aa.getAccessSize(ld)) !=
-						 AliasResult::NoAlias;
+			U32 stSize = aa.getAccessSize(st);
+			U32 ldSize = aa.getAccessSize(ld);
+			return aa.alias(st->getPointer(), stSize, ld->getPointer(), ldSize) != AliasResult::NoAlias;
 		}
 
 		B32 earlierId(const Node* a, const Node* b) { return a->getId() < b->getId(); }

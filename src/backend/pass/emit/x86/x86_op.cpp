@@ -163,9 +163,10 @@ namespace rat {
 			case X86Op::FLoad:
 				return addressText(instr, instr.defs[0].width, indexed, scaleLog2);
 			case X86Op::Store:
-			case X86Op::FStore:
-				return addressText(instr, instr.uses[1].width, 2 * indexed, scaleLog2) + ", " +
-							 operandText(instr.uses[1]);
+			case X86Op::FStore: {
+				String address = addressText(instr, instr.uses[1].width, 2 * indexed, scaleLog2);
+				return address + ", " + operandText(instr.uses[1]);
+			}
 			case X86Op::Prefetch:
 				return addressText(instr, 0, 0, 0);
 			default:
@@ -175,13 +176,15 @@ namespace rat {
 
 		B32 immIsCc(const MachineInstr& instr) {
 			X86Op op = (X86Op)instr.op;
-			return op == X86Op::SetCC || op == X86Op::CMov || op == X86Op::FCmp || op == X86Op::X87Cmp ||
-						 (op == X86Op::Br && instr.imm2);
+			if(op == X86Op::Br)
+				return instr.imm2 != 0;
+			return op == X86Op::SetCC || op == X86Op::CMov || op == X86Op::FCmp || op == X86Op::X87Cmp;
 		}
 
 		B32 immIsOperand(X86Op op) {
-			return op == X86Op::FrameAddr || op == X86Op::MaskBits || op == X86Op::SignExtBits ||
-						 op == X86Op::VExtract || op == X86Op::VShuf;
+			if(op == X86Op::FrameAddr || op == X86Op::VExtract || op == X86Op::VShuf)
+				return true;
+			return isNormalize(op);
 		}
 
 		// bytes in the low 32 bits, then the alignment up to 16

@@ -161,7 +161,7 @@ namespace rat::cc {
 		return true;
 	}
 
-	// folds an integer constant expression; anything else is a diagnostic
+	// folds an integer constant expression, anything else is a diagnostic
 	B32 Parser::evalIntConst(const Expr* e, I64& out) {
 		switch(e->kind) {
 		case ExprKind::IntLit:

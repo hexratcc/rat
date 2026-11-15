@@ -14,7 +14,10 @@ namespace rat::cc {
 			B32 isObject = false;
 			Local loc;
 			if(func.scopes.lookup(*e->call.callee, loc) && !loc.isArray) {
-				val = loc.inMem() ? fn.load(irType(loc.type), loc.addr) : fn.get(loc.var);
+				if(loc.inMem())
+					val = fn.load(irType(loc.type), loc.addr);
+				else
+					val = fn.get(loc.var);
 				ct = loc.type;
 				isObject = true;
 			} else {
@@ -62,7 +65,9 @@ namespace rat::cc {
 			else
 				pt = completeComplex(defaultArgPromote(a.type));
 			if(isAggregate(pt)) {
-				Node* src = isComplexType(pt) ? toComplex(fn, a, pt).node : a.node;
+				Node* src = a.node;
+				if(isComplexType(pt))
+					src = toComplex(fn, a, pt).node;
 				pushAggregateArg(fn, src, pt, args);
 			} else {
 				takeArgRegs(pt, args.free);
@@ -82,8 +87,10 @@ namespace rat::cc {
 			markByval(args.abi, (U32)args.nodes.size() - 1, t);
 			return;
 		}
-		for(U32 k = 0; k < regs.count; ++k)
-			args.nodes.push_back(fn.load(eightbyteType(regs.cls[k]), offsetPtr(fn, tmp, 8 * k)));
+		for(U32 k = 0; k < regs.count; ++k) {
+			Node* at = offsetPtr(fn, tmp, 8 * k);
+			args.nodes.push_back(fn.load(eightbyteType(regs.cls[k]), at));
+		}
 	}
 
 	// the backend fetches the aggregate by size, alignment and eightbyte classes

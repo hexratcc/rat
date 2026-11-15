@@ -51,14 +51,14 @@ namespace rat {
 
 	enum class X86Op : U32 {
 		// pseudo / data movement
-		Copy,			 // dst = src (reg-reg or fill from a fixed phys; RA-coalescable)
+		Copy,			 // dst = src (reg-reg or fill from a fixed phys, RA-coalescable)
 		LoadImm,	 // dst = imm
 		LoadSym,	 // dst = lea rip[sym]  (address of a global)
-		FrameAddr, // dst = lea rbp[imm]  (address of an arbitrary rbp offset; imm = disp)
+		FrameAddr, // dst = lea rbp[imm]  (address of an arbitrary rbp offset, imm = disp)
 		RetAddr,	 // dst = [rbp+8]      (this frame's return address, forces a frame)
 		Lea,			 // dst = lea [use[0] + use[1]*(1<<imm2) + imm]
 		// dynamic stack
-		StackAlloc,		// rsp -= roundup(use[0], 16), rsp &= ~15; dst = rsp
+		StackAlloc,		// rsp -= roundup(use[0], 16), rsp &= ~15, dst = rsp
 		StackSave,		// dst = rsp
 		StackRestore, // rsp = use[0]
 		// non-local goto, use[0] points at [frame pointer, resume address, stack pointer]
@@ -67,7 +67,7 @@ namespace rat {
 		// integer memory: use[0] = address reg, imm = displacement
 		Load,	 // dst = [addr + index*scale + disp], sign/zero-extended per width/imm2
 		Store, // [addr + index * scale + disp] = src (index in use[2] per imm2), width
-		// integer ALU (two-address on the def reg; def and use[0] are coalesced)
+		// integer ALU (two-address on the def reg, def and use[0] are coalesced)
 		Add,
 		Sub,
 		Mul,
@@ -80,7 +80,7 @@ namespace rat {
 		AShr,
 		LShr, // shift count in use[1] (fixed to RCX by lowering)
 		Rotl,
-		Rotr, // rotate; constant count in use[1], operand width in imm
+		Rotr, // rotate, constant count in use[1], operand width in imm
 		SDiv,
 		SRem,
 		UDiv,
@@ -88,7 +88,7 @@ namespace rat {
 		BitScanF,		 // dst = bsf use[0], operand width in imm (undefined when use[0] is 0)
 		BitScanR,		 // dst = bsr use[0], operand width in imm (undefined when use[0] is 0)
 		Cmp,				 // flag-setting compare of use[0],use[1]
-		SetCC,			 // dst = (cc); condition code in imm
+		SetCC,			 // dst = (cc), condition code in imm
 		CMov,				 // dst = (cc) ? use[1] : dst
 		MaskBits,		 // dst &= ((1<<imm)-1)
 		SignExtBits, // dst = sign-extend dst from imm bits to 64
@@ -101,38 +101,38 @@ namespace rat {
 		FMul,
 		FDiv,			 // two-address on the def xmm
 		FNeg,			 // pxor-based negate, lane width in imm
-		FSqrt,		 // dst = sqrt(use[0]); width in imm
-		FAbs,			 // dst = |use[0]| via lane shifts; width in imm
-		FCmp,			 // ucomis use[0],use[1] + setcc; cc in imm, swap in imm2
-		FCmpFlags, // flags-only ucomis use[0],use[1]; swap in imm2 (cc consumed by a fused Br)
-		Cvt,			 // SSE convert; pfx/opc/w packed in imm
+		FSqrt,		 // dst = sqrt(use[0]), width in imm
+		FAbs,			 // dst = |use[0]| via lane shifts, width in imm
+		FCmp,			 // ucomis use[0],use[1] + setcc, cc in imm, swap in imm2
+		FCmpFlags, // flags-only ucomis use[0],use[1], swap in imm2 (cc consumed by a fused Br)
+		Cvt,			 // SSE convert, pfx/opc/w packed in imm
 		// SSE packed vector (128-bit)
 		// dst = dst OP use[1] packed, imm = (escape << 16) | (prefix << 8) | opcode, plus kVecImm8 when
 		// imm2 holds an imm8. A use[2] of xmm0 is the implicit blendv mask
 		VArith,
 		VUnary,			// dst = OP use[0] packed, imm as VArith
 		VShiftImm,	// dst = dst shifted by an immediate, imm = lane bits, imm2 = (/ext << 8) | count
-		VSplat,			// dst = broadcast use[0] to all lanes; imm = elem bytes, imm2 = int?
-		VExtract,		// dst = lane imm of use[0]; imm2 = (elem bytes << 1) | int?
+		VSplat,			// dst = broadcast use[0] to all lanes, imm = elem bytes, imm2 = int?
+		VExtract,		// dst = lane imm of use[0], imm2 = (elem bytes << 1) | int?
 		VPackLane,	// [vec scratch + imm2>>1 * imm] = use[0]
 		VPack,			// dst = the vec scratch slot
 		VPackReg,		// dst = movd/movq of int lane use[0]
 		VInsertReg, // lane imm2 of dst = use[1], imm = elem bytes
 		VShuf,			// dst = pshufd(use[0], imm)
 		// x87 ops
-		X87LoadMem,	 // def(slot) = fld [use0 addr]; imm = mem width (4/8/80)
-		X87StoreMem, // [use0 addr] = fstp use1(slot); imm = mem width (4/8/80)
+		X87LoadMem,	 // def(slot) = fld [use0 addr], imm = mem width (4/8/80)
+		X87StoreMem, // [use0 addr] = fstp use1(slot), imm = mem width (4/8/80)
 		X87LoadImmD, // def(slot) = fld double-bits in use0.imm (via scratch slot)
 		X87FromInt,	 // def(slot) = fild use0 (gp), through scratch slot
 		X87ToInt,		 // def(gp)   = fistp use0(slot), through scratch slot + cw juggle
-		X87FromSse,	 // def(slot) = (long double)use0 (xmm); imm = src width
-		X87ToSse,		 // def(xmm)  = (float)use0(slot);   imm = dst width
+		X87FromSse,	 // def(slot) = (long double)use0 (xmm), imm = src width
+		X87ToSse,		 // def(xmm)  = (float)use0(slot),   imm = dst width
 		X87Add,
 		X87Sub,
 		X87Mul,
 		X87Div, // def(slot) = use0(slot) OP use1(slot)
 		X87Neg, // def(slot) = -use0(slot) (fchs)
-		X87Cmp, // def(gp) = use0(slot) CMP use1(slot); cc in imm, swap in imm2
+		X87Cmp, // def(gp) = use0(slot) CMP use1(slot), cc in imm, swap in imm2
 		// control / calls
 		Call, // to the sym use, or through the r11 use when imm2 is set, imm = stack arg bytes
 		Ret,
@@ -140,8 +140,8 @@ namespace rat {
 		SwitchJump, // table jump: use[0] = selector reg, use[1..] = slot target blocks
 		Br,					// jnz use[0] to use[1] else use[2], with imm2 set jcc imm to use[0] else use[1]
 		// variadic support
-		VaStart, // init va_list at [use0]; imm = gpOffset start, imm2 = fpOffset start
-		VaArg,	 // fetch next vararg into def; use0 = va_list ptr; imm = kind, imm2 = width
+		VaStart, // init va_list at [use0], imm = gpOffset start, imm2 = fpOffset start
+		VaArg,	 // fetch next vararg into def, use0 = va_list ptr, imm = kind, imm2 = width
 		// misc
 		Ud2,			// undefined instruction
 		Prefetch, // prefetch [use0 + imm], imm2 = hint (0 = nta, 1 = t0, 2 = t1, 3 = t2)

@@ -2,9 +2,9 @@
 
 namespace rat::cc {
 	B32 Emitter::emitCondBranch(Function& fn, const Expr* e, Block* trueB, Block* falseB) {
-		if(e->kind == ExprKind::Binary &&
-			 (e->binary.op == ExprOp::LogAnd || e->binary.op == ExprOp::LogOr)) {
-			B32 isAnd = e->binary.op == ExprOp::LogAnd;
+		B32 isAnd = e->kind == ExprKind::Binary && e->binary.op == ExprOp::LogAnd;
+		B32 isOr = e->kind == ExprKind::Binary && e->binary.op == ExprOp::LogOr;
+		if(isAnd || isOr) {
 			Block* rhsB = fn.createBlock(isAnd ? "and.rhs" : "or.rhs");
 			Block* lhsTrueB = isAnd ? rhsB : trueB;
 			Block* lhsFalseB = isAnd ? falseB : rhsB;
@@ -206,7 +206,7 @@ namespace rat::cc {
 			cs.values.push_back((I64)(key ^ bias));
 			cs.blocks.push_back(block);
 		}
-		// a table's one indirect jump mispredicts in hot loops, so a switch in a loop stays a compare tree
+		// a table jump mispredicts in hot loops, so a switch inside a loop stays a compare tree
 		B32 inLoop = false;
 		for(const LoopFrame& lf : func.loops)
 			inLoop |= !lf.isSwitch;
@@ -245,7 +245,9 @@ namespace rat::cc {
 		Type* selTy = irType(cs.ct);
 		Type* i64t = mod.getInt(64);
 		Node* idx = fn.binary(Opcode::Sub, cs.val, fn.constInt(selTy, minV));
-		Node* idx64 = cs.ct.bits < 64 ? fn.zext(idx, i64t) : idx;
+		Node* idx64 = idx;
+		if(cs.ct.bits < 64)
+			idx64 = fn.zext(idx, i64t);
 		Block* tableB = fn.createBlock("switch.table");
 		fn.jumpif(fn.compare(Opcode::Ult, idx64, fn.constInt(i64t, (I64)span)), tableB);
 		fn.jmp(cs.miss);
@@ -279,7 +281,7 @@ namespace rat::cc {
 		Node* pivot = fn.constInt(irType(cs.ct), cs.values[mid]);
 		Opcode lessOp = cs.ct.isUnsigned() ? Opcode::Ult : Opcode::Slt;
 		fn.jumpif(fn.compare(lessOp, cs.val, pivot), ltB);
-		emitCaseTree(fn, cs, mid, hi); // fallthrough side: val >= pivot
+		emitCaseTree(fn, cs, mid, hi); // fallthrough side, val >= pivot
 		fn.enterBlock(ltB);
 		emitCaseTree(fn, cs, lo, mid);
 	}

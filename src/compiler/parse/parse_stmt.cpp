@@ -208,8 +208,8 @@ namespace rat::cc {
 	// break ; | continue ;
 	Stmt* Parser::parseBreak() {
 		Token kw = advance();
-		Stmt* s =
-				makeStmt(kw.kind == TokKind::KwBreak ? StmtKind::Break : StmtKind::Continue, kw.offset);
+		StmtKind kind = kw.kind == TokKind::KwBreak ? StmtKind::Break : StmtKind::Continue;
+		Stmt* s = makeStmt(kind, kw.offset);
 		if(!expect(TokKind::Semicolon, "';'"))
 			return nullptr;
 		return s;

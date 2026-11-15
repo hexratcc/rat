@@ -33,8 +33,10 @@ namespace rat {
 		for(const Vector& vec : vectors)
 			if(vec.needsGuard)
 				addGuard(vec);
-		return guards.empty() || (guards.size() <= kMaxGuards &&
-															cx.guardedRunsIn(seed.stores.back()->getControl()) < kMaxGuardedRuns);
+		if(guards.empty())
+			return true;
+		Node* control = seed.stores.back()->getControl();
+		return guards.size() <= kMaxGuards && cx.guardedRunsIn(control) < kMaxGuardedRuns;
 	}
 
 	// add the bytes of vec's lanes to the runtime check of their group
@@ -245,8 +247,10 @@ namespace rat {
 			if(n->getInput(1) != amount)
 				return false;
 		const ConstantNode* constant = dyn_cast<ConstantNode>(amount);
-		return !constant || (constant->getValue() >= 0 &&
-												 constant->getValue() < (I64)lanes[0]->getType()->getIntWidth());
+		if(!constant)
+			return true;
+		I64 laneBits = lanes[0]->getType()->getIntWidth();
+		return constant->getValue() >= 0 && constant->getValue() < laneBits;
 	}
 
 	// swap the operands of a commutative lane when they match lane 0's in reverse order

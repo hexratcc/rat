@@ -60,7 +60,7 @@ namespace rat {
 				continue;
 			Node* src = a->getInputOperand(i);
 			U32 cls = classOf(out->getType());
-			VReg s = cls == detail::kFp ? sseValue(src) : gpValue(src);
+			VReg s = classValue(src, cls);
 			moveValue(vregFor(out), s, cls, opWidth(out->getType()));
 		}
 	}
@@ -116,8 +116,9 @@ namespace rat {
 			return;
 
 		Node* vp = c->projection(CallNode::valueProjIndex());
-		const Type* rt =
-				c->returnsValue() ? c->getType()->getTupleElement(CallNode::valueProjIndex()) : nullptr;
+		const Type* rt = nullptr;
+		if(c->returnsValue())
+			rt = c->getType()->getTupleElement(CallNode::valueProjIndex());
 		B32 sret = conv->x87ByRef && rt && isX87Ty(rt);
 
 		// detached: the argument moves are emitted while its use list is built
@@ -142,7 +143,9 @@ namespace rat {
 		}
 		// a return in registers lands in the slot arg 0 points at
 		const AbiRegs& retRegs = c->getAbi().ret;
-		VReg retSlot = retRegs.count ? gpValue(c->getArg(0)) : kNoVReg;
+		VReg retSlot = kNoVReg;
+		if(retRegs.count)
+			retSlot = gpValue(c->getArg(0));
 		pushCallArgs(c, as, args);
 
 		call.uses = callUses(c, args, as.sseUsed);
@@ -255,7 +258,9 @@ namespace rat {
 	MachineOperand X86LowerPass::returnReg(AbiClass c, U32& gp, U32& sse) {
 		if(c == AbiClass::Sse)
 			return xm(xmm(sse++));
-		return ph(gp++ ? RDX : RAX);
+		if(gp++)
+			return ph(RDX);
+		return ph(RAX);
 	}
 
 	// the return registers into the slot after a call, or out of it before a ret
@@ -458,7 +463,11 @@ namespace rat {
 		agg.align = (U32)cast<ConstantNode>(c->getArg(2))->getValue();
 		agg.regs = c->getAbi().ret;
 		Node* vp = c->projection(CallNode::valueProjIndex());
-		MachineOperand def = MachineOperand::vr(vp ? vregFor(vp) : fresh(detail::kGp));
+		MachineOperand def;
+		if(vp)
+			def = vr(vregFor(vp));
+		else
+			def = vr(fresh(detail::kGp));
 		VReg ptr = gpValue(c->getArg(0));
 		I64 desc = detail::packVaAggregate(agg);
 		MachineInstr& m = put(X86Op::VaArg, {def}, {vr(ptr)}, (I64)VaArgKind::Aggregate, desc);

@@ -86,7 +86,7 @@ namespace rat {
 				{"x86-cfg-emitter", "Graphviz DOT CFG visualization", &mk<MachinePass, X86CfgEmitterPass>},
 		};
 
-		// the -O1 pipeline, run function by function, callees first; a repeat skips functions
+		// the -O1 pipeline, run function by function, callees first, a repeat skips functions
 		// unchanged since its last run
 		static const C8* kDefaultOpt = "sccp fold simplifycfg gvn memoryopt inline fold gvn simplifycfg"
 																	 " memoryopt strengthreduce fold gvn loadcanon slp fold gvn dfe";

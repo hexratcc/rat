@@ -75,8 +75,9 @@ namespace rat::cc {
 
 	namespace detail {
 		B32 genericTypesMatch(const CType& a, const CType& b) {
-			if(a.ptr != b.ptr || a.quals != b.quals || a.vquals != b.vquals ||
-				 (a.func != nullptr) != (b.func != nullptr))
+			if(a.ptr != b.ptr || a.quals != b.quals || a.vquals != b.vquals)
+				return false;
+			if((a.func != nullptr) != (b.func != nullptr))
 				return false;
 			if(a.func)
 				return funcTypesMatch(a.func, b.func);
@@ -92,15 +93,19 @@ namespace rat::cc {
 				return false;
 			if(a.isFloat() || a.isVoid())
 				return true;
-			return a.isUnsigned() == b.isUnsigned() &&
-						 !(a.bits == 8 && a.isPlainChar() != b.isPlainChar()) &&
-						 !(a.bits == 32 && a.isLong() != b.isLong()) &&
-						 !(a.bits == 64 && a.isLongLong() != b.isLongLong());
+			if(a.isUnsigned() != b.isUnsigned())
+				return false;
+			if(a.bits == 8 && a.isPlainChar() != b.isPlainChar())
+				return false;
+			if(a.bits == 32 && a.isLong() != b.isLong())
+				return false;
+			return a.bits != 64 || a.isLongLong() == b.isLongLong();
 		}
 
 		B32 funcTypesMatch(const FuncType* a, const FuncType* b) {
-			if(a->isVarArgs != b->isVarArgs || a->params.size() != b->params.size() ||
-				 !genericTypesMatch(a->ret, b->ret))
+			if(a->isVarArgs != b->isVarArgs || a->params.size() != b->params.size())
+				return false;
+			if(!genericTypesMatch(a->ret, b->ret))
 				return false;
 			for(U32 i = 0; i < a->params.size(); ++i)
 				if(!genericTypesMatch(a->params[i].type, b->params[i].type))

@@ -54,7 +54,7 @@ namespace rat::cc {
 	}
 
 	// const-expr after the ':' of a member
-	// an unnamed or zero-width bitfield only takes space; the unit is the member's own type
+	// an unnamed or zero-width bitfield only takes space, the unit is the member's own type
 	B32 Parser::parseBitfield(
 			StructType* st, Field f, U32 memberAlign, B32 isUnion, StructLayout& l) {
 		Expr* wE = parseConditional();
@@ -96,7 +96,7 @@ namespace rat::cc {
 	}
 
 	// declarator [ : bitfield ]
-	// only a bitfield may be unnamed; an array with no bound at all is a flexible array member
+	// only a bitfield may be unnamed, an array with no bound at all is a flexible array member
 	B32 Parser::parseStructMember(
 			StructType* st, CType base, U32 baseAlign, B32 isUnion, StructLayout& l) {
 		DeclResult r;
@@ -115,10 +115,9 @@ namespace rat::cc {
 		f.name = r.name;
 		f.type = ft;
 		if(accept(TokKind::Colon)) {
-			if(isArr || ft.ptr != 0 || ft.isFloat() || ft.isComplex() || ft.isVoid() || isStruct(ft) ||
-				 ft.func != nullptr) {
+			B32 isDerived = isArr || ft.ptr != 0 || ft.func != nullptr;
+			if(isDerived || ft.isFloat() || ft.isComplex() || ft.isVoid() || isStruct(ft))
 				return fail(peek(), "bit-field has invalid type");
-			}
 			return parseBitfield(st, f, r.align, isUnion, l);
 		}
 		if(!r.name)

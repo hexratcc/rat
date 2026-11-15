@@ -160,7 +160,7 @@ namespace rat::cc {
 	}
 
 	// [attrs] [function-def]
-	// a prototype goes to the unit, or to blockProtos inside a block; defined reports a body
+	// a prototype goes to the unit, or to blockProtos inside a block. defined reports a body
 	B32 Parser::parseFunctionDeclarator(
 			const DeclResult& r, const Token& start, const DeclSpecs& ds, TransUnit* unit, B32& defined) {
 		FuncDef* fn = makeFuncDef(r, start, ds);
@@ -236,7 +236,7 @@ namespace rat::cc {
 	}
 
 	// static-assert | typedef | type-spec ; | type-spec declarators
-	// the Decl stmt lists the objects; functions go to the unit or, in a block, to blockProtos
+	// the Decl stmt lists the objects, functions go to the unit or, in a block, to blockProtos
 	Stmt* Parser::parseDeclaration(TransUnit* unit) {
 		Token start = peek();
 		if(check(TokKind::KwStaticAssert)) {

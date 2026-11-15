@@ -18,6 +18,8 @@ namespace rat {
 			return !s.empty() && s.find_first_not_of("0123456789") == String::npos;
 		}
 
+		String nodeRef(U32 id) { return "v" + std::to_string(id); }
+
 		List<U32> parseVRefs(const String& s) {
 			List<U32> out;
 			U32 i = 0;
@@ -152,12 +154,14 @@ namespace rat {
 			}
 			U32 count = 0;
 			if(t.front() == '[') {
-				Type* elem = parseCounted(t, "array", "array count", count);
-				return elem ? mod.getArray(elem, count) : nullptr;
+				if(Type* elem = parseCounted(t, "array", "array count", count))
+					return mod.getArray(elem, count);
+				return nullptr;
 			}
 			if(t.front() == '<') {
-				Type* elem = parseCounted(t, "vector", "vector lane count", count);
-				return elem ? mod.getVec(elem, count) : nullptr;
+				if(Type* elem = parseCounted(t, "vector", "vector lane count", count))
+					return mod.getVec(elem, count);
+				return nullptr;
 			}
 			if(t == "ctrl")
 				return mod.getControl();
@@ -249,8 +253,8 @@ namespace rat {
 			U64 rp = header.rfind(')');
 			U64 arrow = header.find("->");
 			U64 brace = header.rfind('{');
-			if(lp == String::npos || rp == String::npos || rp < lp || arrow == String::npos ||
-				 brace == String::npos)
+			B32 hasParens = lp != String::npos && rp != String::npos && lp <= rp;
+			if(!hasParens || arrow == String::npos || brace == String::npos)
 				return fail("malformed func header: " + header);
 
 			String name = trim(header.substr(5, lp - 5));
@@ -431,13 +435,13 @@ namespace rat {
 		}
 
 		Node* Parser::operand(const ParsedNode& pn, U32 index) {
-			if(index >= pn.operands.size())
-				return failNull("v" + std::to_string(pn.id) + " (" + getOpcodeMnemonic(pn.op) +
-												") is missing operand " + std::to_string(index));
+			if(index >= pn.operands.size()) {
+				String nodeLabel = nodeRef(pn.id) + " (" + getOpcodeMnemonic(pn.op) + ")";
+				return failNull(nodeLabel + " is missing operand " + std::to_string(index));
+			}
 			auto it = byId.find(pn.operands[index]);
 			if(it == byId.end())
-				return failNull("v" + std::to_string(pn.id) + " references undefined v" +
-												std::to_string(pn.operands[index]));
+				return failNull(nodeRef(pn.id) + " references undefined " + nodeRef(pn.operands[index]));
 			return it->second;
 		}
 
@@ -562,8 +566,7 @@ namespace rat {
 
 			for(U32 k = 0; k < nodes.size(); ++k)
 				if(!done[k])
-					return fail("v" + std::to_string(nodes[k].id) +
-											" has unresolved operands (undefined or cyclic ref)");
+					return fail(nodeRef(nodes[k].id) + " has unresolved operands (undefined or cyclic ref)");
 			return true;
 		}
 

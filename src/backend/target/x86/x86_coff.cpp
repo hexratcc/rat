@@ -66,7 +66,7 @@ namespace rat {
 			le::put16(symtab, 0);						 // type
 			le::put8(symtab, detail::IMAGE_SYM_CLASS_STATIC);
 			le::put8(symtab, 1); // one aux record
-			// aux: section definition
+			// aux section definition
 			le::put32(symtab, sectionSize((Section)s)); // length
 			le::put16(symtab, (U16)rels[s].size());			// number of relocations
 			// line numbers, checksum, associated section, selection

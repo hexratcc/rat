@@ -9,8 +9,8 @@ namespace rat {
 		constexpr const C8* kInterp = "/lib64/ld-linux-x86-64.so.2";
 
 		B32 isGotReloc(U32 t) {
-			return t == R_X86_64_GOTPCREL || t == R_X86_64_GOTPCRELX || t == R_X86_64_REX_GOTPCRELX ||
-						 t == R_X86_64_GOTTPOFF;
+			B32 gotpcrel = t == R_X86_64_GOTPCREL || t == R_X86_64_GOTPCRELX;
+			return gotpcrel || t == R_X86_64_REX_GOTPCRELX || t == R_X86_64_GOTTPOFF;
 		}
 	} // namespace detail
 
@@ -259,7 +259,7 @@ namespace rat {
 					continue;
 				const InSym& s = obj.syms[r.sym];
 				GotSlot g;
-				// a local or resolved global holds its own address; an import needs GLOB_DAT
+				// a local or resolved global holds its own address, an import needs GLOB_DAT
 				if(key[0] == 'G' && !globals.count(s.name)) {
 					auto im = importIndex.find(s.name);
 					if(im != importIndex.end()) {

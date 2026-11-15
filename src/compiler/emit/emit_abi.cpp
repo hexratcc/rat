@@ -147,6 +147,8 @@ namespace rat::cc {
 	}
 
 	Type* Emitter::eightbyteType(AbiClass c) {
-		return c == AbiClass::Sse ? mod.getFloat(64) : mod.getInt(64);
+		if(c == AbiClass::Sse)
+			return mod.getFloat(64);
+		return mod.getInt(64);
 	}
 } // namespace rat::cc
