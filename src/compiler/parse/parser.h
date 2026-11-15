@@ -115,7 +115,6 @@ namespace rat::cc {
 		B32 parseOldStyleDecls(FuncDef* fn);
 		B32 parseDeclAttributes(const String*& aliasOut, B32& noInlineOut, U32& alignOut);
 		B32 checkParamNames(const FuncDef* fn);
-		B32 registerFuncDef(FuncDef* fn);
 		B32 checkObjectComplete(const Declarator& d);
 		B32 parseStaticAssert();
 		Stmt* parseDeclaration(TransUnit* unit);
@@ -157,7 +156,6 @@ namespace rat::cc {
 		Expr* parseUnary();
 		Expr* parseSizeOp();
 		Expr* parseCastOrCompound();
-		Expr* parsePostfix();
 		Expr* parsePostfixTail(Expr* e);
 		Expr* parsePrimary();
 		Expr* parsePrimaryString();
@@ -180,9 +178,8 @@ namespace rat::cc {
 
 		// node builders
 		Expr* makeExpr(ExprKind kind, U32 offset);
-		Stmt* makeStmt(StmtKind kind, U32 offset);
+		Stmt* makeStmt(StmtKind kind, U32 offset, Expr* expr = nullptr, Stmt* thenBody = nullptr);
 		Expr* makeInt(const Token& tok, I64 value, U32 bits, U8 mods = 0);
-		Expr* makeIdent(const Token& tok);
 		Expr* makeUnary(U32 offset, ExprOp op, Expr* operand);
 		Expr* makeBinary(U32 offset, ExprOp op, Expr* lhs, Expr* rhs);
 
@@ -192,7 +189,6 @@ namespace rat::cc {
 		B32 parseCharLiteral(const Token& tok, I64& value);
 		B32 parseStringLiteral(const Token& tok, String& out);
 		B32 parseWideStringLiteral(const Token& tok, U32 unitBytes, String& out);
-		B32 decodeEscape(const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out);
 		B32 decodeUcn(const String& s, U32& i, U32 end, const Token& tok, U32& cp);
 		B32 decodeBackslash(const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out);
 

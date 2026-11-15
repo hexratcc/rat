@@ -86,24 +86,17 @@ namespace rat::cc {
 	Expr* Parser::parseCastOrCompound() {
 		Token lp = advance(); // (
 		CType ty;
-		if(!parseTypeSpec(ty))
-			return nullptr;
 		DeclResult r;
-		if(!parseAbstractDeclarator(ty, r))
-			return nullptr;
-		if(!expect(TokKind::RParen, "')'"))
+		if(!parseTypeSpec(ty) || !parseAbstractDeclarator(ty, r) || !expect(TokKind::RParen, "')'"))
 			return nullptr;
 		if(check(TokKind::LBrace)) {
 			Expr* init = parseInitializer();
 			if(!init)
 				return nullptr;
 			Expr* e = makeExpr(ExprKind::CompoundLit, lp.offset);
-			e->compound.type = r.type;
-			if(r.outerArray) // a typedef'd array type stays whole
-				e->compound.type = r.type.array->elem;
-			e->compound.init = init;
-			e->compound.arrayLen = r.outerBound;
-			e->compound.isArray = r.outerArray;
+			// a typedef'd array type stays whole
+			CType litType = r.outerArray ? r.type.array->elem : r.type;
+			e->compound = {litType, init, r.outerBound, r.outerArray};
 			return parsePostfixTail(e); // allow [..], .x, etc. after the literal
 		}
 		if(r.outerArray)
@@ -112,8 +105,7 @@ namespace rat::cc {
 		if(!operand)
 			return nullptr;
 		Expr* e = makeExpr(ExprKind::Cast, lp.offset);
-		e->cast.type = r.type;
-		e->cast.operand = operand;
+		e->cast = {r.type, operand};
 		return e;
 	}
 
@@ -126,22 +118,18 @@ namespace rat::cc {
 		if(check(TokKind::LParen) && startsType(peek2())) {
 			advance(); // (
 			CType ty;
-			if(!parseTypeName(ty)) // sizeof(typename)
+			if(!parseTypeName(ty) || !expect(TokKind::RParen, "')'"))
 				return nullptr;
-			if(!expect(TokKind::RParen, "')'"))
-				return nullptr;
-			e->sizeOf.type = ty;
-			e->sizeOf.operand = nullptr;
+			e->sizeOf = {ty, nullptr};
 		} else {
-			Expr* operand = parseUnary();
-			if(!operand)
+			e->sizeOf.operand = parseUnary();
+			if(!e->sizeOf.operand)
 				return nullptr;
-			e->sizeOf.operand = operand;
 		}
 		return e;
 	}
 
-	// size-op-expr | cast-or-compound | unary-op unary | ++ unary | -- unary | postfix
+	// size-op-expr | cast-or-compound | unary-op unary | ++ unary | -- unary | primary postfix-tail
 	Expr* Parser::parseUnary() {
 		DepthScope scope(*this);
 		if(!enterDepth())
@@ -158,7 +146,10 @@ namespace rat::cc {
 				return nullptr;
 			return makeUnary(t.offset, op, operand);
 		}
-		return parsePostfix();
+		Expr* e = parsePrimary();
+		if(!e)
+			return nullptr;
+		return parsePostfixTail(e);
 	}
 
 	// unary [ binary-op unary ]...
@@ -189,9 +180,7 @@ namespace rat::cc {
 			return cond;
 		Token q = advance();
 		Expr* whenTrue = parseExpression();
-		if(!whenTrue)
-			return nullptr;
-		if(!expect(TokKind::Colon, "':'"))
+		if(!whenTrue || !expect(TokKind::Colon, "':'"))
 			return nullptr;
 		Expr* whenFalse = parseConditional();
 		if(!whenFalse)

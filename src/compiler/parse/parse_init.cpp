@@ -63,12 +63,8 @@ namespace rat::cc {
 			return true;
 		}
 		for(I64 k = des.index; k <= rangeEnd; ++k) {
-			Designator d2;
-			d2.isSet = true;
-			d2.isIndex = true;
-			d2.index = k;
 			list->args.push_back(el);
-			list->designators.push_back(d2);
+			list->designators.push_back({true, true, k});
 		}
 		return true;
 	}
@@ -94,15 +90,7 @@ namespace rat::cc {
 	I64 Parser::castConstValue(I64 v, CType ty) const {
 		if(!isInteger(ty) || ty.typeofExpr)
 			return v;
-		if(ty.bits == 1)
-			return v != 0; // _Bool keeps the truth value, not the low bit
-		if(ty.bits >= 64)
-			return v;
-		U64 mask = ((U64)1 << ty.bits) - 1;
-		U64 low = (U64)v & mask;
-		if(!ty.isUnsigned() && (low & ((U64)1 << (ty.bits - 1))))
-			low |= ~mask; // sign-extend
-		return (I64)low;
+		return wrapInt(v, ty.bits, ty.isUnsigned());
 	}
 
 	B32 Parser::evalUnaryConst(const Expr* e, I64& out) {
@@ -205,11 +193,10 @@ namespace rat::cc {
 	// evalIntConst without the diagnostic
 	B32 Parser::tryEvalIntConst(const Expr* e, I64& out) {
 		B32 savedFailed = failed;
-		String savedMsg = errMsg;
 		B32 ok = evalIntConst(e, out);
-		if(!ok) {
-			failed = savedFailed;
-			errMsg = std::move(savedMsg);
+		if(!ok && !savedFailed) { // errMsg is only set together with failed
+			failed = false;
+			errMsg.clear();
 		}
 		return ok;
 	}

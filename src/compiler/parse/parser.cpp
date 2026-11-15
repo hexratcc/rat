@@ -1,7 +1,5 @@
 #include "parse/parser.h"
 
-#include <sstream>
-
 namespace rat::cc {
 	B32 Parser::enterDepth() {
 		if(++parseDepth > kMaxParseDepth)
@@ -13,18 +11,14 @@ namespace rat::cc {
 	: lex(lexer),
 		arena(arena),
 		lay(layout) {
-		CType vaList;
-		vaList.bits = 8;
-		vaList.set(CType::Unsigned);
+		CType vaList = ctUnsigned(8);
 		if(lay.win64VaList) {
 			// Win64 __builtin_va_list is a char*
 			vaList.ptr = 1;
 		} else {
 			// SysV __builtin_va_list decays to a pointer to a 24-byte state record
 			ArrayType* vl = arena.make<ArrayType>();
-			vl->elem = CType{}; // unsigned char
-			vl->elem.bits = 8;
-			vl->elem.set(CType::Unsigned);
+			vl->elem = ctUnsigned(8);
 			vl->count = lay.ptrBytes * 4;
 			vaList.array = vl;
 		}
@@ -35,9 +29,7 @@ namespace rat::cc {
 	Failed Parser::fail(const Token& at, const String& msg) {
 		if(failed)
 			return {};
-		std::ostringstream os;
-		os << lex.file() << ":" << at.line << ":" << at.col << ": " << msg;
-		errMsg = os.str();
+		errMsg = lex.file() + ":" + std::to_string(at.line) + ":" + std::to_string(at.col) + ": " + msg;
 		failed = true;
 		return {};
 	}
@@ -65,10 +57,12 @@ namespace rat::cc {
 		return e;
 	}
 
-	Stmt* Parser::makeStmt(StmtKind kind, U32 offset) {
+	Stmt* Parser::makeStmt(StmtKind kind, U32 offset, Expr* expr, Stmt* thenBody) {
 		Stmt* s = arena.make<Stmt>();
 		s->kind = kind;
 		s->offset = offset;
+		s->expr = expr;
+		s->thenBody = thenBody;
 		return s;
 	}
 
@@ -77,12 +71,6 @@ namespace rat::cc {
 		if(mods & CType::LongLong) // 'long long' subsumes 'long'
 			mods |= CType::Long;
 		e->intLit = {value, bits, mods};
-		return e;
-	}
-
-	Expr* Parser::makeIdent(const Token& tok) {
-		Expr* e = makeExpr(ExprKind::Ident, tok.offset);
-		e->ident.name = arena.make<String>(lex.text(tok));
 		return e;
 	}
 
@@ -108,17 +96,6 @@ namespace rat::cc {
 					return fail(peek(), "redefinition of parameter");
 			}
 		}
-		return true;
-	}
-
-	// a function body may be given once per unit
-	B32 Parser::registerFuncDef(FuncDef* fn) {
-		if(!fn->body)
-			return true;
-		auto it = funcDefs.find(fn->name);
-		if(it != funcDefs.end())
-			return fail(peek(), "redefinition of function");
-		funcDefs.emplace(fn->name, fn);
 		return true;
 	}
 
@@ -174,9 +151,7 @@ namespace rat::cc {
 
 	// [old-style-decls] compound
 	B32 Parser::parseFunctionDef(FuncDef* fn, B32 oldStyle) {
-		if(oldStyle && !parseOldStyleDecls(fn))
-			return false;
-		if(!checkParamNames(fn))
+		if((oldStyle && !parseOldStyleDecls(fn)) || !checkParamNames(fn))
 			return false;
 		curFuncName = fn->name;
 		fn->body = parseCompound();
@@ -189,10 +164,8 @@ namespace rat::cc {
 	B32 Parser::parseFunctionDeclarator(
 			const DeclResult& r, const Token& start, const DeclSpecs& ds, TransUnit* unit, B32& defined) {
 		FuncDef* fn = makeFuncDef(r, start, ds);
-		B32 noInline = false;
-		if(!parseDeclAttributes(fn->aliasOf, noInline, fn->align))
+		if(!parseDeclAttributes(fn->aliasOf, fn->isNoInline, fn->align))
 			return false;
-		fn->isNoInline |= noInline;
 		B32 oldStyle = r.type.func->oldStyle;
 		defined = check(TokKind::LBrace) || (oldStyle && startsType(peek()));
 		if(oldStyle && !defined)
@@ -200,8 +173,8 @@ namespace rat::cc {
 		if(defined) {
 			if(!parseFunctionDef(fn, oldStyle))
 				return false;
-			if(unit && !registerFuncDef(fn))
-				return false;
+			if(unit && !funcDefs.try_emplace(fn->name, fn).second) // one body per unit
+				return fail(peek(), "redefinition of function");
 		}
 		List<FuncDef*>& into = unit ? unit->functions : blockProtos;
 		into.push_back(fn);
@@ -313,8 +286,7 @@ namespace rat::cc {
 		}
 		if(failed)
 			return nullptr;
-		for(FuncDef* proto : blockProtos)
-			unit->functions.push_back(proto);
+		unit->functions.insert(unit->functions.end(), blockProtos.begin(), blockProtos.end());
 		return unit;
 	}
 } // namespace rat::cc

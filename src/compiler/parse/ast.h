@@ -70,6 +70,7 @@ namespace rat::cc {
 	struct FuncType;
 	struct NamedType;
 	struct Expr;
+	struct Stmt;
 
 	struct CType {
 		enum class Base : U8 {
@@ -257,21 +258,28 @@ namespace rat::cc {
 	constexpr B32 isFuncPtr(CType t) { return t.func != nullptr && t.ptr > 0; }
 	constexpr B32 isArrayType(CType t) { return t.array != nullptr && t.ptr == 0; }
 	constexpr CType arrayElem(CType t) { return t.array->elem; }
-	constexpr CType decay(CType t) {
-		CType e = t.array->elem;
-		++e.ptr;
-		return e;
-	}
 	constexpr CType pointee(CType t) {
-		CType p = t;
-		if(p.ptr)
-			--p.ptr;
-		return p;
+		if(t.ptr)
+			--t.ptr;
+		return t;
 	}
 	constexpr CType pointerTo(CType t) {
-		CType p = t;
-		++p.ptr;
-		return p;
+		++t.ptr;
+		return t;
+	}
+	constexpr CType decay(CType t) { return pointerTo(t.array->elem); }
+
+	// v wrapped to a bits wide integer, _Bool keeps the truth value, not the low bit
+	constexpr I64 wrapInt(I64 v, U32 bits, B32 isUnsigned) {
+		if(bits == 1)
+			return v != 0;
+		if(bits >= 64)
+			return v;
+		U64 mask = ((U64)1 << bits) - 1;
+		U64 low = (U64)v & mask;
+		if(!isUnsigned && (low & ((U64)1 << (bits - 1))))
+			low |= ~mask; // sign-extend
+		return (I64)low;
 	}
 
 	constexpr U64 typeSize(CType t, U32 pointerBytes) {
@@ -323,8 +331,6 @@ namespace rat::cc {
 		Generic,		 // C11 _Generic(ctrl, type: expr, ..., default: expr)
 	};
 
-	struct Expr;
-
 	struct GenericAssoc {
 		B32 isDefault = false;
 		CType type;
@@ -338,8 +344,6 @@ namespace rat::cc {
 		const String* field = nullptr;
 		const Designator* next = nullptr;
 	};
-
-	struct Stmt;
 
 	struct Expr {
 		Expr() {}
@@ -540,14 +544,10 @@ namespace rat::cc {
 
 	template <typename V> void ScopeMap<V>::set(const String& key, V value) {
 		auto [it, inserted] = table.try_emplace(key, value);
-		if(inserted) {
-			if(!marks.empty())
-				undo.push_back({key, V{}, false});
-		} else {
-			if(!marks.empty())
-				undo.push_back({key, it->second, true});
+		if(!marks.empty())
+			undo.push_back({key, inserted ? V{} : it->second, !inserted});
+		if(!inserted)
 			it->second = value;
-		}
 	}
 
 	template <typename V> void ScopeMap<V>::erase(const String& key) {

@@ -7,24 +7,15 @@ namespace rat::cc {
 	// const, volatile and restrict are kept, one bit per pointer level
 	void Parser::parsePointers(CType& t) {
 		for(;;) {
-			B32 sawConst = false;
-			B32 sawVolatile = false;
-			B32 sawRestrict = false;
 			while(detail::isTypeQualifier(peek().kind)) {
-				if(check(TokKind::KwConst))
-					sawConst = true;
-				if(check(TokKind::KwVolatile))
-					sawVolatile = true;
-				if(check(TokKind::KwRestrict))
-					sawRestrict = true;
-				advance();
+				TokKind qual = advance().kind;
+				if(qual == TokKind::KwConst && t.ptr < 32)
+					setTopConst(t);
+				if(qual == TokKind::KwVolatile && t.ptr < 32)
+					setTopVolatile(t);
+				if(qual == TokKind::KwRestrict && t.ptr < 32)
+					setTopRestrict(t);
 			}
-			if(sawConst && t.ptr < 32)
-				setTopConst(t);
-			if(sawVolatile && t.ptr < 32)
-				setTopVolatile(t);
-			if(sawRestrict && t.ptr < 32)
-				setTopRestrict(t);
 			if(!accept(TokKind::Star))
 				break;
 			++t.ptr;
@@ -63,10 +54,7 @@ namespace rat::cc {
 			if(!check(TokKind::Identifier))
 				return fail(peek(), "expected parameter name");
 			Token nameTok = advance();
-			Param p;
-			p.name = arena.make<String>(lex.text(nameTok));
-			p.offset = nameTok.offset;
-			ft->params.push_back(p);
+			ft->params.push_back({arena.make<String>(lex.text(nameTok)), ctInt(), nameTok.offset});
 			if(!accept(TokKind::Comma))
 				break;
 		}
@@ -107,10 +95,7 @@ namespace rat::cc {
 				return false;
 			if(isVoidType(r.type))
 				return fail(pstart, "'void' must be the only unnamed parameter");
-			Param p;
-			p.name = r.name;
-			p.offset = pstart.offset;
-			p.type = r.type;
+			Param p{r.name, r.type, pstart.offset};
 			adjustParamType(p.type, &p.vlaBound);
 			ft->params.push_back(p);
 			if(!accept(TokKind::Comma))
@@ -128,9 +113,7 @@ namespace rat::cc {
 			return true;
 		if(n.kind == TokKind::KwNoinline)
 			return true;
-		if(n.kind == TokKind::Identifier)
-			return !startsType(n);
-		return false;
+		return n.kind == TokKind::Identifier && !startsType(n);
 	}
 
 	// folds the ops onto base, innermost first
@@ -139,8 +122,7 @@ namespace rat::cc {
 		for(const DeclOp& op : ops) {
 			switch(op.kind) {
 			case DeclOp::Kind::Pointer:
-				for(U32 i = 0; i < op.count; ++i)
-					b = pointerTo(b);
+				b.ptr += (U32)op.count;
 				break;
 			case DeclOp::Kind::Array: {
 				ArrayType* at = arena.make<ArrayType>();
@@ -148,18 +130,15 @@ namespace rat::cc {
 				at->count = op.count;
 				if(op.count == 0)
 					at->countExpr = op.bound;
-				CType a;
-				a.array = at;
-				b = a;
+				b = CType{};
+				b.array = at;
 				break;
 			}
-			case DeclOp::Kind::Func: {
+			case DeclOp::Kind::Func:
 				op.func->ret = b;
-				CType t;
-				t.func = op.func;
-				b = t;
+				b = CType{};
+				b.func = op.func;
 				break;
-			}
 			}
 		}
 		return b;
@@ -173,17 +152,14 @@ namespace rat::cc {
 			if(accept(TokKind::LBracket)) {
 				while(check(TokKind::KwStatic) || detail::isTypeQualifier(peek().kind))
 					advance();
-				DeclOp op;
-				op.kind = DeclOp::Kind::Array;
+				DeclOp op{DeclOp::Kind::Array};
 				if(check(TokKind::Star) && peek2().kind == TokKind::RBracket)
 					advance(); // [*]
 				if(!parseArrayBound(op))
 					return false;
 				sfx.push_back(op);
 			} else if(accept(TokKind::LParen)) {
-				DeclOp op;
-				op.kind = DeclOp::Kind::Func;
-				op.func = arena.make<FuncType>();
+				DeclOp op{DeclOp::Kind::Func, 0, nullptr, arena.make<FuncType>()};
 				if(!parseParamTypeList(op.func))
 					return false;
 				sfx.push_back(op);
@@ -194,34 +170,25 @@ namespace rat::cc {
 				break;
 			}
 		}
-		for(U32 i = (U32)sfx.size(); i-- > 0;)
-			ops.push_back(sfx[i]);
+		ops.insert(ops.end(), sfx.rbegin(), sfx.rend());
 		return true;
 	}
 
 	// [ ( declarator ) | name ] suffixes
 	B32 Parser::parseDirectDeclarator(List<DeclOp>& ops, DeclResult& out) {
-		B32 grouped = false;
 		List<DeclOp> inner;
 		if(looksLikeGroupingParen()) {
 			advance(); // (
-			grouped = true;
-			if(!parseDeclaratorOps(inner, out))
-				return false;
-			if(!expect(TokKind::RParen, "')'"))
+			if(!parseDeclaratorOps(inner, out) || !expect(TokKind::RParen, "')'"))
 				return false;
 		} else if(check(TokKind::Identifier)) {
 			Token nameTok = advance();
 			out.name = arena.make<String>(lex.text(nameTok));
 			out.offset = nameTok.offset;
 		}
-		if(!parseDeclaratorSuffixes(ops, out.align))
+		if(!parseDeclaratorSuffixes(ops, out.align) || failed)
 			return false;
-		if(failed)
-			return false;
-		if(grouped)
-			for(const DeclOp& op : inner)
-				ops.push_back(op);
+		ops.insert(ops.end(), inner.begin(), inner.end());
 		return true;
 	}
 
@@ -238,12 +205,8 @@ namespace rat::cc {
 				break;
 			++stars;
 		}
-		if(stars) {
-			DeclOp op;
-			op.kind = DeclOp::Kind::Pointer;
-			op.count = stars;
-			ops.push_back(op);
-		}
+		if(stars)
+			ops.push_back({DeclOp::Kind::Pointer, stars});
 		return parseDirectDeclarator(ops, out);
 	}
 
@@ -256,10 +219,8 @@ namespace rat::cc {
 		if(!parseDeclaratorOps(ops, out) || failed)
 			return false;
 		for(U32 i = 0; i < ops.size(); ++i) {
-			B32 outermost = i + 1 == ops.size();
-			if(ops[i].kind != DeclOp::Kind::Func || !ops[i].func->oldStyle)
-				continue;
-			if(!outermost || !out.allowOldStyle)
+			B32 oldStyle = ops[i].kind == DeclOp::Kind::Func && ops[i].func->oldStyle;
+			if(oldStyle && (i + 1 < ops.size() || !out.allowOldStyle))
 				return fail(peek(), "parameter names (without types) in function declaration");
 		}
 		out.type = applyDeclOps(t, ops);

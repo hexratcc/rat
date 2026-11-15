@@ -88,15 +88,13 @@ namespace rat::cc {
 		U32 end = (U32)s.size();
 		while(end > 0) {
 			C8 c = s[end - 1];
-			if(c == 'u' || c == 'U') {
+			if(c == 'u' || c == 'U')
 				isUnsigned = true;
-				--end;
-			} else if(c == 'l' || c == 'L') {
+			else if(c == 'l' || c == 'L')
 				++lCount;
-				--end;
-			} else {
+			else
 				break;
-			}
+			--end;
 		}
 
 		I32 base = 10;
@@ -176,10 +174,12 @@ namespace rat::cc {
 								(isLongLong ? CType::LongLong : 0));
 	}
 
-	// after \ : simple-escape | ? | x hex-digit... | octal-digit [octal-digit [octal-digit]]
+	// after \ : ucn | simple-escape | ? | x hex-digit... | octal-digit [octal-digit [octal-digit]]
 	// any other character stands for itself
-	B32 Parser::decodeEscape(
+	B32 Parser::decodeBackslash(
 			const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out) {
+		if(detail::ucnAt(s, i, end))
+			return decodeUcn(s, i, end, tok, out);
 		if(i >= end)
 			return fail(tok, "unterminated escape");
 		C8 e = s[i++];
@@ -188,11 +188,7 @@ namespace rat::cc {
 			out = simple;
 			return true;
 		}
-		switch(e) {
-		case '?':
-			out = '?';
-			return true;
-		case 'x': {
+		if(e == 'x') {
 			if(i >= end || !isHexDigit(s[i]))
 				return fail(tok, "expected hex digits in escape");
 			U32 hv = 0;
@@ -200,23 +196,20 @@ namespace rat::cc {
 				hv = hv * 16 + (U32)hexVal(s[i++]);
 			if(hv > maxVal)
 				return fail(tok, "hex escape out of range");
-			out = hv; // maxVal already bounds this per encoding prefix
+			out = hv;
 			return true;
 		}
-		default:
-			if(isOctalDigit(e)) {
-				// octal escape
-				U32 ov = (U32)(e - '0');
-				for(U32 k = 0; k < 2 && i < end && isOctalDigit(s[i]); ++k, ++i)
-					ov = ov * 8 + (U32)(s[i] - '0');
-				if(ov > maxVal)
-					return fail(tok, "octal escape out of range");
-				out = ov;
-			} else {
-				out = (U8)e; // unknown escape: take the character literally
-			}
+		if(!isOctalDigit(e)) {
+			out = (U8)e;
 			return true;
 		}
+		U32 ov = (U32)(e - '0');
+		for(U32 k = 0; k < 2 && i < end && isOctalDigit(s[i]); ++k, ++i)
+			ov = ov * 8 + (U32)(s[i] - '0');
+		if(ov > maxVal)
+			return fail(tok, "octal escape out of range");
+		out = ov;
+		return true;
 	}
 
 	// after \ : u hex-quad | U hex-quad hex-quad
@@ -277,21 +270,12 @@ namespace rat::cc {
 		return true;
 	}
 
-	// after \ : ucn | escape
-	B32 Parser::decodeBackslash(
-			const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out) {
-		if(detail::ucnAt(s, i, end))
-			return decodeUcn(s, i, end, tok, out);
-		return decodeEscape(s, i, end, tok, maxVal, out);
-	}
-
 	// [ L | u | u8 | U ] " s-char... "
 	// appended to out as utf-8 bytes
 	B32 Parser::parseStringLiteral(const Token& tok, String& out) {
 		const String& s = lex.text(tok);
-		U32 maxVal = (s.size() && s[0] == 'u' && s.size() > 1 && s[1] == '8')
-										 ? 0xFFu
-										 : detail::escapeMaxVal(s.size() ? s[0] : '"');
+		B32 isU8 = s.size() > 1 && s[0] == 'u' && s[1] == '8';
+		U32 maxVal = isU8 ? 0xFFu : detail::escapeMaxVal(s.size() ? s[0] : '"');
 		U32 i = 0;
 		U32 end = 0;
 		detail::quotedRange(s, '"', i, end);

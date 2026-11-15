@@ -2,7 +2,6 @@
 
 #include "parse/parser_detail.h"
 
-#include <cerrno>
 #include <cstdlib>
 
 namespace rat::cc {
@@ -16,14 +15,10 @@ namespace rat::cc {
 			return fail(peek(), "expected a type in __builtin_offsetof");
 		if(!expect(TokKind::Comma, "','"))
 			return nullptr;
-		if(!check(TokKind::Identifier))
-			return fail(peek(), "expected a member name in __builtin_offsetof");
 		I64 off = 0;
 		CType cur = ty;
-		B32 first = true;
-		for(;;) {
+		for(B32 first = true;; first = false) {
 			if(first || accept(TokKind::Dot)) {
-				first = false;
 				if(!check(TokKind::Identifier))
 					return fail(peek(), "expected a member name in __builtin_offsetof");
 				Token m = advance();
@@ -57,10 +52,8 @@ namespace rat::cc {
 	// type-spec abstract-declarator
 	B32 Parser::parseTypeName(CType& out) {
 		CType ty;
-		if(!parseTypeSpec(ty))
-			return false;
 		DeclResult r;
-		if(!parseAbstractDeclarator(ty, r))
+		if(!parseTypeSpec(ty) || !parseAbstractDeclarator(ty, r))
 			return false;
 		out = r.type;
 		return true;
@@ -85,10 +78,9 @@ namespace rat::cc {
 				return nullptr;
 			if(!expect(TokKind::Colon, "':'"))
 				return nullptr;
-			Expr* result = parseAssignment();
-			if(!result)
+			assoc.result = parseAssignment();
+			if(!assoc.result)
 				return nullptr;
-			assoc.result = result;
 			e->assocs.push_back(assoc);
 		}
 		if(!expect(TokKind::RParen, "')'"))
@@ -121,9 +113,7 @@ namespace rat::cc {
 				return nullptr;
 		}
 		Expr* e = makeExpr(ExprKind::StrLit, parts[0].offset);
-		e->str.bytes = arena.make<String>(std::move(bytes));
-		e->str.isWide = unitBytes != 1;
-		e->str.charSize = unitBytes;
+		e->str = {arena.make<String>(std::move(bytes)), unitBytes != 1, unitBytes};
 		return e;
 	}
 
@@ -146,7 +136,6 @@ namespace rat::cc {
 				break;
 			text.pop_back();
 		}
-		errno = 0;
 		C8* end = nullptr;
 		F80 value = std::strtold(text.c_str(), &end);
 		if(end == text.c_str() || *end != '\0')
@@ -163,37 +152,29 @@ namespace rat::cc {
 		const String& name = lex.text(id);
 		if(name == "__func__") {
 			Expr* e = makeExpr(ExprKind::StrLit, id.offset);
-			e->str.bytes = arena.make<String>(curFuncName);
-			e->str.isWide = false;
-			e->str.charSize = 1;
+			e->str = {arena.make<String>(curFuncName), false, 1};
 			return e;
 		}
 		if(name == "__builtin_offsetof")
 			return parseBuiltinOffsetof(id);
 		if(const I64* ec = enumConstants.get(name))
 			return makeInt(id, *ec, 32);
-		return makeIdent(id);
+		Expr* e = makeExpr(ExprKind::Ident, id.offset);
+		e->ident.name = arena.make<String>(name);
+		return e;
 	}
 
 	// ( expr ) | ( compound )
 	Expr* Parser::parsePrimaryParen() {
-		Token open = advance();			 // (
-		if(check(TokKind::LBrace)) { // GNU statement expression
-			Stmt* body = parseCompound();
-			if(!body)
-				return nullptr;
-			if(!expect(TokKind::RParen, "')'"))
-				return nullptr;
-			Expr* e = makeExpr(ExprKind::StmtExpr, open.offset);
-			e->stmtExpr.body = body;
-			return e;
-		}
-		Expr* inner = parseExpression();
-		if(!inner)
+		if(peek2().kind != TokKind::LBrace)
+			return parseParenCond();
+		Token open = advance(); // ( of a GNU statement expression
+		Stmt* body = parseCompound();
+		if(!body || !expect(TokKind::RParen, "')'"))
 			return nullptr;
-		if(!expect(TokKind::RParen, "')'"))
-			return nullptr;
-		return inner;
+		Expr* e = makeExpr(ExprKind::StmtExpr, open.offset);
+		e->stmtExpr.body = body;
+		return e;
 	}
 
 	// generic | string-literal... | char-const | int-const | float-const | name
@@ -232,14 +213,6 @@ namespace rat::cc {
 		}
 	}
 
-	// primary postfix-tail
-	Expr* Parser::parsePostfix() {
-		Expr* e = parsePrimary();
-		if(!e)
-			return nullptr;
-		return parsePostfixTail(e);
-	}
-
 	// __builtin_va_arg ( assignment , type-name )
 	Expr* Parser::parseVaArg() {
 		Token lp = advance(); // (
@@ -254,8 +227,7 @@ namespace rat::cc {
 		if(!expect(TokKind::RParen, "')'"))
 			return nullptr;
 		Expr* va = makeExpr(ExprKind::VaArg, lp.offset);
-		va->vaArg.ap = ap;
-		va->vaArg.type = ty;
+		va->vaArg = {ap, ty};
 		return va;
 	}
 
@@ -263,13 +235,10 @@ namespace rat::cc {
 	Expr* Parser::parseCall(Expr* e) {
 		Token lp = advance(); // (
 		Expr* callE = makeExpr(ExprKind::Call, lp.offset);
-		if(e->kind == ExprKind::Ident) { // by-name call
-			callE->call.callee = e->ident.name;
-			callE->call.target = nullptr;
-		} else { // indirect call
-			callE->call.callee = nullptr;
-			callE->call.target = e;
-		}
+		if(e->kind == ExprKind::Ident) // by-name call
+			callE->call = {e->ident.name, nullptr};
+		else // indirect call
+			callE->call = {nullptr, e};
 		if(!check(TokKind::RParen)) {
 			for(;;) {
 				Expr* arg = parseAssignment();
@@ -311,9 +280,7 @@ namespace rat::cc {
 					return fail(peek(), "expected member name after '" + String(opSpelling) + "'");
 				Token nameTok = advance();
 				Expr* m = makeExpr(ExprKind::Member, t.offset);
-				m->member.base = e;
-				m->member.name = arena.make<String>(lex.text(nameTok));
-				m->member.arrow = k == TokKind::Arrow;
+				m->member = {e, arena.make<String>(lex.text(nameTok)), k == TokKind::Arrow};
 				e = m;
 			} else if(k == TokKind::PlusPlus || k == TokKind::MinusMinus) {
 				Token t = advance();

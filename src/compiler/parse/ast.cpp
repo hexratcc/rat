@@ -21,11 +21,8 @@ namespace rat::cc {
 		if(t.bitPrec) {
 			if(t.bitPrec < 32 || (t.bitPrec == 32 && !t.isUnsigned()))
 				return CType{};
-			if(t.bitPrec == 32) {
-				CType r;
-				r.set(CType::Unsigned);
-				return r;
-			}
+			if(t.bitPrec == 32)
+				return ctUnsigned(32);
 			return t;
 		}
 		if(t.bits < 32)
@@ -39,9 +36,8 @@ namespace rat::cc {
 
 	CType defaultArgPromote(CType t) {
 		if(isFloating(t) && t.bits < 64) {
-			CType r = t;
-			r.bits = 64;
-			return r;
+			t.bits = 64;
+			return t;
 		}
 		return promote(t);
 	}

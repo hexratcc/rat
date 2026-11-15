@@ -108,8 +108,7 @@ namespace rat::cc {
 		}
 		if(!expect(TokKind::RParen, "')'"))
 			return false;
-		if(n > align)
-			align = n;
+		align = std::max(align, n);
 		return true;
 	}
 
@@ -156,17 +155,11 @@ namespace rat::cc {
 	// [ noinline | alignas ]...
 	// then publishes the specs to the caller
 	B32 Parser::finishTypeSpec(DeclSpecs seen, CType& out) {
-		for(;;) {
-			if(check(TokKind::KwAlignas)) {
-				if(!parseAlignasSpec(specAlign))
-					return false;
-				continue;
-			}
-			if(accept(TokKind::KwNoinline)) {
+		while(check(TokKind::KwAlignas) || check(TokKind::KwNoinline)) {
+			if(accept(TokKind::KwNoinline))
 				seen.isNoInline = true;
-				continue;
-			}
-			break;
+			else if(!parseAlignasSpec(specAlign))
+				return false;
 		}
 		if(seen.isConst)
 			out.quals |= 1u;
@@ -226,8 +219,7 @@ namespace rat::cc {
 			if(isComplex)
 				t.strukt = complexStruct(t);
 		} else if(w.of(TokKind::KwBool)) {
-			t.bits = 1;
-			t.set(CType::Unsigned);
+			t = ctUnsigned(1);
 		} else {
 			t.set(CType::Unsigned, isUnsigned);
 			if(w.of(TokKind::KwChar)) {

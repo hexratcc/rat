@@ -40,9 +40,7 @@ namespace rat::cc {
 			if(!expect(TokKind::LParen, "'(' after an asm constraint"))
 				return false;
 			op.expr = parseExpression();
-			if(!op.expr)
-				return false;
-			if(!expect(TokKind::RParen, "')'"))
+			if(!op.expr || !expect(TokKind::RParen, "')'"))
 				return false;
 			out.push_back(op);
 			if(!accept(TokKind::Comma))
@@ -84,44 +82,30 @@ namespace rat::cc {
 		Token kw = advance(); // asm
 		AsmBlock* blk = arena.make<AsmBlock>();
 		for(;;) {
-			if(accept(TokKind::KwVolatile)) {
+			if(accept(TokKind::KwVolatile))
 				blk->isVolatile = true;
-				continue;
-			}
-			if(accept(TokKind::KwInline))
-				continue;
-			if(accept(TokKind::KwGoto)) {
+			else if(accept(TokKind::KwGoto))
 				blk->isGoto = true;
-				continue;
-			}
-			break;
+			else if(!accept(TokKind::KwInline))
+				break;
 		}
-		if(!expect(TokKind::LParen, "'(' after 'asm'"))
-			return nullptr;
-		if(!parseAsmTemplate(blk->text))
+		if(!expect(TokKind::LParen, "'(' after 'asm'") || !parseAsmTemplate(blk->text))
 			return nullptr;
 		U32 section = 0;
 		while(accept(TokKind::Colon)) {
-			switch(section) {
-			case 0:
-				if(!parseAsmOperands(blk->outputs))
-					return nullptr;
-				break;
-			case 1:
-				if(!parseAsmOperands(blk->inputs))
-					return nullptr;
-				break;
-			case 2:
-				if(!parseAsmStrings(blk->clobbers))
-					return nullptr;
-				break;
-			case 3:
-				if(!parseAsmLabels(blk->labels))
-					return nullptr;
-				break;
-			default:
+			B32 parsed;
+			if(section == 0)
+				parsed = parseAsmOperands(blk->outputs);
+			else if(section == 1)
+				parsed = parseAsmOperands(blk->inputs);
+			else if(section == 2)
+				parsed = parseAsmStrings(blk->clobbers);
+			else if(section == 3)
+				parsed = parseAsmLabels(blk->labels);
+			else
 				return fail(peek(), "too many ':' sections in 'asm'");
-			}
+			if(!parsed)
+				return nullptr;
 			++section;
 		}
 		if(section == 0)
@@ -139,35 +123,26 @@ namespace rat::cc {
 	B32 Parser::parseDeclAttributes(const String*& aliasOut, B32& noInlineOut, U32& alignOut) {
 		for(;;) {
 			if(accept(TokKind::KwAlias)) {
-				if(!expect(TokKind::LParen, "'(' after an alias attribute"))
-					return false;
-				if(!parseAsmTemplate(aliasOut))
+				if(!expect(TokKind::LParen, "'(' after an alias attribute") || !parseAsmTemplate(aliasOut))
 					return false;
 				if(!expect(TokKind::RParen, "')'"))
 					return false;
-				continue;
-			}
-			if(check(TokKind::KwAsm)) {
+			} else if(check(TokKind::KwAsm)) {
 				Token kw = advance();
-				if(!expect(TokKind::LParen, "'(' after 'asm'"))
-					return false;
 				const String* label = nullptr;
-				if(!parseAsmTemplate(label))
+				if(!expect(TokKind::LParen, "'(' after 'asm'") || !parseAsmTemplate(label))
 					return false;
 				if(!expect(TokKind::RParen, "')'"))
 					return false;
 				return fail(kw, "asm labels on declarations are not supported");
-			}
-			if(accept(TokKind::KwNoinline)) {
+			} else if(accept(TokKind::KwNoinline)) {
 				noInlineOut = true;
-				continue;
-			}
-			if(check(TokKind::KwAlignas)) {
+			} else if(check(TokKind::KwAlignas)) {
 				if(!parseAlignasSpec(alignOut))
 					return false;
-				continue;
+			} else {
+				return true;
 			}
-			return true;
 		}
 	}
 } // namespace rat::cc

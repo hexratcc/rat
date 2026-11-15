@@ -7,16 +7,10 @@ namespace rat::cc {
 		if(!expect(TokKind::LParen, "'('"))
 			return false;
 		Expr* cond = parseConditional();
-		if(!cond)
-			return false;
-		if(!expect(TokKind::Comma, "','"))
-			return false;
 		String msg;
-		if(!parseStrings(msg, "_Static_assert"))
+		if(!cond || !expect(TokKind::Comma, "','") || !parseStrings(msg, "_Static_assert"))
 			return false;
-		if(!expect(TokKind::RParen, "')'"))
-			return false;
-		if(!expect(TokKind::Semicolon, "';'"))
+		if(!expect(TokKind::RParen, "')'") || !expect(TokKind::Semicolon, "';'"))
 			return false;
 		I64 v = 0;
 		if(!evalIntConst(cond, v))
@@ -33,7 +27,7 @@ namespace rat::cc {
 		CType ult = d.type;
 		while(ult.array != nullptr && ult.ptr == 0)
 			ult = ult.array->elem;
-		if(isStruct(ult) && (ult.strukt == nullptr || !ult.strukt->complete))
+		if(isStruct(ult) && !ult.strukt->complete)
 			return fail(peek(), "variable has incomplete type");
 		return true;
 	}
@@ -43,9 +37,7 @@ namespace rat::cc {
 		if(!expect(TokKind::LParen, "'('"))
 			return nullptr;
 		Expr* cond = parseExpression();
-		if(!cond)
-			return nullptr;
-		if(!expect(TokKind::RParen, "')'"))
+		if(!cond || !expect(TokKind::RParen, "')'"))
 			return nullptr;
 		return cond;
 	}
@@ -65,9 +57,7 @@ namespace rat::cc {
 			if(!elseS)
 				return nullptr;
 		}
-		Stmt* s = makeStmt(StmtKind::If, kw.offset);
-		s->expr = cond;
-		s->thenBody = thenS;
+		Stmt* s = makeStmt(StmtKind::If, kw.offset, cond, thenS);
 		s->elseBody = elseS;
 		return s;
 	}
@@ -81,29 +71,19 @@ namespace rat::cc {
 		Stmt* body = parseStatement();
 		if(!body)
 			return nullptr;
-		Stmt* s = makeStmt(StmtKind::While, kw.offset);
-		s->expr = cond;
-		s->thenBody = body;
-		return s;
+		return makeStmt(StmtKind::While, kw.offset, cond, body);
 	}
 
 	// do stmt while ( expr ) ;
 	Stmt* Parser::parseDoWhile() {
 		Token kw = advance(); // do
 		Stmt* body = parseStatement();
-		if(!body)
-			return nullptr;
-		if(!expect(TokKind::KwWhile, "'while'"))
+		if(!body || !expect(TokKind::KwWhile, "'while'"))
 			return nullptr;
 		Expr* cond = parseParenCond();
-		if(!cond)
+		if(!cond || !expect(TokKind::Semicolon, "';'"))
 			return nullptr;
-		if(!expect(TokKind::Semicolon, "';'"))
-			return nullptr;
-		Stmt* s = makeStmt(StmtKind::DoWhile, kw.offset);
-		s->expr = cond;
-		s->thenBody = body;
-		return s;
+		return makeStmt(StmtKind::DoWhile, kw.offset, cond, body);
 	}
 
 	// for ( for-init [expr] ; [expr] ) stmt
@@ -121,12 +101,9 @@ namespace rat::cc {
 		} else if(!accept(TokKind::Semicolon)) {
 			Token at = peek();
 			Expr* e = parseExpression();
-			if(!e)
+			if(!e || !expect(TokKind::Semicolon, "';'"))
 				return nullptr;
-			if(!expect(TokKind::Semicolon, "';'"))
-				return nullptr;
-			init = makeStmt(StmtKind::Expr, at.offset);
-			init->expr = e;
+			init = makeStmt(StmtKind::Expr, at.offset, e);
 		}
 
 		Expr* cond = nullptr;
@@ -151,11 +128,9 @@ namespace rat::cc {
 		if(!body)
 			return nullptr;
 
-		Stmt* s = makeStmt(StmtKind::For, kw.offset);
+		Stmt* s = makeStmt(StmtKind::For, kw.offset, cond, body);
 		s->forInit = init;
-		s->expr = cond;
 		s->forPost = post;
-		s->thenBody = body;
 		return s;
 	}
 
@@ -166,23 +141,17 @@ namespace rat::cc {
 		Expr* ctrl = parseParenCond();
 		if(!ctrl)
 			return nullptr;
-		Stmt* body;
-		if(check(TokKind::LBrace)) {
-			body = parseStatement();
-			if(!body)
-				return nullptr;
-		} else {
-			Stmt* block = makeStmt(StmtKind::Compound, peek().offset);
-			Stmt* inner = parseStatement();
-			if(!inner)
-				return nullptr;
-			block->body.push_back(inner);
+		Stmt* block = nullptr;
+		if(!check(TokKind::LBrace))
+			block = makeStmt(StmtKind::Compound, peek().offset);
+		Stmt* body = parseStatement();
+		if(!body)
+			return nullptr;
+		if(block) {
+			block->body.push_back(body);
 			body = block;
 		}
-		Stmt* s = makeStmt(StmtKind::Switch, kw.offset);
-		s->expr = ctrl;
-		s->thenBody = body;
-		return s;
+		return makeStmt(StmtKind::Switch, kw.offset, ctrl, body);
 	}
 
 	// stmt, or empty when a label ends the block
@@ -233,10 +202,7 @@ namespace rat::cc {
 		Stmt* sub = parseLabeledSub();
 		if(!sub)
 			return nullptr;
-		Stmt* s = makeStmt(isCase ? StmtKind::Case : StmtKind::Default, kw.offset);
-		s->expr = value;
-		s->thenBody = sub;
-		return s;
+		return makeStmt(isCase ? StmtKind::Case : StmtKind::Default, kw.offset, value, sub);
 	}
 
 	// break ; | continue ;
@@ -267,9 +233,7 @@ namespace rat::cc {
 	Stmt* Parser::parseExprStatement() {
 		Stmt* s = makeStmt(StmtKind::Expr, peek().offset);
 		s->expr = parseExpression();
-		if(!s->expr)
-			return nullptr;
-		if(!expect(TokKind::Semicolon, "';'"))
+		if(!s->expr || !expect(TokKind::Semicolon, "';'"))
 			return nullptr;
 		return s;
 	}
@@ -352,5 +316,4 @@ namespace rat::cc {
 		enumTags.pop();
 		structTypes.pop();
 	}
-
 } // namespace rat::cc

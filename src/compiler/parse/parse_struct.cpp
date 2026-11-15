@@ -21,8 +21,7 @@ namespace rat::cc {
 			l.offset = size;
 		}
 		l.bitPos = l.offset * 8;
-		if(align > l.align)
-			l.align = align;
+		l.align = std::max(l.align, align);
 		return at;
 	}
 
@@ -67,9 +66,7 @@ namespace rat::cc {
 		U32 unitBytes = typeSizeBytes(f.type);
 		if(unitBytes == 0)
 			unitBytes = 4;
-		U32 falign = typeAlignBytes(f.type);
-		if(memberAlign > falign)
-			falign = memberAlign;
+		U32 falign = std::max(typeAlignBytes(f.type), memberAlign);
 		U32 unitBits = unitBytes * 8;
 		U32 unitStart = 0;
 		if(isUnion) {
@@ -94,8 +91,7 @@ namespace rat::cc {
 			l.bitPos += (U32)w;
 			l.offset = (l.bitPos + 7) / 8;
 		}
-		if(falign > l.align)
-			l.align = falign;
+		l.align = std::max(l.align, falign);
 		return true;
 	}
 
@@ -142,9 +138,7 @@ namespace rat::cc {
 		U64 size = typeSizeBytes(ft);
 		if(isArr)
 			size *= count;
-		U32 falign = typeAlignBytes(ft);
-		if(r.align > falign)
-			falign = r.align;
+		U32 falign = std::max(typeAlignBytes(ft), r.align);
 		f.offset = placeMember(size, falign, isUnion, l);
 		st->fields.push_back(f);
 		return true;
@@ -225,9 +219,8 @@ namespace rat::cc {
 			st->align = declAlign;
 			st->size = alignUp(st->size, declAlign);
 		}
-		CType t;
-		t.strukt = st;
-		out = t;
+		out = CType{};
+		out.strukt = st;
 		return true;
 	}
 
@@ -261,9 +254,7 @@ namespace rat::cc {
 			I64 value = next;
 			if(accept(TokKind::Assign)) {
 				Expr* init = parseConditional();
-				if(!init)
-					return false;
-				if(!evalIntConst(init, value))
+				if(!init || !evalIntConst(init, value))
 					return false;
 			}
 			if(value < detail::kIntMin || value > detail::kIntMax)
@@ -301,10 +292,8 @@ namespace rat::cc {
 		} else if(const NamedType* const* seen = enumTags.get(tag)) {
 			e = *seen;
 		}
-		out = e ? e->type : ctInt();
+		out = e ? e->type : ctUnsigned(32);
 		out.named = e;
-		if(!e)
-			out.set(CType::Unsigned);
 		return true;
 	}
 } // namespace rat::cc
