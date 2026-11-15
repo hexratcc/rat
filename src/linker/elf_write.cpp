@@ -2,7 +2,6 @@
 
 #include "elf_file.h"
 
-#include <cstring>
 #include <fstream>
 #include <sys/stat.h>
 
@@ -321,17 +320,13 @@ namespace rat {
 		size[OGot] = (U64)gotSlots.size() * 8;
 		size[OGotPlt] = (U64)(3 + funcImports) * 8;
 
-		size[ODynstr] = 1;
+		// dynamicTable appends the lib and runpath names to dynstr
+		// 4 spare entries, size[ODynamic] is still 0 so no padding
+		List<U8> dynstr(1, 0);
+		size[ODynamic] = dynamicTable(dynstr, size[ORelaDyn]).size() + 4 * 16;
+		size[ODynstr] = dynstr.size();
 		for(const String& nm : importNames)
 			size[ODynstr] += nm.size() + 1;
-		for(const String& lib : neededLibs)
-			size[ODynstr] += lib.size() + 1;
-		if(!rpaths.empty())
-			size[ODynstr] += detail::joinColon(rpaths).size() + 1;
-
-		// only the entry count matters here, plus 4 spare entries. size[ODynamic] is still 0, so no padding
-		List<U8> scratchDynstr;
-		size[ODynamic] = dynamicTable(scratchDynstr, size[ORelaDyn]).size() + 4 * 16;
 	}
 
 	void Linker::place(OutSec s, U64 align, U64& cursor) {
@@ -402,10 +397,10 @@ namespace rat {
 		for(auto& [name, d] : globals) {
 			if(d.common) {
 				d.addr += vaddr[OBss];
-			} else if(d.defined && d.obj != 0xffffffffu) {
+			} else {
 				const InObject& obj = objs[d.obj];
 				const InSym& s = obj.syms[d.sym];
-				d.addr = placedAddr(obj.sections[s.shndx], s.value, d.isTls);
+				d.addr = placedAddr(obj.sections[s.shndx], s.value, s.type == STT_TLS);
 			}
 		}
 	}
@@ -427,9 +422,8 @@ namespace rat {
 		const InSection& rsec = obj.sections[r.secIdx];
 		U8* patch = &debugOuts[rsec.debugOut].bytes[rsec.outOff + r.offset];
 		U64 S = 0;
-		B32 isFunc = false, isTls = false;
 		U64 value = 0;
-		if(symbolTarget(obj, r.sym, S, isFunc, isTls))
+		if(symbolTarget(obj, r.sym, S))
 			value = (U64)((I64)S + r.addend);
 		else
 			err.clear();
@@ -453,43 +447,33 @@ namespace rat {
 		return vaddr[detail::kBucketSecs[sec.bucket]] + sec.outOff + value;
 	}
 
-	B32 Linker::symbolTarget(const InObject& obj, U32 symIdx, U64& addr, B32& isFunc, B32& isTls) {
+	B32 Linker::symbolTarget(const InObject& obj, U32 symIdx, U64& addr) {
 		const InSym& s = obj.syms[symIdx];
-		isTls = s.type == STT_TLS;
 		if(s.abs) {
 			addr = s.value;
-			isFunc = false;
 			return true;
 		}
 		if(!s.undef && s.bind == STB_LOCAL && !s.common) {
-			const InSection& sec = obj.sections[s.shndx];
-			addr = placedAddr(sec, s.value, isTls);
-			isFunc = s.type == STT_FUNC || s.type == STT_GNU_IFUNC;
+			addr = placedAddr(obj.sections[s.shndx], s.value, s.type == STT_TLS);
 			return true;
 		}
 		auto g = globals.find(s.name);
-		if(g != globals.end() && g->second.defined) {
+		if(g != globals.end()) {
 			addr = g->second.addr;
-			isFunc = g->second.isFunc;
-			isTls = g->second.isTls;
 			return true;
 		}
 		auto im = importIndex.find(s.name);
 		if(im != importIndex.end()) {
-			const Import& imp = imports[im->second];
-			addr = imp.addr;
-			isFunc = imp.kind == Import::Func;
+			addr = imports[im->second].addr;
 			return true;
 		}
 		auto ls = linkerSyms.find(s.name);
 		if(ls != linkerSyms.end()) {
 			addr = ls->second;
-			isFunc = false;
 			return true;
 		}
 		if(s.bind == STB_WEAK) {
 			addr = 0;
-			isFunc = false;
 			return true;
 		}
 		err = "unresolved symbol '" + s.name + "'";
@@ -519,8 +503,7 @@ namespace rat {
 		U8* patch = &merged[b][patchOff];
 		U64 P = vaddr[detail::kBucketSecs[b]] + patchOff;
 		U64 S = 0;
-		B32 isFunc = false, isTls = false;
-		if(!symbolTarget(obj, r.sym, S, isFunc, isTls))
+		if(!symbolTarget(obj, r.sym, S))
 			return false;
 		// wr keeps the low bytes, so wrapping unsigned math gives the signed results
 		U64 A = (U64)r.addend;
@@ -549,27 +532,24 @@ namespace rat {
 		case R_X86_64_SIZE64:
 			le::wr(patch, obj.syms[r.sym].size + A, 8);
 			break;
-		case R_X86_64_GOTPCREL:
-		case R_X86_64_GOTPCRELX:
-		case R_X86_64_REX_GOTPCRELX: {
-			U32 slot = gotIndex[gotKey(oi, r)];
-			if(!gotSlots[slot].isImport)
-				gotSlots[slot].addr = S; // defined, the slot holds the address
-			U64 gAddr = vaddr[OGot] + (U64)slot * 8;
-			le::wr(patch, gAddr + A - P, 4);
-			break;
-		}
 		case R_X86_64_TPOFF32:
 			// local-exec, neg offset from tp (end of tls block), S is block-relative
 			le::wr(patch, S + A - tlsSize, 4);
 			break;
+		case R_X86_64_GOTPCREL:
+		case R_X86_64_GOTPCRELX:
+		case R_X86_64_REX_GOTPCRELX:
 		case R_X86_64_GOTTPOFF: {
-			// initial-exec, got slot holds the local-exec offset, ref is pc-rel to slot
+			// pc-rel to its got slot, an initial-exec slot holds the local-exec offset
 			U32 slot = gotIndex[gotKey(oi, r)];
-			gotSlots[slot].addr = S - tlsSize;
-			gotSlots[slot].isImport = false;
-			U64 gAddr = vaddr[OGot] + (U64)slot * 8;
-			le::wr(patch, gAddr + A - P, 4);
+			GotSlot& g = gotSlots[slot];
+			if(r.type == R_X86_64_GOTTPOFF) {
+				g.addr = S - tlsSize;
+				g.isImport = false;
+			} else if(!g.isImport) {
+				g.addr = S;
+			}
+			le::wr(patch, vaddr[OGot] + (U64)slot * 8 + A - P, 4);
 			break;
 		}
 		default:
@@ -582,7 +562,7 @@ namespace rat {
 	// _start's lea to the entry and call to __libc_start_main
 	B32 Linker::patchStart() {
 		auto g = globals.find(opt.entry);
-		if(g == globals.end() || !g->second.defined) {
+		if(g == globals.end()) {
 			err = "entry symbol '" + opt.entry + "' is undefined";
 			return false;
 		}
@@ -664,10 +644,9 @@ namespace rat {
 		for(const Import& im : imports) {
 			if(im.kind != Import::Func)
 				continue;
-			U64 entry = vaddr[OPlt] + im.pltIndex * detail::kPltEntSize;
 			U64 gotSlot = vaddr[OGotPlt] + (3 + im.pltIndex) * 8;
 			plt.insert(plt.end(), {0xff, 0x25});
-			le::put32(plt, (U32)(gotSlot - (entry + 6)));
+			le::put32(plt, (U32)(gotSlot - (im.addr + 6)));
 			plt.insert(plt.end(), detail::kPltEntSize - 6, 0x90);
 			putRela(relaPlt, gotSlot, im.dynIndex, R_X86_64_JUMP_SLOT, 0);
 		}

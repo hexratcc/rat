@@ -7,13 +7,11 @@
 #include <mutex>
 
 namespace rat {
-	using CaseRunner = Delegate<B32(const String& path, String& err)>;
-
 	struct TestSuiteSpec {
-		const C8* tool;							// program name
-		const C8* extension;				// case file suffix
-		List<String> dirCandidates; // searched when no paths are given
-		CaseRunner run;							// executes a single case
+		const C8* tool;															 // program name
+		const C8* extension;												 // case file suffix
+		List<String> dirCandidates;									 // searched when no paths are given
+		B32 (*run)(const String& path, String& err); // executes a single case
 	};
 
 	namespace detail {

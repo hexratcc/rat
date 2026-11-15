@@ -11,6 +11,9 @@ namespace rat {
 		U8 classify(U32 type, U64 flags);
 		B32
 		parseShdrs(const List<U8>& img, List<elf::SectionHeader>& out, const U8*& shstr, String& err);
+		B32 readAt(std::ifstream& f, U64 offset, U64 n, List<U8>& out);
+		String probeHostLoader();
+		List<String> probeHostLibDirs();
 	} // namespace detail
 
 	enum Bucket {
@@ -102,17 +105,12 @@ namespace rat {
 
 	B32 readWhole(const String& path, List<U8>& out);
 
-	namespace detail {
-		B32 readAt(std::ifstream& f, U64 offset, U64 n, List<U8>& out);
-		String probeHostLoader();
-		List<String> probeHostLibDirs();
-	} // namespace detail
-
 	B32 loadObject(
 			List<U8> img, const String& path, InObject& obj, Set<String>& seenGroups, String& err);
 
 	U64 arMemberSize(const List<U8>& d, U64 hdrOff);
-	B32 parseArchive(const String& path, List<U8> bytes, ArchiveFile& ar, String& err);
+	// bytes start with the archive magic
+	ArchiveFile parseArchive(const String& path, List<U8> bytes);
 	B32 loadLibrary(const String& path, Lib& lib, String& err);
 	B32 findLibrary(const String& l, const List<String>& paths, String& found);
 

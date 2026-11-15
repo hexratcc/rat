@@ -15,10 +15,6 @@ namespace rat {
 	} // namespace detail
 
 	B32 Linker::loadInputs() {
-		if(opt.inputs.empty()) {
-			err = "no input objects";
-			return false;
-		}
 		Set<String> seenInputs;
 		for(const String& p : opt.inputs) {
 			// collapse repeated paths
@@ -30,10 +26,7 @@ namespace rat {
 				return false;
 			}
 			if(img.size() >= 8 && memcmp(img.data(), "!<arch>\n", 8) == 0) {
-				ArchiveFile ar;
-				if(!parseArchive(p, std::move(img), ar, err))
-					return false;
-				archives.push_back(std::move(ar));
+				archives.push_back(parseArchive(p, std::move(img)));
 				continue;
 			}
 			// positional shared object is a lib
@@ -131,30 +124,23 @@ namespace rat {
 				const InSym& s = obj.syms[si];
 				if(s.undef || s.bind == STB_LOCAL || s.abs)
 					continue;
-				Def& d = globals[s.name];
+				auto [it, fresh] = globals.try_emplace(s.name);
+				Def& d = it->second;
+				B32 realDef = !fresh && !d.common;
 				if(s.common) {
-					if(d.defined && !d.common)
+					if(realDef)
 						continue; // real def beats tentative
 					d.common = true;
-					d.defined = true;
 					d.comSize = std::max(d.comSize, s.size);
 					d.comAlign = std::max(d.comAlign, s.value);
-					d.isFunc = false;
 					continue;
 				}
-				B32 weak = s.bind == STB_WEAK;
-				if(d.defined && !d.common) {
-					// only a strong replaces an existing weak
-					B32 existingWeak = d.obj != 0xffffffffu && objs[d.obj].syms[d.sym].bind == STB_WEAK;
-					if(!(existingWeak && !weak))
-						continue;
-				}
+				// only a strong replaces an existing weak
+				if(realDef && (s.bind == STB_WEAK || objs[d.obj].syms[d.sym].bind != STB_WEAK))
+					continue;
 				d.common = false;
-				d.defined = true;
 				d.obj = oi;
 				d.sym = si;
-				d.isFunc = s.type == STT_FUNC || s.type == STT_GNU_IFUNC;
-				d.isTls = s.type == STT_TLS;
 			}
 		}
 	}
@@ -296,11 +282,7 @@ namespace rat {
 		rpaths = opt.rpaths;
 		if(rpaths.empty())
 			rpaths = hostLibDirs();
-		if(!loadInputs())
-			return false;
-		if(!pullArchives())
-			return false;
-		if(!loadLibraries())
+		if(!loadInputs() || !pullArchives() || !loadLibraries())
 			return false;
 		collectGlobals();
 		if(!resolveExternals())
@@ -315,19 +297,14 @@ namespace rat {
 	}
 
 	B32 link(const LinkOptions& opt, String& err) {
-		switch(opt.target) {
-		case LinkTarget::LinuxX64: {
-			Linker linker(opt);
-			if(linker.run())
-				return true;
-			err = linker.err;
-			return false;
-		}
-		case LinkTarget::WindowsX64:
+		if(opt.target == LinkTarget::WindowsX64) {
 			err = "Windows/x86-64 linking is not implemented yet";
 			return false;
 		}
-		err = "unknown link target";
+		Linker linker(opt);
+		if(linker.run())
+			return true;
+		err = linker.err;
 		return false;
 	}
 } // namespace rat

@@ -87,15 +87,12 @@ namespace rat {
 		U64 bucketSize[BucketCount] = {0};
 		U64 bucketAlign[BucketCount] = {0};
 
+		// a defined global, common or at objs[obj].syms[sym]
 		struct Def {
-			U32 obj = 0xffffffffu;
-			U32 sym = 0xffffffffu;
+			U32 obj = 0, sym = 0;
 			B32 common = false;
 			U64 comSize = 0, comAlign = 1;
 			U64 addr = 0;
-			B32 isFunc = false;
-			B32 isTls = false;
-			B32 defined = false;
 		};
 		Map<String, Def> globals;
 
@@ -158,7 +155,7 @@ namespace rat {
 		B32 patchStart();
 		void applyDebugReloc(const InObject& obj, const InRel& r);
 		U64 placedAddr(const InSection& sec, U64 value, B32 isTls) const;
-		B32 symbolTarget(const InObject& obj, U32 symIdx, U64& addr, B32& isFunc, B32& isTls);
+		B32 symbolTarget(const InObject& obj, U32 symIdx, U64& addr);
 
 		B32 write();
 		List<U8> dynsymTable(List<U8>& dynstr) const;

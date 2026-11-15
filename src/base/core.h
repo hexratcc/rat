@@ -61,7 +61,6 @@ namespace rat {
 	template <typename Key, typename Value> using Map = std::unordered_map<Key, Value>;
 	template <typename Type> using UniquePtr = std::unique_ptr<Type>;
 	template <typename First, typename Second> using Pair = std::pair<First, Second>;
-	template <typename Signature> using Delegate = std::function<Signature>;
 
 	// list of trivially copyable values, inline up to N, then on the heap with the inline storage
 	// holding the heap pointer
@@ -159,10 +158,8 @@ namespace rat {
 	inline I64 signExtend(I64 v, U32 w) {
 		if(w == 0 || w >= 64)
 			return v;
-		U64 mask = ((U64)1 << w) - 1;
-		U64 m = (U64)1 << (w - 1);
-		U64 x = (U64)v & mask;
-		return (I64)((x ^ m) - m);
+		U32 shift = 64 - w;
+		return (I64)((U64)v << shift) >> shift;
 	}
 
 	// a is a power of two
@@ -192,7 +189,7 @@ namespace rat {
 			void* mem = allocate(sizeof(T), alignof(T));
 			T* obj = ::new (mem) T(std::forward<Args>(args)...);
 			if constexpr(!std::is_trivially_destructible_v<T>)
-				registerDtor(obj, detail::destroy<T>);
+				dtors.push_back({obj, detail::destroy<T>});
 			return obj;
 		}
 
@@ -222,8 +219,6 @@ namespace rat {
 			cur = aligned + size;
 			return aligned;
 		}
-
-		void registerDtor(void* obj, void (*dtor)(void*)) { dtors.push_back({obj, dtor}); }
 
 		struct Dtor {
 			void* obj;

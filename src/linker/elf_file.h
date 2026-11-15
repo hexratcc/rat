@@ -51,7 +51,6 @@ namespace rat {
 		constexpr U8 STT_FUNC = 2;
 		constexpr U8 STT_SECTION = 3;
 		constexpr U8 STT_TLS = 6;
-		constexpr U8 STT_GNU_IFUNC = 10;
 		constexpr U16 SHN_UNDEF = 0;
 		constexpr U16 SHN_ABS = 0xfff1;
 		constexpr U16 SHN_COMMON = 0xfff2;
@@ -139,14 +138,12 @@ namespace rat {
 			le::put16(out, type);
 			le::put16(out, EM_X86_64);
 			le::put32(out, EV_CURRENT);
-			U64 phdrOffset = phnum ? 64 : 0; // right after this header
-			U16 phdrEntrySize = phnum ? 56 : 0;
 			le::put64(out, entry);
-			le::put64(out, phdrOffset);
-			le::put64(out, 0);	// e_shoff
-			le::put32(out, 0);	// e_flags
-			le::put16(out, 64); // e_ehsize
-			le::put16(out, phdrEntrySize);
+			le::put64(out, phnum ? 64 : 0); // e_phoff, right after this header
+			le::put64(out, 0);							// e_shoff
+			le::put32(out, 0);							// e_flags
+			le::put16(out, 64);							// e_ehsize
+			le::put16(out, phnum ? 56 : 0); // e_phentsize
 			le::put16(out, phnum);
 			le::put16(out, 64); // e_shentsize
 			le::put32(out, 0);	// e_shnum e_shstrndx

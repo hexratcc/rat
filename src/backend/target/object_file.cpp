@@ -23,14 +23,11 @@ namespace rat {
 	}
 
 	U32 ObjectFile::appendZero(Section sec, U32 len) {
-		if(sec == Bss) {
-			U32 off = bssSize;
+		U32 off = sectionSize(sec);
+		if(sec == Bss)
 			bssSize += len;
-			return off;
-		}
-		List<U8>& b = bytesOf(sec);
-		U32 off = (U32)b.size();
-		b.insert(b.end(), len, 0);
+		else
+			bytesOf(sec).resize(off + len);
 		return off;
 	}
 

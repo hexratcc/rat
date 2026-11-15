@@ -1,7 +1,6 @@
 #include "elf_read.h"
 
 #include <cstdlib>
-#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <sys/stat.h>
@@ -45,7 +44,6 @@ namespace rat {
 				err = "malformed section header table";
 				return false;
 			}
-			out.clear();
 			for(U16 i = 0; i < shnum; ++i) {
 				const U8* p = &img[shoff + (U64)i * 64];
 				SectionHeader s;
@@ -67,24 +65,7 @@ namespace rat {
 			shstr = &img[out[shstrndx].offset];
 			return true;
 		}
-	} // namespace detail
 
-	B32 readWhole(const String& path, List<U8>& out) {
-		std::ifstream f(path, std::ios::binary);
-		if(!f)
-			return false;
-		f.seekg(0, std::ios::end);
-		std::streamoff n = f.tellg();
-		if(n < 0)
-			return false;
-		f.seekg(0, std::ios::beg);
-		out.resize((U64)n);
-		if(n > 0)
-			f.read((C8*)out.data(), n);
-		return (B32)f.good() || f.eof();
-	}
-
-	namespace detail {
 		// n bytes at offset of f, false when the file is shorter
 		B32 readAt(std::ifstream& f, U64 offset, U64 n, List<U8>& out) {
 			f.seekg(0, std::ios::end);
@@ -97,6 +78,11 @@ namespace rat {
 			return !f.fail();
 		}
 	} // namespace detail
+
+	B32 readWhole(const String& path, List<U8>& out) {
+		std::ifstream f(path, std::ios::binary | std::ios::ate);
+		return f && detail::readAt(f, 0, (U64)f.tellg(), out);
+	}
 
 	B32 loadObject(
 			List<U8> img, const String& path, InObject& obj, Set<String>& seenGroups, String& err) {
@@ -203,21 +189,18 @@ namespace rat {
 		return (U64)strtoull(s.c_str(), nullptr, 10);
 	}
 
-	B32 parseArchive(const String& path, List<U8> bytes, ArchiveFile& ar, String& err) {
+	ArchiveFile parseArchive(const String& path, List<U8> bytes) {
+		ArchiveFile ar;
 		ar.path = path;
 		ar.data = std::move(bytes);
 		const List<U8>& d = ar.data;
-		if(d.size() < 8 || memcmp(d.data(), "!<arch>\n", 8) != 0) {
-			err = "not an archive '" + path + "'";
-			return false;
-		}
 		U64 o = 8;
 		while(o + 60 <= d.size()) {
 			C8 nm0 = (C8)d[o], nm1 = (C8)d[o + 1];
 			U64 sz = arMemberSize(d, o);
 			U64 dataOff = o + 60;
 			if(nm0 == '/' && nm1 == ' ') {
-				// sysv armap: BE count, BE offsets, NUL names
+				// sysv armap, BE count, BE offsets, NUL names
 				const U8* p = &d[dataOff];
 				U32 count = (U32)((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]);
 				const U8* offs = p + 4;
@@ -228,13 +211,12 @@ namespace rat {
 					U32 memOff = (U32)((q[0] << 24) | (q[1] << 16) | (q[2] << 8) | q[3]);
 					String nm = names + nameCursor;
 					nameCursor += nm.size() + 1;
-					if(!ar.index.count(nm))
-						ar.index.emplace(std::move(nm), memOff);
+					ar.index.try_emplace(std::move(nm), memOff); // first wins
 				}
 			}
 			o = alignUp(dataOff + sz, 2);
 		}
-		return true;
+		return ar;
 	}
 
 	B32 loadLibrary(const String& path, Lib& lib, String& err) {
@@ -320,7 +302,7 @@ namespace rat {
 					continue;
 				String path = line.substr(slash);
 				auto base = path.find_last_of('/');
-				if(base == String::npos || path.find(".so", base) == String::npos)
+				if(path.find(".so", base) == String::npos)
 					continue;
 				String dir = path.substr(0, base);
 				if(seen.insert(dir).second)
