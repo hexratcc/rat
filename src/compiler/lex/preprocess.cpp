@@ -2,9 +2,9 @@
 
 #include <ctime>
 #include <fstream>
-#include <sstream>
 
 #include "lex/preprocess_detail.h"
+#include "string.h"
 
 namespace rat::cc {
 	namespace detail {
@@ -54,11 +54,12 @@ namespace rat::cc {
 		};
 		// clang-format on
 
-		void Preprocessor::fail(const String& m) {
+		B32 Preprocessor::fail(const String& m) {
 			if(ok) {
 				ok = false;
 				err = m;
 			}
+			return false;
 		}
 
 		String Preprocessor::dirOf(const String& path) {
@@ -68,12 +69,7 @@ namespace rat::cc {
 
 		B32 Preprocessor::readFile(const String& path, String& content) {
 			std::ifstream f(path, std::ios::binary);
-			if(!f)
-				return false;
-			std::ostringstream ss;
-			ss << f.rdbuf();
-			content = ss.str();
-			return true;
+			return f && readAll(f, content);
 		}
 
 		B32 Preprocessor::includeName(PpSpan toks, String& fname, B32& angled) {
@@ -139,10 +135,8 @@ namespace rat::cc {
 		void Preprocessor::doInclude(PpSpan rest, const String& path, B32 next) {
 			B32 angled = false;
 			String fname;
-			B32 named = includeName(rest, fname, angled);
-			if(!named) // try macro expansion of the operand
-				named = includeName(expand(rest), fname, angled);
-			if(!named) {
+			// the operand as written, else macro-expanded
+			if(!includeName(rest, fname, angled) && !includeName(expand(rest), fname, angled)) {
 				fail("#include expects \"file\" or <file>");
 				return;
 			}
@@ -229,35 +223,28 @@ namespace rat::cc {
 			return out;
 		}
 
-		List<PpToken> Preprocessor::applyPragmaOperators(List<PpToken>& toks, const String& path) {
-			B32 any = false;
-			for(const PpToken& t : toks)
-				if(t.kind == Pk::Id && t.text == idPragma) {
-					any = true;
-					break;
-				}
-			if(!any)
-				return std::move(toks);
-			List<PpToken> out;
-			for(U64 i = 0; i < toks.size();) {
+		void Preprocessor::applyPragmaOperators(List<PpToken>& toks, const String& path) {
+			U64 kept = 0;
+			for(U64 i = 0; i < toks.size(); ++i) {
 				if(toks[i].kind == Pk::Id && toks[i].text == idPragma && i + 3 < toks.size() &&
 					 isPunct(toks[i + 1], "(") && toks[i + 2].kind == Pk::Str && isPunct(toks[i + 3], ")")) {
 					List<PpToken> body = lexFragment(destringize(*toks[i + 2].text), intern(path));
 					doPragma(PpSpan(body), path);
-					i += 4;
+					i += 3; // the loop steps past the last of the four tokens
 					continue;
 				}
-				out.push_back(std::move(toks[i]));
-				++i;
+				if(kept != i)
+					toks[kept] = toks[i];
+				++kept;
 			}
-			return out;
+			toks.resize(kept);
 		}
 
 		void Preprocessor::flush(PpSpan text) {
 			if(text.empty())
 				return;
 			List<PpToken> e = expand(text);
-			e = applyPragmaOperators(e, fileName);
+			applyPragmaOperators(e, fileName);
 			const String* file = intern(fileName);
 			for(PpToken& t : e) {
 				// report lines through any #line adjustment
@@ -269,7 +256,7 @@ namespace rat::cc {
 		}
 
 		B32 Preprocessor::condActive(const List<Cond>& stack) {
-			return stack.empty() ? true : stack.back().active;
+			return stack.empty() || stack.back().active;
 		}
 
 		void Preprocessor::pushCond(const String& name, PpSpan rest, List<Cond>& stack) {
@@ -397,22 +384,19 @@ namespace rat::cc {
 			fileName = savedFile;
 		}
 
-		void Preprocessor::defineFragment(const String& text, const C8* file) {
-			doDefine(lexFragment(text, intern(file)));
-		}
-
 		void Preprocessor::installBuiltins() {
 			static const List<String> stamps = stampDefs();
+			const String* builtin = intern("<builtin>");
 			for(const String& d : stamps)
-				defineFragment(d, "<builtin>");
+				doDefine(lexFragment(d, builtin));
 			for(const C8* d : kBuiltinDefs)
-				defineFragment(d, "<builtin>");
+				doDefine(lexFragment(d, builtin));
 		}
 
 		void Preprocessor::applyCommandLine() {
 			for(const String& d : opts.defines) {
 				U64 eq = d.find('=');
-				String left = eq == String::npos ? d : d.substr(0, eq);
+				String left = d.substr(0, eq);
 				String right = eq == String::npos ? String("1") : d.substr(eq + 1);
 				List<PpToken> all = lexFragment(left, intern("<command-line>"));
 				List<PpToken> rt = lexFragment(right, intern("<command-line>"));

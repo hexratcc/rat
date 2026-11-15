@@ -110,8 +110,7 @@ namespace rat::cc {
 
 		struct LexResult {
 			List<PpToken> toks;
-			B32 ok = true;
-			String err;
+			String err; // empty on success
 		};
 
 		struct PpLexer {
@@ -142,10 +141,8 @@ namespace rat::cc {
 		// macros
 		struct Macro {
 			B32 isFunc = false;
-			B32 variadic = false;
-			const String* vaName = nullptr; // interned; set when variadic
-			List<const String*> params;			// named parameters (excl variadic)
-			List<const String*> formals;		// params plus vaName when variadic
+			const String* vaName = nullptr; // interned, set when variadic
+			List<const String*> formals;		// named parameters, then vaName when variadic
 			List<PpToken> body;
 		};
 
@@ -162,17 +159,15 @@ namespace rat::cc {
 		I64 parseCharConst(const String& txt);
 		Val parseNumLit(const String& txt);
 
-		// #if expression evaluator
+		struct Preprocessor;
+
+		// #if expression evaluator, its first error goes to pp, even over an expansion error
 		struct Eval {
 			const List<PpToken>& t;
+			Preprocessor& pp;
 			U64 i = 0;
-			String& err;
 			B32 ok = true;
 			B32 live = true;
-
-			Eval(const List<PpToken>& toks, String& e)
-			: t(toks),
-				err(e) {}
 
 			const PpToken& cur() { return t[i]; }
 			B32 isOp(const C8* s) { return isPunct(cur(), s); }
@@ -240,7 +235,7 @@ namespace rat::cc {
 				return macros.count(name) || name == idLine || name == idFile;
 			}
 
-			void fail(const String& m);
+			B32 fail(const String& m); // keeps the first error, returns false
 
 			const String* intern(const String& s) { return interner.intern(s); }
 			const HideSet* internHide(List<const String*> names);
@@ -250,8 +245,7 @@ namespace rat::cc {
 			const HideSet* hideUnion(const HideSet* a, const HideSet* b);
 
 			// macro expansion
-			PpToken makeNum(U64 v);
-			PpToken makePunct(const String& s);
+			PpToken makeToken(Pk kind, const String& text);
 			List<PpToken> lexFragment(const String& text, const String* file);
 			void pasteInto(PpToken& dst, const PpToken& r);
 			PpToken stringize(const List<PpToken>& a, B32 spaceBefore);
@@ -278,7 +272,6 @@ namespace rat::cc {
 			B32 checkMacroBody(const Macro& m);
 			void doDefine(PpSpan toks);
 			void doUndef(PpSpan rest);
-			void defineFragment(const String& text, const C8* file);
 			static String dirOf(const String& path);
 			B32 readFile(const String& path, String& content);
 			B32 includeName(PpSpan toks, String& fname, B32& angled);
@@ -289,7 +282,7 @@ namespace rat::cc {
 			void pushPopMacro(PpSpan rest, B32 push);
 			void doPragma(PpSpan rest, const String& path);
 			String destringize(const String& lit);
-			List<PpToken> applyPragmaOperators(List<PpToken>& toks, const String& path);
+			void applyPragmaOperators(List<PpToken>& toks, const String& path);
 			void flush(PpSpan text);
 			static B32 condActive(const List<Cond>& stack);
 			void pushCond(const String& name, PpSpan rest, List<Cond>& stack);

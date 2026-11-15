@@ -38,10 +38,7 @@ namespace rat::cc {
 				} else if((c == 'l' || c == 'L') && !haveL) {
 					haveL = true;
 					// a long-long suffix must repeat the same letter
-					if(i + 1 < n && s[i + 1] == c)
-						i += 2;
-					else
-						++i;
+					i += (i + 1 < n && s[i + 1] == c) ? 2 : 1;
 				} else {
 					return false;
 				}
@@ -155,9 +152,7 @@ namespace rat::cc {
 			C8 c1 = charAt(s, n, i + 1);
 			B32 hex = charAt(s, n, i) == '0' && (c1 == 'x' || c1 == 'X');
 			B32 ok = hex ? scanHexNumber(s, n, i, isFloat, err) : scanDecNumber(s, n, i, isFloat, err);
-			if(!ok)
-				return false;
-			return scanSuffix(s, n, i, isFloat, kind, err);
+			return ok && scanSuffix(s, n, i, isFloat, kind, err);
 		}
 
 		B32 scanQuoted(const C8* s, U32 n, U32& i, C8 quote, const C8* unterminated, String& err) {

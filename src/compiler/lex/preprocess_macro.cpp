@@ -1,7 +1,5 @@
 #include "lex/preprocess_detail.h"
 
-#include <algorithm>
-
 #include "hash.h"
 
 namespace rat::cc {
@@ -34,19 +32,17 @@ namespace rat::cc {
 		}
 
 		const HideSet* Preprocessor::hideInsert(const HideSet* h, const String* n) {
+			if(!h)
+				return internHide({n});
+			const List<const String*>& hn = h->names;
+			auto pos = std::lower_bound(hn.begin(), hn.end(), n);
+			if(pos != hn.end() && *pos == n)
+				return h; // already present
 			List<const String*> names;
-			if(h) {
-				const List<const String*>& hn = h->names;
-				auto pos = std::lower_bound(hn.begin(), hn.end(), n);
-				if(pos != hn.end() && *pos == n)
-					return h; // already present
-				names.reserve(hn.size() + 1);
-				names.insert(names.end(), hn.begin(), pos);
-				names.push_back(n);
-				names.insert(names.end(), pos, hn.end());
-			} else {
-				names.push_back(n);
-			}
+			names.reserve(hn.size() + 1);
+			names.insert(names.end(), hn.begin(), pos);
+			names.push_back(n);
+			names.insert(names.end(), pos, hn.end());
 			return internHide(std::move(names));
 		}
 
@@ -79,17 +75,10 @@ namespace rat::cc {
 			return internHide(std::move(names));
 		}
 
-		PpToken Preprocessor::makeNum(U64 v) {
+		PpToken Preprocessor::makeToken(Pk kind, const String& text) {
 			PpToken t;
-			t.kind = Pk::Num;
-			t.text = intern(std::to_string(v));
-			return t;
-		}
-
-		PpToken Preprocessor::makePunct(const String& s) {
-			PpToken t;
-			t.kind = Pk::Punct;
-			t.text = intern(s);
+			t.kind = kind;
+			t.text = intern(text);
 			return t;
 		}
 
@@ -99,12 +88,12 @@ namespace rat::cc {
 			splice(text, spliced, marks);
 			PpLexer lx{spliced, marks, file, interner, {}};
 			LexResult lr = lx.run();
-			if(!lr.ok) {
+			if(!lr.err.empty()) {
 				fail((file ? *file : String("<fragment>")) + ": " + lr.err);
 				return {};
 			}
 			lr.toks.pop_back(); // drop Eof
-			return lr.toks;
+			return std::move(lr.toks);
 		}
 
 		void Preprocessor::pasteInto(PpToken& dst, const PpToken& r) {
@@ -140,9 +129,7 @@ namespace rat::cc {
 				}
 			}
 			s += '"';
-			PpToken out;
-			out.kind = Pk::Str;
-			out.text = intern(s);
+			PpToken out = makeToken(Pk::Str, s);
 			out.spaceBefore = spaceBefore;
 			return out;
 		}
@@ -203,7 +190,7 @@ namespace rat::cc {
 					I32 p = formalIndex(m, R.text);
 					if(p >= 0) {
 						// GNU comma elision
-						B32 commaVa = m.variadic && R.text == m.vaName && isPunct(os.back(), ",");
+						B32 commaVa = m.vaName && R.text == m.vaName && isPunct(os.back(), ",");
 						pasteArg(args[p], commaVa, os);
 					} else {
 						pasteInto(os.back(), R);
@@ -273,24 +260,20 @@ namespace rat::cc {
 			I32 depth = 1;
 			List<PpToken> cur;
 			for(;;) {
-				if(work.empty() || work.back().kind == Pk::Eof) {
-					fail("unterminated macro argument list");
-					return false;
-				}
+				if(work.empty() || work.back().kind == Pk::Eof)
+					return fail("unterminated macro argument list");
 				PpToken w = work.back();
 				work.pop_back();
-				if(isPunct(w, "(")) {
+				if(isPunct(w, "("))
 					++depth;
-					cur.push_back(w);
-				} else if(isPunct(w, ")")) {
+				else if(isPunct(w, ")"))
 					--depth;
-					if(depth == 0) {
-						rparen = w;
-						raw.push_back(std::move(cur));
-						return true;
-					}
-					cur.push_back(w);
-				} else if(isPunct(w, ",") && depth == 1) {
+				if(depth == 0) {
+					rparen = w;
+					raw.push_back(std::move(cur));
+					return true;
+				}
+				if(depth == 1 && isPunct(w, ",")) {
 					raw.push_back(std::move(cur));
 					cur.clear();
 				} else {
@@ -300,35 +283,25 @@ namespace rat::cc {
 		}
 
 		B32 Preprocessor::mapArgs(const Macro& m, const ArgLists& raw, ArgLists& actuals) {
-			U64 np = m.params.size();
-			if(!m.variadic) {
-				if(np == 0 && raw.size() == 1 && raw[0].empty())
+			if(!m.vaName) {
+				if(m.formals.empty() && raw.size() == 1 && raw[0].empty())
 					return true;
-				if(raw.size() != np) {
-					fail("macro invoked with wrong number of arguments");
-					return false;
-				}
+				if(raw.size() != m.formals.size())
+					return fail("macro invoked with wrong number of arguments");
 				actuals = raw;
 				return true;
 			}
-			if(np == 0 && raw.size() == 1 && raw[0].empty()) {
-				actuals.push_back({});
-				return true;
-			}
-			if(raw.size() < np) {
-				fail("macro invoked with too few arguments");
-				return false;
-			}
-			for(U64 k = 0; k < np; ++k)
-				actuals.push_back(raw[k]);
+			U64 np = m.formals.size() - 1; // the named ones
+			if(raw.size() < np)
+				return fail("macro invoked with too few arguments");
+			actuals.assign(raw.begin(), raw.begin() + np);
 			List<PpToken> va;
 			for(U64 j = np; j < raw.size(); ++j) {
 				if(j > np)
-					va.push_back(makePunct(","));
-				for(const PpToken& t : raw[j])
-					va.push_back(t);
+					va.push_back(makeToken(Pk::Punct, ","));
+				va.insert(va.end(), raw[j].begin(), raw[j].end());
 			}
-			actuals.push_back(va);
+			actuals.push_back(std::move(va));
 			return true;
 		}
 
@@ -356,8 +329,8 @@ namespace rat::cc {
 				PpToken n = at;
 				n.text = idAliasMark;
 				os.push_back(n);
-				PpToken lp = makePunct("(");
-				PpToken rp = makePunct(")");
+				PpToken lp = makeToken(Pk::Punct, "(");
+				PpToken rp = makeToken(Pk::Punct, ")");
 				lp.line = rp.line = at.line;
 				lp.col = rp.col = at.col;
 				os.push_back(lp);
@@ -378,18 +351,16 @@ namespace rat::cc {
 				t.col = invoker.col;
 			}
 			// push first result token last so it is read next
-			for(auto rit = r.rbegin(); rit != r.rend(); ++rit)
-				work.push_back(*rit);
+			work.insert(work.end(), r.rbegin(), r.rend());
 		}
 
 		B32 Preprocessor::expandBuiltinName(const PpToken& t, List<PpToken>& os) {
 			PpToken n;
 			if(t.text == idLine) {
-				n = makeNum((U64)((I64)t.line + lineDelta));
+				n = makeToken(Pk::Num, std::to_string((U64)((I64)t.line + lineDelta)));
 			} else if(t.text == idFile) {
 				String file = fileName.empty() ? (t.file ? *t.file : String()) : fileName;
-				n.kind = Pk::Str;
-				n.text = intern("\"" + file + "\"");
+				n = makeToken(Pk::Str, "\"" + file + "\"");
 			} else {
 				return false;
 			}
@@ -432,10 +403,7 @@ namespace rat::cc {
 		}
 
 		List<PpToken> Preprocessor::expand(PpSpan in) {
-			List<PpToken> work;
-			work.reserve(in.size());
-			for(U64 k = in.size(); k > 0; --k)
-				work.push_back(in[k - 1]);
+			List<PpToken> work(std::make_reverse_iterator(in.e), std::make_reverse_iterator(in.b));
 			List<PpToken> os;
 			os.reserve(in.size());
 			while(!work.empty()) {
@@ -502,7 +470,6 @@ namespace rat::cc {
 					continue;
 				}
 				if(isPunct(t, "...")) {
-					m.variadic = true;
 					m.vaName = idVaArgs;
 					++i;
 					break;
@@ -510,35 +477,28 @@ namespace rat::cc {
 				if(t.kind == Pk::Id && expectName) {
 					// GNU named variadic
 					if(i + 1 < toks.size() && isPunct(toks[i + 1], "...")) {
-						m.variadic = true;
 						m.vaName = t.text;
 						i += 2;
 						break;
 					}
-					m.params.push_back(t.text);
+					m.formals.push_back(t.text);
 					expectName = false;
 					++i;
 					continue;
 				}
-				fail("malformed macro parameter list");
-				return false;
+				return fail("malformed macro parameter list");
 			}
-			if(i >= toks.size() || !isPunct(toks[i], ")")) {
-				fail("missing ')' in macro parameter list");
-				return false;
-			}
+			if(i >= toks.size() || !isPunct(toks[i], ")"))
+				return fail("missing ')' in macro parameter list");
 			++i; // )
-			m.formals = m.params;
-			if(m.variadic)
+			if(m.vaName)
 				m.formals.push_back(m.vaName);
 			return true;
 		}
 
 		B32 Preprocessor::checkMacroBody(const Macro& m) {
-			if(!m.body.empty() && (isPunct(m.body.front(), "##") || isPunct(m.body.back(), "##"))) {
-				fail("'##' cannot appear at either end of a macro expansion");
-				return false;
-			}
+			if(!m.body.empty() && (isPunct(m.body.front(), "##") || isPunct(m.body.back(), "##")))
+				return fail("'##' cannot appear at either end of a macro expansion");
 			if(!m.isFunc)
 				return true;
 			for(U64 k = 0; k < m.body.size(); ++k) {
@@ -546,10 +506,8 @@ namespace rat::cc {
 					continue;
 				B32 okOperand = k + 1 < m.body.size() && m.body[k + 1].kind == Pk::Id &&
 												formalIndex(m, m.body[k + 1].text) >= 0;
-				if(!okOperand) {
-					fail("'#' is not followed by a macro parameter");
-					return false;
-				}
+				if(!okOperand)
+					return fail("'#' is not followed by a macro parameter");
 			}
 			return true;
 		}

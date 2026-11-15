@@ -2,8 +2,6 @@
 
 #include "lex/preprocess_detail.h"
 
-#include <algorithm>
-
 namespace rat::cc {
 	// kTokNames doubles as the keyword/punct spelling table
 	static_assert((U32)TokKind::KwAlignas + 1 == (U32)TokKind::LParen,

@@ -5,22 +5,20 @@ namespace rat::cc {
 		void Eval::fail(const String& m) {
 			if(ok) {
 				ok = false;
-				err = m;
+				pp.ok = false;
+				pp.err = m;
 			}
 		}
 
 		Val Eval::parsePrimary() {
 			const PpToken& c = cur();
 			if(c.kind == Pk::Num) {
-				Val v = parseNumLit(*c.text);
 				++i;
-				return v;
+				return parseNumLit(*c.text);
 			}
 			if(c.kind == Pk::Char) {
-				Val v;
-				v.u = (U64)parseCharConst(*c.text);
 				++i;
-				return v;
+				return Val{(U64)parseCharConst(*c.text), false};
 			}
 			if(isOp("(")) {
 				++i;
@@ -38,28 +36,18 @@ namespace rat::cc {
 		}
 
 		Val Eval::parseUnary() {
-			if(isOp("+")) {
-				++i;
-				return parseUnary();
-			}
-			if(isOp("-")) {
-				++i;
-				Val v = parseUnary();
+			if(!isOp("+") && !isOp("-") && !isOp("!") && !isOp("~"))
+				return parsePrimary();
+			C8 op = (*cur().text)[0];
+			++i;
+			Val v = parseUnary();
+			if(op == '-')
 				v.u = 0 - v.u; // unsigned wrap
-				return v;
-			}
-			if(isOp("!")) {
-				++i;
-				Val v = parseUnary();
-				return truthVal(!v.truth());
-			}
-			if(isOp("~")) {
-				++i;
-				Val v = parseUnary();
+			else if(op == '!')
+				v = truthVal(!v.truth());
+			else if(op == '~')
 				v.u = ~v.u;
-				return v;
-			}
-			return parsePrimary();
+			return v;
 		}
 
 		I32 Eval::prec(const String& op) {
@@ -190,23 +178,15 @@ namespace rat::cc {
 			while(i < n) {
 				const PpToken& t = in[i];
 				if(t.kind == Pk::Id && t.text == idDefined) {
-					const String* name = nullptr;
-					if(i + 1 < n && isPunct(in[i + 1], "(")) {
-						if(i + 3 < n && in[i + 2].kind == Pk::Id && isPunct(in[i + 3], ")")) {
-							name = in[i + 2].text;
-							i += 4;
-						} else {
-							fail("malformed 'defined' operator");
-							return r;
-						}
-					} else if(i + 1 < n && in[i + 1].kind == Pk::Id) {
-						name = in[i + 1].text;
-						i += 2;
-					} else {
+					B32 paren = i + 1 < n && isPunct(in[i + 1], "(");
+					U64 nameAt = paren ? i + 2 : i + 1;
+					B32 closed = !paren || (nameAt + 1 < n && isPunct(in[nameAt + 1], ")"));
+					if(nameAt >= n || in[nameAt].kind != Pk::Id || !closed) {
 						fail("malformed 'defined' operator");
 						return r;
 					}
-					r.push_back(makeNum(isDefined(name) ? 1 : 0));
+					r.push_back(makeToken(Pk::Num, isDefined(in[nameAt].text) ? "1" : "0"));
+					i = paren ? nameAt + 2 : nameAt + 1;
 					continue;
 				}
 				r.push_back(t);
@@ -222,19 +202,12 @@ namespace rat::cc {
 			e = expand(PpSpan(e));
 			for(PpToken& t : e)
 				if(t.kind == Pk::Id)
-					t = makeNum(0);
-			PpToken eof;
-			eof.kind = Pk::Eof;
-			e.push_back(eof);
-			if(e.size() == 1) {
-				fail("#if with no expression");
-				return false;
-			}
-			Eval ev(e, err);
-			Val v = ev.run();
-			if(!ev.ok)
-				ok = false;
-			return v.truth();
+					t = makeToken(Pk::Num, "0");
+			e.emplace_back(); // Eof
+			if(e.size() == 1)
+				return fail("#if with no expression");
+			Eval ev{e, *this};
+			return ev.run().truth();
 		}
 	} // namespace detail
 } // namespace rat::cc

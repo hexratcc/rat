@@ -2,9 +2,6 @@
 
 #include "lex/char_class.h"
 
-#include <algorithm>
-#include <cstring>
-
 #include "hash.h"
 
 namespace rat::cc {
@@ -270,7 +267,6 @@ namespace rat::cc {
 				++i;
 			}
 			if(i + 1 >= n) {
-				r.ok = false;
 				r.err = "unterminated comment";
 				return n;
 			}
@@ -338,7 +334,6 @@ namespace rat::cc {
 			if(c == '"' || c == '\'') {
 				U64 j = quotedEnd(i);
 				if(!j) {
-					r.ok = false;
 					r.err = "unterminated literal";
 					return n;
 				}
@@ -389,7 +384,7 @@ namespace rat::cc {
 				} else {
 					i = lexToken(i);
 				}
-				if(!r.ok)
+				if(!r.err.empty())
 					return std::move(r);
 			}
 
@@ -416,22 +411,19 @@ namespace rat::cc {
 			U8 simple = 0;
 			if(simpleEscape(e, simple))
 				return (I64)simple;
-			switch(e) {
-			case 'x': {
+			if(e == 'x') {
 				I64 v = 0;
 				while(i < txt.size() && isHexDigit(txt[i]))
 					v = v * 16 + hexVal(txt[i++]);
 				return v;
 			}
-			default:
-				if(isOctalDigit(e)) {
-					I64 v = e - '0';
-					for(U32 k = 0; k < 2 && i < txt.size() && isOctalDigit(txt[i]); ++k, ++i)
-						v = v * 8 + (txt[i] - '0');
-					return v;
-				}
-				return (I64)(U8)e;
+			if(isOctalDigit(e)) {
+				I64 v = e - '0';
+				for(U32 k = 0; k < 2 && i < txt.size() && isOctalDigit(txt[i]); ++k, ++i)
+					v = v * 8 + (txt[i] - '0');
+				return v;
 			}
+			return (I64)(U8)e;
 		}
 
 		Val parseNumLit(const String& txt) {
@@ -443,19 +435,16 @@ namespace rat::cc {
 				p = 2;
 			} else if(txt.size() >= 1 && txt[0] == '0') {
 				base = 8;
-				p = 1;
 			}
-			U64 acc = 0;
 			for(; p < txt.size(); ++p) {
 				I32 d = hexVal(txt[p]);
 				if(d < 0 || d >= base)
 					break;
-				acc = acc * (U64)base + (U64)d;
+				v.u = v.u * (U64)base + (U64)d;
 			}
 			for(; p < txt.size(); ++p)
 				if(txt[p] == 'u' || txt[p] == 'U')
 					v.isU = true;
-			v.u = acc;
 			return v;
 		}
 	} // namespace detail
