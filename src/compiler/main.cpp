@@ -1,6 +1,4 @@
 #include "builtin_headers.h"
-#include "compile.h"
-#include "host.h"
 #include "predef.h"
 
 #include "emit/emit.h"
@@ -44,7 +42,7 @@ namespace detail {
 		B32 noStdInc = false;	 // -nostdinc: skip builtin headers
 		B32 noPredefs = false; // -undef: skip predefs
 		U32 debugLevel = 0;
-		String targetSpec;
+		String targetSpec; // -target
 		PpOptions pp;
 	};
 
@@ -56,17 +54,48 @@ namespace detail {
 	// frontend phase times, printed with -ftime-passes
 	static F64 gReadMs = 0, gPpMs = 0;
 
-	List<UniquePtr<Pass>> buildOptPasses(const Options& opt) {
-		B32 useDefault = opt.passSpec.empty() && opt.optLevel >= 1;
+	TargetTriple defaultTriple() {
+		TargetTriple t;
+#if defined(_WIN32)
+		t.os = OS::Windows; // native builds default to the host platform
+#endif
+		const C8* env = std::getenv("RATCC_TARGET");
+		if(env && *env) {
+			String err;
+			if(!TargetTriple::parse(env, t, err))
+				std::cerr << "ratcc: ignoring RATCC_TARGET: " << err << "\n";
+		}
+		return t;
+	}
+
+	// RATCC_TARGET is read on first use, -target overrides it
+	TargetTriple& targetTriple() {
+		static TargetTriple triple = defaultTriple();
+		return triple;
+	}
+
+	// opt passes, then the x86 machine pipeline, -fmachine-passes replaces the default one
+	void addPasses(PassManager& pm, const Options& opt, std::ostream& out) {
+		B32 optimize = opt.optLevel >= 1;
+		B32 useDefault = opt.passSpec.empty() && optimize;
 		List<String> names = useDefault ? defaultOptPipeline() : splitTokens(opt.passSpec);
 		names.insert(names.end(), opt.extraPasses.begin(), opt.extraPasses.end());
-		List<UniquePtr<Pass>> passes;
-		for(const String& name : names) {
-			passes.push_back(createPass(name, std::cerr));
-			if(!passes.back())
+		for(const String& name : names)
+			if(!pm.add(createPass(name, std::cerr)))
 				cli::die(kTool, "unknown pass '" + name + "' (see -list-passes)");
+		List<String> machineNames = splitTokens(opt.machineSpec);
+		for(const String& name : machineNames)
+			if(!pm.add(createMachinePass(name, out)))
+				cli::die(kTool, "unknown machine pass '" + name + "' (see -list-passes)");
+		if(!machineNames.empty())
+			return;
+		pm.add<X86LowerPass>();
+		pm.add<RegAllocPass>(!optimize);
+		if(optimize) {
+			pm.add<X86PeepholePass>();
+			pm.add<X86LayoutPass>();
 		}
-		return passes;
+		pm.add<X86EncodePass>(out);
 	}
 
 	const String kEmitNames[] = {"tok", "ast", "x86"}; // Emit order
@@ -201,7 +230,7 @@ namespace detail {
 
 	TransUnit* parse(TokenStream& ts, Arena& arena) {
 		ts.reset();
-		Parser parser(ts, arena, TargetLayout::forTriple(hostTargetTriple()));
+		Parser parser(ts, arena, TargetLayout::forTriple(targetTriple()));
 		TransUnit* unit = parser.parseUnit();
 		if(!unit)
 			std::cerr << parser.error() << "\n";
@@ -218,7 +247,7 @@ namespace detail {
 	}
 
 	I32 emitViaModule(const Options& opt, TokenStream& ts, std::ostream& os) {
-		X86Target target(hostTargetTriple());
+		X86Target target(targetTriple());
 
 		Arena& arena = *new Arena;
 		PhaseClock::time_point t0 = PhaseClock::now();
@@ -228,7 +257,7 @@ namespace detail {
 			return 1;
 
 		Module& mod = *new Module;
-		Emitter emitter(mod, TargetLayout::forTriple(hostTargetTriple()));
+		Emitter emitter(mod, TargetLayout::forTriple(targetTriple()));
 		if(opt.debugLevel)
 			emitter.enableDebug(ts, opt.debugLevel > 1 && opt.optLevel == 0, opt.debugLevel > 1);
 		t0 = PhaseClock::now();
@@ -242,17 +271,8 @@ namespace detail {
 			std::cerr << "frontend: read " << gReadMs << "ms, preprocess+tokens " << gPpMs << "ms, parse "
 								<< parseMs << "ms, ast-to-ir " << emitMs << "ms\n";
 
-		CompileOptions copt;
-		copt.optPasses = buildOptPasses(opt);
-		copt.optimize = opt.optLevel >= 1;
-		for(const String& name : splitTokens(opt.machineSpec)) {
-			copt.machinePasses.push_back(createMachinePass(name, os));
-			if(!copt.machinePasses.back())
-				cli::die(kTool, "unknown machine pass '" + name + "' (see -list-passes)");
-		}
-
 		PassManager& pm = *new PassManager(target);
-		composePipeline(pm, copt, os);
+		addPasses(pm, opt, os);
 		pm.run(mod);
 		if(opt.passStats)
 			pm.printStats(mod, std::cerr);
@@ -281,7 +301,7 @@ static I32 run(I32 argc, C8** argv) {
 		String err;
 		if(!TargetTriple::parse(opt.targetSpec, triple, err))
 			return cli::error(::detail::kTool, err);
-		setHostTargetTriple(triple);
+		::detail::targetTriple() = triple;
 	}
 
 	String source;
@@ -294,7 +314,7 @@ static I32 run(I32 argc, C8** argv) {
 	if(!opt.noStdInc)
 		opt.pp.includeDirs.push_back(builtinIncludeDir());
 	if(!opt.noPredefs)
-		source = builtinPredefs(hostTargetTriple()) + "#line 1 \"" + path + "\"\n" + source;
+		source = builtinPredefs(::detail::targetTriple()) + "#line 1 \"" + path + "\"\n" + source;
 
 	// only -E needs serialized text; every -emit kind runs off the pp token stream
 	B32 needText = opt.preprocessOnly, needToks = !opt.emits.empty();
