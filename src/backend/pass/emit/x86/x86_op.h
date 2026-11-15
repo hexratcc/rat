@@ -31,17 +31,12 @@ namespace rat {
 																	28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40};
 		static_assert(std::size(kDwarfRegs) == X86Target::kStBase + 8, "one per PhysReg");
 
-		constexpr U8 kAluAdd = 0x01;
-		constexpr U8 kAluSub = 0x29;
-		constexpr U8 kAluAnd = 0x21;
-		constexpr U8 kAluOr = 0x09;
-		constexpr U8 kAluXor = 0x31;
-
 		constexpr U8 kIntCc[] = {CC_E, CC_NE, CC_L, CC_LE, CC_B, CC_BE};
 		// FEq..FGe -> condition code / operand swap (swap keeps lt/le NaN-correct)
 		constexpr U8 kFpCc[] = {CC_E, CC_NE, CC_A, CC_AE, CC_A, CC_AE};
 		constexpr U8 kFpSwap[] = {0, 0, 1, 1, 0, 0};
 
+		// FAdd..FDiv -> sse opcode, scalar and packed
 		constexpr U8 kSseOp[] = {0x58, 0x5c, 0x59, 0x5e};
 
 		// VArith desc bit, set when imm2 holds an imm8 that follows the modrm

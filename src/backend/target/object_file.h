@@ -40,7 +40,7 @@ namespace rat {
 			SectionCount
 		};
 
-		explicit ObjectFile(ObjectFormat fmt = ObjectFormat::Elf);
+		explicit ObjectFile(ObjectFormat fmt);
 
 		U32 append(Section sec, const U8* bytes, U32 len);
 		U32 appendZero(Section sec, U32 len);

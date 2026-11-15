@@ -157,8 +157,7 @@ namespace rat {
 		I64 addend;
 	};
 
-	// x86-64 instruction encoder: appends machine bytes to code and reloc records to relocs.
-	// definitions in x86_asm.cpp
+	// x86-64 instruction encoder, appends machine bytes to code and reloc records to relocs
 	struct Asm {
 		List<U8>& code;
 		List<AsmReloc>& relocs;
@@ -181,6 +180,10 @@ namespace rat {
 		void rex(B32 w, U32 r, U32 x, U32 rm); // omit the prefix when it would be a bare 0x40
 		void rexForce(B32 w, U32 r, U32 x, U32 rm);
 		void modrmReg(U32 reg, U32 rm);
+		// one-byte op with a register modrm
+		void opRR(B32 w, U8 op, U32 reg, U32 rm);
+		// 0x0f escaped op with a register modrm
+		void op0fRR(B32 w, U8 op, U32 reg, U32 rm);
 		void modrmMem(U32 reg, U32 base, I32 disp);
 		// [base + index*(1<<scaleLog2) + disp]
 		void modrmMemSib(U32 reg, U32 base, U32 index, U32 scaleLog2, I32 disp);
@@ -249,7 +252,6 @@ namespace rat {
 		// dst += [base + disp]  (64-bit)
 		void addRegMem(Reg dst, Reg base, I32 disp);
 
-		void unaryF7W(U8 ext, Reg r, B32 wide);
 		void negReg(Reg r);
 		void notReg(Reg r);
 		void idivRegW(Reg r, B32 wide);
@@ -292,17 +294,13 @@ namespace rat {
 		// movsxd dst, dword [base + index*4]
 		void movsxdSib4(Reg dst, Reg base, Reg index);
 		void addRR(Reg dst, Reg src);
-		// 0xff /ext indirect through a register (jmp=4, call=2)
-		void indirectFF(U8 ext, Reg r);
 		void jmpReg(Reg r);
 		void callReg(Reg r);
 		// or dword [rsp], 0
 		void probeRsp();
 
 		static U8 ssePrefixByte(U32 width);
-		void movXmm(U8 op, U32 xmm, Reg base, I32 disp, U32 width);
-		// movss/movsd, op 0x10 = load, 0x11 = store
-		void movXmmSib(U8 op, U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width);
+		// movss, movsd or movups by width
 		void loadXmm(U32 xmm, Reg base, I32 disp, U32 width);
 		void storeXmm(U32 xmm, Reg base, I32 disp, U32 width);
 		void storeXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width);

@@ -308,15 +308,11 @@ namespace rat {
 				break;
 			default: return;
 			}
-		} else {
+		} else if(op >= Opcode::FAdd) {
 			pfx = esz == 8 ? 0x66 : 0; // addpd... vs addps...
-			switch(op) {
-			case Opcode::FAdd: opc = 0x58; break;
-			case Opcode::FSub: opc = 0x5c; break;
-			case Opcode::FMul: opc = 0x59; break;
-			case Opcode::FDiv: opc = 0x5e; break;
-			default: return;
-			}
+			opc = detail::kSseOp[(U32)op - (U32)Opcode::FAdd];
+		} else {
+			return;
 		}
 		// clang-format on
 		VReg lhs = sseValue(n->getLHS());

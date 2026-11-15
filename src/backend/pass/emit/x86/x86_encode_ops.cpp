@@ -272,11 +272,8 @@ namespace rat {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& s = in.uses[0];
 		U32 dst = (in.regClass == detail::kGp) ? (U32)gpOf(d) : xmmOf(d);
-		// src is xmm for fp->fp and xmm->gp (FPToSI/UI); gp only for gp->xmm (SIToFP/UIToFP)
-		U32 srcReg = (U32)gpOf(s);
-		if(in.regClass == detail::kGp || X86Target::isXmm(s.phys))
-			srcReg = xmmOf(s);
-		a->cvtRR(pfx, opc, w, dst, srcReg);
+		U32 src = X86Target::isXmm(s.phys) ? xmmOf(s) : (U32)gpOf(s); // gp only for int -> fp
+		a->cvtRR(pfx, opc, w, dst, src);
 	}
 
 	void X86EncodePass::fldSlot(const MachineOperand& o) { a->fldT(RBP, o.slot); }

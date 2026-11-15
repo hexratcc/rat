@@ -1,6 +1,5 @@
 #include "target/object_file.h"
 
-#include <algorithm>
 #include <ostream>
 
 namespace rat {
@@ -20,12 +19,11 @@ namespace rat {
 														List<U32>& remap,
 														const List<U32>& shIndex) const {
 		List<U32> order;
-		order.push_back(0);
-		for(U32 i = 1; i < syms.size(); ++i)
+		for(U32 i = 0; i < syms.size(); ++i)
 			if(!syms[i].global)
 				order.push_back(i);
 		U32 firstGlobal = (U32)order.size();
-		for(U32 i = 1; i < syms.size(); ++i)
+		for(U32 i = 0; i < syms.size(); ++i)
 			if(syms[i].global)
 				order.push_back(i);
 
@@ -33,28 +31,25 @@ namespace rat {
 		for(U32 i = 0; i < order.size(); ++i)
 			remap[order[i]] = i;
 
-		strtab.push_back(0);
 		List<U32> nameOff(syms.size(), 0);
-		for(U32 i = 1; i < syms.size(); ++i)
+		for(U32 i = 0; i < syms.size(); ++i)
 			nameOff[i] = elf::appendName(strtab, syms[i].name);
 
-		for(U32 i = 0; i < order.size(); ++i) {
-			U32 oi = order[i];
+		for(U32 oi : order) {
 			const Sym& s = syms[oi];
-			B32 placed = i != 0 && s.defined;
-			U8 bind = (i != 0 && s.global) ? elf::STB_GLOBAL : elf::STB_LOCAL;
+			U8 bind = s.global ? elf::STB_GLOBAL : elf::STB_LOCAL;
 			U8 type = elf::STT_NOTYPE;
-			if(placed && s.isSection)
+			if(s.defined && s.isSection)
 				type = elf::STT_SECTION;
-			else if(placed)
+			else if(s.defined)
 				type = s.isFunc ? elf::STT_FUNC : elf::STT_OBJECT;
-			U16 shndx = !placed ? elf::SHN_UNDEF : (U16)shIndex[s.sec];
+			U16 shndx = s.defined ? (U16)shIndex[s.sec] : elf::SHN_UNDEF;
 
-			le::put32(symtab, i == 0 ? 0u : nameOff[oi]);				// st_name
+			le::put32(symtab, nameOff[oi]);											// st_name
 			le::put8(symtab, (U8)((bind << 4) | (type & 0xf))); // st_info
 			le::put8(symtab, 0);																// st_other
 			le::put16(symtab, shndx);														// st_shndx
-			le::put64(symtab, placed ? s.offset : 0u);					// st_value
+			le::put64(symtab, s.defined ? s.offset : 0u);				// st_value
 			le::put64(symtab, 0);																// st_size
 		}
 		return firstGlobal;

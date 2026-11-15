@@ -54,7 +54,7 @@ namespace rat {
 		RegClass gpRegClass(const X86CallConv& conv);
 		RegClass fpRegClass(const X86CallConv& conv);
 		RegClass x87RegClass();
-		RegisterInfo buildX86Registers(const X86CallConv& conv);
+		RegisterInfo buildX86Registers(OS os);
 	} // namespace detail
 
 	struct RegAllocHooks {
@@ -93,7 +93,7 @@ namespace rat {
 
 		explicit X86Target(const TargetTriple& t)
 		: triple(t),
-			info(build(t.os)) {}
+			info(detail::buildX86Registers(t.os)) {}
 
 		const TargetTriple& getTriple() const override { return triple; }
 
@@ -104,8 +104,6 @@ namespace rat {
 		// classify a physical register by its encoding range.
 		static B32 isXmm(PhysReg p) { return p >= kXmmBase && p < kStBase; }
 	private:
-		static RegisterInfo build(OS os);
-
 		TargetTriple triple;
 		RegisterInfo info;
 	};

@@ -45,7 +45,8 @@ namespace rat {
 			return c;
 		}
 
-		RegisterInfo buildX86Registers(const X86CallConv& conv) {
+		RegisterInfo buildX86Registers(OS os) {
+			const X86CallConv& conv = x86CallConv(os);
 			RegisterInfo info;
 			info.classes = {gpRegClass(conv), fpRegClass(conv), x87RegClass()};
 			return info;
@@ -64,12 +65,11 @@ namespace rat {
 		String archs = spec.substr(0, dash);
 		String oss = spec.substr(dash + 1);
 
-		if(archs == "x86_64" || archs == "x86-64" || archs == "amd64") {
-			out.arch = Arch::X86_64;
-		} else {
+		if(archs != "x86_64" && archs != "x86-64" && archs != "amd64") {
 			err = "unknown architecture '" + archs + "'";
 			return false;
 		}
+		out.arch = Arch::X86_64;
 		if(oss == "linux" || oss == "gnu" || oss == "linux-gnu") {
 			out.os = OS::Linux;
 		} else if(oss == "windows" || oss == "win32") {
@@ -87,6 +87,4 @@ namespace rat {
 	}
 
 	RegAllocHooks TargetInfo::regAllocHooks() const { return {}; }
-
-	RegisterInfo X86Target::build(OS os) { return detail::buildX86Registers(x86CallConv(os)); }
 } // namespace rat

@@ -3,7 +3,7 @@
 namespace rat {
 	ObjectFile::ObjectFile(ObjectFormat fmt)
 	: format(fmt) {
-		syms.push_back({"", Text, 0, true, false, false});
+		syms.push_back({"", Text, 0, false, false, false});
 	}
 
 	List<U8>& ObjectFile::bytesOf(Section sec) {

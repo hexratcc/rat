@@ -3,11 +3,7 @@
 #include "byte_io.h"
 
 namespace rat {
-	const X86CallConv& x86CallConv(OS os) {
-		if(os == OS::Windows)
-			return abi::kWin64;
-		return abi::kSysV;
-	}
+	const X86CallConv& x86CallConv(OS os) { return os == OS::Windows ? abi::kWin64 : abi::kSysV; }
 
 	X86ArgAssigner::Loc X86ArgAssigner::next(Kind k) {
 		if(k == Kind::X87)
@@ -81,6 +77,19 @@ namespace rat {
 
 	void Asm::modrmReg(U32 reg, U32 rm) { b((U8)(0xc0 | ((reg & 7) << 3) | (rm & 7))); }
 
+	void Asm::opRR(B32 w, U8 op, U32 reg, U32 rm) {
+		rex(w, reg, 0, rm);
+		b(op);
+		modrmReg(reg, rm);
+	}
+
+	void Asm::op0fRR(B32 w, U8 op, U32 reg, U32 rm) {
+		rex(w, reg, 0, rm);
+		b(0x0f);
+		b(op);
+		modrmReg(reg, rm);
+	}
+
 	// mod=00 carries no displacement, but base=101 means rip / no-base there, so
 	// rbp and r13 always need at least a disp8
 	U32 Asm::memMod(U32 base, I32 disp) {
@@ -153,19 +162,11 @@ namespace rat {
 		d64(imm);
 	}
 
-	void Asm::movRR32(Reg dst, Reg src) {
-		rex(false, src, 0, dst);
-		b(0x89);
-		modrmReg(src, dst);
-	}
+	void Asm::movRR32(Reg dst, Reg src) { opRR(false, 0x89, src, dst); }
 
 	void Asm::movRR(Reg dst, Reg src) { aluRR(0x89, dst, src); }
 
-	void Asm::movsxd32(Reg dst, Reg src) {
-		rex(true, dst, 0, src);
-		b(0x63);
-		modrmReg(dst, src);
-	}
+	void Asm::movsxd32(Reg dst, Reg src) { opRR(true, 0x63, dst, src); }
 
 	void Asm::storeMem(Reg base, I32 disp, Reg src, U32 width) {
 		U8 opc = width == 1 ? 0x88 : 0x89;
@@ -219,23 +220,14 @@ namespace rat {
 		memOp(0, (U8)(flags | kMemSib), opcode, dst, base, disp, index, scaleLog2);
 	}
 
-	void Asm::aluRR(U8 op, Reg dst, Reg src) {
-		rex(true, src, 0, dst);
-		b(op);
-		modrmReg(src, dst);
-	}
+	void Asm::aluRR(U8 op, Reg dst, Reg src) { opRR(true, op, src, dst); }
 	void Asm::subRR(Reg d, Reg s) { aluRR(0x29, d, s); }
 	void Asm::andRR(Reg d, Reg s) { aluRR(0x21, d, s); }
 	void Asm::orRR(Reg d, Reg s) { aluRR(0x09, d, s); }
 	void Asm::cmpRR(Reg d, Reg s) { aluRR(0x39, d, s); }
 	void Asm::testRR(Reg d, Reg s) { aluRR(0x85, d, s); }
 
-	void Asm::imulRR(Reg d, Reg s) {
-		rex(true, d, 0, s);
-		b(0x0f);
-		b(0xaf);
-		modrmReg(d, s);
-	}
+	void Asm::imulRR(Reg d, Reg s) { op0fRR(true, 0xaf, d, s); }
 
 	void Asm::opImm(U8 op8, U8 op32, U32 reg, U32 rm, I32 imm) {
 		B32 short8 = imm >= -128 && imm <= 127;
@@ -267,23 +259,16 @@ namespace rat {
 	}
 
 	void Asm::movRegImmSext32(Reg r, I32 imm) {
-		rex(true, 0, 0, r);
-		b(0xc7);
-		modrmReg(0, r);
+		opRR(true, 0xc7, 0, r);
 		d32((U32)imm);
 	}
 
 	void Asm::addRegMem(Reg dst, Reg base, I32 disp) { memOp(0, kMemW, 0x03, dst, base, disp); }
 
-	void Asm::unaryF7W(U8 ext, Reg r, B32 wide) {
-		rex(wide, 0, 0, r);
-		b(0xf7);
-		modrmReg(ext, r);
-	}
-	void Asm::negReg(Reg r) { unaryF7W(3, r, true); }
-	void Asm::notReg(Reg r) { unaryF7W(2, r, true); }
-	void Asm::idivRegW(Reg r, B32 wide) { unaryF7W(7, r, wide); }
-	void Asm::divRegW(Reg r, B32 wide) { unaryF7W(6, r, wide); }
+	void Asm::negReg(Reg r) { opRR(true, 0xf7, 3, r); }
+	void Asm::notReg(Reg r) { opRR(true, 0xf7, 2, r); }
+	void Asm::idivRegW(Reg r, B32 wide) { opRR(wide, 0xf7, 7, r); }
+	void Asm::divRegW(Reg r, B32 wide) { opRR(wide, 0xf7, 6, r); }
 	void Asm::cqoW(B32 wide) {
 		if(wide)
 			rex(true, 0, 0, 0);
@@ -291,43 +276,25 @@ namespace rat {
 	}
 	void Asm::xorSelf(Reg r) { aluRR(0x31, r, r); }
 
-	void Asm::shiftCL(U8 ext, Reg r) {
-		rex(true, 0, 0, r);
-		b(0xd3);
-		modrmReg(ext, r);
-	}
+	void Asm::shiftCL(U8 ext, Reg r) { opRR(true, 0xd3, ext, r); }
 
 	void Asm::rotImm(U8 ext, Reg r, U8 cnt, B32 wide) {
-		rex(wide, 0, 0, r);
-		b(0xc1);
-		modrmReg(ext, r);
+		opRR(wide, 0xc1, ext, r);
 		b(cnt);
 	}
 
 	void Asm::shiftImm(U8 ext, Reg r, U8 cnt) { rotImm(ext, r, cnt, true); }
 
-	void Asm::cmovcc(U8 cc, Reg dst, Reg src) {
-		rex(true, dst, 0, src);
-		b(0x0f);
-		b((U8)(0x40 + cc));
-		modrmReg(dst, src);
-	}
+	void Asm::cmovcc(U8 cc, Reg dst, Reg src) { op0fRR(true, (U8)(0x40 + cc), dst, src); }
 
 	void Asm::setcc(U8 cc, Reg r) {
 		if(r >= RSP && r <= RDI)
-			rexForce(false, 0, 0, r);
-		else
-			rex(false, 0, 0, r);
-		b(0x0f);
-		b((U8)(0x90 + cc));
-		b((U8)(0xc0 | (r & 7)));
+			rexForce(false, 0, 0, r); // spl..dil need the bare 0x40 that rex() omits
+		op0fRR(false, (U8)(0x90 + cc), 0, r);
 	}
 
 	void Asm::bitScan(B32 reverse, Reg dst, Reg src, B32 wide) {
-		rex(wide, dst, 0, src);
-		b(0x0f);
-		b((U8)(reverse ? 0xbd : 0xbc));
-		modrmReg(dst, src);
+		op0fRR(wide, reverse ? 0xbd : 0xbc, dst, src);
 	}
 
 	void Asm::bswap(Reg r, B32 wide) {
@@ -349,12 +316,7 @@ namespace rat {
 		b(0xa5);
 	}
 
-	void Asm::movzxByte(Reg dst, Reg src) {
-		rex(true, dst, 0, src);
-		b(0x0f);
-		b(0xb6);
-		modrmReg(dst, src);
-	}
+	void Asm::movzxByte(Reg dst, Reg src) { op0fRR(true, 0xb6, dst, src); }
 
 	void Asm::leaMem(Reg dst, Reg base, I32 disp) { memOp(0, kMemW, 0x8d, dst, base, disp); }
 
@@ -410,13 +372,8 @@ namespace rat {
 
 	void Asm::addRR(Reg dst, Reg src) { aluRR(0x01, dst, src); }
 
-	void Asm::indirectFF(U8 ext, Reg r) {
-		rex(false, 0, 0, r);
-		b(0xff);
-		modrmReg(ext, r);
-	}
-	void Asm::jmpReg(Reg r) { indirectFF(4, r); }
-	void Asm::callReg(Reg r) { indirectFF(2, r); }
+	void Asm::jmpReg(Reg r) { opRR(false, 0xff, 4, r); }
+	void Asm::callReg(Reg r) { opRR(false, 0xff, 2, r); }
 
 	void Asm::probeRsp() {
 		b(0x83);
@@ -426,23 +383,17 @@ namespace rat {
 	}
 
 	U8 Asm::ssePrefixByte(U32 width) { return width == 16 ? 0 : width == 4 ? 0xf3 : 0xf2; }
-	void Asm::movXmm(U8 op, U32 xmm, Reg base, I32 disp, U32 width) {
-		memOp(ssePrefixByte(width), kMemEsc, op, xmm, base, disp);
-	}
-	void Asm::movXmmSib(U8 op, U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width) {
-		memOp(ssePrefixByte(width), kMemEsc | kMemSib, op, xmm, base, disp, index, scaleLog2);
-	}
 	void Asm::loadXmm(U32 xmm, Reg base, I32 disp, U32 width) {
-		movXmm(0x10, xmm, base, disp, width);
+		memOp(ssePrefixByte(width), kMemEsc, 0x10, xmm, base, disp);
 	}
 	void Asm::storeXmm(U32 xmm, Reg base, I32 disp, U32 width) {
-		movXmm(0x11, xmm, base, disp, width);
+		memOp(ssePrefixByte(width), kMemEsc, 0x11, xmm, base, disp);
 	}
 	void Asm::storeXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width) {
-		movXmmSib(0x11, xmm, base, index, scaleLog2, disp, width);
+		memOp(ssePrefixByte(width), kMemEsc | kMemSib, 0x11, xmm, base, disp, index, scaleLog2);
 	}
 	void Asm::loadXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width) {
-		movXmmSib(0x10, xmm, base, index, scaleLog2, disp, width);
+		memOp(ssePrefixByte(width), kMemEsc | kMemSib, 0x10, xmm, base, disp, index, scaleLog2);
 	}
 	void Asm::loadXmmRipSym(U32 xmm, const String& sym, U32 width) {
 		if(U8 p = ssePrefixByte(width))
@@ -490,25 +441,15 @@ namespace rat {
 	}
 	void Asm::movGpXmm(Reg dst, U32 xmm, B32 wide) {
 		b(0x66);
-		rex(wide, xmm, 0, dst);
-		b(0x0f);
-		b(0x7e);
-		modrmReg(xmm, dst);
+		op0fRR(wide, 0x7e, xmm, dst);
 	}
 	void Asm::sseShiftImm(U32 laneBits, U8 ext, U32 reg, U8 cnt) {
-		b(0x66);
-		rex(false, 0, 0, reg);
-		b(0x0f);
-		b(laneBits == 64 ? 0x73 : 0x72);
-		modrmReg(ext, reg);
+		ssePacked(0x66, laneBits == 64 ? 0x73 : 0x72, ext, reg, 0);
 		b(cnt);
 	}
 	void Asm::cvtRR(U8 pfx, U8 opc, B32 w, U32 dst, U32 src) {
 		b(pfx);
-		rex(w, dst, 0, src);
-		b(0x0f);
-		b(opc);
-		modrmReg(dst, src);
+		op0fRR(w, opc, dst, src);
 	}
 
 	void Asm::x87Mem(U8 esc, U8 reg, Reg base, I32 disp) { memOp(0, 0, esc, reg, base, disp); }

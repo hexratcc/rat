@@ -117,7 +117,7 @@ namespace rat {
 	// all eightbytes from the save area into the frame temp in use 1, or none of them
 	void X86EncodePass::vaFetchAggregate(const MachineInstr& in) {
 		VaAggregate agg = detail::unpackVaAggregate(in.imm2);
-		I32 step = (I32)((agg.bytes + 7u) & ~7u);
+		I32 step = (I32)alignUp(agg.bytes, 8);
 		if(!agg.regs.count)
 			return vaFetchOverflow(step, agg.align);
 		U32 gp = agg.regs.countOf(AbiClass::Integer);
@@ -185,7 +185,7 @@ namespace rat {
 		a->movRR(R10, RCX);
 		readGp(src, RSI);
 		a->leaMem(RDI, RSP, off);
-		a->movRegImm32(RCX, (bytes + 7u) / 8u);
+		a->movRegImm32(RCX, (U32)alignUp(bytes, 8) / 8);
 		a->repMovsq();
 		a->movRR(RCX, R10);
 		a->movGpXmm(RDI, keepRdi, true);
@@ -214,7 +214,7 @@ namespace rat {
 				U32 bytes = (U32)byval;
 				off = (I32)conv->shadowBytes + (I32)(byval >> 32);
 				copyByval(u, bytes, off);
-				off += (I32)((bytes + 7u) & ~7u);
+				off += (I32)alignUp(bytes, 8);
 				continue;
 			}
 			if(u.isFrameSlot()) {
@@ -345,8 +345,7 @@ namespace rat {
 		case X86Op::And:
 		case X86Op::Or:
 		case X86Op::Xor: {
-			static const U8 kAlu[] = {
-					detail::kAluAdd, detail::kAluSub, 0, detail::kAluAnd, detail::kAluOr, detail::kAluXor};
+			static const U8 kAlu[] = {0x01, 0x29, 0, 0x21, 0x09, 0x31}; // add, sub, (mul), and, or, xor
 			static_assert((U32)X86Op::Xor - (U32)X86Op::Add + 1 == 6, "kAlu must cover Add..Xor");
 			return emitAlu(in, kAlu[(U32)op - (U32)X86Op::Add]);
 		}
@@ -416,18 +415,14 @@ namespace rat {
 			return emitFCmpFlags(in);
 		case X86Op::Cvt:
 			return emitCvt(in);
-		case X86Op::VArith: {
+		case X86Op::VArith:
+		case X86Op::VUnary: { // VArith use 0 is the tied def, src is use 1
 			U64 imm = (U64)in.imm;
-			U32 d = xmmOf(in.defs[0]), s = xmmOf(in.uses[1]);
+			U32 d = xmmOf(in.defs[0]), s = xmmOf(in.uses[op == X86Op::VArith ? 1 : 0]);
 			a->ssePacked((U8)(imm >> 8), (U8)imm, d, s, (U8)(imm >> 16));
 			if(imm & detail::kVecImm8)
 				a->b((U8)in.imm2);
 			return;
-		}
-		case X86Op::VUnary: {
-			U64 imm = (U64)in.imm;
-			U32 d = xmmOf(in.defs[0]), s = xmmOf(in.uses[0]);
-			return a->ssePacked((U8)(imm >> 8), (U8)imm, d, s, (U8)(imm >> 16));
 		}
 		case X86Op::VShiftImm:
 			return a->sseShiftImm((U32)in.imm, (U8)(in.imm2 >> 8), xmmOf(in.defs[0]), (U8)in.imm2);
