@@ -51,6 +51,9 @@ namespace rat {
 
 		B32 isVReg() const { return kind == Kind::VReg; }
 		B32 isPhys() const { return kind == Kind::Phys; }
+		B32 isImm() const { return kind == Kind::Imm; }
+		B32 isFrameSlot() const { return kind == Kind::FrameSlot; }
+		B32 isBlock() const { return kind == Kind::Block; }
 	};
 
 	// a debug var inst lives in loc from here on, a None loc is optimized out

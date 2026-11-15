@@ -26,7 +26,7 @@ namespace rat {
 			U32 v = 0;
 			if(o.isPhys())
 				v = st.valueOf(o.phys);
-			else if(o.kind == MachineOperand::Kind::FrameSlot)
+			else if(o.isFrameSlot())
 				v = st.slotValue(o.slot, o.width);
 			if(v && std::find(diverged.begin(), diverged.end(), v) != diverged.end())
 				return true;

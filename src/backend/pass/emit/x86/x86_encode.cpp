@@ -22,12 +22,12 @@ namespace rat {
 	U32 X86EncodePass::scaleOf(const MachineInstr& in) { return (U32)((in.imm2 >> 2) & 3); }
 
 	void X86EncodePass::readGp(const MachineOperand& o, Reg r) {
-		if(o.kind == MachineOperand::Kind::Imm)
+		if(o.isImm())
 			a->movRegImm64(r, (U64)o.imm);
 		else if(o.isPhys()) {
 			if(gpOf(o) != r)
 				a->movRR(r, gpOf(o));
-		} else if(o.kind == MachineOperand::Kind::FrameSlot)
+		} else if(o.isFrameSlot())
 			a->load64(r, RBP, o.slot);
 	}
 
@@ -209,7 +209,7 @@ namespace rat {
 		I32 off = (I32)conv->shadowBytes;
 		for(U32 i = targetIdx + 1; i < in.uses.size(); ++i) {
 			const MachineOperand& u = in.uses[i];
-			if(i + 1 < in.uses.size() && in.uses[i + 1].kind == MachineOperand::Kind::Imm) {
+			if(i + 1 < in.uses.size() && in.uses[i + 1].isImm()) {
 				U64 byval = (U64)in.uses[++i].imm; // stack offset in the high half, bytes in the low
 				U32 bytes = (U32)byval;
 				off = (I32)conv->shadowBytes + (I32)(byval >> 32);
@@ -217,7 +217,7 @@ namespace rat {
 				off += (I32)((bytes + 7u) & ~7u);
 				continue;
 			}
-			if(u.kind == MachineOperand::Kind::FrameSlot) {
+			if(u.isFrameSlot()) {
 				if(u.width == 16) { // by-value x87
 					off = (I32)alignUp((U32)off, 16);
 					fldSlot(u);
@@ -351,7 +351,7 @@ namespace rat {
 			return emitAlu(in, kAlu[(U32)op - (U32)X86Op::Add]);
 		}
 		case X86Op::Mul:
-			if(in.uses[1].kind == MachineOperand::Kind::Imm)
+			if(in.uses[1].isImm())
 				return a->imulRRI(gpOf(in.defs[0]), gpOf(in.uses[0]), (I32)in.uses[1].imm);
 			return a->imulRR(gpOf(in.defs[0]), gpOf(in.uses[1]));
 		case X86Op::Neg:
@@ -603,7 +603,7 @@ namespace rat {
 	}
 
 	B32 X86EncodePass::touchesFrame(const MachineOperand& o) {
-		return o.kind == MachineOperand::Kind::FrameSlot || (o.isPhys() && gpOf(o) == RBP);
+		return o.isFrameSlot() || (o.isPhys() && gpOf(o) == RBP);
 	}
 
 	B32 X86EncodePass::needsFrame(const MachineInstr& in) {
@@ -613,7 +613,7 @@ namespace rat {
 		if(op == X86Op::VaStart || op == X86Op::VaArg || op == X86Op::RetAddr || op == X86Op::SetJmp ||
 			 op == X86Op::LongJmp || (op >= X86Op::X87LoadMem && op <= X86Op::X87Cmp))
 			return true; // reading [rbp+8] or jumping across frames needs rbp to survive
-		if(op == X86Op::FLoad && !in.uses.empty() && in.uses[0].kind == MachineOperand::Kind::Imm)
+		if(op == X86Op::FLoad && !in.uses.empty() && in.uses[0].isImm())
 			return true; // materializes through the rbp scratch slot
 		for(const MachineOperand& o : in.defs)
 			if(touchesFrame(o))

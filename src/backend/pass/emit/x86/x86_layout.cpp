@@ -89,7 +89,7 @@ namespace rat {
 				if(b.id < 0 || !endsInBranch(b))
 					continue;
 				for(MachineOperand& u : b.insts.back().uses)
-					if(u.kind == MachineOperand::Kind::Block) {
+					if(u.isBlock()) {
 						I32 r = resolveJump(mf, u.block);
 						if(r != u.block) {
 							u.block = r;
@@ -134,7 +134,7 @@ namespace rat {
 				const MachineBlock& b = mf.blocks[blockAt[id]];
 				if(b.id == (I32)id && endsInBranch(b))
 					for(const MachineOperand& u : b.insts.back().uses)
-						if(u.kind == MachineOperand::Kind::Block)
+						if(u.isBlock())
 							succ.push_back(u.block);
 				first[id + 1] = (U32)succ.size();
 			}
@@ -217,7 +217,7 @@ namespace rat {
 					continue;
 				}
 				const MachineOperand& u = b.insts.back().uses[k];
-				if(u.kind != MachineOperand::Kind::Block || u.block < 0)
+				if(!u.isBlock() || u.block < 0)
 					continue;
 				if(state[(U32)u.block] == 1)
 					mf.blocks[at[(U32)u.block]].align = kLoopAlign;

@@ -24,13 +24,13 @@ namespace rat {
 	B32 X86EncodePass::writesSlot(const MachineInstr& in, I64 cfaOff) {
 		I32 slot = (I32)(cfaOff + detail::kCfaFromRbp);
 		for(const MachineOperand& d : in.defs)
-			if(d.kind == MachineOperand::Kind::FrameSlot && d.slot == slot)
+			if(d.isFrameSlot() && d.slot == slot)
 				return true;
 		X86Op op = (X86Op)in.op;
 		if(in.isCall || op == X86Op::Load || op == X86Op::FLoad || op == X86Op::Copy)
 			return false;
 		for(const MachineOperand& u : in.uses)
-			if(u.kind == MachineOperand::Kind::FrameSlot && u.slot == slot)
+			if(u.isFrameSlot() && u.slot == slot)
 				return true;
 		return false;
 	}
@@ -134,7 +134,7 @@ namespace rat {
 				poison[kept++] = p;
 		poison.resize(kept);
 		for(const MachineOperand& d : in.defs)
-			if(d.isPhys() || d.kind == MachineOperand::Kind::FrameSlot)
+			if(d.isPhys() || d.isFrameSlot())
 				writePoison(poison, toVarLoc(d), d.width < 4, flow);
 		if(detail::isAnySlotStore(in))
 			writePoison(poison, toVarLoc(in.uses[0]), in.uses[1].width < 8, flow);

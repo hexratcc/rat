@@ -87,7 +87,7 @@ namespace rat {
 	// a frame slot written by anything other than the recognized spill shape
 	B32 X86PeepholePass::writesUntrackedSlot(const MachineInstr& in) {
 		for(const MachineOperand& d : in.defs)
-			if(d.kind == MachineOperand::Kind::FrameSlot)
+			if(d.isFrameSlot())
 				return true;
 		return false;
 	}
@@ -208,7 +208,7 @@ namespace rat {
 	}
 
 	B32 X86PeepholePass::immCount(const MachineInstr& in, U32& out) {
-		if(in.uses.size() < 2 || in.uses[1].kind != MachineOperand::Kind::Imm)
+		if(in.uses.size() < 2 || !in.uses[1].isImm())
 			return false;
 		out = (U32)(in.uses[1].imm & 63);
 		return true;
@@ -298,7 +298,7 @@ namespace rat {
 			break;
 		case X86Op::Store:
 			// a frame slot is always written full width, a real store is not
-			if(in.uses.size() >= 2 && in.uses[0].kind != MachineOperand::Kind::FrameSlot) {
+			if(in.uses.size() >= 2 && !in.uses[0].isFrameSlot()) {
 				demandUses(in, kAllBits, dem, 0, 1); // address
 				demandUses(in, kAllBits, dem, 2);		 // index
 				if(tracked(in.uses[1]))							 // stored value
@@ -452,8 +452,7 @@ namespace rat {
 	B32 X86PeepholePass::isAnySlotLoad(const MachineInstr& in) {
 		X86Op op = (X86Op)in.op;
 		return (op == X86Op::Load || op == X86Op::FLoad) && in.defs.size() == 1 &&
-					 in.defs[0].isPhys() && in.uses.size() == 1 &&
-					 in.uses[0].kind == MachineOperand::Kind::FrameSlot;
+					 in.defs[0].isPhys() && in.uses.size() == 1 && in.uses[0].isFrameSlot();
 	}
 
 	// union of successor live-ins, everything for open blocks
@@ -493,7 +492,7 @@ namespace rat {
 		}
 		if(in.isCall)
 			for(const MachineOperand& u : in.uses)
-				if(u.kind == MachineOperand::Kind::FrameSlot)
+				if(u.isFrameSlot())
 					if(U32 bit = slots.index[slots.key(u.slot)]; bit != kNoBit)
 						cur[bit >> 6] |= (U64)1 << (bit & 63);
 	}
@@ -524,7 +523,7 @@ namespace rat {
 			return;
 		}
 		for(const MachineOperand& u : in.uses)
-			if(u.kind == MachineOperand::Kind::FrameSlot) {
+			if(u.isFrameSlot()) {
 				U32 k = key(u.slot);
 				if(in.isCall) {
 					seen[k] = true;
@@ -535,7 +534,7 @@ namespace rat {
 				}
 			}
 		for(const MachineOperand& d : in.defs)
-			if(d.kind == MachineOperand::Kind::FrameSlot)
+			if(d.isFrameSlot())
 				untracked[key(d.slot)] = true;
 	}
 

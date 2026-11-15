@@ -22,7 +22,7 @@ namespace rat {
 			*os << x86InstrText(instr) << "\\l";
 		*os << "\"];\n";
 		for(const MachineOperand& use : block.insts.back().uses)
-			if(use.kind == MachineOperand::Kind::Block)
+			if(use.isBlock())
 				*os << "  " << nodePrefix << block.id << " -> " << nodePrefix << use.block << ";\n";
 	}
 

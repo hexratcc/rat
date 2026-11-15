@@ -218,7 +218,7 @@ namespace rat {
 			X86Op op = (X86Op)in.op;
 			if((op != X86Op::Store && op != X86Op::FStore) || !in.defs.empty() || in.uses.size() != 2)
 				return false;
-			return in.uses[0].kind == MachineOperand::Kind::FrameSlot && in.uses[1].isPhys();
+			return in.uses[0].isFrameSlot() && in.uses[1].isPhys();
 		}
 	} // namespace detail
 

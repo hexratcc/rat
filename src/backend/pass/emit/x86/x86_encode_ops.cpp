@@ -10,15 +10,15 @@ namespace rat {
 		if(in.regClass == detail::kFp) {
 			if(d.isPhys() && s.isPhys())
 				copyXmm(xmmOf(d), xmmOf(s));
-			else if(d.isPhys() && s.kind == MachineOperand::Kind::FrameSlot)
+			else if(d.isPhys() && s.isFrameSlot())
 				a->loadXmm(xmmOf(d), RBP, s.slot, d.width);
-			else if(d.kind == MachineOperand::Kind::FrameSlot && s.isPhys())
+			else if(d.isFrameSlot() && s.isPhys())
 				a->storeXmm(xmmOf(s), RBP, d.slot, d.width);
 			return;
 		}
 		if(d.isPhys()) {
 			readGp(s, gpOf(d));
-		} else if(d.kind == MachineOperand::Kind::FrameSlot) {
+		} else if(d.isFrameSlot()) {
 			Reg r = s.isPhys() ? gpOf(s) : R11;
 			readGp(s, r);
 			a->storeMem(RBP, d.slot, r, 8);
@@ -72,7 +72,7 @@ namespace rat {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& addr = in.uses[0];
 		U32 w = d.width;
-		if(addr.kind == MachineOperand::Kind::FrameSlot)
+		if(addr.isFrameSlot())
 			return a->load64(gpOf(d), RBP, addr.slot);
 		B32 sign = (in.imm2 & 1) != 0;
 		Reg base = gpOf(addr);
@@ -84,18 +84,18 @@ namespace rat {
 	void X86EncodePass::emitStore(const MachineInstr& in) {
 		const MachineOperand& a0 = in.uses[0];
 		const MachineOperand& src = in.uses[1];
-		if(a0.kind == MachineOperand::Kind::FrameSlot) {
-			if(src.kind == MachineOperand::Kind::Imm)
+		if(a0.isFrameSlot()) {
+			if(src.isImm())
 				return a->storeMemImm(RBP, a0.slot, src.imm, 8);
 			return a->storeMem(RBP, a0.slot, gpOf(src), 8);
 		}
 		if(in.imm2 & 2) { // scaled index in use[2]
 			Reg index = gpOf(in.uses[2]);
-			if(src.kind == MachineOperand::Kind::Imm)
+			if(src.isImm())
 				return a->storeMemImmSib(gpOf(a0), index, scaleOf(in), (I32)in.imm, src.imm, src.width);
 			return a->storeMemSib(gpOf(a0), index, scaleOf(in), (I32)in.imm, gpOf(src), src.width);
 		}
-		if(src.kind == MachineOperand::Kind::Imm)
+		if(src.isImm())
 			return a->storeMemImm(gpOf(a0), (I32)in.imm, src.imm, src.width);
 		a->storeMem(gpOf(a0), (I32)in.imm, gpOf(src), src.width);
 	}
@@ -106,11 +106,11 @@ namespace rat {
 		U32 w = d.width;
 		if(addr.kind == MachineOperand::Kind::Sym)
 			return a->loadXmmRipSym(xmmOf(d), addr.sym(), w);
-		if(addr.kind == MachineOperand::Kind::Imm) {
+		if(addr.isImm()) {
 			immToScratch(addr.imm);
 			return a->loadXmm(xmmOf(d), RBP, fl->ldScratch, w);
 		}
-		if(addr.kind == MachineOperand::Kind::FrameSlot)
+		if(addr.isFrameSlot())
 			return a->loadXmm(xmmOf(d), RBP, addr.slot, w);
 		if(in.imm2 & 2) // scaled index in use[1]
 			return a->loadXmmSib(xmmOf(d), gpOf(addr), gpOf(in.uses[1]), scaleOf(in), (I32)in.imm, w);
@@ -120,7 +120,7 @@ namespace rat {
 	void X86EncodePass::emitFStore(const MachineInstr& in) {
 		const MachineOperand& a0 = in.uses[0];
 		const MachineOperand& src = in.uses[1];
-		if(a0.kind == MachineOperand::Kind::FrameSlot)
+		if(a0.isFrameSlot())
 			return a->storeXmm(xmmOf(src), RBP, a0.slot, src.width);
 		if(in.imm2 & 2) { // scaled index in use[2]
 			Reg index = gpOf(in.uses[2]);
@@ -132,13 +132,13 @@ namespace rat {
 	void X86EncodePass::emitAlu(const MachineInstr& in, U8 aluOp) {
 		Reg d = gpOf(in.defs[0]);
 		// group-1 /ext for each RR opcode byte: add 01->0, or 09->1, and 21->4, sub 29->5, xor 31->6
-		if(in.uses[1].kind == MachineOperand::Kind::Imm)
+		if(in.uses[1].isImm())
 			return a->aluImm((U8)(aluOp >> 3), d, (I32)in.uses[1].imm);
 		a->aluRR(aluOp, d, gpOf(in.uses[1]));
 	}
 
 	void X86EncodePass::emitShift(const MachineInstr& in, U8 ext) {
-		if(in.uses.size() > 1 && in.uses[1].kind == MachineOperand::Kind::Imm)
+		if(in.uses.size() > 1 && in.uses[1].isImm())
 			return a->shiftImm(ext, gpOf(in.defs[0]), (U8)(in.uses[1].imm & 63));
 		a->shiftCL(ext, gpOf(in.defs[0]));
 	}
@@ -180,7 +180,7 @@ namespace rat {
 
 	void X86EncodePass::emitCmp(const MachineInstr& in) {
 		Reg l = gpOf(in.uses[0]);
-		if(in.uses[1].kind != MachineOperand::Kind::Imm)
+		if(!in.uses[1].isImm())
 			return a->cmpRR(l, gpOf(in.uses[1]));
 		if(in.uses[1].imm == 0)
 			return a->testRR(l, l); // shorter encoding, same flags for eq/ne/sign
