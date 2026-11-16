@@ -42,7 +42,7 @@ namespace rat::cc {
 		if(t.func != nullptr && t.ptr == 0) {
 			t.ptr = 1;
 		} else if(t.array != nullptr && t.ptr == 0) {
-			if(vlaBound && t.array->countExpr)
+			if(vlaBound && isVlaType(t))
 				*vlaBound = t.array->countExpr;
 			t = decay(t);
 		}
@@ -128,8 +128,7 @@ namespace rat::cc {
 				ArrayType* at = arena.make<ArrayType>();
 				at->elem = b;
 				at->count = op.count;
-				if(op.count == 0)
-					at->countExpr = op.bound;
+				at->countExpr = op.bound;
 				b = CType{};
 				b.array = at;
 				break;
@@ -224,37 +223,16 @@ namespace rat::cc {
 				return fail(peek(), "parameter names (without types) in function declaration");
 		}
 		out.type = applyDeclOps(t, ops);
-		if(!ops.empty() && ops.back().kind == DeclOp::Kind::Array) {
-			out.outerArray = true;
-			out.outerBound = ops.back().bound;
-		}
 		return true;
 	}
 
-	// the length of an array declarator: the bound as written, or the count of a typedef'd array
-	// type, null when unsized
-	Expr* Parser::declaredArrayLen(const DeclResult& r) {
-		if(r.outerBound)
-			return r.outerBound;
-		U64 count = r.type.array->count;
-		if(count == 0)
-			return nullptr;
-		Expr* len = makeExpr(ExprKind::IntLit, r.offset);
-		len->intLit = {(I64)count, 32, 0};
-		return len;
-	}
-
-	// splits an array type into the declarator's element type and length
 	void Parser::bindDeclarator(Declarator& d, const DeclResult& r) {
 		d.name = r.name;
 		d.offset = r.offset;
 		d.align = r.align;
 		d.type = r.type;
-		if(!isArrayType(r.type))
-			return;
-		d.isArray = true;
-		d.type = r.type.array->elem;
-		d.arrayLen = declaredArrayLen(r);
+		if(isArrayType(d.type))
+			d.type = plainArray(d.type);
 	}
 
 	// declarator without a name

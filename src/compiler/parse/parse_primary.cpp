@@ -28,7 +28,7 @@ namespace rat::cc {
 				if(!f)
 					return fail(m, "no such member in __builtin_offsetof");
 				off += f->offset;
-				cur = f->type; // element type for array members
+				cur = f->type;
 			} else if(accept(TokKind::LBracket)) {
 				Expr* ix = parseConditional();
 				I64 v = 0;
@@ -36,6 +36,8 @@ namespace rat::cc {
 					return fail(peek(), "array index in __builtin_offsetof must be constant");
 				if(!expect(TokKind::RBracket))
 					return nullptr;
+				if(isArrayType(cur))
+					cur = arrayElem(cur);
 				off += v * (I64)typeSizeBytes(cur);
 			} else {
 				break;

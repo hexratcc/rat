@@ -2,7 +2,7 @@
 
 namespace rat::cc {
 	const Expr* Emitter::peelAggregateCompound(const Expr* el) {
-		if(el->kind != ExprKind::CompoundLit || el->compound.isArray || !el->compound.init)
+		if(el->kind != ExprKind::CompoundLit || isArrayType(el->compound.type) || !el->compound.init)
 			return el;
 		return el->compound.init->kind == ExprKind::InitList ? el->compound.init : el;
 	}
@@ -58,7 +58,7 @@ namespace rat::cc {
 		U32 extent = 0;
 		U32 pos = 0;
 		B32 ok;
-		// same walk registerGlobalAggArray picks
+		// same walk registerGlobalArray picks
 		if(isStruct(elem) && initListIsFlat(init))
 			ok = initFlatArray(sink, 0, elem, UINT32_MAX, {init->args, pos}, &extent);
 		else
@@ -67,31 +67,6 @@ namespace rat::cc {
 		if(!ok)
 			extent = std::max(extent, 1u);
 		return extent;
-	}
-
-	B32 Emitter::resolveArrayIndices(const Expr* init, B32 haveLen, I64& count, List<I64>& idx) {
-		const List<Expr*>& els = init->args;
-		const List<Designator>& des = init->designators;
-		idx.assign(els.size(), 0);
-		I64 cur = 0, maxIdx = -1;
-		for(U32 i = 0; i < els.size(); ++i) {
-			if(des[i].isSet) {
-				if(!des[i].isIndex)
-					return failFieldInArray();
-				cur = des[i].index;
-			}
-			idx[i] = cur;
-			if(cur > maxIdx)
-				maxIdx = cur;
-			++cur;
-		}
-		if(!haveLen)
-			count = maxIdx + 1;
-		else if(maxIdx >= count)
-			return failTooManyInits();
-		if(count > 0)
-			return true;
-		return failArrayCount();
 	}
 
 	B32 Emitter::initArrayRow(InitSink& sink, U32 off, CType elem, const Expr* init, U32& i) {
@@ -202,20 +177,23 @@ namespace rat::cc {
 				return initStructInit(sink, goff, g, els[0]);
 			return initStructInit(sink, goff, g, init);
 		}
+		B32 isArr = isArrayType(f.type);
+		CType elem = isArr ? arrayElem(f.type) : f.type;
+		U32 count = isArr ? f.type.array->count : 0;
 		if(des.isSet && des.next) {
-			if(f.isArray())
-				return initArrayInit(sink, off, f.type, f.count, wrapNested(des.next, els[0]));
+			if(isArr)
+				return initArrayInit(sink, off, elem, count, wrapNested(des.next, els[0]));
 			if(isStruct(f.type))
 				return initStructInit(sink, off, f.type.strukt, wrapNested(des.next, els[0]));
 			return diag.fail("designator selects a sub-object of a scalar union member");
 		}
-		if(f.isArray()) {
+		if(isArr) {
 			if(els[0]->kind == ExprKind::StrLit)
-				return sink.charArray(off, f.type, f.count, els[0]);
+				return sink.charArray(off, elem, count, els[0]);
 			if(els[0]->kind == ExprKind::InitList && els.size() == 1)
-				return initArrayInit(sink, off, f.type, f.count, els[0]);
+				return initArrayInit(sink, off, elem, count, els[0]);
 			U32 pos = des.isSet ? 1 : 0;
-			return initFlatArray(sink, off, f.type, f.count, {els, pos});
+			return initFlatArray(sink, off, elem, count, {els, pos});
 		}
 		if(isStruct(f.type)) {
 			if(els[0]->kind == ExprKind::InitList && els.size() == 1)
@@ -264,38 +242,40 @@ namespace rat::cc {
 				++cur; // the loop head skips the rest of the group
 				continue;
 			}
-			U32 fcount = f.count;
+			B32 isArr = isArrayType(f.type);
+			CType elem = isArr ? arrayElem(f.type) : f.type;
+			U32 fcount = isArr ? f.type.array->count : 0;
 			U32* fieldExtent = nullptr;
-			if(f.isArray() && f.count == 0 && cur == fields.size() - 1) {
+			if(isArr && fcount == 0 && cur == fields.size() - 1) {
 				fcount = data.flexCount;
 				fieldExtent = flexExtent;
 			}
 			// the rest of the designator applies to a nested brace list
 			if(des.isSet && des.next) {
-				if(!f.isArray() && !isStruct(f.type))
+				if(!isArr && !isStruct(f.type))
 					return diag.fail("designator selects a sub-object of a scalar member");
 				el = wrapNested(des.next, el);
 			}
-			if(f.isArray() && el->kind != ExprKind::InitList && el->kind != ExprKind::StrLit) {
-				if(!initFlatArray(sink, off, f.type, fcount, {els, i}, fieldExtent))
+			if(isArr && el->kind != ExprKind::InitList && el->kind != ExprKind::StrLit) {
+				if(!initFlatArray(sink, off, elem, fcount, {els, i}, fieldExtent))
 					return false;
 				++cur;
 				continue;
 			}
 			B32 braced = el->kind == ExprKind::InitList || el->kind == ExprKind::CompoundLit;
-			if(!f.isArray() && isStruct(f.type) && !braced) {
+			if(isStruct(f.type) && !braced) {
 				if(!initFlatObject(sink, off, f.type, {els, i}))
 					return false;
 				++cur;
 				continue;
 			}
-			if(f.isArray()) {
+			if(isArr) {
 				if(el->kind == ExprKind::StrLit) {
-					if(fieldExtent && isCharType(f.type))
+					if(fieldExtent && isCharType(elem))
 						*fieldExtent = std::max(*fieldExtent, (U32)el->str.bytes->size() + 1);
-					if(!sink.charArray(off, f.type, fcount, el))
+					if(!sink.charArray(off, elem, fcount, el))
 						return false;
-				} else if(!initArrayInit(sink, off, f.type, fcount, peelAggregateCompound(el), fieldExtent))
+				} else if(!initArrayInit(sink, off, elem, fcount, peelAggregateCompound(el), fieldExtent))
 					return false;
 			} else if(isStruct(f.type)) {
 				if(!initStructInit(sink, off, f.type.strukt, peelAggregateCompound(el)))

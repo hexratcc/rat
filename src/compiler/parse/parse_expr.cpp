@@ -16,12 +16,10 @@ namespace rat::cc {
 			if(!init)
 				return nullptr;
 			Expr* e = makeExpr(ExprKind::CompoundLit, lp.offset);
-			// a typedef'd array type stays whole
-			CType litType = r.outerArray ? r.type.array->elem : r.type;
-			e->compound = {litType, init, r.outerBound, r.outerArray};
+			e->compound = {r.type, init};
 			return parsePostfixTail(e); // allow [..], .x, etc. after the literal
 		}
-		if(r.outerArray)
+		if(isArrayType(r.type))
 			return fail(lp, "array types may not be used in a cast");
 		Expr* operand = parseUnary();
 		if(!operand)

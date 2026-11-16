@@ -13,7 +13,7 @@ namespace rat::cc {
 			CType ct;
 			B32 isObject = false;
 			Local loc;
-			if(func.scopes.lookup(*e->call.callee, loc) && !loc.isArray) {
+			if(func.scopes.lookup(*e->call.callee, loc) && !isArrayType(loc.type)) {
 				if(loc.inMem())
 					val = fn.load(irType(loc.type), loc.addr);
 				else
@@ -22,7 +22,7 @@ namespace rat::cc {
 				isObject = true;
 			} else {
 				auto g = syms.globals.find(*e->call.callee);
-				if(g != syms.globals.end() && !g->second.isArray) {
+				if(g != syms.globals.end() && !isArrayType(g->second.type)) {
 					val = fn.load(irType(g->second.type), fn.global(syms.resolveAlias(*e->call.callee)));
 					ct = g->second.type;
 					isObject = true;

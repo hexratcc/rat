@@ -91,7 +91,6 @@ namespace rat::cc {
 			Function::Var var = 0;
 			Node* addr = nullptr;
 			CType type;
-			B32 isArray = false;
 			B32 isBitfield = false;
 			U32 bitWidth = 0;
 			U32 bitOffset = 0;
@@ -201,6 +200,7 @@ namespace rat::cc {
 		Node* allocBytes(Function& fn, U32 size, U32 align = 0);
 		Node* declSlot(Function& fn, const Declarator& d, Type* ty, U32 size);
 		Node* emitArrayByteSize(Function& fn, CType t);
+		B32 arrayBound(CType arr, I64& count);
 		Node* convert(Function& fn, Node* n, CType from, CType to);
 		Node* reduceBitfield(Function& fn, Node* n, CType t);
 		Node* toBool(Function& fn, const Value& v);
@@ -270,10 +270,8 @@ namespace rat::cc {
 		B32 emitComplexDecl(Function& fn, const Declarator& d, B32 live);
 		B32 emitStructDecl(Function& fn, const Declarator& d, B32 live);
 		B32 emitArrayDecl(Function& fn, const Declarator& d, B32 live);
-		B32 emitTypedefArrayDecl(Function& fn, const Declarator& d, B32 live);
-		B32 emitAggArrayDecl(Function& fn, const Declarator& d, I64 count, B32 haveLen, B32 live);
+		B32 emitStringArrayDecl(Function& fn, const Declarator& d, I64 count, B32 live);
 		B32 emitVlaDecl(Function& fn, const Declarator& d);
-		B32 declIsVla(const Declarator& d, I64& count);
 		B32 declareStatic(Function& fn, const Declarator& d);
 		B32 declareExtern(Function& fn, const Declarator& d);
 		B32 declareDead(Function& fn, const Stmt* stmt);
@@ -374,22 +372,21 @@ namespace rat::cc {
 		// globals
 		String internString(const Expr* strLit);
 		Node* floatLit(Function& fn, CType t, F80 v);
+		B32 compoundArrayCount(const Expr* e, I64& count);
 		B32 internCompoundLiteral(const Expr* compound, String& outSym);
 		B32 registerGlobals(const TransUnit& unit);
 		B32 registerGlobalAlias(const Declarator& d);
 		B32 registerGlobal(const Declarator& d, const String& sym, Function* fn);
-		B32 validateGlobalArrayLen(const Declarator& d, I64& count, B32& haveLen);
-		B32 registerGlobalAggArray(const Declarator& d, const String& sym, Function* fn);
-		B32 registerGlobalArrayOfScalar(const Declarator& d, const String& sym, Function* fn);
+		B32 registerStringArray(const Declarator& d, const String& sym, Function* fn, I64 len);
+		B32 registerGlobalArray(const Declarator& d, const String& sym, Function* fn);
 		B32 registerGlobalStruct(const Declarator& d, const String& sym, Function* fn);
 		B32 registerGlobalScalar(const Declarator& d, const String& sym, Function* fn);
 		void defineGlobal(const Declarator& d, const String& sym, Type* ty, List<U8>&& img);
-		void bindGlobal(const Declarator& d, const String& sym, Function* fn, B32 arr, U32 n);
+		void bindGlobal(const Declarator& d, const String& sym, Function* fn, CType type);
 
 		// debug info, the hooks do nothing without -g
 		SrcLoc debugLoc(U32 tok);
 		DebugType* debugType(CType t);
-		DebugType* debugObjectType(CType t, B32 isArray, U64 count);
 		DebugType* debugBase(CType t);
 		DebugType* debugRecord(const StructType* st);
 		DebugType* debugNamed(const NamedType* n);
@@ -409,7 +406,6 @@ namespace rat::cc {
 		B32 unwrapScalarInit(const Expr*& e, B32& skip);
 		B32 initListIsFlat(const Expr* init);
 		U32 initArrayCount(CType elem, const Expr* init);
-		B32 resolveArrayIndices(const Expr* init, B32 haveLen, I64& count, List<I64>& idx);
 		B32 initStructInit(InitSink& sink,
 											 U32 base,
 											 const StructType* st,

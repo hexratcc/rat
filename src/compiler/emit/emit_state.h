@@ -21,8 +21,6 @@ namespace rat::cc {
 		Function::Var var = 0;
 		Node* addr = nullptr;
 		CType type;
-		B32 isArray = false;
-		U32 count = 0;
 		Node* lengthNode = nullptr;						// runtime byte size for a VLA
 		const String* staticSymbol = nullptr; // symbol backing a function-local static
 
@@ -38,12 +36,6 @@ namespace rat::cc {
 			l.kind = Kind::Mem;
 			l.addr = addr;
 			l.type = t;
-			return l;
-		}
-		static Local memArray(Node* addr, CType t, U32 count = 0) {
-			Local l = mem(addr, t);
-			l.isArray = true;
-			l.count = count;
 			return l;
 		}
 	};
@@ -99,8 +91,6 @@ namespace rat::cc {
 
 	struct GlobalVariable {
 		CType type;
-		B32 isArray = false;
-		U32 count = 0;
 	};
 	struct FunctionSignature {
 		const FuncType* type = nullptr;
@@ -119,7 +109,6 @@ namespace rat::cc {
 		Kind kind = Kind::None;
 		const Local* local = nullptr;
 		CType type; // a function is its pointer type
-		B32 isArray = false;
 	};
 
 	struct Symbols {

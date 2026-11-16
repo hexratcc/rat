@@ -15,6 +15,17 @@ namespace rat::cc {
 		return st;
 	}
 
+	// arr with count as its outer bound
+	CType sizedArray(Arena& arena, CType arr, U64 count) {
+		if(arr.array->count == count && !isVlaType(arr))
+			return arr;
+		ArrayType* sized = arena.make<ArrayType>();
+		sized->elem = arr.array->elem;
+		sized->count = count;
+		arr.array = sized;
+		return arr;
+	}
+
 	CType promote(CType t) {
 		if(t.isVoid())
 			return t;
@@ -223,8 +234,7 @@ namespace rat::cc {
 					dumpExpr(el, depth + 1, os);
 				return;
 			case ExprKind::CompoundLit:
-				os << "compound " << typeName(e->compound.type) << (e->compound.isArray ? "[]" : "")
-					 << "\n";
+				os << "compound " << typeName(e->compound.type) << "\n";
 				dumpExpr(e->compound.init, depth + 1, os);
 				return;
 			case ExprKind::VaArg:

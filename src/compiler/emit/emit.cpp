@@ -52,7 +52,7 @@ namespace rat::cc {
 		CType cur = t;
 		while(isArrayType(cur)) {
 			Node* dim;
-			if(cur.array->countExpr) {
+			if(isVlaType(cur)) {
 				Value v = emitExpr(fn, cur.array->countExpr);
 				if(!v.node)
 					return nullptr;
@@ -64,6 +64,12 @@ namespace rat::cc {
 			cur = cur.array->elem;
 		}
 		return fn.mul(count, constSize(fn, byteSize(cur)));
+	}
+
+	// the outer bound of arr, false when it is not a constant
+	B32 Emitter::arrayBound(CType arr, I64& count) {
+		count = (I64)arr.array->count;
+		return !arr.array->countExpr || evalConst(arr.array->countExpr, count);
 	}
 
 	Type* Emitter::irType(CType t) {
@@ -183,7 +189,6 @@ namespace rat::cc {
 		out.type = f->type;
 		if(isTopVolatile(structType))
 			setTopVolatile(out.type);
-		out.isArray = f->isArray();
 		out.isBitfield = f->isBitfield();
 		out.bitWidth = f->bitWidth;
 		out.bitOffset = f->bitOffset;
@@ -195,18 +200,13 @@ namespace rat::cc {
 		if(!v.node)
 			return false;
 		out.kind = LValue::Kind::Addr;
-		if(e->compound.isArray) {
+		out.type = e->compound.type;
+		if(isArrayType(out.type) || isStruct(out.type)) {
 			out.addr = v.node;
-			out.type = e->compound.type;
-			out.isArray = true;
-		} else if(isStruct(e->compound.type)) {
-			out.addr = v.node;
-			out.type = v.type;
 		} else {
 			Node* slot = fn.alloc(irType(v.type));
 			fn.store(slot, v.node);
 			out.addr = slot;
-			out.type = v.type;
 		}
 		return true;
 	}
@@ -218,7 +218,7 @@ namespace rat::cc {
 			Symbol sym = lookupSymbol(name);
 			if(sym.kind == Symbol::Kind::None || sym.kind == Symbol::Kind::Function)
 				return failUndeclared(name);
-			if(sym.isArray)
+			if(isArrayType(sym.type))
 				return diag.fail("array '" + name + "' is not assignable");
 			out.type = sym.type;
 			if(sym.local && !sym.local->inMem()) {
@@ -241,7 +241,6 @@ namespace rat::cc {
 			out.kind = LValue::Kind::Addr;
 			out.addr = p.node;
 			out.type = pointee(p.type);
-			out.isArray = isArrayType(out.type);
 			return true;
 		}
 		if(e->kind == ExprKind::Unary && (e->unary.op == ExprOp::Real || e->unary.op == ExprOp::Imag)) {

@@ -285,14 +285,14 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::declMayBeVla(const Declarator& d) {
-		if(isVlaType(d.type))
-			return true;
-		if(!d.arrayLen)
+		if(!isArrayType(d.type))
 			return false;
+		if(isVlaType(arrayElem(d.type)))
+			return true;
 		B32 savedFailed = diag.failed;
 		String savedMsg = diag.message;
 		I64 count;
-		B32 constant = evalConst(d.arrayLen, count);
+		B32 constant = arrayBound(d.type, count);
 		diag.failed = savedFailed;
 		diag.message = std::move(savedMsg);
 		return !constant;

@@ -31,10 +31,7 @@ namespace rat::cc {
 			const Field& f = st->fields[fi];
 			if(f.anonMember() && !f.anonFirst())
 				continue;
-			if(f.isArray()) {
-				if(!initFlatArrayObject(sink, base + f.offset, f.type, f.count, src))
-					return false;
-			} else if(f.isBitfield()) {
+			if(f.isBitfield()) {
 				if(!sink.bitfield(base + f.offset, f.type, f.bitWidth, f.bitOffset, src.els[src.pos]))
 					return false;
 				++src.pos;

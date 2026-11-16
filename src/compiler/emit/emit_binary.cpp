@@ -149,7 +149,7 @@ namespace rat::cc {
 		LValue lv;
 		if(!emitLValue(fn, e->binary.lhs, lv))
 			return {};
-		if(lv.isArray)
+		if(isArrayType(lv.type))
 			return diag.fail("array is not assignable");
 		if(isTopConst(lv.type))
 			return diag.fail("cannot assign to a const-qualified lvalue");

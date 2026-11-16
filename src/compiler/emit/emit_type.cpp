@@ -21,14 +21,12 @@ namespace rat::cc {
 		if(sym.local) {
 			sym.kind = Symbol::Kind::Local;
 			sym.type = sym.local->type;
-			sym.isArray = sym.local->isArray;
 			return sym;
 		}
 		auto global = syms.globals.find(name);
 		if(global != syms.globals.end()) {
 			sym.kind = Symbol::Kind::Global;
 			sym.type = global->second.type;
-			sym.isArray = global->second.isArray;
 			return sym;
 		}
 		auto function = syms.functions.find(name);
@@ -57,35 +55,30 @@ namespace rat::cc {
 			return true;
 		}
 		if(operand->kind == ExprKind::Ident) {
-			const String& name = *operand->ident.name;
-			Local loc;
-			B32 isLocal = func.scopes.lookup(name, loc);
-			if(isLocal && loc.isArray) {
-				if(loc.lengthNode)
-					return false;
-				out = loc.count * byteSize(loc.type);
-				return true;
-			}
-			auto gv = syms.globals.find(name);
-			if(gv != syms.globals.end()) {
-				if(gv->second.isArray) {
-					out = gv->second.count * byteSize(gv->second.type);
-					return true;
-				}
-			} else if(!isLocal && syms.functions.count(name)) {
+			Symbol sym = lookupSymbol(*operand->ident.name);
+			if(sym.local && sym.local->lengthNode)
+				return false;
+			if(sym.kind == Symbol::Kind::Function) {
 				out = 1;
 				return true;
 			}
+			if(isArrayType(sym.type)) {
+				out = byteSize(sym.type);
+				return true;
+			}
+		}
+		if(operand->kind == ExprKind::CompoundLit && isArrayType(operand->compound.type)) {
+			I64 count;
+			if(!compoundArrayCount(operand, count))
+				return false;
+			out = (U64)count * byteSize(arrayElem(operand->compound.type));
+			return true;
 		}
 		if(operand->kind == ExprKind::Member) {
 			CType st;
 			const Field* f;
 			if(!memberField(operand, st, f))
 				return false;
-			if(f && isStruct(st) && f->isArray()) {
-				out = f->count * byteSize(f->type);
-				return true;
-			}
 			if(f && isStruct(st) && isArrayType(f->type)) {
 				out = byteSize(f->type);
 				return true;
@@ -179,7 +172,7 @@ namespace rat::cc {
 			out = t;
 			return true;
 		case ExprOp::Addr:
-			if(operand->kind == ExprKind::Ident && lookupSymbol(*operand->ident.name).isArray)
+			if(operand->kind == ExprKind::Ident && isArrayType(lookupSymbol(*operand->ident.name).type))
 				out = t;
 			else
 				out = pointerTo(t);
@@ -272,7 +265,7 @@ namespace rat::cc {
 			Symbol sym = lookupSymbol(*e->ident.name);
 			if(sym.kind == Symbol::Kind::None)
 				return failUndeclared(*e->ident.name);
-			out = sym.isArray ? pointerTo(sym.type) : sym.type;
+			out = isArrayType(sym.type) ? decay(sym.type) : sym.type;
 			return true;
 		}
 		case ExprKind::Call: {
@@ -298,7 +291,7 @@ namespace rat::cc {
 					return true;
 				}
 				auto g = syms.globals.find(*e->call.callee);
-				if(g != syms.globals.end() && !g->second.isArray && isFuncPtr(g->second.type)) {
+				if(g != syms.globals.end() && isFuncPtr(g->second.type)) {
 					out = g->second.type.func->ret;
 					return true;
 				}
@@ -343,16 +336,13 @@ namespace rat::cc {
 				return diag.fail("member reference base type is not a struct or union");
 			if(!f)
 				return diag.fail("no member named '" + *e->member.name + "' in '" + typeName(st) + "'");
-			if(f->isArray())
-				out = pointerTo(f->type);
-			else
-				out = isArrayType(f->type) ? decay(f->type) : f->type;
+			out = isArrayType(f->type) ? decay(f->type) : f->type;
 			return true;
 		}
 		case ExprKind::InitList:
 			return diag.fail("initializer list has no type");
 		case ExprKind::CompoundLit:
-			out = e->compound.isArray ? pointerTo(e->compound.type) : e->compound.type;
+			out = isArrayType(e->compound.type) ? decay(e->compound.type) : e->compound.type;
 			return true;
 		case ExprKind::StmtExpr: {
 			const List<Stmt*>& stmts = e->stmtExpr.body->body;

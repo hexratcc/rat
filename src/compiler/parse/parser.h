@@ -58,7 +58,7 @@ namespace rat::cc {
 		B32 parseStructBody(StructType* st, B32 isUnion);
 		void spliceAnonMember(StructType* st, const StructType* inner, B32 isUnion, StructLayout& l);
 		B32 parseStructMember(StructType* st, CType base, U32 baseAlign, B32 isUnion, StructLayout& l);
-		B32 arrayMemberCount(CType t, U64& count);
+		B32 arrayMemberCount(CType& t);
 		B32 parseBitfield(StructType* st, Field f, U32 memberAlign, B32 isUnion, StructLayout& l);
 		U64 placeMember(U64 size, U32 align, B32 isUnion, StructLayout& l);
 		StructType* complexStruct(CType realType);
@@ -82,9 +82,7 @@ namespace rat::cc {
 			const String* name = nullptr; // null for an abstract declarator
 			U32 offset = 0;								// of the name
 			CType type;
-			B32 outerArray = false;			// the declarator itself ends in an array suffix
-			Expr* outerBound = nullptr; // its bound as written, null for []
-			U32 align = 0;							// raised by alignas inside the declarator
+			U32 align = 0; // raised by alignas inside the declarator
 		};
 		void parsePointers(CType& t);
 		B32 parseDeclarator(CType base, DeclResult& out);
@@ -98,7 +96,6 @@ namespace rat::cc {
 		B32 looksLikeGroupingParen();
 		CType applyDeclOps(CType base, const List<DeclOp>& ops);
 		void adjustParamType(CType& t, const Expr** vlaBound = nullptr);
-		Expr* declaredArrayLen(const DeclResult& r);
 		void bindDeclarator(Declarator& d, const DeclResult& r);
 
 		// declarations

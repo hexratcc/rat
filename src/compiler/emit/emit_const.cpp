@@ -306,18 +306,18 @@ namespace rat::cc {
 			sym = internString(e);
 			return true;
 		case ExprKind::CompoundLit:
-			return e->compound.isArray && internCompoundLiteral(e, sym);
+			return isArrayType(e->compound.type) && internCompoundLiteral(e, sym);
 		case ExprKind::Cast:
 			return evalAddrConst(e->cast.operand, sym, addend);
 		case ExprKind::Ident: {
 			Symbol found = lookupSymbol(*e->ident.name);
 			if(found.local) {
-				if(!found.local->staticSymbol || !found.isArray)
+				if(!found.local->staticSymbol || !isArrayType(found.type))
 					return false;
 				sym = *found.local->staticSymbol;
 				return true;
 			}
-			if(found.kind != Symbol::Kind::Function && !found.isArray)
+			if(found.kind != Symbol::Kind::Function && !isArrayType(found.type))
 				return false;
 			sym = *e->ident.name;
 			return true;
@@ -325,7 +325,7 @@ namespace rat::cc {
 		case ExprKind::Member: {
 			CType st;
 			const Field* f;
-			if(!memberField(e, st, f) || !f || !isStruct(st) || !f->isArray())
+			if(!memberField(e, st, f) || !f || !isStruct(st) || !isArrayType(f->type))
 				return false;
 			return addrConstOf(e, sym, addend);
 		}

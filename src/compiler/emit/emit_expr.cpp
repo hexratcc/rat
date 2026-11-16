@@ -7,11 +7,7 @@ namespace rat::cc {
 			auto f = syms.functions.find(name);
 			if(f != syms.functions.end())
 				return {fn.global(name), funcPtrType(f->second)};
-			Local loc;
-			if(func.scopes.lookup(name, loc) && loc.isArray)
-				return {loc.addr, pointerTo(loc.type)};
-			auto gvo = syms.globals.find(name);
-			if(gvo != syms.globals.end() && gvo->second.isArray)
+			if(isArrayType(lookupSymbol(name).type))
 				return emitExpr(fn, e->unary.operand);
 		}
 		LValue lv;
@@ -19,6 +15,9 @@ namespace rat::cc {
 			return {};
 		if(lv.isVar())
 			return diag.fail("cannot take the address of an SSA value");
+		// only a dereferenced array keeps its array type
+		if(isArrayType(lv.type) && e->unary.operand->kind != ExprKind::Unary)
+			return {lv.addr, decay(lv.type)};
 		return {lv.addr, pointerTo(lv.type)};
 	}
 
@@ -121,8 +120,8 @@ namespace rat::cc {
 		if(sym.local && !sym.local->inMem())
 			return {fn.get(sym.local->var), sym.type};
 		Node* addr = sym.local ? sym.local->addr : fn.global(syms.resolveAlias(name));
-		if(sym.isArray)
-			return {addr, pointerTo(sym.type)};
+		if(isArrayType(sym.type))
+			return {addr, decay(sym.type)};
 		if(isAggregate(sym.type))
 			return {addr, sym.type};
 		return {fn.load(irType(sym.type), addr, isTopVolatile(sym.type)), sym.type};
@@ -292,8 +291,6 @@ namespace rat::cc {
 			LValue lv;
 			if(!emitLValue(fn, e, lv))
 				return {};
-			if(lv.isArray)
-				return {lv.addr, pointerTo(lv.type)};
 			if(isArrayType(lv.type))
 				return {lv.addr, decay(lv.type)};
 			if(isStruct(lv.type))
@@ -388,36 +385,26 @@ namespace rat::cc {
 	Emitter::Value Emitter::emitCompoundLit(Function& fn, const Expr* e) {
 		CType ty = e->compound.type;
 		const Expr* init = e->compound.init;
-		if(e->compound.isArray) {
-			Type* elemTy = irType(ty);
-			U32 elemSize = byteSize(ty);
-			I64 count = 0;
-			if(e->compound.arrayLen) {
-				if(!evalConst(e->compound.arrayLen, count))
-					return failArrayCount();
-			} else if(init->kind == ExprKind::StrLit) {
-				count = (I64)init->str.bytes->size() + 1;
-			} else if(init->kind == ExprKind::InitList) {
-				List<I64> idx;
-				if(!resolveArrayIndices(init, false, count, idx))
-					return {};
-			}
-			if(count <= 0)
+		if(isArrayType(ty)) {
+			CType elem = arrayElem(ty);
+			U32 elemSize = byteSize(elem);
+			I64 count;
+			if(!compoundArrayCount(e, count))
 				return failArrayCount();
 			U32 total = (U32)count * elemSize;
 			Node* slot;
-			if(isAggregate(ty))
+			if(isAggregate(elem) || isArrayType(elem))
 				slot = allocBytes(fn, total);
 			else
-				slot = fn.alloc(mod.getArray(elemTy, (U32)count));
+				slot = fn.alloc(mod.getArray(irType(elem), (U32)count));
 			zeroSlot(fn, slot, total);
 			StoreSink sink(*this, fn, slot);
 			if(init->kind == ExprKind::StrLit) {
-				if(!sink.charArray(0, ty, (U32)count, init))
+				if(!sink.charArray(0, elem, (U32)count, init))
 					return {};
-			} else if(!initArrayInit(sink, 0, ty, (U32)count, init))
+			} else if(!initArrayInit(sink, 0, elem, (U32)count, init))
 				return {};
-			return {slot, pointerTo(ty)};
+			return {slot, pointerTo(elem)};
 		}
 		if(isStruct(ty)) {
 			Node* slot = allocBytes(fn, ty.strukt->size);
