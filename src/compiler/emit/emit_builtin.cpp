@@ -132,11 +132,7 @@ namespace rat::cc {
 	B32 Emitter::emitVaBuiltin(Function& fn, const Expr* e, Value& out) {
 		List<Node*> args;
 		for(U32 i = 0; i < e->args.size(); ++i) {
-			Node* n;
-			if(i == 0)
-				n = vaListRef(fn, e->args[i]);
-			else
-				n = emitExpr(fn, e->args[i]).node;
+			Node* n = i == 0 ? vaListRef(fn, e->args[i]) : emitExpr(fn, e->args[i]).node;
 			if(!n)
 				return true;
 			args.push_back(n);
@@ -441,9 +437,8 @@ namespace rat::cc {
 			return true;
 		if(name.rfind("__builtin_", 0) != 0)
 			return false;
-		if(emitBitCountBuiltin(fn, e, out) || emitOverflowBuiltin(fn, e, out))
-			return true;
-		if(emitFpClassBuiltin(fn, e, out))
+		if(emitBitCountBuiltin(fn, e, out) || emitOverflowBuiltin(fn, e, out) ||
+			 emitFpClassBuiltin(fn, e, out))
 			return true;
 		if(!detail::isKnownBuiltin(name))
 			return failBuiltin("unsupported builtin '" + name + "'");

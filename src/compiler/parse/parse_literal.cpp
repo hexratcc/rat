@@ -57,14 +57,15 @@ namespace rat::cc {
 
 		B32 ucnAt(const String& s, U32 i, U32 end) { return i < end && (s[i] == 'u' || s[i] == 'U'); }
 
-		void quotedRange(const String& s, C8 quote, U32& begin, U32& end) {
-			begin = 0; // skip any encoding prefix
+		Pair<U32, U32> quotedRange(const String& s, C8 quote) {
+			U32 begin = 0; // skip any encoding prefix
 			while(begin < s.size() && s[begin] != quote)
 				++begin;
 			++begin;
-			end = (U32)s.size();
+			U32 end = (U32)s.size();
 			if(end > 0 && s[end - 1] == quote)
 				--end;
+			return {begin, end};
 		}
 
 		void appendCodeUnits(String& out, U32 cp, U32 unitBytes) {
@@ -245,9 +246,7 @@ namespace rat::cc {
 		const String& s = lex.text(tok);
 		U32 maxVal = detail::escapeMaxVal(s.size() ? s[0] : '\'');
 		B32 prefixed = s.size() != 0 && s[0] != '\'';
-		U32 i = 0;
-		U32 end = 0;
-		detail::quotedRange(s, '\'', i, end);
+		auto [i, end] = detail::quotedRange(s, '\'');
 
 		if(i >= end)
 			return fail(tok, "empty character constant");
@@ -283,11 +282,8 @@ namespace rat::cc {
 	B32 Parser::parseStringLiteral(const Token& tok, String& out) {
 		const String& s = lex.text(tok);
 		B32 isU8 = s.size() > 1 && s[0] == 'u' && s[1] == '8';
-		C8 prefix = s.size() ? s[0] : '"';
-		U32 maxVal = isU8 ? 0xFFu : detail::escapeMaxVal(prefix);
-		U32 i = 0;
-		U32 end = 0;
-		detail::quotedRange(s, '"', i, end);
+		U32 maxVal = isU8 ? 0xFFu : detail::escapeMaxVal(s.size() ? s[0] : '"');
+		auto [i, end] = detail::quotedRange(s, '"');
 		while(i < end) {
 			C8 c = s[i++];
 			if(c != '\\') {
@@ -311,9 +307,7 @@ namespace rat::cc {
 	B32 Parser::parseWideStringLiteral(const Token& tok, U32 unitBytes, String& out) {
 		const String& s = lex.text(tok);
 		U32 maxVal = detail::escapeMaxVal(s.size() ? s[0] : '"');
-		U32 i = 0;
-		U32 end = 0;
-		detail::quotedRange(s, '"', i, end);
+		auto [i, end] = detail::quotedRange(s, '"');
 		while(i < end) {
 			U32 cp;
 			if(s[i] == '\\') {

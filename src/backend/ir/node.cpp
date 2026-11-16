@@ -164,19 +164,19 @@ namespace rat {
 	Node* AnchoredNode::getMemory() const { return getInput(1); }
 
 	StartNode::StartNode(Function& fn, Type* tupleType)
-	: Node(fn, Opcode::Start, tupleType, {}) {}
+	: FixedOpcodeNode(fn, tupleType, {}) {}
 
 	StopNode::StopNode(Function& fn, Type* controlType)
-	: Node(fn, Opcode::Stop, controlType, {}) {}
+	: FixedOpcodeNode(fn, controlType, {}) {}
 
 	ReturnNode::ReturnNode(Function& fn, Type* controlType, const List<Node*>& inputs)
-	: AnchoredNode(fn, Opcode::Return, controlType, inputs) {}
+	: FixedOpcodeNode(fn, controlType, inputs) {}
 
 	B32 ReturnNode::hasValue() const { return getInputCount() > 2; }
 	Node* ReturnNode::getValue() const { return hasValue() ? getInput(2) : nullptr; }
 
 	RegionNode::RegionNode(Function& fn, Type* controlType, const List<Node*>& preds, B32 loopHeader)
-	: Node(fn, Opcode::Region, controlType, preds),
+	: FixedOpcodeNode(fn, controlType, preds),
 		loopHeader(loopHeader) {}
 
 	U32 RegionNode::getPredecessorCount() const { return getInputCount(); }
@@ -184,20 +184,20 @@ namespace rat {
 	B32 RegionNode::isLoopHeader() const { return loopHeader; }
 
 	IfNode::IfNode(Function& fn, Type* tupleType, Node* control, Node* predicate)
-	: Node(fn, Opcode::If, tupleType, {control, predicate}) {}
+	: FixedOpcodeNode(fn, tupleType, {control, predicate}) {}
 
 	Node* IfNode::getControl() const { return getInput(0); }
 	Node* IfNode::getPredicate() const { return getInput(1); }
 
 	SwitchNode::SwitchNode(Function& fn, Type* tupleType, Node* control, Node* selector)
-	: Node(fn, Opcode::Switch, tupleType, {control, selector}) {}
+	: FixedOpcodeNode(fn, tupleType, {control, selector}) {}
 
 	Node* SwitchNode::getControl() const { return getInput(0); }
 	Node* SwitchNode::getSelector() const { return getInput(1); }
 	U32 SwitchNode::getSlotCount() const { return getType()->getTupleElementCount(); }
 
 	ProjNode::ProjNode(Function& fn, Type* type, Node* tuple, U32 index, const C8* label)
-	: Node(fn, Opcode::Proj, type, {tuple}),
+	: FixedOpcodeNode(fn, type, {tuple}),
 		index(index),
 		label(fn.internString(label, label ? std::strlen(label) : 0)) {}
 
@@ -206,14 +206,14 @@ namespace rat {
 	const C8* ProjNode::getLabel() const { return label; }
 
 	PhiNode::PhiNode(Function& fn, Type* type, const List<Node*>& inputs)
-	: Node(fn, Opcode::Phi, type, inputs) {}
+	: FixedOpcodeNode(fn, type, inputs) {}
 
 	RegionNode* PhiNode::getRegion() const { return cast<RegionNode>(getInput(0)); }
 	U32 PhiNode::getValueCount() const { return getInputCount() - 1; }
 	Node* PhiNode::getValue(U32 index) const { return getInput(1 + index); }
 
 	ConstantNode::ConstantNode(Function& fn, Type* type, I64 value)
-	: Node(fn, Opcode::Constant, type, {}),
+	: FixedOpcodeNode(fn, type, {}),
 		value(value) {}
 
 	I64 ConstantNode::getValue() const { return value; }
@@ -241,13 +241,13 @@ namespace rat {
 	Node* ConvertNode::getOperand() const { return getInput(0); }
 
 	LoadNode::LoadNode(Function& fn, Type* valueType, Node* control, Node* memory, Node* pointer)
-	: AnchoredNode(fn, Opcode::Load, valueType, {control, memory, pointer}) {}
+	: FixedOpcodeNode(fn, valueType, {control, memory, pointer}) {}
 
 	Node* LoadNode::getPointer() const { return getInput(2); }
 
 	StoreNode::StoreNode(
 			Function& fn, Type* memoryType, Node* control, Node* memory, Node* pointer, Node* value)
-	: AnchoredNode(fn, Opcode::Store, memoryType, {control, memory, pointer, value}) {}
+	: FixedOpcodeNode(fn, memoryType, {control, memory, pointer, value}) {}
 
 	Node* StoreNode::getPointer() const { return getInput(2); }
 	Node* StoreNode::getValue() const { return getInput(3); }
@@ -257,7 +257,7 @@ namespace rat {
 										 String callee,
 										 const List<Node*>& controlMemoryArgs,
 										 B32 indirect)
-	: AnchoredNode(fn, Opcode::Call, tupleType, controlMemoryArgs),
+	: FixedOpcodeNode(fn, tupleType, controlMemoryArgs),
 		callee(std::move(callee)),
 		indirect(indirect) {}
 
@@ -280,7 +280,7 @@ namespace rat {
 									 String text,
 									 U32 outputCount,
 									 const List<Node*>& controlMemoryInputs)
-	: AnchoredNode(fn, Opcode::Asm, tupleType, controlMemoryInputs),
+	: FixedOpcodeNode(fn, tupleType, controlMemoryInputs),
 		text(std::move(text)),
 		outputCount(outputCount) {}
 
@@ -288,13 +288,13 @@ namespace rat {
 	Node* AsmNode::getInputOperand(U32 index) const { return getInput(2 + index); }
 
 	GlobalNode::GlobalNode(Function& fn, Type* ptrType, String symbol)
-	: Node(fn, Opcode::Global, ptrType, {}),
+	: FixedOpcodeNode(fn, ptrType, {}),
 		symbol(std::move(symbol)) {}
 
 	const String& GlobalNode::getSymbol() const { return symbol; }
 
 	AllocNode::AllocNode(Function& fn, Type* ptrType, Type* allocType, U32 align)
-	: Node(fn, Opcode::Alloc, ptrType, {}),
+	: FixedOpcodeNode(fn, ptrType, {}),
 		allocType(allocType),
 		align(align) {}
 
@@ -304,49 +304,49 @@ namespace rat {
 
 	StackAllocNode::StackAllocNode(
 			Function& fn, Type* ptrType, Node* control, Node* memory, Node* size)
-	: AnchoredNode(fn, Opcode::StackAlloc, ptrType, {control, memory, size}) {}
+	: FixedOpcodeNode(fn, ptrType, {control, memory, size}) {}
 
 	Node* StackAllocNode::getSize() const { return getInput(2); }
 
 	StackSaveNode::StackSaveNode(Function& fn, Type* ptrType, Node* control, Node* memory)
-	: AnchoredNode(fn, Opcode::StackSave, ptrType, {control, memory}) {}
+	: FixedOpcodeNode(fn, ptrType, {control, memory}) {}
 
 	StackRestoreNode::StackRestoreNode(
 			Function& fn, Type* memoryType, Node* control, Node* memory, Node* saved)
-	: AnchoredNode(fn, Opcode::StackRestore, memoryType, {control, memory, saved}) {}
+	: FixedOpcodeNode(fn, memoryType, {control, memory, saved}) {}
 
 	Node* StackRestoreNode::getSaved() const { return getInput(2); }
 
 	MemMergeNode::MemMergeNode(Function& fn, Type* memoryType, const List<Node*>& controlStores)
-	: Node(fn, Opcode::MemMerge, memoryType, controlStores) {}
+	: FixedOpcodeNode(fn, memoryType, controlStores) {}
 
 	SplatNode::SplatNode(Function& fn, Type* vecType, Node* scalar)
-	: Node(fn, Opcode::Splat, vecType, {scalar}) {}
+	: FixedOpcodeNode(fn, vecType, {scalar}) {}
 
 	Node* SplatNode::getScalar() const { return getInput(0); }
 
 	ExtractNode::ExtractNode(Function& fn, Type* elemType, Node* vector, U32 lane)
-	: Node(fn, Opcode::Extract, elemType, {vector}),
+	: FixedOpcodeNode(fn, elemType, {vector}),
 		lane(lane) {}
 
 	Node* ExtractNode::getVector() const { return getInput(0); }
 	U32 ExtractNode::getLane() const { return lane; }
 
 	PackNode::PackNode(Function& fn, Type* vecType, const List<Node*>& lanes)
-	: Node(fn, Opcode::Pack, vecType, lanes) {}
+	: FixedOpcodeNode(fn, vecType, lanes) {}
 
 	U32 PackNode::getLaneCount() const { return getInputCount(); }
 	Node* PackNode::getLane(U32 index) const { return getInput(index); }
 
 	SelectNode::SelectNode(Function& fn, Type* type, Node* cond, Node* thenVal, Node* elseVal)
-	: Node(fn, Opcode::Select, type, {cond, thenVal, elseVal}) {}
+	: FixedOpcodeNode(fn, type, {cond, thenVal, elseVal}) {}
 
 	Node* SelectNode::getCondition() const { return getInput(0); }
 	Node* SelectNode::getTrue() const { return getInput(1); }
 	Node* SelectNode::getFalse() const { return getInput(2); }
 
 	ShuffleNode::ShuffleNode(Function& fn, Type* vecType, Node* first, Node* second, U16 sel)
-	: Node(fn, Opcode::Shuffle, vecType, {first, second}),
+	: FixedOpcodeNode(fn, vecType, {first, second}),
 		sel(sel) {}
 
 	Node* ShuffleNode::getFirst() const { return getInput(0); }

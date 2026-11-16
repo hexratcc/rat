@@ -35,9 +35,8 @@ namespace rat::cc {
 				if(!expect(TokKind::RBracket, "']'"))
 					return false;
 			}
-			if(!parseAsmTemplate(op.constraint))
-				return false;
-			if(!expect(TokKind::LParen, "'(' after an asm constraint"))
+			if(!parseAsmTemplate(op.constraint) ||
+				 !expect(TokKind::LParen, "'(' after an asm constraint"))
 				return false;
 			op.expr = parseExpression();
 			if(!op.expr || !expect(TokKind::RParen, "')'"))

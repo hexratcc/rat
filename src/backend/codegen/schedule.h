@@ -92,11 +92,6 @@ namespace rat {
 		void place(Node* n, I32 late, const List<I32>& early);
 		void buildBlockLists();
 		static B32 emitsEarly(const Node* n);
-		static void bucket(const List<Node*>& items,
-											 const List<I32>& keys,
-											 U32 nb,
-											 List<I32>& start,
-											 List<Node*>& flat);
 
 		static B32 isHeadNode(const Node* n);
 		I32 ctrlBlock(Node* ctrl) const;
@@ -169,11 +164,11 @@ namespace rat {
 		List<Node*> dataPhis; // data phis
 		List<Node*> allocs;		// stack objects, function order
 		// block b owns [start[b], start[b + 1])
-		List<I32> predStart;
-		List<I32> predFlat;
-		List<I32> phiStart;
+		List<U32> predStart;
+		List<U32> predFlat;
+		List<U32> phiStart;
 		List<Node*> phiFlat;
-		List<I32> nodeStart;
+		List<U32> nodeStart;
 		List<Node*> nodeFlat;
 	};
 } // namespace rat

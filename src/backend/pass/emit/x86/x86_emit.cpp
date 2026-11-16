@@ -117,9 +117,7 @@ namespace rat {
 
 	MachineInstr& X86LowerPass::farith(X86Op op, VReg d, VReg a, VReg b, U32 w, I64 desc) {
 		movaps(d, a, w);
-		VReg rhs = b;
-		if(b == a)
-			rhs = d; // x op x reads the copy, so a can die at the movaps
+		VReg rhs = b == a ? d : b; // x op x reads the copy, so a can die at the movaps
 		return put(op, {vr(d, w)}, {vr(d, w), vr(rhs, w)}, desc);
 	}
 

@@ -344,6 +344,7 @@ namespace rat::cc {
 		Node* vaListRef(Function& fn, const Expr* ap);
 		B32 oneArg(const Expr* e);
 		B32 failBuiltin(const String& msg);
+		Node* wideHigh(Function& fn, Node* lo, B32 isUnsigned);
 		Wide wideExtend(Function& fn, Node* v, CType from);
 		Wide wideAddSub(Function& fn, Wide a, Wide b, B32 sub);
 		Wide wideMul(Function& fn, Wide a, Wide b);
@@ -406,6 +407,7 @@ namespace rat::cc {
 		B32 initFlatObject(InitSink& sink, U32 base, CType ty, const FlatList& src);
 		B32 initFlatStruct(InitSink& sink, U32 base, const StructType* st, const FlatList& src);
 		B32 initFlatArray(InitSink& sink, U32 base, CType elem, U32 count, const FlatList& src);
+		B32 initFlatArrayObject(InitSink& sink, U32 base, CType elem, U32 count, const FlatList& src);
 		U32 flatArrayCount(CType elem, const List<Expr*>& els);
 		void flatConsumeObject(CType ty, const List<Expr*>& els, U32& pos);
 		U32 flexElemCount(const StructType* st, const Expr* init);

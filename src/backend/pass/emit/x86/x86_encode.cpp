@@ -70,17 +70,17 @@ namespace rat {
 		a->storeMem(R10, 16, R11, 8);
 	}
 
-	void X86EncodePass::vaFetchOverflow(I32 step, U32 align) {
-		a->load64(R11, R10, 8); // R11 = overflow_arg_area
+	void X86EncodePass::vaFetchOverflow(I32 step, U32 align, I32 ptrDisp) {
+		a->load64(R11, R10, ptrDisp); // R11 = overflow_arg_area
 		if(align > 8) {
 			// round up to the argument alignment
 			a->addRegImm32(R11, (I32)align - 1);
 			a->aluImm(4, R11, -(I32)align); // and
 		}
-		stash(R11);									 // stash address
-		a->addRegImm32(R11, step);	 // advance
-		a->storeMem(R10, 8, R11, 8); // write back overflow_arg_area
-		unstash(R11);								 // R11 = stashed address
+		stash(R11);												 // stash address
+		a->addRegImm32(R11, step);				 // advance
+		a->storeMem(R10, ptrDisp, R11, 8); // write back overflow_arg_area
+		unstash(R11);											 // R11 = stashed address
 	}
 
 	void X86EncodePass::vaFetch(I32 offDisp, U32 limit, I32 regStep) {
@@ -146,11 +146,7 @@ namespace rat {
 		readGp(in.uses[0], R10);
 		VaArgKind kind = (VaArgKind)in.imm;
 		if(conv->vaList == X86VaList::CharPtr) {
-			a->load64(R11, R10, 0);
-			stash(R11);
-			a->addRegImm32(R11, 8);
-			a->storeMem(R10, 0, R11, 8);
-			unstash(R11);
+			vaFetchOverflow(8, 8, 0);
 			B32 byRef = kind == VaArgKind::X87;
 			if(kind == VaArgKind::Aggregate)
 				byRef = !detail::unpackVaAggregate(in.imm2).regs.count;
@@ -450,7 +446,7 @@ namespace rat {
 			return emitX87StoreMem(in);
 		case X86Op::X87LoadImmD:
 			immToScratch(in.uses[0].imm);
-			a->fldL(RBP, fl->ldScratch);
+			a->fldFloat(RBP, fl->ldScratch, 8);
 			return fstpSlot(in.defs[0]);
 		case X86Op::X87FromInt:
 			readGp(in.uses[0], R11);

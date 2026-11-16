@@ -106,8 +106,16 @@ namespace rat {
 		Node* getMemory() const;
 	};
 
+	// a node class with one opcode, isa<T> asks T::hasOpcode
+	template <Opcode Op, typename Base = Node> struct FixedOpcodeNode : Base {
+		FixedOpcodeNode(Function& fn, Type* type, const List<Node*>& inputs)
+		: Base(fn, Op, type, inputs) {}
+
+		static B32 hasOpcode(Opcode op) { return op == Op; }
+	};
+
 	// function entry
-	struct StartNode : Node {
+	struct StartNode : FixedOpcodeNode<Opcode::Start> {
 		StartNode(Function& fn, Type* tupleType);
 
 		// tuple producer whose projections are the entry control token, the initial memory state, and
@@ -118,11 +126,11 @@ namespace rat {
 	};
 
 	// function exit
-	struct StopNode : Node {
+	struct StopNode : FixedOpcodeNode<Opcode::Stop> {
 		StopNode(Function& fn, Type* controlType);
 	};
 
-	struct ReturnNode : AnchoredNode {
+	struct ReturnNode : FixedOpcodeNode<Opcode::Return, AnchoredNode> {
 		ReturnNode(Function& fn, Type* controlType, const List<Node*>& inputs);
 
 		B32 hasValue() const;
@@ -131,7 +139,7 @@ namespace rat {
 
 	// control merge point, the only place data flow can merge too, each PhiNode names its Region and
 	// carries one value per Region predecessor
-	struct RegionNode : Node {
+	struct RegionNode : FixedOpcodeNode<Opcode::Region> {
 		// one input per predecessor control edge
 		RegionNode(Function& fn, Type* controlType, const List<Node*>& preds, B32 loopHeader = false);
 
@@ -143,7 +151,7 @@ namespace rat {
 		B32 loopHeader;
 	};
 
-	struct IfNode : Node {
+	struct IfNode : FixedOpcodeNode<Opcode::If> {
 		IfNode(Function& fn, Type* tupleType, Node* control, Node* predicate);
 
 		Node* getControl() const;
@@ -153,7 +161,7 @@ namespace rat {
 	};
 
 	// multi-way branch on a dense selector, proj i is the slot i control edge
-	struct SwitchNode : Node {
+	struct SwitchNode : FixedOpcodeNode<Opcode::Switch> {
 		SwitchNode(Function& fn, Type* tupleType, Node* control, Node* selector);
 
 		Node* getControl() const;
@@ -162,7 +170,7 @@ namespace rat {
 	};
 
 	// selects element from a tuple producer (Start, If, Call, Switch)
-	struct ProjNode : Node {
+	struct ProjNode : FixedOpcodeNode<Opcode::Proj> {
 		ProjNode(Function& fn, Type* type, Node* tuple, U32 index, const C8* label);
 
 		Node* getProducer() const;
@@ -174,7 +182,7 @@ namespace rat {
 	};
 
 	// SSA merge, memory phis merge memory states the same way data phis merge values
-	struct PhiNode : Node {
+	struct PhiNode : FixedOpcodeNode<Opcode::Phi> {
 		// inputs[0] = owning Region
 		// inputs[1 ... n] = incoming values
 		PhiNode(Function& fn, Type* type, const List<Node*>& inputs);
@@ -185,7 +193,7 @@ namespace rat {
 	};
 
 	// integer or floating constant
-	struct ConstantNode : Node {
+	struct ConstantNode : FixedOpcodeNode<Opcode::Constant> {
 		ConstantNode(Function& fn, Type* type, I64 value);
 
 		I64 getValue() const;
@@ -195,6 +203,7 @@ namespace rat {
 
 	struct BinaryNode : Node {
 		BinaryNode(Function& fn, Opcode op, Type* type, Node* lhs, Node* rhs);
+		static B32 hasOpcode(Opcode op) { return isBinaryOpcode(op); }
 
 		Node* getLHS() const;
 		Node* getRHS() const;
@@ -207,12 +216,14 @@ namespace rat {
 
 	struct UnaryNode : Node {
 		UnaryNode(Function& fn, Opcode op, Type* type, Node* operand);
+		static B32 hasOpcode(Opcode op) { return isUnaryOpcode(op); }
 
 		Node* getOperand() const;
 	};
 
 	struct CompareNode : Node {
 		CompareNode(Function& fn, Opcode op, Type* boolType, Node* lhs, Node* rhs);
+		static B32 hasOpcode(Opcode op) { return isCompareOpcode(op); }
 
 		Node* getLHS() const;
 		Node* getRHS() const;
@@ -220,13 +231,14 @@ namespace rat {
 
 	struct ConvertNode : Node {
 		ConvertNode(Function& fn, Opcode op, Type* destType, Node* operand);
+		static B32 hasOpcode(Opcode op) { return isConvertOpcode(op); }
 
 		Node* getOperand() const;
 	};
 
 	// consumes a memory state but does not produce one, so loads on the same state may reorder
 	// freely, the control anchor gives the schedule a latest legal position
-	struct LoadNode : AnchoredNode {
+	struct LoadNode : FixedOpcodeNode<Opcode::Load, AnchoredNode> {
 		LoadNode(Function& fn, Type* valueType, Node* control, Node* memory, Node* pointer);
 
 		Node* getPointer() const;
@@ -239,7 +251,7 @@ namespace rat {
 	};
 
 	// produces the next memory state
-	struct StoreNode : AnchoredNode {
+	struct StoreNode : FixedOpcodeNode<Opcode::Store, AnchoredNode> {
 		StoreNode(
 				Function& fn, Type* memoryType, Node* control, Node* memory, Node* pointer, Node* value);
 
@@ -279,7 +291,7 @@ namespace rat {
 		std::optional<ByvalArg> byvalAt(U32 index) const;
 	};
 
-	struct CallNode : AnchoredNode {
+	struct CallNode : FixedOpcodeNode<Opcode::Call, AnchoredNode> {
 		// control, memory, [target if indirect,] args..
 		CallNode(Function& fn,
 						 Type* tupleType,
@@ -313,7 +325,7 @@ namespace rat {
 	};
 
 	// inline assembly
-	struct AsmNode : AnchoredNode {
+	struct AsmNode : FixedOpcodeNode<Opcode::Asm, AnchoredNode> {
 		// control, memory, input operand values..
 		AsmNode(Function& fn,
 						Type* tupleType,
@@ -334,14 +346,14 @@ namespace rat {
 	};
 
 	// broadcast one scalar into every lane of a vector
-	struct SplatNode : Node {
+	struct SplatNode : FixedOpcodeNode<Opcode::Splat> {
 		SplatNode(Function& fn, Type* vecType, Node* scalar);
 
 		Node* getScalar() const;
 	};
 
 	// read a single lane of a vector as a scalar
-	struct ExtractNode : Node {
+	struct ExtractNode : FixedOpcodeNode<Opcode::Extract> {
 		ExtractNode(Function& fn, Type* elemType, Node* vector, U32 lane);
 
 		Node* getVector() const;
@@ -351,7 +363,7 @@ namespace rat {
 	};
 
 	// build a vector from one scalar per lane
-	struct PackNode : Node {
+	struct PackNode : FixedOpcodeNode<Opcode::Pack> {
 		PackNode(Function& fn, Type* vecType, const List<Node*>& lanes);
 
 		U32 getLaneCount() const;
@@ -359,7 +371,7 @@ namespace rat {
 	};
 
 	// branch-free choice between two already-computed values
-	struct SelectNode : Node {
+	struct SelectNode : FixedOpcodeNode<Opcode::Select> {
 		SelectNode(Function& fn, Type* type, Node* cond, Node* thenVal, Node* elseVal);
 
 		Node* getCondition() const;
@@ -368,7 +380,7 @@ namespace rat {
 	};
 
 	// lane i of the result is lane (sel >> 4i) & 15 of the lanes of first followed by those of second
-	struct ShuffleNode : Node {
+	struct ShuffleNode : FixedOpcodeNode<Opcode::Shuffle> {
 		static constexpr U32 kSourceBits = 4;
 		static constexpr U32 kSourceMask = (1u << kSourceBits) - 1;
 		static constexpr U32 kMaxLanes = 4; // a 16-bit selector holds four sources
@@ -384,7 +396,7 @@ namespace rat {
 	};
 
 	// address of a module-level symbol (global or function), as a pointer
-	struct GlobalNode : Node {
+	struct GlobalNode : FixedOpcodeNode<Opcode::Global> {
 		GlobalNode(Function& fn, Type* ptrType, String symbol);
 
 		const String& getSymbol() const;
@@ -393,7 +405,7 @@ namespace rat {
 	};
 
 	// fixed-size frame slot yielding a pointer
-	struct AllocNode : Node {
+	struct AllocNode : FixedOpcodeNode<Opcode::Alloc> {
 		AllocNode(Function& fn, Type* ptrType, Type* allocType, U32 align = 0);
 
 		Type* getAllocType() const;
@@ -404,64 +416,32 @@ namespace rat {
 	};
 
 	// run-time stack bump
-	struct StackAllocNode : AnchoredNode {
+	struct StackAllocNode : FixedOpcodeNode<Opcode::StackAlloc, AnchoredNode> {
 		StackAllocNode(Function& fn, Type* ptrType, Node* control, Node* memory, Node* size);
 
 		Node* getSize() const;
 	};
 
 	// reads the current stack top
-	struct StackSaveNode : AnchoredNode {
+	struct StackSaveNode : FixedOpcodeNode<Opcode::StackSave, AnchoredNode> {
 		StackSaveNode(Function& fn, Type* ptrType, Node* control, Node* memory);
 	};
 
 	// puts a saved stack top back and produces the next memory state
-	struct StackRestoreNode : AnchoredNode {
+	struct StackRestoreNode : FixedOpcodeNode<Opcode::StackRestore, AnchoredNode> {
 		StackRestoreNode(Function& fn, Type* memoryType, Node* control, Node* memory, Node* saved);
 
 		Node* getSaved() const;
 	};
 
-	struct MemMergeNode : Node {
+	struct MemMergeNode : FixedOpcodeNode<Opcode::MemMerge> {
 		MemMergeNode(Function& fn, Type* memoryType, const List<Node*>& controlStores);
 	};
 
-	namespace detail {
-		template <typename T> B32 nodeIsa(const Node* n);
-		// clang-format off
-		template <> inline B32 nodeIsa<StartNode>(const Node* n)    { return n->getOpcode() == Opcode::Start; }
-		template <> inline B32 nodeIsa<StopNode>(const Node* n)     { return n->getOpcode() == Opcode::Stop; }
-		template <> inline B32 nodeIsa<ReturnNode>(const Node* n)   { return n->getOpcode() == Opcode::Return; }
-		template <> inline B32 nodeIsa<RegionNode>(const Node* n)   { return n->getOpcode() == Opcode::Region; }
-		template <> inline B32 nodeIsa<IfNode>(const Node* n)       { return n->getOpcode() == Opcode::If; }
-		template <> inline B32 nodeIsa<SwitchNode>(const Node* n)   { return n->getOpcode() == Opcode::Switch; }
-		template <> inline B32 nodeIsa<ProjNode>(const Node* n)     { return n->getOpcode() == Opcode::Proj; }
-		template <> inline B32 nodeIsa<PhiNode>(const Node* n)      { return n->getOpcode() == Opcode::Phi; }
-		template <> inline B32 nodeIsa<ConstantNode>(const Node* n) { return n->getOpcode() == Opcode::Constant; }
-		template <> inline B32 nodeIsa<BinaryNode>(const Node* n)   { return isBinaryOpcode(n->getOpcode()); }
-		template <> inline B32 nodeIsa<UnaryNode>(const Node* n)    { return isUnaryOpcode(n->getOpcode()); }
-		template <> inline B32 nodeIsa<CompareNode>(const Node* n)  { return isCompareOpcode(n->getOpcode()); }
-		template <> inline B32 nodeIsa<ConvertNode>(const Node* n)  { return isConvertOpcode(n->getOpcode()); }
-		template <> inline B32 nodeIsa<LoadNode>(const Node* n)     { return n->getOpcode() == Opcode::Load; }
-		template <> inline B32 nodeIsa<StoreNode>(const Node* n)    { return n->getOpcode() == Opcode::Store; }
-		template <> inline B32 nodeIsa<CallNode>(const Node* n)     { return n->getOpcode() == Opcode::Call; }
-		template <> inline B32 nodeIsa<AsmNode>(const Node* n)      { return n->getOpcode() == Opcode::Asm; }
-		template <> inline B32 nodeIsa<GlobalNode>(const Node* n)   { return n->getOpcode() == Opcode::Global; }
-		template <> inline B32 nodeIsa<AllocNode>(const Node* n)    { return n->getOpcode() == Opcode::Alloc; }
-		template <> inline B32 nodeIsa<StackAllocNode>(const Node* n)   { return n->getOpcode() == Opcode::StackAlloc; }
-		template <> inline B32 nodeIsa<StackSaveNode>(const Node* n)    { return n->getOpcode() == Opcode::StackSave; }
-		template <> inline B32 nodeIsa<StackRestoreNode>(const Node* n) { return n->getOpcode() == Opcode::StackRestore; }
-		template <> inline B32 nodeIsa<SplatNode>(const Node* n)    { return n->getOpcode() == Opcode::Splat; }
-		template <> inline B32 nodeIsa<ExtractNode>(const Node* n)  { return n->getOpcode() == Opcode::Extract; }
-		template <> inline B32 nodeIsa<PackNode>(const Node* n)     { return n->getOpcode() == Opcode::Pack; }
-		template <> inline B32 nodeIsa<ShuffleNode>(const Node* n)  { return n->getOpcode() == Opcode::Shuffle; }
-		template <> inline B32 nodeIsa<SelectNode>(const Node* n)   { return n->getOpcode() == Opcode::Select; }
-		template <> inline B32 nodeIsa<MemMergeNode>(const Node* n) { return n->getOpcode() == Opcode::MemMerge; }
-	} // namespace detail
-
+	// clang-format off
 	// isa/dyn_cast are null-safe
 	// cast is an unchecked static_cast and must only be used when the opcode is already known
-	template <typename T> B32 isa(const Node* n) { return n && detail::nodeIsa<T>(n); }
+	template <typename T> B32 isa(const Node* n) { return n && T::hasOpcode(n->getOpcode()); }
 	template <typename T> T* cast(Node* n) { return static_cast<T*>(n); }
 	template <typename T> const T* cast(const Node* n) { return static_cast<const T*>(n); }
 	template <typename T> T* dyn_cast(Node* n) { return isa<T>(n) ? static_cast<T*>(n) : nullptr; }

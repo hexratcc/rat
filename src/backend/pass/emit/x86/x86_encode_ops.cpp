@@ -309,20 +309,14 @@ namespace rat {
 		}
 		U32 sw = (U32)in.imm;
 		a->storeXmm(xmmOf(in.uses[0]), RBP, fl->ldScratch, sw);
-		if(sw == 4)
-			a->fldD(RBP, fl->ldScratch);
-		else
-			a->fldL(RBP, fl->ldScratch);
+		a->fldFloat(RBP, fl->ldScratch, sw);
 		fstpSlot(in.defs[0]);
 	}
 
 	void X86EncodePass::emitX87ToSse(const MachineInstr& in) {
 		U32 dw = (U32)in.imm;
 		fldSlot(in.uses[0]);
-		if(dw == 4)
-			a->fstpD(RBP, fl->ldScratch);
-		else
-			a->fstpL(RBP, fl->ldScratch);
+		a->fstpFloat(RBP, fl->ldScratch, dw);
 		a->loadXmm(xmmOf(in.defs[0]), RBP, fl->ldScratch, dw);
 	}
 

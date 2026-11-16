@@ -192,11 +192,9 @@ namespace detail {
 				opt.debugLevel = parseDebugLevel(arg);
 			else if(String spec; cli::value(kTool, argc, argv, i, "-emit", spec))
 				parseEmit(spec, opt.emits);
-			else if(cli::value(kTool, argc, argv, i, "-target", opt.targetSpec))
-				;
-			else if(cli::value(kTool, argc, argv, i, "-fpasses", opt.passSpec))
-				;
-			else if(cli::value(kTool, argc, argv, i, "-fmachine-passes", opt.machineSpec))
+			else if(cli::value(kTool, argc, argv, i, "-target", opt.targetSpec) ||
+							cli::value(kTool, argc, argv, i, "-fpasses", opt.passSpec) ||
+							cli::value(kTool, argc, argv, i, "-fmachine-passes", opt.machineSpec))
 				;
 			else if(arg.rfind("-f", 0) == 0 && createPass(arg.substr(2), std::cerr))
 				opt.extraPasses.push_back(arg.substr(2));

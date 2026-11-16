@@ -51,14 +51,12 @@ namespace rat::cc {
 		Stmt* thenS = parseStatement();
 		if(!thenS)
 			return nullptr;
-		Stmt* elseS = nullptr;
+		Stmt* s = makeStmt(StmtKind::If, kw.offset, cond, thenS);
 		if(accept(TokKind::KwElse)) {
-			elseS = parseStatement();
-			if(!elseS)
+			s->elseBody = parseStatement();
+			if(!s->elseBody)
 				return nullptr;
 		}
-		Stmt* s = makeStmt(StmtKind::If, kw.offset, cond, thenS);
-		s->elseBody = elseS;
 		return s;
 	}
 
@@ -107,21 +105,11 @@ namespace rat::cc {
 		}
 
 		Expr* cond = nullptr;
-		if(!check(TokKind::Semicolon)) {
-			cond = parseExpression();
-			if(!cond)
-				return nullptr;
-		}
-		if(!expect(TokKind::Semicolon, "';'"))
+		if(!parseOptionalExpr(TokKind::Semicolon, "';'", cond))
 			return nullptr;
 
 		Expr* post = nullptr;
-		if(!check(TokKind::RParen)) {
-			post = parseExpression();
-			if(!post)
-				return nullptr;
-		}
-		if(!expect(TokKind::RParen, "')'"))
+		if(!parseOptionalExpr(TokKind::RParen, "')'", post))
 			return nullptr;
 
 		Stmt* body = parseStatement();
@@ -219,14 +207,19 @@ namespace rat::cc {
 	Stmt* Parser::parseReturn() {
 		Token kw = advance();
 		Stmt* s = makeStmt(StmtKind::Return, kw.offset);
-		if(!check(TokKind::Semicolon)) {
-			s->expr = parseExpression();
-			if(!s->expr)
-				return nullptr;
-		}
-		if(!expect(TokKind::Semicolon, "';'"))
+		if(!parseOptionalExpr(TokKind::Semicolon, "';'", s->expr))
 			return nullptr;
 		return s;
+	}
+
+	// [expr] end
+	B32 Parser::parseOptionalExpr(TokKind end, const C8* endSpelling, Expr*& out) {
+		if(!check(end)) {
+			out = parseExpression();
+			if(!out)
+				return false;
+		}
+		return expect(end, endSpelling);
 	}
 
 	// expr ;

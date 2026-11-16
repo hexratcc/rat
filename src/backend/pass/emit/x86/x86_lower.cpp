@@ -162,20 +162,14 @@ namespace rat {
 	}
 
 	U32 X86LowerPass::log2Scale(I64 c) {
-		if(c == 2)
-			return 1;
-		if(c == 4)
-			return 2;
-		if(c == 8)
-			return 3;
+		if(c == 2 || c == 4 || c == 8)
+			return (U32)countTrailingZeros64((U64)c);
 		return 0;
 	}
 
 	BinaryNode* X86LowerPass::asAdd(Node* n) {
 		BinaryNode* b = dyn_cast<BinaryNode>(n);
-		if(!b || b->getOpcode() != Opcode::Add)
-			return nullptr;
-		return b;
+		return b && b->getOpcode() == Opcode::Add ? b : nullptr;
 	}
 
 	B32 X86LowerPass::scaleOf(Node* n, Node*& idx, U32& scaleLog2) {
@@ -251,9 +245,7 @@ namespace rat {
 	}
 
 	MachineOperand X86LowerPass::addrBase(const AddrParts& a) {
-		if(a.frameBase)
-			return ph(RBP);
-		return vr(a.base);
+		return a.frameBase ? ph(RBP) : vr(a.base);
 	}
 
 	B32 X86LowerPass::addressOnlyAdd(Node* n) {
@@ -300,9 +292,7 @@ namespace rat {
 
 	// n in a gp or sse vreg, by cls
 	VReg X86LowerPass::classValue(Node* n, U32 cls) {
-		if(cls == detail::kFp)
-			return sseValue(n);
-		return gpValue(n);
+		return cls == detail::kFp ? sseValue(n) : gpValue(n);
 	}
 
 	VReg X86LowerPass::sseValue(Node* n) {

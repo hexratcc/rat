@@ -136,6 +136,7 @@ namespace rat::cc {
 		Stmt* parseCaseLabel();
 		Stmt* parseBreak();
 		Stmt* parseReturn();
+		B32 parseOptionalExpr(TokKind end, const C8* endSpelling, Expr*& out);
 		Stmt* parseExprStatement();
 		Expr* parseParenCond();
 		Stmt* parseIf();

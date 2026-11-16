@@ -98,9 +98,8 @@ namespace rat::cc {
 			if(n->getOpcode() == Opcode::Constant)
 				return fn.constInt(mod.getPtr(), cast<ConstantNode>(n)->getValue());
 			U32 fromBits = from.bits == 0 ? 32 : from.bits;
-			Opcode ext = Opcode::SExt;
-			if(fromBits < lay.ptrBytes * 8 && from.isUnsigned())
-				ext = Opcode::ZExt;
+			B32 zeroExtend = fromBits < lay.ptrBytes * 8 && from.isUnsigned();
+			Opcode ext = zeroExtend ? Opcode::ZExt : Opcode::SExt;
 			return fn.convert(ext, n, mod.getPtr());
 		}
 		if(isPointer(from) || isPointer(to))
@@ -402,9 +401,7 @@ namespace rat::cc {
 		}
 
 		for(const FuncDef* def : unit.functions) {
-			if(!def->body || def->isExternInline)
-				continue;
-			if(!emitFunctionBody(def))
+			if(def->body && !def->isExternInline && !emitFunctionBody(def))
 				return false;
 		}
 		return checkAliases() && !diag.failed;
@@ -505,9 +502,7 @@ namespace rat::cc {
 			abi.ret = returnRegs(def->retType);
 		}
 		List<AbiRegs> regs = lowerParams(def, paramTypes, abi);
-		Type* retTy = nullptr;
-		if(!isVoidType(def->retType))
-			retTy = irType(def->retType);
+		Type* retTy = isVoidType(def->retType) ? nullptr : irType(def->retType);
 		Function* fn = mod.createFunction(def->name, paramTypes, retTy);
 		FunctionAttrs& attrs = fn->getAttrs();
 		attrs.variadic = def->isVarArgs;

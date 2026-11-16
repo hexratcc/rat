@@ -21,7 +21,7 @@ namespace rat::cc::detail {
 	void appendCodeUnits(String& out, U32 cp, U32 unitBytes);
 	U32 escapeMaxVal(C8 prefix);
 	B32 ucnAt(const String& s, U32 i, U32 end);
-	void quotedRange(const String& s, C8 quote, U32& begin, U32& end);
+	Pair<U32, U32> quotedRange(const String& s, C8 quote);
 
 	B32 isTypeQualifier(TokKind kind);
 	B32 isQualOrStorage(TokKind kind);

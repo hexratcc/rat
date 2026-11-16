@@ -18,19 +18,8 @@ namespace rat::cc {
 			}
 			return initFlatStruct(sink, base, ty.strukt, src);
 		}
-		if(isArrayType(ty)) {
-			CType el = arrayElem(ty);
-			U32 cnt = ty.array->count;
-			if(e->kind == ExprKind::InitList) {
-				++src.pos;
-				return initArrayInit(sink, base, el, cnt, e);
-			}
-			if(isCharType(el) && e->kind == ExprKind::StrLit) {
-				++src.pos;
-				return sink.charArray(base, el, cnt, e);
-			}
-			return initFlatArray(sink, base, el, cnt, src);
-		}
+		if(isArrayType(ty))
+			return initFlatArrayObject(sink, base, arrayElem(ty), ty.array->count, src);
 		++src.pos;
 		return sink.scalar(base, ty, e);
 	}
@@ -43,16 +32,7 @@ namespace rat::cc {
 			if(f.anonMember() && !f.anonFirst())
 				continue;
 			if(f.isArray()) {
-				const Expr* e = src.els[src.pos];
-				if(e->kind == ExprKind::InitList) {
-					++src.pos;
-					if(!initArrayInit(sink, base + f.offset, f.type, f.count, e))
-						return false;
-				} else if(isCharType(f.type) && e->kind == ExprKind::StrLit) {
-					++src.pos;
-					if(!sink.charArray(base + f.offset, f.type, f.count, e))
-						return false;
-				} else if(!initFlatArray(sink, base + f.offset, f.type, f.count, src))
+				if(!initFlatArrayObject(sink, base + f.offset, f.type, f.count, src))
 					return false;
 			} else if(f.isBitfield()) {
 				if(!sink.bitfield(base + f.offset, f.type, f.bitWidth, f.bitOffset, src.els[src.pos]))
@@ -65,6 +45,20 @@ namespace rat::cc {
 				break;
 		}
 		return true;
+	}
+
+	B32 Emitter::initFlatArrayObject(
+			InitSink& sink, U32 base, CType elem, U32 count, const FlatList& src) {
+		const Expr* e = src.els[src.pos];
+		if(e->kind == ExprKind::InitList) {
+			++src.pos;
+			return initArrayInit(sink, base, elem, count, e);
+		}
+		if(isCharType(elem) && e->kind == ExprKind::StrLit) {
+			++src.pos;
+			return sink.charArray(base, elem, count, e);
+		}
+		return initFlatArray(sink, base, elem, count, src);
 	}
 
 	B32 Emitter::initFlatArray(InitSink& sink, U32 base, CType elem, U32 count, const FlatList& src) {

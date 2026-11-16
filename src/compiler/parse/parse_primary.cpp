@@ -220,9 +220,7 @@ namespace rat::cc {
 	Expr* Parser::parseVaArg() {
 		Token lp = advance(); // (
 		Expr* ap = parseAssignment();
-		if(!ap)
-			return nullptr;
-		if(!expect(TokKind::Comma, "','"))
+		if(!ap || !expect(TokKind::Comma, "','"))
 			return nullptr;
 		CType ty;
 		if(!parseTypeName(ty))
@@ -272,9 +270,7 @@ namespace rat::cc {
 			} else if(k == TokKind::LBracket) {
 				Token lb = advance();
 				Expr* idx = parseExpression();
-				if(!idx)
-					return nullptr;
-				if(!expect(TokKind::RBracket, "']'"))
+				if(!idx || !expect(TokKind::RBracket, "']'"))
 					return nullptr;
 				Expr* sum = makeBinary(lb.offset, ExprOp::Add, e, idx);
 				e = makeUnary(lb.offset, ExprOp::Deref, sum);

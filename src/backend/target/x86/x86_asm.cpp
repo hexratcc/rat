@@ -462,10 +462,12 @@ namespace rat {
 	void Asm::x87Mem(U8 esc, U8 reg, Reg base, I32 disp) { memOp(0, 0, esc, reg, base, disp); }
 	void Asm::fldT(Reg base, I32 disp) { x87Mem(0xdb, 5, base, disp); }
 	void Asm::fstpT(Reg base, I32 disp) { x87Mem(0xdb, 7, base, disp); }
-	void Asm::fldD(Reg base, I32 disp) { x87Mem(0xd9, 0, base, disp); }
-	void Asm::fstpD(Reg base, I32 disp) { x87Mem(0xd9, 3, base, disp); }
-	void Asm::fldL(Reg base, I32 disp) { x87Mem(0xdd, 0, base, disp); }
-	void Asm::fstpL(Reg base, I32 disp) { x87Mem(0xdd, 3, base, disp); }
+	void Asm::fldFloat(Reg base, I32 disp, U32 width) {
+		x87Mem(width == 4 ? 0xd9 : 0xdd, 0, base, disp);
+	}
+	void Asm::fstpFloat(Reg base, I32 disp, U32 width) {
+		x87Mem(width == 4 ? 0xd9 : 0xdd, 3, base, disp);
+	}
 	void Asm::fildQ(Reg base, I32 disp) { x87Mem(0xdf, 5, base, disp); }
 	void Asm::fistpQ(Reg base, I32 disp) { x87Mem(0xdf, 7, base, disp); }
 	void Asm::fnstcw(Reg base, I32 disp) { x87Mem(0xd9, 7, base, disp); }

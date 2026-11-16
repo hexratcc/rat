@@ -79,15 +79,9 @@ namespace rat {
 			c.gpArgs = kSysVGpArgs;
 			c.gpArgCount = 6;
 			c.sseArgCount = 8;
-			c.sharedSlots = false;
-			c.x87ByRef = false;
-			c.shadowBytes = 0;
 			c.stackParamOff = 16;
-			c.homeOff = 0;
-			c.probeStack = false;
 			c.vaList = X86VaList::SysV;
 			c.alHoldsSseCount = true;
-			c.dupSseArgsInGp = false;
 			c.gpSaveBytes = 6 * 8;
 			c.sseSlotBytes = 16;
 			c.regSaveBytes = 6 * 8 + 8 * 16;
@@ -109,11 +103,7 @@ namespace rat {
 			c.homeOff = 16;
 			c.probeStack = true;
 			c.vaList = X86VaList::CharPtr;
-			c.alHoldsSseCount = false;
 			c.dupSseArgsInGp = true;
-			c.gpSaveBytes = 0;
-			c.sseSlotBytes = 0;
-			c.regSaveBytes = 0;
 			c.gpCalleeSaved = kWin64GpCalleeSaved;
 			c.gpCalleeSavedCount = 7;
 			c.sseVolatileCount = 6;
@@ -328,10 +318,9 @@ namespace rat {
 		void x87Mem(U8 esc, U8 reg, Reg base, I32 disp);
 		void fldT(Reg base, I32 disp);
 		void fstpT(Reg base, I32 disp);
-		void fldD(Reg base, I32 disp);
-		void fstpD(Reg base, I32 disp);
-		void fldL(Reg base, I32 disp);
-		void fstpL(Reg base, I32 disp);
+		// m32fp when width is 4, else m64fp
+		void fldFloat(Reg base, I32 disp, U32 width);
+		void fstpFloat(Reg base, I32 disp, U32 width);
 		void fildQ(Reg base, I32 disp);
 		void fistpQ(Reg base, I32 disp);
 		void fnstcw(Reg base, I32 disp);

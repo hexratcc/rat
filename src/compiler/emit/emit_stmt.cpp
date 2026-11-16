@@ -344,10 +344,8 @@ namespace rat::cc {
 					return false;
 				continue;
 			}
-			if(unreachable) {
-				Block* dead = fn.createBlock("dead");
-				fn.enterBlock(dead);
-			}
+			if(unreachable)
+				fn.enterBlock(fn.createBlock("dead"));
 			if(!emitStmt(fn, child))
 				return false;
 		}
@@ -457,12 +455,10 @@ namespace rat::cc {
 			fn.retVoid();
 			return true;
 		}
-		Node* value;
 		if(v.node)
-			value = convert(fn, v.node, v.type, func.returnType);
+			fn.ret(convert(fn, v.node, v.type, func.returnType));
 		else
-			value = fn.constInt(irType(func.returnType), 0);
-		fn.ret(value);
+			fn.ret(fn.constInt(irType(func.returnType), 0));
 		return true;
 	}
 

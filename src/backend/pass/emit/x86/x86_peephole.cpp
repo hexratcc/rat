@@ -6,10 +6,7 @@ namespace rat {
 	U32 X86PeepholePass::slotKey(I32 s, U32 keys) {
 		if(s >= 0 || (s & 7))
 			return keys;
-		U32 k = (U32)(-(I64)s >> 3);
-		if(k >= keys)
-			return keys;
-		return k;
+		return std::min((U32)(-(I64)s >> 3), keys);
 	}
 
 	void X86PeepholePass::ValueState::begin(U32 frameKeys) {

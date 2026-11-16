@@ -70,8 +70,7 @@ namespace rat::cc {
 		U32 unitBits = unitBytes * 8;
 		U32 unitStart = 0;
 		if(isUnion) {
-			if(unitBytes > l.offset)
-				l.offset = unitBytes;
+			l.offset = std::max<U64>(l.offset, unitBytes);
 		} else {
 			if(w == 0 || l.bitPos % unitBits + (U32)w > unitBits)
 				l.bitPos = alignUp(l.bitPos, unitBits);

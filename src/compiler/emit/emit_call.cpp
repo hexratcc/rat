@@ -143,9 +143,7 @@ namespace rat::cc {
 		}
 		if(!emitArgs(fn, e, c, nparams, args))
 			return {};
-		Type* retTy = nullptr;
-		if(!isVoidType(ret))
-			retTy = irType(ret);
+		Type* retTy = isVoidType(ret) ? nullptr : irType(ret);
 		Node* call;
 		if(c.direct)
 			call = fn.call(sym, retTy, args.nodes, va, args.abi);

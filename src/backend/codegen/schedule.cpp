@@ -103,20 +103,13 @@ namespace rat {
 	}
 
 	void Schedule::buildCFG() {
-		U32 nb = (U32)blocks.size();
-		predStart.assign(nb + 1, 0);
-		for(I32 b = 0; b < (I32)nb; ++b) {
+		List<Pair<U32, U32>> edges; // (succ, pred)
+		for(I32 b = 0; b < (I32)blocks.size(); ++b) {
 			setTerminator(b, walkBlock(b));
 			for(I32 s : blocks[b].succs)
-				++predStart[s + 1];
+				edges.emplace_back(s, b);
 		}
-		for(U32 b = 0; b < nb; ++b)
-			predStart[b + 1] += predStart[b];
-		predFlat.resize(predStart[nb]);
-		List<I32> fill(predStart.begin(), predStart.end() - 1);
-		for(I32 b = 0; b < (I32)nb; ++b)
-			for(I32 s : blocks[b].succs)
-				predFlat[fill[s]++] = b;
+		detail::groupBy(edges, (U32)blocks.size(), predStart, predFlat);
 	}
 
 	void Schedule::pin(Node* n, I32 b) {
@@ -237,7 +230,7 @@ namespace rat {
 				if(b == entryBlock)
 					continue;
 				I32 newIdom = -1;
-				for(I32 k = predStart[b]; k < predStart[b + 1]; ++k) {
+				for(U32 k = predStart[b]; k < predStart[b + 1]; ++k) {
 					I32 p = predFlat[k];
 					if(blocks[p].idom == -1)
 						continue;
@@ -318,7 +311,7 @@ namespace rat {
 				while(!stack.empty()) {
 					I32 x = stack.back();
 					stack.pop_back();
-					for(I32 k = predStart[x]; k < predStart[x + 1]; ++k)
+					for(U32 k = predStart[x]; k < predStart[x + 1]; ++k)
 						if(I32 p = predFlat[k]; stamp[p] != g) { // stops at the header
 							stamp[p] = g;
 							++blocks[p].loopDepth;
@@ -563,22 +556,6 @@ namespace rat {
 
 	const List<Node*>& Schedule::allocNodes() const { return allocs; }
 
-	void Schedule::bucket(const List<Node*>& items,
-												const List<I32>& keys,
-												U32 nb,
-												List<I32>& start,
-												List<Node*>& flat) {
-		start.assign(nb + 1, 0);
-		for(I32 k : keys)
-			++start[k + 1];
-		for(U32 b = 0; b < nb; ++b)
-			start[b + 1] += start[b];
-		List<I32> fill(start.begin(), start.end() - 1);
-		flat.resize(items.size());
-		for(U32 i = 0; i < items.size(); ++i)
-			flat[fill[keys[i]]++] = items[i];
-	}
-
 	B32 Schedule::emitsEarly(const Node* n) {
 		NodeSpan users = n->getUsers();
 		if(users.empty() || isa<LoadNode>(n) || !isFloating(n))
@@ -599,10 +576,10 @@ namespace rat {
 
 	void Schedule::buildBlockLists() {
 		U32 nb = (U32)blocks.size();
-		List<I32> keys;
+		List<Pair<U32, Node*>> keyed; // (block, node)
 		for(Node* phi : dataPhis)
-			keys.push_back(headBlock(cast<PhiNode>(phi)->getRegion()));
-		bucket(dataPhis, keys, nb, phiStart, phiFlat);
+			keyed.emplace_back(headBlock(cast<PhiNode>(phi)->getRegion()), phi);
+		detail::groupBy(keyed, nb, phiStart, phiFlat);
 
 		// placed nodes in function (id) order, induction steps last
 		List<Node*> listed;
@@ -613,10 +590,10 @@ namespace rat {
 		std::sort(mid, listed.end(), detail::earlierId);
 		std::inplace_merge(listed.begin(), mid, listed.end(), detail::earlierId);
 		std::stable_partition(listed.begin(), listed.end(), emitsEarly);
-		keys.clear();
+		keyed.clear();
 		for(Node* n : listed)
-			keys.push_back(nodeBlock[n->getId()]);
-		bucket(listed, keys, nb, nodeStart, nodeFlat);
+			keyed.emplace_back(nodeBlock[n->getId()], n);
+		detail::groupBy(keyed, nb, nodeStart, nodeFlat);
 
 		TopoScratch scratch;
 		scratch.localOf.assign(fn.idBound(), -1);

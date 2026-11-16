@@ -182,9 +182,8 @@ namespace rat {
 		}
 
 		B32 immIsOperand(X86Op op) {
-			if(op == X86Op::FrameAddr || op == X86Op::VExtract || op == X86Op::VShuf)
-				return true;
-			return isNormalize(op);
+			return op == X86Op::FrameAddr || op == X86Op::VExtract || op == X86Op::VShuf ||
+						 isNormalize(op);
 		}
 
 		// bytes in the low 32 bits, then the alignment up to 16
