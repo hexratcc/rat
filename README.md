@@ -6,6 +6,7 @@ rat is a simple, [**handmade**](https://handmade.network/manifesto), and *relati
 - `ratcc -O1` compiles `sqlite3.c` about 17x faster than `clang -O1`)
 - `ratcc -O1` code runs within 5% of `gcc -O1` and 26% of `clang -O1`.
 - rat is small, readable and easy to hack on.
+- rat supports DWARF debug symbols
 
 ### running
 ```shell
