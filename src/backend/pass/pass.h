@@ -15,9 +15,10 @@ namespace rat {
 	struct Pass {
 		virtual ~Pass();
 
-		virtual const C8* name() const = 0;
 		virtual B32 run(Module& module, const TargetInfo& target) = 0;
 		virtual void printStats(const Module&, std::ostream&) const {} // -fpass-stats, rat -stats
+
+		const C8* name = nullptr; // set by createPass
 	};
 
 	// the pass manager runs consecutive function passes function by function (see PassManager)
@@ -36,10 +37,11 @@ namespace rat {
 	struct MachinePass {
 		virtual ~MachinePass();
 
-		virtual const C8* name() const = 0;
 		virtual B32
 		run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) = 0;
 		virtual void finish(Module& module, const TargetInfo& target); // after the last function
+
+		const C8* name = nullptr; // set by createMachinePass
 	};
 } // namespace rat
 

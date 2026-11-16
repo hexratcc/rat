@@ -14,7 +14,6 @@ namespace rat {
 	struct X86CfgEmitterPass : MachinePass {
 		explicit X86CfgEmitterPass(std::ostream& os);
 
-		const C8* name() const override;
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
 		void finish(Module& module, const TargetInfo& target) override;
 	private:

@@ -191,8 +191,6 @@ namespace rat {
 		return removed;
 	}
 
-	const C8* MemoryOptPass::name() const { return "memoryopt"; }
-
 	U32 MemoryOptPass::runOnFunction(Function& fn, const TargetInfo& target) {
 		fn.eliminateDeadNodes();
 		AliasAnalysis aa(target.getPointerSizeInBytes(), 0);

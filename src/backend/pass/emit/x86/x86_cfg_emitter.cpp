@@ -10,8 +10,6 @@ namespace rat {
 	X86CfgEmitterPass::X86CfgEmitterPass(std::ostream& os)
 	: os(&os) {}
 
-	const C8* X86CfgEmitterPass::name() const { return "x86-cfg-emitter"; }
-
 	void X86CfgEmitterPass::writeBlock(const Function& fn, const MachineBlock& block) {
 		String nodePrefix = "f" + std::to_string(fnIndex) + "_b";
 		*os << "  " << nodePrefix << block.id << " [label=\"" << fn.getName() << " b" << block.id;

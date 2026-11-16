@@ -66,7 +66,7 @@ namespace detail {
 			if(!pm.add(createPass(name, out)))
 				return cli::error(kTool, "unknown pass '" + name + "'");
 		if(o.doVerify)
-			pm.add<VerifyPass>(std::cerr);
+			pm.add(createPass("verify", std::cerr));
 		pm.add(createPass(emitter, out));
 
 		pm.run(module, o.stats ? &std::cerr : nullptr);

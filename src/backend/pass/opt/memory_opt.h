@@ -20,7 +20,6 @@ namespace rat {
 	struct Schedule;
 
 	struct MemoryOptPass : FunctionPass {
-		const C8* name() const override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
 		U32 forwardStores(const AliasAnalysis& aa);

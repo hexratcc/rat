@@ -283,8 +283,6 @@ namespace rat {
 		return changed;
 	}
 
-	const C8* SimplifyCFGPass::name() const { return "simplifycfg"; }
-
 	U32 SimplifyCFGPass::runOnFunction(Function& fn, const TargetInfo&) {
 		U32 changed = 0;
 		while(true) {

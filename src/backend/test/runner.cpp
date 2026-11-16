@@ -32,7 +32,7 @@ namespace detail {
 		std::ostringstream os;
 		Generic64 target;
 		PassManager pm(target);
-		pm.add<TextEmitterPass>(os);
+		pm.add(createPass("text-emitter", os));
 		pm.run(m);
 		return os.str();
 	}

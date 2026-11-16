@@ -26,7 +26,6 @@ namespace rat {
 	} // namespace detail
 
 	struct StrengthReducePass : FunctionPass {
-		const C8* name() const override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 		static U32 widen(Function& fn, PhiNode* p, I64 step, U32 recIdx);
 	};

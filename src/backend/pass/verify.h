@@ -14,7 +14,6 @@ namespace rat {
 	struct VerifyPass : Pass {
 		explicit VerifyPass(std::ostream& os);
 
-		const C8* name() const override;
 		B32 run(Module& module, const TargetInfo& target) override;
 
 		struct FunctionVerifier {
@@ -26,6 +25,7 @@ namespace rat {
 
 			void run();
 			void err(const Node* n, const String& msg);
+			B32 require(B32 ok, const Node* n, const C8* msg);
 			static B32 isCtrl(const Node* n);
 			static B32 isBool(const Type* t);
 			static B32 listsAsInput(const Node* user, const Node* def);

@@ -13,11 +13,9 @@ namespace rat {
 	} // namespace detail
 
 	struct RegAllocPass : MachinePass {
-		explicit RegAllocPass(B32 local = false)
-		: local(local) {}
-
-		const C8* name() const override { return "regalloc"; }
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
+		// -O0 mode, a vreg live across blocks stays on the stack
+		void setLocal(B32 v) { local = v; }
 	private:
 		using Seg = Pair<I32, I32>;
 

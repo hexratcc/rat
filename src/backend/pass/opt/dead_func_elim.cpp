@@ -5,8 +5,6 @@
 #include "ir/node.h"
 
 namespace rat {
-	const C8* DeadFuncElimPass::name() const { return "dfe"; }
-
 	const List<String>& DeadFuncElimPass::referencesOf(Function& fn, Set<String>& scratch) {
 		auto it = refCache.find(&fn);
 		if(it == refCache.end() || it->second.first != fn.getVersion()) {

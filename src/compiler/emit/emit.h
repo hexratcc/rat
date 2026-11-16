@@ -343,6 +343,7 @@ namespace rat::cc {
 		Value voidValue(Function& fn);
 		Node* vaListRef(Function& fn, const Expr* ap);
 		B32 oneArg(const Expr* e);
+		Value emitOneArg(Function& fn, const Expr* e);
 		B32 failBuiltin(const String& msg);
 		Node* wideHigh(Function& fn, Node* lo, B32 isUnsigned);
 		Wide wideExtend(Function& fn, Node* v, CType from);

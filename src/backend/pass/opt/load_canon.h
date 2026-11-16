@@ -58,7 +58,6 @@ namespace rat {
 			Map<U64, std::array<U32, SlpPackPass::kVecBytes>> blocks;
 		};
 	public:
-		const C8* name() const override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 		static List<SlpPackPass::Chain> collectChains(Function& fn);
 		static StoreNode* chainSuccessor(const StoreNode* prev);

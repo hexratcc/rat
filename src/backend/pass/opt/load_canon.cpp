@@ -164,8 +164,6 @@ namespace rat {
 				hoist.load->setInput(1, hoist.state);
 	}
 
-	const C8* LoadCanonPass::name() const { return "loadcanon"; }
-
 	U32 LoadCanonPass::runOnFunction(Function& fn, const TargetInfo& target) {
 		Handoff& h = handoff();
 		h = Handoff(fn);

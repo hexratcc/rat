@@ -89,13 +89,14 @@ namespace detail {
 				cli::die(kTool, "unknown machine pass '" + name + "' (see -list-passes)");
 		if(!machineNames.empty())
 			return;
-		pm.add<X86LowerPass>();
-		pm.add<RegAllocPass>(!optimize);
+		pm.add(createMachinePass("x86-lower", out));
+		MachinePass* regalloc = pm.add(createMachinePass("regalloc", out));
+		static_cast<RegAllocPass*>(regalloc)->setLocal(!optimize);
 		if(optimize) {
-			pm.add<X86PeepholePass>();
-			pm.add<X86LayoutPass>();
+			pm.add(createMachinePass("x86-peephole", out));
+			pm.add(createMachinePass("x86-layout", out));
 		}
-		pm.add<X86EncodePass>(out);
+		pm.add(createMachinePass("x86-encode", out));
 	}
 
 	const String kEmitNames[] = {"tok", "ast", "x86"}; // Emit order

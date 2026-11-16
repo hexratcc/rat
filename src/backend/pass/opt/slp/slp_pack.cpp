@@ -180,12 +180,6 @@ namespace rat {
 	SlpPackPass::SlpPackPass(SlpGuards guards)
 	: guards(guards) {}
 
-	const C8* SlpPackPass::name() const {
-		static_assert((U8)SlpGuards::On == 0 && (U8)SlpGuards::NoCost == 1 && (U8)SlpGuards::Off == 2);
-		constexpr const C8* kNames[] = {"slp", "slp-noguardcost", "slp-noguards"};
-		return kNames[(U8)guards];
-	}
-
 	void SlpPackPass::beginModule(Module&, const CallGraph&) {
 		stats = SlpStats{};
 		LoadCanonPass::handoff() = {}; // a handoff from an earlier pipeline stage is stale

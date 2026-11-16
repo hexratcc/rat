@@ -228,8 +228,6 @@ namespace rat {
 	GraphEmitterPass::GraphEmitterPass(std::ostream& os)
 	: os(&os) {}
 
-	const C8* GraphEmitterPass::name() const { return "graph-emitter"; }
-
 	B32 GraphEmitterPass::run(Module& module, const TargetInfo&) {
 		*os << "digraph rat {\n"
 					 "  rankdir=TB;\n"

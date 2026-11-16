@@ -123,6 +123,13 @@ namespace rat::cc {
 		return diag.fail("'" + *e->call.callee + "' expects one argument");
 	}
 
+	// the single argument of e, a null node after a diagnostic
+	Emitter::Value Emitter::emitOneArg(Function& fn, const Expr* e) {
+		if(!oneArg(e))
+			return {};
+		return emitExpr(fn, e->args[0]);
+	}
+
 	// a failed builtin still counts as handled
 	B32 Emitter::failBuiltin(const String& msg) {
 		diag.fail(msg);
@@ -160,9 +167,7 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitAllocaBuiltin(Function& fn, const Expr* e, Value& out) {
-		if(!oneArg(e))
-			return true;
-		Value n = emitExpr(fn, e->args[0]);
+		Value n = emitOneArg(fn, e);
 		if(!n.node)
 			return true;
 		func.sawAlloca = true;
@@ -239,9 +244,7 @@ namespace rat::cc {
 		}
 		if(bits == 0)
 			return false;
-		if(!oneArg(e))
-			return true;
-		Value a = emitExpr(fn, e->args[0]);
+		Value a = emitOneArg(fn, e);
 		if(!a.node)
 			return true;
 		CType ut = ctUnsigned(bits);
@@ -288,9 +291,7 @@ namespace rat::cc {
 	B32 Emitter::emitBswapBuiltin(Function& fn, const Expr* e, Value& out) {
 		String widthDigits = e->call.callee->substr(sizeof("__builtin_bswap") - 1);
 		U32 bits = (U32)std::stoul(widthDigits);
-		if(!oneArg(e))
-			return true;
-		Value a = emitExpr(fn, e->args[0]);
+		Value a = emitOneArg(fn, e);
 		if(!a.node)
 			return true;
 		CType wt = ctUnsigned(bits == 16 ? 32 : bits);
@@ -330,9 +331,7 @@ namespace rat::cc {
 			kind = IsFinite;
 		else
 			return false;
-		if(!oneArg(e))
-			return true;
-		Value a = emitExpr(fn, e->args[0]);
+		Value a = emitOneArg(fn, e);
 		if(!a.node)
 			return true;
 		CType ft = isFloating(a.type) ? a.type : ctDouble();

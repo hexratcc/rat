@@ -696,6 +696,4 @@ namespace rat {
 			fn.eliminateDeadNodes();
 		return changed;
 	}
-
-	const C8* FoldPass::name() const { return "fold"; }
 } // namespace rat

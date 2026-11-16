@@ -57,7 +57,7 @@ namespace rat {
 			}
 		}
 		for(U32 i = 0; i < group.size(); ++i)
-			finish(group[i]->name(), nanos[i], changed[i], log);
+			finish(group[i]->name, nanos[i], changed[i], log);
 	}
 
 	void PassManager::run(Module& module, std::ostream* log) {
@@ -72,7 +72,7 @@ namespace rat {
 			}
 			U64 start = detail::nowNanos();
 			B32 changed = passes[i]->run(module, *target);
-			finish(passes[i]->name(), detail::nowNanos() - start, changed, log);
+			finish(passes[i]->name, detail::nowNanos() - start, changed, log);
 			++i;
 		}
 		runMachine(module, log);
@@ -94,7 +94,7 @@ namespace rat {
 			U64 start = detail::nowNanos();
 			machinePasses[i]->finish(module, *target);
 			U64 total = nanos[i] + detail::nowNanos() - start;
-			finish(machinePasses[i]->name(), total, changed[i], log);
+			finish(machinePasses[i]->name, total, changed[i], log);
 		}
 	}
 

@@ -287,7 +287,6 @@ namespace rat {
 		};
 	public:
 		explicit SlpPackPass(SlpGuards guards = SlpGuards::On);
-		const C8* name() const override;
 		void beginModule(Module& module, const CallGraph& graph) override;
 		void printStats(const Module& module, std::ostream& os) const override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;

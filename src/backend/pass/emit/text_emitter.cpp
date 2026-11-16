@@ -133,8 +133,6 @@ namespace rat {
 	TextEmitterPass::TextEmitterPass(std::ostream& os)
 	: os(&os) {}
 
-	const C8* TextEmitterPass::name() const { return "text-emitter"; }
-
 	B32 TextEmitterPass::run(Module& module, const TargetInfo&) {
 		B32 any = false;
 		for(const Global* g : module.globals()) {

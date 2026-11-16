@@ -48,8 +48,11 @@ namespace rat {
 		template <typename B, U64 N>
 		UniquePtr<B> findPass(const Entry<B> (&table)[N], const String& name, std::ostream& out) {
 			for(const Entry<B>& e : table)
-				if(name == e.name)
-					return e.make(out);
+				if(name == e.name) {
+					UniquePtr<B> pass = e.make(out);
+					pass->name = e.name;
+					return pass;
+				}
 			return nullptr;
 		}
 
