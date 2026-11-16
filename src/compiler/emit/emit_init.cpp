@@ -51,42 +51,22 @@ namespace rat::cc {
 		return true;
 	}
 
+	// highest outer index + 1, from a dry run of the real walk
 	U32 Emitter::initArrayCount(CType elem, const Expr* init) {
-		if(initListIsFlat(init))
-			return flatArrayCount(elem, init->args);
-		return arrayInitOuterExtent(elem, init);
-	}
-
-	U32 Emitter::arrayInitOuterExtent(CType elem, const Expr* init) {
-		const List<Expr*>& els = init->args;
-		U32 rowLen = elem.array ? elem.array->count : 0;
-		U32 cur = 0, maxIdx = 0;
-		for(U32 i = 0; i < els.size();) {
-			const Designator& des = init->designators[i];
-			if(des.isSet && des.isIndex)
-				cur = (U32)des.index;
-			if(cur >= maxIdx)
-				maxIdx = cur;
-			const Expr* el = els[i];
-			B32 braced = el->kind == ExprKind::InitList || el->kind == ExprKind::CompoundLit;
-			if(des.isSet && des.next && isArrayType(elem) && des.next->isIndex) {
-				U32 rowFree = (U32)des.next->index + 1 < rowLen ? rowLen - ((U32)des.next->index + 1) : 0;
-				U32 j = i + 1;
-				for(; j < els.size() && !init->designators[j].isSet && rowFree > 0; ++j)
-					--rowFree;
-				i = j;
-			} else if(isArrayType(elem) && !braced && el->kind != ExprKind::StrLit) {
-				U32 rowFree = rowLen;
-				U32 j = i;
-				for(; j < els.size() && rowFree > 0 && (j == i || !init->designators[j].isSet); ++j)
-					--rowFree;
-				i = j;
-			} else {
-				++i;
-			}
-			++cur;
-		}
-		return els.empty() ? 0 : maxIdx + 1;
+		DryRunDiag dryRun(diag);
+		ExtentSink sink;
+		U32 extent = 0;
+		U32 pos = 0;
+		B32 ok;
+		// same walk registerGlobalAggArray picks
+		if(isStruct(elem) && initListIsFlat(init))
+			ok = initFlatArray(sink, 0, elem, UINT32_MAX, {init->args, pos}, &extent);
+		else
+			ok = initArrayInit(sink, 0, elem, UINT32_MAX, init, &extent);
+		// the real walk must reach the element that failed
+		if(!ok)
+			extent = std::max(extent, 1u);
+		return extent;
 	}
 
 	B32 Emitter::resolveArrayIndices(const Expr* init, B32 haveLen, I64& count, List<I64>& idx) {
@@ -132,7 +112,8 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::initArrayInit(InitSink& sink, U32 base, CType elem, U32 count, const Expr* init) {
+	B32 Emitter::initArrayInit(
+			InitSink& sink, U32 base, CType elem, U32 count, const Expr* init, U32* extent) {
 		if(init->kind != ExprKind::InitList)
 			return diag.fail("expected a brace initializer for an array");
 		U32 esz = byteSize(elem);
@@ -148,6 +129,8 @@ namespace rat::cc {
 			}
 			if(cur >= count)
 				return failTooManyInits();
+			if(extent && cur >= *extent)
+				*extent = cur + 1;
 			U32 off = base + cur * esz;
 			const Expr* el = els[i];
 			if(des.isSet && des.next && isArrayType(elem) && des.next->isIndex) {
@@ -165,8 +148,12 @@ namespace rat::cc {
 			B32 braced = el->kind == ExprKind::InitList || el->kind == ExprKind::CompoundLit;
 			B32 charString = isArrayType(elem) && elemIsChar && el->kind == ExprKind::StrLit;
 			if((isStruct(elem) || isArrayType(elem)) && !braced && !charString) {
+				U32 first = i;
 				if(!initFlatObject(sink, off, elem, {els, i, &init->designators}))
 					return false;
+				// a zero size element takes nothing
+				if(i == first)
+					return failTooManyInits();
 				++cur;
 				continue;
 			}
@@ -241,7 +228,8 @@ namespace rat::cc {
 		return sink.scalar(off, f.type, els[0]);
 	}
 
-	B32 Emitter::initStructInit(InitSink& sink, U32 base, const StructType* st, const Expr* init) {
+	B32 Emitter::initStructInit(
+			InitSink& sink, U32 base, const StructType* st, const Expr* init, U32* flexExtent) {
 		if(init->kind != ExprKind::InitList)
 			return diag.fail("expected a brace initializer for struct '" + st->tag + "'");
 		if(st->isUnion)
@@ -277,8 +265,11 @@ namespace rat::cc {
 				continue;
 			}
 			U32 fcount = f.count;
-			if(f.isArray() && f.count == 0 && cur == fields.size() - 1)
+			U32* fieldExtent = nullptr;
+			if(f.isArray() && f.count == 0 && cur == fields.size() - 1) {
 				fcount = data.flexCount;
+				fieldExtent = flexExtent;
+			}
 			// the rest of the designator applies to a nested brace list
 			if(des.isSet && des.next) {
 				if(!f.isArray() && !isStruct(f.type))
@@ -286,7 +277,7 @@ namespace rat::cc {
 				el = wrapNested(des.next, el);
 			}
 			if(f.isArray() && el->kind != ExprKind::InitList && el->kind != ExprKind::StrLit) {
-				if(!initFlatArray(sink, off, f.type, fcount, {els, i}))
+				if(!initFlatArray(sink, off, f.type, fcount, {els, i}, fieldExtent))
 					return false;
 				++cur;
 				continue;
@@ -300,9 +291,11 @@ namespace rat::cc {
 			}
 			if(f.isArray()) {
 				if(el->kind == ExprKind::StrLit) {
+					if(fieldExtent && isCharType(f.type))
+						*fieldExtent = std::max(*fieldExtent, (U32)el->str.bytes->size() + 1);
 					if(!sink.charArray(off, f.type, fcount, el))
 						return false;
-				} else if(!initArrayInit(sink, off, f.type, fcount, peelAggregateCompound(el)))
+				} else if(!initArrayInit(sink, off, f.type, fcount, peelAggregateCompound(el), fieldExtent))
 					return false;
 			} else if(isStruct(f.type)) {
 				if(!initStructInit(sink, off, f.type.strukt, peelAggregateCompound(el)))

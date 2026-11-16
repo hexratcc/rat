@@ -75,16 +75,8 @@ namespace rat::cc {
 	}
 
 	CType Emitter::funcPtrType(const FunctionSignature& sig) {
-		FuncType* ft = arena.make<FuncType>();
-		ft->ret = sig.returnType;
-		for(CType pt : sig.params) {
-			Param p;
-			p.type = pt;
-			ft->params.push_back(p);
-		}
-		ft->isVarArgs = sig.isVarArgs;
 		CType t;
-		t.func = ft;
+		t.func = sig.type;
 		t.ptr = 1;
 		return t;
 	}
@@ -222,30 +214,21 @@ namespace rat::cc {
 	B32 Emitter::emitLValue(Function& fn, const Expr* e, LValue& out) {
 		diag.offset = e->offset;
 		if(e->kind == ExprKind::Ident) {
-			Local loc;
-			if(func.scopes.lookup(*e->ident.name, loc)) {
-				if(loc.isArray)
-					return diag.fail("array '" + *e->ident.name + "' is not assignable");
-				if(loc.inMem()) {
-					out.kind = LValue::Kind::Addr;
-					out.addr = loc.addr;
-				} else {
-					out.kind = LValue::Kind::Var;
-					out.var = loc.var;
-				}
-				out.type = loc.type;
+			const String& name = *e->ident.name;
+			Symbol sym = lookupSymbol(name);
+			if(sym.kind == Symbol::Kind::None || sym.kind == Symbol::Kind::Function)
+				return failUndeclared(name);
+			if(sym.isArray)
+				return diag.fail("array '" + name + "' is not assignable");
+			out.type = sym.type;
+			if(sym.local && !sym.local->inMem()) {
+				out.kind = LValue::Kind::Var;
+				out.var = sym.local->var;
 				return true;
 			}
-			auto g = syms.globals.find(*e->ident.name);
-			if(g != syms.globals.end()) {
-				if(g->second.isArray)
-					return diag.fail("array '" + *e->ident.name + "' is not assignable");
-				out.kind = LValue::Kind::Addr;
-				out.addr = fn.global(syms.resolveAlias(*e->ident.name));
-				out.type = g->second.type;
-				return true;
-			}
-			return failUndeclared(*e->ident.name);
+			out.kind = LValue::Kind::Addr;
+			out.addr = sym.local ? sym.local->addr : fn.global(syms.resolveAlias(name));
+			return true;
 		}
 		if(e->kind == ExprKind::Unary && e->unary.op == ExprOp::Deref) {
 			Value p = emitExpr(fn, e->unary.operand);
@@ -369,19 +352,20 @@ namespace rat::cc {
 		i32 = mod.getInt(32);
 
 		for(const FuncDef* def : unit.functions) {
+			FuncType* type = arena.make<FuncType>();
+			type->ret = def->retType;
+			type->params = def->params;
+			type->isVarArgs = def->isVarArgs;
+			type->unprototyped = def->unprototyped;
 			FunctionSignature sig;
-			sig.returnType = def->retType;
-			sig.isVarArgs = def->isVarArgs;
-			sig.unprototyped = def->unprototyped;
+			sig.type = type;
 			sig.noInline = def->isNoInline;
 			sig.align = def->align;
-			for(const Param& p : def->params)
-				sig.params.push_back(p.type);
 			auto prev = syms.functions.find(def->name);
 			if(prev != syms.functions.end()) {
 				sig.noInline |= prev->second.noInline;
 				sig.align = std::max(sig.align, prev->second.align); // an earlier declaration may carry it
-				if(def->unprototyped && !prev->second.unprototyped) {
+				if(def->unprototyped && !prev->second.type->unprototyped) {
 					prev->second.noInline = sig.noInline;
 					prev->second.align = sig.align;
 					continue;
@@ -535,14 +519,8 @@ namespace rat::cc {
 		func.scopes.pop();
 		for(auto& [name, label] : func.labels)
 			fn->seal(label.block);
-		if(!fn->blockFinished()) {
-			if(func.sretSlot)
-				fn->ret(func.sretSlot);
-			else if(isVoidType(func.returnType))
-				fn->retVoid();
-			else
-				fn->ret(fn->constInt(irType(func.returnType), 0));
-		}
+		if(!fn->blockFinished())
+			emitReturn(*fn, nullptr);
 		fn->setLoc(0); // nodes later passes create carry no line
 		// statements emitted into unreachable blocks leave anchored nodes with a
 		// null control input behind. Drop them so every backend sees a graph

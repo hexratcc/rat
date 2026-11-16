@@ -42,12 +42,14 @@ namespace rat::cc {
 		return false;
 	}
 
+	// what defaults to the quoted spelling of kind
 	B32 Parser::expect(TokKind kind, const C8* what) {
 		if(peek().kind == kind) {
 			advance();
 			return true;
 		}
-		return fail(peek(), String("expected ") + what + ", found '" + tokKindName(peek().kind) + "'");
+		String expected = what ? String(what) : "'" + String(tokKindName(kind)) + "'";
+		return fail(peek(), "expected " + expected + ", found '" + tokKindName(peek().kind) + "'");
 	}
 
 	Expr* Parser::makeExpr(ExprKind kind, U32 offset) {
@@ -143,7 +145,7 @@ namespace rat::cc {
 				if(!accept(TokKind::Comma))
 					break;
 			}
-			if(!expect(TokKind::Semicolon, "';'"))
+			if(!expect(TokKind::Semicolon))
 				return false;
 		}
 		return true;
@@ -232,7 +234,7 @@ namespace rat::cc {
 			if(!accept(TokKind::Comma))
 				break;
 		}
-		return expect(TokKind::Semicolon, "';'");
+		return expect(TokKind::Semicolon);
 	}
 
 	// static-assert | typedef | type-spec ; | type-spec declarators

@@ -7,7 +7,7 @@ namespace rat::cc {
 		if(!check(TokKind::StringLiteral))
 			return fail(peek(), String("expected a string literal in ") + where);
 		while(check(TokKind::StringLiteral))
-			if(!parseStringLiteral(advance(), out))
+			if(!parseStringLiteral(advance(), 1, out))
 				return false;
 		return true;
 	}
@@ -32,14 +32,14 @@ namespace rat::cc {
 				if(!check(TokKind::Identifier))
 					return fail(peek(), "expected a symbolic operand name");
 				op.name = arena.make<String>(lex.text(advance()));
-				if(!expect(TokKind::RBracket, "']'"))
+				if(!expect(TokKind::RBracket))
 					return false;
 			}
 			if(!parseAsmTemplate(op.constraint) ||
 				 !expect(TokKind::LParen, "'(' after an asm constraint"))
 				return false;
 			op.expr = parseExpression();
-			if(!op.expr || !expect(TokKind::RParen, "')'"))
+			if(!op.expr || !expect(TokKind::RParen))
 				return false;
 			out.push_back(op);
 			if(!accept(TokKind::Comma))
@@ -122,16 +122,14 @@ namespace rat::cc {
 	B32 Parser::parseDeclAttributes(const String*& aliasOut, B32& noInlineOut, U32& alignOut) {
 		for(;;) {
 			if(accept(TokKind::KwAlias)) {
-				if(!expect(TokKind::LParen, "'(' after an alias attribute") || !parseAsmTemplate(aliasOut))
-					return false;
-				if(!expect(TokKind::RParen, "')'"))
+				if(!expect(TokKind::LParen, "'(' after an alias attribute") ||
+					 !parseAsmTemplate(aliasOut) || !expect(TokKind::RParen))
 					return false;
 			} else if(check(TokKind::KwAsm)) {
 				Token kw = advance();
 				const String* label = nullptr;
-				if(!expect(TokKind::LParen, "'(' after 'asm'") || !parseAsmTemplate(label))
-					return false;
-				if(!expect(TokKind::RParen, "')'"))
+				if(!expect(TokKind::LParen, "'(' after 'asm'") || !parseAsmTemplate(label) ||
+					 !expect(TokKind::RParen))
 					return false;
 				return fail(kw, "asm labels on declarations are not supported");
 			} else if(accept(TokKind::KwNoinline)) {

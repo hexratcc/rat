@@ -15,12 +15,40 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::identIsArray(const String& name) {
-		Local loc;
-		if(func.scopes.lookup(name, loc))
-			return loc.isArray;
-		auto gv = syms.globals.find(name);
-		return gv != syms.globals.end() && gv->second.isArray;
+	Symbol Emitter::lookupSymbol(const String& name) {
+		Symbol sym;
+		sym.local = func.scopes.get(name);
+		if(sym.local) {
+			sym.kind = Symbol::Kind::Local;
+			sym.type = sym.local->type;
+			sym.isArray = sym.local->isArray;
+			return sym;
+		}
+		auto global = syms.globals.find(name);
+		if(global != syms.globals.end()) {
+			sym.kind = Symbol::Kind::Global;
+			sym.type = global->second.type;
+			sym.isArray = global->second.isArray;
+			return sym;
+		}
+		auto function = syms.functions.find(name);
+		if(function != syms.functions.end()) {
+			sym.kind = Symbol::Kind::Function;
+			sym.type = funcPtrType(function->second);
+		}
+		return sym;
+	}
+
+	// false when the base has no type, field is null when there is no such member
+	B32 Emitter::memberField(const Expr* e, CType& structType, const Field*& field) {
+		field = nullptr;
+		CType base;
+		if(!typeOf(e->member.base, base))
+			return false;
+		structType = e->member.arrow ? pointee(base) : base;
+		if(structType.strukt)
+			field = structType.strukt->find(*e->member.name);
+		return true;
 	}
 
 	B32 Emitter::sizeofOperand(const Expr* operand, U64& out) {
@@ -50,20 +78,17 @@ namespace rat::cc {
 			}
 		}
 		if(operand->kind == ExprKind::Member) {
-			CType base;
-			if(!typeOf(operand->member.base, base))
+			CType st;
+			const Field* f;
+			if(!memberField(operand, st, f))
 				return false;
-			CType st = operand->member.arrow ? pointee(base) : base;
-			if(isStruct(st)) {
-				const Field* f = st.strukt->find(*operand->member.name);
-				if(f && f->isArray()) {
-					out = f->count * byteSize(f->type);
-					return true;
-				}
-				if(f && isArrayType(f->type)) {
-					out = byteSize(f->type);
-					return true;
-				}
+			if(f && isStruct(st) && f->isArray()) {
+				out = f->count * byteSize(f->type);
+				return true;
+			}
+			if(f && isStruct(st) && isArrayType(f->type)) {
+				out = byteSize(f->type);
+				return true;
 			}
 		}
 		CType t;
@@ -154,7 +179,7 @@ namespace rat::cc {
 			out = t;
 			return true;
 		case ExprOp::Addr:
-			if(operand->kind == ExprKind::Ident && identIsArray(*operand->ident.name))
+			if(operand->kind == ExprKind::Ident && lookupSymbol(*operand->ident.name).isArray)
 				out = t;
 			else
 				out = pointerTo(t);
@@ -244,22 +269,11 @@ namespace rat::cc {
 			}
 			return true;
 		case ExprKind::Ident: {
-			Local loc;
-			if(func.scopes.lookup(*e->ident.name, loc)) {
-				out = loc.isArray ? pointerTo(loc.type) : loc.type;
-				return true;
-			}
-			auto g = syms.globals.find(*e->ident.name);
-			if(g != syms.globals.end()) {
-				out = g->second.isArray ? pointerTo(g->second.type) : g->second.type;
-				return true;
-			}
-			auto f = syms.functions.find(*e->ident.name);
-			if(f != syms.functions.end()) {
-				out = funcPtrType(f->second);
-				return true;
-			}
-			return failUndeclared(*e->ident.name);
+			Symbol sym = lookupSymbol(*e->ident.name);
+			if(sym.kind == Symbol::Kind::None)
+				return failUndeclared(*e->ident.name);
+			out = sym.isArray ? pointerTo(sym.type) : sym.type;
+			return true;
 		}
 		case ExprKind::Call: {
 			if(e->call.callee) {
@@ -273,7 +287,7 @@ namespace rat::cc {
 				}
 				auto found = syms.functions.find(*e->call.callee);
 				if(found != syms.functions.end()) {
-					out = found->second.returnType;
+					out = found->second.type->ret;
 					return true;
 				}
 				if(builtinReturnType(*e->call.callee, lay.longBits, out))
@@ -321,13 +335,12 @@ namespace rat::cc {
 		case ExprKind::Comma:
 			return typeOf(e->comma.rhs, out);
 		case ExprKind::Member: {
-			CType base;
-			if(!typeOf(e->member.base, base))
+			CType st;
+			const Field* f;
+			if(!memberField(e, st, f))
 				return false;
-			CType st = e->member.arrow ? pointee(base) : base;
 			if(!isStruct(st))
 				return diag.fail("member reference base type is not a struct or union");
-			const Field* f = st.strukt->find(*e->member.name);
 			if(!f)
 				return diag.fail("no member named '" + *e->member.name + "' in '" + typeName(st) + "'");
 			if(f->isArray())

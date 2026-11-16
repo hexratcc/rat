@@ -19,7 +19,7 @@ namespace rat::cc {
 		Token advance() { return lex.next(); }
 		B32 check(TokKind kind) { return peek().kind == kind; }
 		B32 accept(TokKind kind);
-		B32 expect(TokKind kind, const C8* what);
+		B32 expect(TokKind kind, const C8* what = nullptr);
 		Failed fail(const Token& at, const String& msg);
 
 		// type specifiers
@@ -136,11 +136,10 @@ namespace rat::cc {
 		Stmt* parseCaseLabel();
 		Stmt* parseBreak();
 		Stmt* parseReturn();
-		B32 parseOptionalExpr(TokKind end, const C8* endSpelling, Expr*& out);
+		B32 parseOptionalExpr(TokKind end, Expr*& out);
 		Stmt* parseExprStatement();
 		Expr* parseParenCond();
-		Stmt* parseIf();
-		Stmt* parseWhile();
+		Stmt* parseCondStmt(StmtKind kind);
 		Stmt* parseDoWhile();
 		Stmt* parseFor();
 		Stmt* parseSwitch();
@@ -188,8 +187,7 @@ namespace rat::cc {
 		B32 parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods);
 		U8 intLiteralMods(U64 v, B32 dec, B32 isUnsigned, U32 lCount, U32& bits) const;
 		B32 parseCharLiteral(const Token& tok, I64& value);
-		B32 parseStringLiteral(const Token& tok, String& out);
-		B32 parseWideStringLiteral(const Token& tok, U32 unitBytes, String& out);
+		B32 parseStringLiteral(const Token& tok, U32 unitBytes, String& out);
 		B32 decodeUcn(const String& s, U32& i, U32 end, const Token& tok, U32& cp);
 		B32 decodeBackslash(const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out);
 

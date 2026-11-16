@@ -44,7 +44,7 @@ namespace rat::cc {
 			else if(init->kind == ExprKind::StrLit)
 				count = (I64)init->str.bytes->size() + 1;
 			else if(init->kind == ExprKind::InitList)
-				count = (I64)arrayInitOuterExtent(ty, init);
+				count = (I64)initArrayCount(ty, init);
 			ok = ok && count > 0;
 			total = (U32)count * byteSize(ty);
 		} else if(isStruct(ty)) {
@@ -219,31 +219,11 @@ namespace rat::cc {
 		B32 singleBraced = dinit && dinit->kind == ExprKind::InitList && dinit->args.size() == 1;
 		if(singleBraced && dinit->args[0]->kind != ExprKind::InitList)
 			dinit = dinit->args[0];
-		U64 value = 0;
-		List<U8> init;
-		if(dinit && isFloating(d.type)) {
-			F80 dv = 0;
-			if(!evalFloatConst(dinit, dv))
-				return diag.fail("initializer for '" + *d.name + "' is not a constant expression");
-			encodeFloatBytes(d.type, dv, init);
-		} else if(dinit) {
-			I64 iv = 0;
-			if(!evalConst(dinit, iv)) {
-				String target;
-				I64 add = 0;
-				B32 isIntScalar = !isPointer(d.type) && !isAggregate(d.type) && !isVoidType(d.type);
-				B32 fits = isPointer(d.type) || (isIntScalar && byteSize(d.type) >= 8);
-				if(!fits || !evalAddrConst(dinit, target, add))
-					return diag.fail("initializer for '" + *d.name + "' is not a constant expression");
-				data.relocs.push_back(Reloc{0, target, add});
-			}
-			value = (U64)iv;
-		}
-		U32 bytes = byteSize(d.type);
-		if(init.empty())
-			for(U32 i = 0; i < bytes; ++i)
-				init.push_back((U8)(value >> (8 * i)));
-		init.resize(bytes, 0);
+		List<U8> init(byteSize(d.type), 0);
+		B32 isIntScalar = !isPointer(d.type) && !isAggregate(d.type) && !isVoidType(d.type);
+		B32 addrFits = isPointer(d.type) || (isIntScalar && byteSize(d.type) >= 8);
+		if(dinit && !writeConstScalar(init, 0, d.type, dinit, addrFits))
+			return diag.fail("initializer for '" + *d.name + "' is not a constant expression");
 		defineGlobal(d, sym, irType(d.type), std::move(init));
 		bindGlobal(d, sym, fn, false, 0);
 		return true;

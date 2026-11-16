@@ -4,13 +4,13 @@ namespace rat::cc {
 	// _Static_assert ( const-expr , string-literal... ) ;
 	B32 Parser::parseStaticAssert() {
 		Token kw = advance(); // _Static_assert
-		if(!expect(TokKind::LParen, "'('"))
+		if(!expect(TokKind::LParen))
 			return false;
 		Expr* cond = parseConditional();
 		String msg;
-		if(!cond || !expect(TokKind::Comma, "','") || !parseStrings(msg, "_Static_assert"))
+		if(!cond || !expect(TokKind::Comma) || !parseStrings(msg, "_Static_assert"))
 			return false;
-		if(!expect(TokKind::RParen, "')'") || !expect(TokKind::Semicolon, "';'"))
+		if(!expect(TokKind::RParen) || !expect(TokKind::Semicolon))
 			return false;
 		I64 v = 0;
 		if(!evalIntConst(cond, v))
@@ -34,25 +34,25 @@ namespace rat::cc {
 
 	// ( expr )
 	Expr* Parser::parseParenCond() {
-		if(!expect(TokKind::LParen, "'('"))
+		if(!expect(TokKind::LParen))
 			return nullptr;
 		Expr* cond = parseExpression();
-		if(!cond || !expect(TokKind::RParen, "')'"))
+		if(!cond || !expect(TokKind::RParen))
 			return nullptr;
 		return cond;
 	}
 
-	// if ( expr ) stmt [ else stmt ]
-	Stmt* Parser::parseIf() {
-		Token kw = advance(); // if
+	// if ( expr ) stmt [ else stmt ] | while ( expr ) stmt
+	Stmt* Parser::parseCondStmt(StmtKind kind) {
+		Token kw = advance(); // if / while
 		Expr* cond = parseParenCond();
 		if(!cond)
 			return nullptr;
-		Stmt* thenS = parseStatement();
-		if(!thenS)
+		Stmt* body = parseStatement();
+		if(!body)
 			return nullptr;
-		Stmt* s = makeStmt(StmtKind::If, kw.offset, cond, thenS);
-		if(accept(TokKind::KwElse)) {
+		Stmt* s = makeStmt(kind, kw.offset, cond, body);
+		if(kind == StmtKind::If && accept(TokKind::KwElse)) {
 			s->elseBody = parseStatement();
 			if(!s->elseBody)
 				return nullptr;
@@ -60,26 +60,14 @@ namespace rat::cc {
 		return s;
 	}
 
-	// while ( expr ) stmt
-	Stmt* Parser::parseWhile() {
-		Token kw = advance(); // while
-		Expr* cond = parseParenCond();
-		if(!cond)
-			return nullptr;
-		Stmt* body = parseStatement();
-		if(!body)
-			return nullptr;
-		return makeStmt(StmtKind::While, kw.offset, cond, body);
-	}
-
 	// do stmt while ( expr ) ;
 	Stmt* Parser::parseDoWhile() {
 		Token kw = advance(); // do
 		Stmt* body = parseStatement();
-		if(!body || !expect(TokKind::KwWhile, "'while'"))
+		if(!body || !expect(TokKind::KwWhile))
 			return nullptr;
 		Expr* cond = parseParenCond();
-		if(!cond || !expect(TokKind::Semicolon, "';'"))
+		if(!cond || !expect(TokKind::Semicolon))
 			return nullptr;
 		return makeStmt(StmtKind::DoWhile, kw.offset, cond, body);
 	}
@@ -88,7 +76,7 @@ namespace rat::cc {
 	// for-init: declaration | [expr] ;
 	Stmt* Parser::parseFor() {
 		Token kw = advance(); // for
-		if(!expect(TokKind::LParen, "'('"))
+		if(!expect(TokKind::LParen))
 			return nullptr;
 
 		Stmt* init = nullptr;
@@ -99,17 +87,17 @@ namespace rat::cc {
 		} else if(!accept(TokKind::Semicolon)) {
 			Token at = peek();
 			Expr* e = parseExpression();
-			if(!e || !expect(TokKind::Semicolon, "';'"))
+			if(!e || !expect(TokKind::Semicolon))
 				return nullptr;
 			init = makeStmt(StmtKind::Expr, at.offset, e);
 		}
 
 		Expr* cond = nullptr;
-		if(!parseOptionalExpr(TokKind::Semicolon, "';'", cond))
+		if(!parseOptionalExpr(TokKind::Semicolon, cond))
 			return nullptr;
 
 		Expr* post = nullptr;
-		if(!parseOptionalExpr(TokKind::RParen, "')'", post))
+		if(!parseOptionalExpr(TokKind::RParen, post))
 			return nullptr;
 
 		Stmt* body = parseStatement();
@@ -170,7 +158,7 @@ namespace rat::cc {
 		Token nameTok = advance();
 		Stmt* s = makeStmt(StmtKind::Goto, kw.offset);
 		s->label = arena.make<String>(lex.text(nameTok));
-		if(!expect(TokKind::Semicolon, "';'"))
+		if(!expect(TokKind::Semicolon))
 			return nullptr;
 		return s;
 	}
@@ -185,7 +173,7 @@ namespace rat::cc {
 			if(!value)
 				return nullptr;
 		}
-		if(!expect(TokKind::Colon, "':'"))
+		if(!expect(TokKind::Colon))
 			return nullptr;
 		Stmt* sub = parseLabeledSub();
 		if(!sub)
@@ -198,7 +186,7 @@ namespace rat::cc {
 		Token kw = advance();
 		StmtKind kind = kw.kind == TokKind::KwBreak ? StmtKind::Break : StmtKind::Continue;
 		Stmt* s = makeStmt(kind, kw.offset);
-		if(!expect(TokKind::Semicolon, "';'"))
+		if(!expect(TokKind::Semicolon))
 			return nullptr;
 		return s;
 	}
@@ -207,26 +195,26 @@ namespace rat::cc {
 	Stmt* Parser::parseReturn() {
 		Token kw = advance();
 		Stmt* s = makeStmt(StmtKind::Return, kw.offset);
-		if(!parseOptionalExpr(TokKind::Semicolon, "';'", s->expr))
+		if(!parseOptionalExpr(TokKind::Semicolon, s->expr))
 			return nullptr;
 		return s;
 	}
 
 	// [expr] end
-	B32 Parser::parseOptionalExpr(TokKind end, const C8* endSpelling, Expr*& out) {
+	B32 Parser::parseOptionalExpr(TokKind end, Expr*& out) {
 		if(!check(end)) {
 			out = parseExpression();
 			if(!out)
 				return false;
 		}
-		return expect(end, endSpelling);
+		return expect(end);
 	}
 
 	// expr ;
 	Stmt* Parser::parseExprStatement() {
 		Stmt* s = makeStmt(StmtKind::Expr, peek().offset);
 		s->expr = parseExpression();
-		if(!s->expr || !expect(TokKind::Semicolon, "';'"))
+		if(!s->expr || !expect(TokKind::Semicolon))
 			return nullptr;
 		return s;
 	}
@@ -251,9 +239,9 @@ namespace rat::cc {
 		case TokKind::KwGoto:
 			return parseGoto();
 		case TokKind::KwIf:
-			return parseIf();
+			return parseCondStmt(StmtKind::If);
 		case TokKind::KwWhile:
-			return parseWhile();
+			return parseCondStmt(StmtKind::While);
 		case TokKind::KwDo:
 			return parseDoWhile();
 		case TokKind::KwFor:
@@ -278,7 +266,7 @@ namespace rat::cc {
 	// { [stmt]... }
 	Stmt* Parser::parseCompound() {
 		Token open = peek();
-		if(!expect(TokKind::LBrace, "'{'"))
+		if(!expect(TokKind::LBrace))
 			return nullptr;
 		Stmt* block = makeStmt(StmtKind::Compound, open.offset);
 		pushScope();
@@ -289,7 +277,7 @@ namespace rat::cc {
 			block->body.push_back(s);
 		}
 		popScope();
-		if(!expect(TokKind::RBrace, "'}'"))
+		if(!expect(TokKind::RBrace))
 			return nullptr;
 		return block;
 	}

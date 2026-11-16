@@ -25,6 +25,12 @@ namespace rat::cc {
 		return {};
 	}
 
+	DryRunDiag::DryRunDiag(Diagnostics& current)
+	: diag(current),
+		saved(std::exchange(current, {})) {}
+
+	DryRunDiag::~DryRunDiag() { diag = std::move(saved); }
+
 	const String& Symbols::resolveAlias(const String& name) const {
 		auto it = aliases.find(name);
 		return it == aliases.end() ? name : it->second;

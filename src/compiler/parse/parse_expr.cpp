@@ -3,91 +3,13 @@
 #include "parse/parser_detail.h"
 
 namespace rat::cc {
-	namespace detail {
-		BinInfo binInfo(TokKind kind) {
-			// clang-format off
-			static const BinInfo kBin[] = {
-					{9, ExprOp::Add},    // Plus
-					{9, ExprOp::Sub},    // Minus
-					{10, ExprOp::Mul},   // Star
-					{10, ExprOp::Div},   // Slash
-					{10, ExprOp::Rem},   // Percent
-					{0, ExprOp::Add},    // PlusPlus
-					{0, ExprOp::Add},    // MinusMinus
-					{5, ExprOp::BitAnd}, // Amp
-					{3, ExprOp::BitOr},  // Pipe
-					{4, ExprOp::BitXor}, // Caret
-					{0, ExprOp::Add},    // Tilde
-					{0, ExprOp::Add},    // Bang
-					{2, ExprOp::LogAnd}, // AmpAmp
-					{1, ExprOp::LogOr},  // PipePipe
-					{7, ExprOp::Lt},     // Lt
-					{7, ExprOp::Gt},     // Gt
-					{7, ExprOp::Le},     // Le
-					{7, ExprOp::Ge},     // Ge
-					{6, ExprOp::Eq},     // EqEq
-					{6, ExprOp::Ne},     // BangEq
-					{8, ExprOp::Shl},    // Shl
-					{8, ExprOp::Shr},    // Shr
-			};
-			// clang-format on
-			static_assert(sizeof(kBin) / sizeof(kBin[0]) == (U32)TokKind::Shr - (U32)TokKind::Plus + 1,
-										"kBin must cover Plus..Shr");
-			if(kind < TokKind::Plus || kind > TokKind::Shr)
-				return {0, ExprOp::Add};
-			return kBin[(U32)kind - (U32)TokKind::Plus];
-		}
-
-		B32 assignOp(TokKind kind, ExprOp& op) {
-			if(kind < TokKind::Assign || kind > TokKind::ShrEq)
-				return false;
-			// clang-format off
-			static const ExprOp kOps[] = {
-					ExprOp::Assign,    ExprOp::AddAssign, ExprOp::SubAssign, ExprOp::MulAssign,
-					ExprOp::DivAssign, ExprOp::RemAssign, ExprOp::AndAssign, ExprOp::OrAssign,
-					ExprOp::XorAssign, ExprOp::ShlAssign, ExprOp::ShrAssign,
-			};
-			// clang-format on
-			static_assert(sizeof(kOps) / sizeof(kOps[0]) ==
-												(U32)TokKind::ShrEq - (U32)TokKind::Assign + 1,
-										"kOps must cover Assign..ShrEq");
-			op = kOps[(U32)kind - (U32)TokKind::Assign];
-			return true;
-		}
-
-		B32 unaryOp(TokKind kind, ExprOp& op) {
-			struct Entry {
-				TokKind kind;
-				ExprOp op;
-			};
-			static const Entry kUnary[] = {
-					{TokKind::Plus, ExprOp::Pos},
-					{TokKind::Minus, ExprOp::Neg},
-					{TokKind::Bang, ExprOp::Not},
-					{TokKind::Tilde, ExprOp::BitNot},
-					{TokKind::Amp, ExprOp::Addr},
-					{TokKind::Star, ExprOp::Deref},
-					{TokKind::KwReal, ExprOp::Real},
-					{TokKind::KwImag, ExprOp::Imag},
-					{TokKind::PlusPlus, ExprOp::PreInc},
-					{TokKind::MinusMinus, ExprOp::PreDec},
-			};
-			for(const Entry& e : kUnary)
-				if(e.kind == kind) {
-					op = e.op;
-					return true;
-				}
-			return false;
-		}
-	} // namespace detail
-
 	// ( type-name ) unary | ( type-name ) initializer postfix-tail
 	// only a braced initializer starts a compound literal
 	Expr* Parser::parseCastOrCompound() {
 		Token lp = advance(); // (
 		CType ty;
 		DeclResult r;
-		if(!parseTypeSpec(ty) || !parseAbstractDeclarator(ty, r) || !expect(TokKind::RParen, "')'"))
+		if(!parseTypeSpec(ty) || !parseAbstractDeclarator(ty, r) || !expect(TokKind::RParen))
 			return nullptr;
 		if(check(TokKind::LBrace)) {
 			Expr* init = parseInitializer();
@@ -118,7 +40,7 @@ namespace rat::cc {
 		if(check(TokKind::LParen) && startsType(peek2())) {
 			advance(); // (
 			CType ty;
-			if(!parseTypeName(ty) || !expect(TokKind::RParen, "')'"))
+			if(!parseTypeName(ty) || !expect(TokKind::RParen))
 				return nullptr;
 			e->sizeOf = {ty, nullptr};
 		} else {
@@ -138,8 +60,8 @@ namespace rat::cc {
 			return parseSizeOp();
 		if(check(TokKind::LParen) && startsType(peek2()))
 			return parseCastOrCompound();
-		ExprOp op;
-		if(detail::unaryOp(peek().kind, op)) {
+		ExprOp op = detail::tokSyntax(peek().kind).unaryOp;
+		if(op != detail::kNoOp) {
 			Token t = advance();
 			Expr* operand = parseUnary();
 			if(!operand)
@@ -159,14 +81,14 @@ namespace rat::cc {
 		if(!lhs)
 			return nullptr;
 		for(;;) {
-			detail::BinInfo info = detail::binInfo(peek().kind);
-			if(info.prec == 0 || info.prec < minPrec)
+			const detail::TokSyntax& syntax = detail::tokSyntax(peek().kind);
+			if(syntax.binaryPrec < minPrec)
 				break;
 			Token opTok = advance();
-			Expr* rhs = parseBinary(info.prec + 1); // left-associative
+			Expr* rhs = parseBinary(syntax.binaryPrec + 1); // left-associative
 			if(!rhs)
 				return nullptr;
-			lhs = makeBinary(opTok.offset, info.op, lhs, rhs);
+			lhs = makeBinary(opTok.offset, syntax.binaryOp, lhs, rhs);
 		}
 		return lhs;
 	}
@@ -180,7 +102,7 @@ namespace rat::cc {
 			return cond;
 		Token q = advance();
 		Expr* whenTrue = parseExpression();
-		if(!whenTrue || !expect(TokKind::Colon, "':'"))
+		if(!whenTrue || !expect(TokKind::Colon))
 			return nullptr;
 		Expr* whenFalse = parseConditional();
 		if(!whenFalse)
@@ -195,8 +117,8 @@ namespace rat::cc {
 		Expr* lhs = parseConditional();
 		if(!lhs)
 			return nullptr;
-		ExprOp op;
-		if(detail::assignOp(peek().kind, op)) {
+		ExprOp op = detail::tokSyntax(peek().kind).assignOp;
+		if(op != detail::kNoOp) {
 			Token opTok = advance();
 			Expr* rhs = parseAssignment(); // right-associative
 			if(!rhs)

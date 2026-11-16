@@ -4,55 +4,14 @@
 
 namespace rat::cc {
 	namespace detail {
-		B32 isTypeQualifier(TokKind kind) {
-			switch(kind) {
-			case TokKind::KwConst:
-			case TokKind::KwVolatile:
-			case TokKind::KwRestrict:
-			case TokKind::KwNoinline:
-				return true;
-			default:
-				return false;
-			}
-		}
+		B32 isTypeQualifier(TokKind kind) { return tokSyntax(kind).spec & TokSyntax::Qualifier; }
 
 		B32 isQualOrStorage(TokKind kind) {
-			switch(kind) {
-			case TokKind::KwStatic:
-			case TokKind::KwExtern:
-			case TokKind::KwRegister:
-			case TokKind::KwAuto:
-			case TokKind::KwInline:
-				return true;
-			default:
-				return isTypeQualifier(kind);
-			}
+			return tokSyntax(kind).spec &
+						 (TokSyntax::Qualifier | TokSyntax::Storage | TokSyntax::FuncSpec);
 		}
 
-		B32 isTypeStart(TokKind kind) {
-			switch(kind) {
-			case TokKind::KwVoid:
-			case TokKind::KwBool:
-			case TokKind::KwChar:
-			case TokKind::KwShort:
-			case TokKind::KwInt:
-			case TokKind::KwLong:
-			case TokKind::KwFloat:
-			case TokKind::KwDouble:
-			case TokKind::KwSigned:
-			case TokKind::KwUnsigned:
-			case TokKind::KwComplex:
-			case TokKind::KwImaginary:
-			case TokKind::KwEnum:
-			case TokKind::KwStruct:
-			case TokKind::KwUnion:
-			case TokKind::KwTypeof:
-			case TokKind::KwAlignas:
-				return true;
-			default:
-				return isQualOrStorage(kind);
-			}
-		}
+		B32 isTypeStart(TokKind kind) { return tokSyntax(kind).spec != 0; }
 	} // namespace detail
 
 	// a type keyword, qualifier, storage class or typedef name
@@ -82,14 +41,14 @@ namespace rat::cc {
 			if(!accept(TokKind::Comma))
 				break;
 		}
-		return expect(TokKind::Semicolon, "';'");
+		return expect(TokKind::Semicolon);
 	}
 
 	// _Alignas ( type-name | const-expr )
 	// raises align, never lowers it
 	B32 Parser::parseAlignasSpec(U32& align) {
 		Token kw = advance(); // _Alignas
-		if(!expect(TokKind::LParen, "'('"))
+		if(!expect(TokKind::LParen))
 			return false;
 		U32 n = 0;
 		if(startsType(peek())) {
@@ -106,7 +65,7 @@ namespace rat::cc {
 				return fail(kw, "_Alignas requires a positive power-of-two alignment");
 			n = (U32)v;
 		}
-		if(!expect(TokKind::RParen, "')'"))
+		if(!expect(TokKind::RParen))
 			return false;
 		align = std::max(align, n);
 		return true;
@@ -185,18 +144,11 @@ namespace rat::cc {
 
 	// type-keyword [ type-keyword | qualifier | storage | alignas ]...
 	B32 Parser::parseTypeKeywords(DeclSpecs& seen, TypeWords& w) {
-		// clang-format off
-		static const TokKind kWords[] = {
-				TokKind::KwVoid, TokKind::KwBool, TokKind::KwChar, TokKind::KwShort, TokKind::KwInt,
-				TokKind::KwLong, TokKind::KwFloat, TokKind::KwDouble, TokKind::KwSigned,
-				TokKind::KwUnsigned, TokKind::KwComplex, TokKind::KwImaginary,
-		};
-		// clang-format on
 		for(;;) {
 			if(!parseQualStorage(seen))
 				return false;
 			TokKind k = peek().kind;
-			if(std::find(std::begin(kWords), std::end(kWords), k) == std::end(kWords))
+			if(!(detail::tokSyntax(k).spec & detail::TokSyntax::TypeWord))
 				return true;
 			advance();
 			++w.count[(U32)k];

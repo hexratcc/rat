@@ -112,30 +112,20 @@ namespace rat::cc {
 	}
 
 	Emitter::Value Emitter::emitIdent(Function& fn, const Expr* e) {
-		Local loc;
-		if(func.scopes.lookup(*e->ident.name, loc)) {
-			if(loc.isArray)
-				return {loc.addr, pointerTo(loc.type)};
-			if(isAggregate(loc.type))
-				return {loc.addr, loc.type};
-			if(loc.inMem())
-				return {fn.load(irType(loc.type), loc.addr, isTopVolatile(loc.type)), loc.type};
-			return {fn.get(loc.var), loc.type};
-		}
-		auto g = syms.globals.find(*e->ident.name);
-		if(g != syms.globals.end()) {
-			const CType& gt = g->second.type;
-			const String& sym = syms.resolveAlias(*e->ident.name);
-			if(g->second.isArray)
-				return {fn.global(sym), pointerTo(gt)};
-			if(isAggregate(gt))
-				return {fn.global(sym), gt};
-			return {fn.load(irType(gt), fn.global(sym), isTopVolatile(gt)), gt};
-		}
-		auto f = syms.functions.find(*e->ident.name);
-		if(f != syms.functions.end())
-			return {fn.global(*e->ident.name), funcPtrType(f->second)};
-		return failUndeclared(*e->ident.name);
+		const String& name = *e->ident.name;
+		Symbol sym = lookupSymbol(name);
+		if(sym.kind == Symbol::Kind::None)
+			return failUndeclared(name);
+		if(sym.kind == Symbol::Kind::Function)
+			return {fn.global(name), sym.type};
+		if(sym.local && !sym.local->inMem())
+			return {fn.get(sym.local->var), sym.type};
+		Node* addr = sym.local ? sym.local->addr : fn.global(syms.resolveAlias(name));
+		if(sym.isArray)
+			return {addr, pointerTo(sym.type)};
+		if(isAggregate(sym.type))
+			return {addr, sym.type};
+		return {fn.load(irType(sym.type), addr, isTopVolatile(sym.type)), sym.type};
 	}
 
 	Emitter::Value Emitter::emitSizeof(Function& fn, const Expr* e) {

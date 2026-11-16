@@ -88,25 +88,45 @@ namespace rat::cc {
 		String function;
 	};
 
+	// moves diag aside for a dry run and puts it back when it ends
+	struct DryRunDiag {
+		explicit DryRunDiag(Diagnostics& current);
+		~DryRunDiag();
+
+		Diagnostics& diag;
+		Diagnostics saved;
+	};
+
 	struct GlobalVariable {
 		CType type;
 		B32 isArray = false;
 		U32 count = 0;
 	};
 	struct FunctionSignature {
-		CType returnType;
-		List<CType> params;
-		B32 isVarArgs = false;
-		B32 unprototyped = false;
+		const FuncType* type = nullptr;
 		B32 noInline = false;
 		U32 align = 0;
+	};
+
+	// what a name refers to, local before global before function
+	struct Symbol {
+		enum class Kind : U8 {
+			None,
+			Local,
+			Global,
+			Function
+		};
+		Kind kind = Kind::None;
+		const Local* local = nullptr;
+		CType type; // a function is its pointer type
+		B32 isArray = false;
 	};
 
 	struct Symbols {
 		const String& resolveAlias(const String& name) const;
 
 		Map<String, FunctionSignature> functions;
-		Set<String> implicitFunctions;
+		Map<String, const FuncType*> implicitFunctions; // unprototyped, by name
 		Map<String, GlobalVariable> globals;
 		Map<String, String> aliases;
 		Map<U32, StructType*> complexTypes;

@@ -6,7 +6,7 @@ namespace rat::cc {
 			auto found = syms.functions.find(*e->call.callee);
 			if(found != syms.functions.end()) {
 				c.direct = true;
-				c.sig = found->second;
+				c.ft = found->second.type;
 				return true;
 			}
 			Node* val = nullptr;
@@ -34,13 +34,8 @@ namespace rat::cc {
 			} else if(isObject) {
 				return diag.fail("called object is not a function or function pointer");
 			} else {
-				const String& callee = *e->call.callee;
-				if(callee.rfind("__builtin_", 0) != 0 && syms.implicitFunctions.insert(callee).second)
-					diag.warnings.push_back("warning: implicit declaration of function '" + callee + "'");
 				c.direct = true;
-				c.sig.unprototyped = true;
-				if(!builtinReturnType(callee, lay.longBits, c.sig.returnType))
-					c.sig.returnType = ctInt();
+				c.ft = implicitFuncType(*e->call.callee);
 			}
 			return true;
 		}
@@ -54,6 +49,20 @@ namespace rat::cc {
 		return true;
 	}
 
+	// one unprototyped type per implicitly declared name, warned about once
+	const FuncType* Emitter::implicitFuncType(const String& callee) {
+		auto [found, firstUse] = syms.implicitFunctions.try_emplace(callee, nullptr);
+		if(!firstUse)
+			return found->second;
+		if(callee.rfind("__builtin_", 0) != 0)
+			diag.warnings.push_back("warning: implicit declaration of function '" + callee + "'");
+		FuncType* type = arena.make<FuncType>();
+		type->unprototyped = true;
+		builtinReturnType(callee, lay.longBits, type->ret);
+		found->second = type;
+		return type;
+	}
+
 	B32 Emitter::emitArgs(Function& fn, const Expr* e, const Callee& c, U32 n, CallArgs& args) {
 		for(U32 i = 0; i < e->args.size(); ++i) {
 			Value a = emitExpr(fn, e->args[i]);
@@ -61,7 +70,7 @@ namespace rat::cc {
 				return false;
 			CType pt;
 			if(i < n)
-				pt = c.direct ? c.sig.params[i] : c.ft->params[i].type;
+				pt = c.ft->params[i].type;
 			else
 				pt = completeComplex(defaultArgPromote(a.type));
 			if(isAggregate(pt)) {
@@ -113,12 +122,11 @@ namespace rat::cc {
 		if(!resolveCallee(fn, e, c))
 			return {};
 
-		CType ret = c.direct ? c.sig.returnType : c.ft->ret;
-		U32 nparams = c.direct ? (U32)c.sig.params.size() : (U32)c.ft->params.size();
-		B32 unproto = c.direct ? c.sig.unprototyped : c.ft->unprototyped;
-		B32 variadic = c.direct ? c.sig.isVarArgs : c.ft->isVarArgs;
+		CType ret = c.ft->ret;
+		U32 nparams = (U32)c.ft->params.size();
+		B32 variadic = c.ft->isVarArgs;
 		B32 va = true;
-		if(!unproto) {
+		if(!c.ft->unprototyped) {
 			va = variadic;
 			U32 nargs = (U32)e->args.size();
 			if(nargs < nparams || (!variadic && nargs > nparams)) {

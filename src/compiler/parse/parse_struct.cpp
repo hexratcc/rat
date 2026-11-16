@@ -161,10 +161,10 @@ namespace rat::cc {
 				if(!accept(TokKind::Comma))
 					break;
 			}
-			if(!expect(TokKind::Semicolon, "';'"))
+			if(!expect(TokKind::Semicolon))
 				return false;
 		}
-		if(!expect(TokKind::RBrace, "'}'"))
+		if(!expect(TokKind::RBrace))
 			return false;
 		st->align = l.align;
 		st->size = alignUp(l.offset, l.align);
@@ -225,7 +225,7 @@ namespace rat::cc {
 	// typeof ( type-name | expr )
 	B32 Parser::parseTypeofSpec(CType& out) {
 		advance(); // typeof / __typeof / __typeof__
-		if(!expect(TokKind::LParen, "'('"))
+		if(!expect(TokKind::LParen))
 			return false;
 		if(startsType(peek())) {
 			if(!parseTypeName(out))
@@ -237,7 +237,7 @@ namespace rat::cc {
 			out = CType{};
 			out.typeofExpr = e;
 		}
-		return expect(TokKind::RParen, "')'");
+		return expect(TokKind::RParen);
 	}
 
 	// [ enumerator [, enumerator]... [,] ] }
@@ -266,7 +266,7 @@ namespace rat::cc {
 				break;
 		}
 		e.type.set(CType::Unsigned, !anyNegative);
-		return expect(TokKind::RBrace, "'}'");
+		return expect(TokKind::RBrace);
 	}
 
 	// enum [alignas]... [tag] [ { enumerators ]

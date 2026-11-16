@@ -34,7 +34,7 @@ namespace rat::cc {
 			if(tryEvalIntConst(e, n) && n > 0)
 				op.count = (U64)n;
 		}
-		return expect(TokKind::RBracket, "']'");
+		return expect(TokKind::RBracket);
 	}
 
 	// a function parameter decays to a pointer, an array to a pointer to its element
@@ -58,7 +58,7 @@ namespace rat::cc {
 			if(!accept(TokKind::Comma))
 				break;
 		}
-		return expect(TokKind::RParen, "')'");
+		return expect(TokKind::RParen);
 	}
 
 	// [ void | param [, param]... [, '...'] ] ) | param-names
@@ -101,7 +101,7 @@ namespace rat::cc {
 			if(!accept(TokKind::Comma))
 				break;
 		}
-		return expect(TokKind::RParen, "')'");
+		return expect(TokKind::RParen);
 	}
 
 	// ( followed by * ( '[' noinline or a non-type name: a parenthesized declarator
@@ -179,7 +179,7 @@ namespace rat::cc {
 		List<DeclOp> inner;
 		if(looksLikeGroupingParen()) {
 			advance(); // (
-			if(!parseDeclaratorOps(inner, out) || !expect(TokKind::RParen, "')'"))
+			if(!parseDeclaratorOps(inner, out) || !expect(TokKind::RParen))
 				return false;
 		} else if(check(TokKind::Identifier)) {
 			Token nameTok = advance();

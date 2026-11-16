@@ -148,6 +148,12 @@ namespace rat::cc {
 
 		I32 formalIndex(const Macro& m, const String* s);
 
+		struct AttrArgs {
+			B32 noinline = false;
+			const PpToken* aliasTarget = nullptr;
+			PpSpan alignParens{nullptr, nullptr}; // the (n) of aligned(n)
+		};
+
 		// constexpr evaluator
 		struct Val {
 			U64 u = 0;
@@ -246,6 +252,7 @@ namespace rat::cc {
 
 			// macro expansion
 			PpToken makeToken(Pk kind, const String& text);
+			PpToken makeTokenAt(Pk kind, const String& text, const PpToken& at);
 			List<PpToken> lexFragment(const String& text, const String* file);
 			void pasteInto(PpToken& dst, const PpToken& r);
 			PpToken stringize(const List<PpToken>& a, B32 spaceBefore);
@@ -257,9 +264,10 @@ namespace rat::cc {
 			// stack: next token is work.back()
 			B32 gatherArgs(List<PpToken>& work, ArgLists& raw, PpToken& rparen);
 			B32 mapArgs(const Macro& m, const ArgLists& raw, ArgLists& actuals);
-			void emitAttrMarkers(const PpToken& at, const ArgLists& raw, List<PpToken>& os);
+			AttrArgs scanAttrArgs(const ArgLists& raw);
+			void emitAttrMarkers(const PpToken& at, const AttrArgs& attr, List<PpToken>& os);
 			B32 expandBuiltinName(const PpToken& t, List<PpToken>& os);
-			void requeueAlignas(const PpToken& at, const ArgLists& raw, List<PpToken>& work);
+			void requeueAlignas(const PpToken& at, PpSpan alignParens, List<PpToken>& work);
 			void requeueExpansion(List<PpToken>& r, const PpToken& invoker, List<PpToken>& work);
 			List<PpToken> expand(PpSpan in);
 

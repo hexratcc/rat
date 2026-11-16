@@ -278,47 +278,32 @@ namespace rat::cc {
 	}
 
 	// [ L | u | u8 | U ] " s-char... "
-	// appended to out as utf-8 bytes
-	B32 Parser::parseStringLiteral(const Token& tok, String& out) {
+	// appended to out as utf-8 bytes when unitBytes is 1, else as unitBytes-wide code units
+	B32 Parser::parseStringLiteral(const Token& tok, U32 unitBytes, String& out) {
 		const String& s = lex.text(tok);
-		B32 isU8 = s.size() > 1 && s[0] == 'u' && s[1] == '8';
-		U32 maxVal = isU8 ? 0xFFu : detail::escapeMaxVal(s.size() ? s[0] : '"');
+		B32 isU8Bytes = unitBytes == 1 && s.size() > 1 && s[0] == 'u' && s[1] == '8';
+		U32 maxVal = isU8Bytes ? 0xFFu : detail::escapeMaxVal(s.size() ? s[0] : '"');
 		auto [i, end] = detail::quotedRange(s, '"');
 		while(i < end) {
-			C8 c = s[i++];
-			if(c != '\\') {
-				out.push_back(c);
+			if(s[i] != '\\') {
+				if(unitBytes == 1)
+					out.push_back(s[i++]);
+				else
+					detail::appendCodeUnits(out, detail::utf8Decode(s, i, end), unitBytes);
 				continue;
 			}
+			++i;
 			B32 wide = detail::ucnAt(s, i, end) || maxVal > 0xFFu;
 			U32 val;
 			if(!decodeBackslash(s, i, end, tok, maxVal, val))
 				return false;
-			if(wide)
+			// a wide escape carries its full value, it is not cut to a byte
+			if(unitBytes != 1)
+				detail::appendCodeUnits(out, val, unitBytes);
+			else if(wide)
 				detail::utf8Encode(out, val);
 			else
 				out.push_back((C8)(U8)val);
-		}
-		return true;
-	}
-
-	// [ L | u | U ] " s-char... "
-	// appended to out as unitBytes-wide code units
-	B32 Parser::parseWideStringLiteral(const Token& tok, U32 unitBytes, String& out) {
-		const String& s = lex.text(tok);
-		U32 maxVal = detail::escapeMaxVal(s.size() ? s[0] : '"');
-		auto [i, end] = detail::quotedRange(s, '"');
-		while(i < end) {
-			U32 cp;
-			if(s[i] == '\\') {
-				++i;
-				// a wide escape carries its full value, it is not cut to a byte
-				if(!decodeBackslash(s, i, end, tok, maxVal, cp))
-					return false;
-			} else {
-				cp = detail::utf8Decode(s, i, end);
-			}
-			detail::appendCodeUnits(out, cp, unitBytes);
 		}
 		return true;
 	}

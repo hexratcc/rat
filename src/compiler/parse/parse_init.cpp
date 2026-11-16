@@ -26,7 +26,7 @@ namespace rat::cc {
 				return fail(peek(), "invalid range designator");
 			rangeEnd = hv;
 		}
-		return expect(TokKind::RBracket, "']'");
+		return expect(TokKind::RBracket);
 	}
 
 	// designator... =
@@ -81,7 +81,7 @@ namespace rat::cc {
 			if(!accept(TokKind::Comma))
 				break;
 		}
-		if(!expect(TokKind::RBrace, "'}'"))
+		if(!expect(TokKind::RBrace))
 			return nullptr;
 		return e;
 	}

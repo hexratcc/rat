@@ -69,17 +69,24 @@ namespace rat::cc {
 			return false;
 
 		fn.enterBlock(bodyB);
-		func.loops.push_back({exitB, header, true, false, func.sp});
-		B32 ok = emitStmt(fn, s->thenBody);
-		func.loops.pop_back();
-		if(!ok)
+		LoopFrame frame{exitB, header, true, false, func.sp};
+		if(!emitLoopBody(fn, s->thenBody, frame, header))
 			return false;
-		if(!fn.blockFinished())
-			fn.jmp(header);
 
 		fn.seal(header);
 		fn.enterBlock(exitB);
 		return true;
+	}
+
+	// the body under frame, frame comes back with what break set
+	B32 Emitter::emitLoopBody(Function& fn, const Stmt* body, LoopFrame& frame, Block* next) {
+		func.loops.push_back(frame);
+		B32 ok = emitStmt(fn, body);
+		frame = func.loops.back();
+		func.loops.pop_back();
+		if(ok && !fn.blockFinished())
+			fn.jmp(next);
+		return ok;
 	}
 
 	B32 Emitter::emitDoWhile(Function& fn, const Stmt* s) {
@@ -89,13 +96,9 @@ namespace rat::cc {
 
 		fn.jmp(bodyB);
 		fn.setInsertBlock(bodyB);
-		func.loops.push_back({exitB, condB, true, false, func.sp});
-		B32 ok = emitStmt(fn, s->thenBody);
-		func.loops.pop_back();
-		if(!ok)
+		LoopFrame frame{exitB, condB, true, false, func.sp};
+		if(!emitLoopBody(fn, s->thenBody, frame, condB))
 			return false;
-		if(!fn.blockFinished())
-			fn.jmp(condB);
 
 		fn.enterBlock(condB);
 		debugSetLoc(fn, s->expr->offset);
@@ -137,14 +140,9 @@ namespace rat::cc {
 		}
 
 		fn.enterBlock(bodyB);
-		func.loops.push_back({exitB, postB, exitReachable, false, func.sp});
-		B32 ok = emitStmt(fn, s->thenBody);
-		LoopFrame frame = func.loops.back();
-		func.loops.pop_back();
-		if(!ok)
+		LoopFrame frame{exitB, postB, exitReachable, false, func.sp};
+		if(!emitLoopBody(fn, s->thenBody, frame, postB))
 			return false;
-		if(!fn.blockFinished())
-			fn.jmp(postB);
 
 		fn.enterBlock(postB);
 		if(s->forPost)
@@ -377,13 +375,15 @@ namespace rat::cc {
 		switch(s->kind) {
 		case StmtKind::Compound:
 			return emitCompound(fn, s);
-		case StmtKind::Decl:
+		case StmtKind::Decl: {
+			B32 live = true;
 			for(const Declarator& d : s->decls) {
-				if(!emitOneDecl(fn, d))
+				if(!emitOneDecl(fn, d, live))
 					return false;
 				debugLocal(fn, d);
 			}
 			return true;
+		}
 		case StmtKind::If:
 			return emitIf(fn, s);
 		case StmtKind::While:
@@ -414,7 +414,7 @@ namespace rat::cc {
 			}
 			return diag.fail("'continue' statement not in a loop");
 		case StmtKind::Return:
-			return emitReturn(fn, s);
+			return emitReturn(fn, s->expr);
 		case StmtKind::Expr:
 			return emitExpr(fn, s->expr).node != nullptr;
 		case StmtKind::Empty:
@@ -429,10 +429,10 @@ namespace rat::cc {
 		return diag.fail("unsupported statement");
 	}
 
-	B32 Emitter::emitReturn(Function& fn, const Stmt* s) {
+	B32 Emitter::emitReturn(Function& fn, const Expr* value) {
 		Value v;
-		if(s->expr) {
-			v = emitExpr(fn, s->expr);
+		if(value) {
+			v = emitExpr(fn, value);
 			if(!v.node)
 				return false;
 		}
