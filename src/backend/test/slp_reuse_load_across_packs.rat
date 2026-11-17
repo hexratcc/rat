@@ -1,0 +1,73 @@
+@name slp: two packs of the same loads share one wide load per address
+@passes slp
+
+@input
+func t(ptr restrict, ptr restrict, ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr, ptr, ptr)
+	v1 = stop : ctrl v60
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "c" of v0
+	v5 = proj : ptr  #3 "d" of v0
+	v6 = proj : ptr  #4 "a" of v0
+	v7 = proj : ptr  #5 "b" of v0
+	v8 = const : i64  4
+	v9 = const : i64  8
+	v10 = const : i64  12
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v4, v9
+	v13 = add : ptr v4, v10
+	v14 = add : ptr v5, v8
+	v15 = add : ptr v5, v9
+	v16 = add : ptr v5, v10
+	v17 = add : ptr v6, v8
+	v18 = add : ptr v6, v9
+	v19 = add : ptr v6, v10
+	v20 = add : ptr v7, v8
+	v21 = add : ptr v7, v9
+	v22 = add : ptr v7, v10
+	v23 = load : f32 v2, v3, v6
+	v24 = load : f32 v2, v3, v17
+	v25 = load : f32 v2, v3, v18
+	v26 = load : f32 v2, v3, v19
+	v27 = load : f32 v2, v3, v7
+	v28 = load : f32 v2, v3, v20
+	v29 = load : f32 v2, v3, v21
+	v30 = load : f32 v2, v3, v22
+	v31 = fadd : f32 v23, v27
+	v32 = fadd : f32 v24, v28
+	v33 = fadd : f32 v25, v29
+	v34 = fadd : f32 v26, v30
+	v35 = fmul : f32 v23, v27
+	v36 = fmul : f32 v24, v28
+	v37 = fmul : f32 v25, v29
+	v38 = fmul : f32 v26, v30
+	v40 = store : mem v2, v3, v4, v31
+	v41 = store : mem v2, v40, v11, v32
+	v42 = store : mem v2, v41, v12, v33
+	v43 = store : mem v2, v42, v13, v34
+	v44 = store : mem v2, v43, v5, v35
+	v45 = store : mem v2, v44, v14, v36
+	v46 = store : mem v2, v45, v15, v37
+	v47 = store : mem v2, v46, v16, v38
+	v60 = return : ctrl v2, v47
+}
+
+@expect
+func t(ptr restrict, ptr restrict, ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, ptr, ptr)
+  v1 = stop : ctrl v60
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "c" of v0
+  v5 = proj : ptr  #3 "d" of v0
+  v6 = proj : ptr  #4 "a" of v0
+  v7 = proj : ptr  #5 "b" of v0
+  v40 = store : mem v2, v3, v4, v63
+  v44 = store : mem v2, v40, v5, v64
+  v60 = return : ctrl v2, v44
+  v61 = load : <4 x f32> v2, v3, v6
+  v62 = load : <4 x f32> v2, v3, v7
+  v63 = fadd : <4 x f32> v61, v62
+  v64 = fmul : <4 x f32> v61, v62
+}

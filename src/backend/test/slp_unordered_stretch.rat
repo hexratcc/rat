@@ -1,0 +1,47 @@
+@name slp: stores of a stretch in any address order pack into one wide store
+@passes slp
+
+@input
+func t(ptr, i32, i32, i32, i32) -> void {
+	v0 = start : (ctrl, mem, ptr, i32, i32, i32, i32)
+	v1 = stop : ctrl v30
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : i32  #3 "w" of v0
+	v6 = proj : i32  #4 "x" of v0
+	v7 = proj : i32  #5 "y" of v0
+	v8 = proj : i32  #6 "z" of v0
+	v9 = const : i64  4
+	v10 = const : i64  8
+	v11 = const : i64  12
+	v12 = add : ptr v4, v9
+	v13 = add : ptr v4, v10
+	v14 = add : ptr v4, v11
+	v15 = mul : i32 v5, v5
+	v16 = mul : i32 v6, v6
+	v17 = mul : i32 v7, v7
+	v18 = mul : i32 v8, v8
+	v20 = store : mem v2, v3, v14, v18
+	v21 = store : mem v2, v20, v12, v16
+	v22 = store : mem v2, v21, v4, v15
+	v23 = store : mem v2, v22, v13, v17
+	v30 = return : ctrl v2, v23
+}
+
+@expect
+func t(ptr, i32, i32, i32, i32) -> void {
+  v0 = start : (ctrl, mem, ptr, i32, i32, i32, i32)
+  v1 = stop : ctrl v23
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "a" of v0
+  v5 = proj : i32  #3 "w" of v0
+  v6 = proj : i32  #4 "x" of v0
+  v7 = proj : i32  #5 "y" of v0
+  v8 = proj : i32  #6 "z" of v0
+  v23 = return : ctrl v2, v26
+  v24 = pack : <4 x i32> v5, v6, v7, v8
+  v25 = mul : <4 x i32> v24, v24
+  v26 = store : mem v2, v3, v4, v25
+}

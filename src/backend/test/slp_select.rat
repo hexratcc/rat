@@ -1,0 +1,83 @@
+@name slp: lanes that select by a float compare pack as a mask as wide as the operands and a blend
+@passes slp
+
+@input
+func t(ptr restrict, ptr restrict, ptr restrict, ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr, ptr, ptr, ptr)
+	v1 = stop : ctrl v90
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "o" of v0
+	v5 = proj : ptr  #3 "f" of v0
+	v6 = proj : ptr  #4 "g" of v0
+	v7 = proj : ptr  #5 "a" of v0
+	v8 = proj : ptr  #6 "b" of v0
+	v10 = const : i64  4
+	v11 = const : i64  8
+	v12 = const : i64  12
+	v13 = add : ptr v4, v10
+	v14 = add : ptr v4, v11
+	v15 = add : ptr v4, v12
+	v16 = add : ptr v5, v10
+	v17 = add : ptr v5, v11
+	v18 = add : ptr v5, v12
+	v19 = add : ptr v6, v10
+	v20 = add : ptr v6, v11
+	v21 = add : ptr v6, v12
+	v22 = add : ptr v7, v10
+	v23 = add : ptr v7, v11
+	v24 = add : ptr v7, v12
+	v25 = add : ptr v8, v10
+	v26 = add : ptr v8, v11
+	v27 = add : ptr v8, v12
+	v30 = load : f32 v2, v3, v5
+	v31 = load : f32 v2, v3, v16
+	v32 = load : f32 v2, v3, v17
+	v33 = load : f32 v2, v3, v18
+	v34 = load : f32 v2, v3, v6
+	v35 = load : f32 v2, v3, v19
+	v36 = load : f32 v2, v3, v20
+	v37 = load : f32 v2, v3, v21
+	v40 = load : i32 v2, v3, v7
+	v41 = load : i32 v2, v3, v22
+	v42 = load : i32 v2, v3, v23
+	v43 = load : i32 v2, v3, v24
+	v44 = load : i32 v2, v3, v8
+	v45 = load : i32 v2, v3, v25
+	v46 = load : i32 v2, v3, v26
+	v47 = load : i32 v2, v3, v27
+	v50 = flt : i1 v30, v34
+	v51 = flt : i1 v31, v35
+	v52 = flt : i1 v32, v36
+	v53 = flt : i1 v33, v37
+	v60 = select : i32 v50, v40, v44
+	v61 = select : i32 v51, v41, v45
+	v62 = select : i32 v52, v42, v46
+	v63 = select : i32 v53, v43, v47
+	v70 = store : mem v2, v3, v4, v60
+	v71 = store : mem v2, v70, v13, v61
+	v72 = store : mem v2, v71, v14, v62
+	v73 = store : mem v2, v72, v15, v63
+	v90 = return : ctrl v2, v73
+}
+
+@expect
+func t(ptr restrict, ptr restrict, ptr restrict, ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, ptr, ptr, ptr)
+  v1 = stop : ctrl v55
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "o" of v0
+  v5 = proj : ptr  #3 "f" of v0
+  v6 = proj : ptr  #4 "g" of v0
+  v7 = proj : ptr  #5 "a" of v0
+  v8 = proj : ptr  #6 "b" of v0
+  v51 = store : mem v2, v3, v4, v61
+  v55 = return : ctrl v2, v51
+  v56 = load : <4 x f32> v2, v3, v5
+  v57 = load : <4 x f32> v2, v3, v6
+  v58 = flt : <4 x i32> v56, v57
+  v59 = load : <4 x i32> v2, v3, v7
+  v60 = load : <4 x i32> v2, v3, v8
+  v61 = select : <4 x i32> v58, v59, v60
+}

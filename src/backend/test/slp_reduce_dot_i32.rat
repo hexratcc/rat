@@ -1,0 +1,92 @@
+@name slp: eight-term i32 dot add chain folds into wide muls plus shuffle hsum
+@passes slp
+
+@input
+func dot(ptr, ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v99
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "b" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v9 = const : i64  16
+	v10 = const : i64  20
+	v11 = const : i64  24
+	v12 = const : i64  28
+	v13 = add : ptr v4, v6
+	v14 = add : ptr v4, v7
+	v15 = add : ptr v4, v8
+	v16 = add : ptr v4, v9
+	v17 = add : ptr v4, v10
+	v18 = add : ptr v4, v11
+	v19 = add : ptr v4, v12
+	v20 = add : ptr v5, v6
+	v21 = add : ptr v5, v7
+	v22 = add : ptr v5, v8
+	v23 = add : ptr v5, v9
+	v24 = add : ptr v5, v10
+	v25 = add : ptr v5, v11
+	v26 = add : ptr v5, v12
+	v30 = load : i32 v2, v3, v4
+	v31 = load : i32 v2, v3, v13
+	v32 = load : i32 v2, v3, v14
+	v33 = load : i32 v2, v3, v15
+	v34 = load : i32 v2, v3, v16
+	v35 = load : i32 v2, v3, v17
+	v36 = load : i32 v2, v3, v18
+	v37 = load : i32 v2, v3, v19
+	v40 = load : i32 v2, v3, v5
+	v41 = load : i32 v2, v3, v20
+	v42 = load : i32 v2, v3, v21
+	v43 = load : i32 v2, v3, v22
+	v44 = load : i32 v2, v3, v23
+	v45 = load : i32 v2, v3, v24
+	v46 = load : i32 v2, v3, v25
+	v47 = load : i32 v2, v3, v26
+	v50 = mul : i32 v30, v40
+	v51 = mul : i32 v31, v41
+	v52 = mul : i32 v32, v42
+	v53 = mul : i32 v33, v43
+	v54 = mul : i32 v34, v44
+	v55 = mul : i32 v35, v45
+	v56 = mul : i32 v36, v46
+	v57 = mul : i32 v37, v47
+	v60 = add : i32 v50, v51
+	v61 = add : i32 v60, v52
+	v62 = add : i32 v61, v53
+	v63 = add : i32 v62, v54
+	v64 = add : i32 v63, v55
+	v65 = add : i32 v64, v56
+	v66 = add : i32 v65, v57
+	v99 = return : ctrl v2, v3, v66
+}
+
+
+@expect
+func dot(ptr, ptr) -> i32 {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v58
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "a" of v0
+  v5 = proj : ptr  #3 "b" of v0
+  v9 = const : i64  16
+  v16 = add : ptr v4, v9
+  v23 = add : ptr v5, v9
+  v58 = return : ctrl v2, v3, v70
+  v59 = load : <4 x i32> v2, v3, v4
+  v60 = load : <4 x i32> v2, v3, v5
+  v61 = mul : <4 x i32> v59, v60
+  v62 = load : <4 x i32> v2, v3, v16
+  v63 = load : <4 x i32> v2, v3, v23
+  v64 = mul : <4 x i32> v62, v63
+  v65 = add : <4 x i32> v61, v64
+  v66 = shuffle : <4 x i32>  #4146 v65, v65
+  v67 = add : <4 x i32> v65, v66
+  v68 = shuffle : <4 x i32>  #8961 v67, v67
+  v69 = add : <4 x i32> v67, v68
+  v70 = extract : i32  #0 v69
+}

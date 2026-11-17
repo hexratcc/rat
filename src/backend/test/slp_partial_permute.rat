@@ -1,0 +1,117 @@
+@name slp: lanes that skip elements of a window load it once and shuffle when live loads read the gaps, else they gather
+@passes slp
+
+@input
+func t(ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "c" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v7 = const : i64  4
+	v8 = const : i64  8
+	v9 = const : i64  12
+	v10 = add : ptr v4, v7
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v4, v9
+	v13 = add : ptr v5, v7
+	v14 = add : ptr v5, v8
+	v15 = add : ptr v5, v9
+	v20 = load : f32 v2, v3, v5
+	v21 = load : f32 v2, v3, v13
+	v22 = load : f32 v2, v3, v14
+	v23 = load : f32 v2, v3, v15
+	v28 = fsub : f32 v20, v21
+	v29 = fadd : f32 v20, v21
+	v30 = fsub : f32 v22, v23
+	v31 = fadd : f32 v22, v23
+	v32 = store : mem v2, v3, v4, v28
+	v33 = store : mem v2, v32, v10, v29
+	v34 = store : mem v2, v33, v11, v30
+	v35 = store : mem v2, v34, v12, v31
+	v40 = return : ctrl v2, v35
+}
+
+func u(ptr restrict, ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "c" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = proj : ptr  #4 "b" of v0
+	v7 = const : i64  4
+	v8 = const : i64  8
+	v9 = const : i64  12
+	v10 = add : ptr v4, v7
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v4, v9
+	v13 = add : ptr v5, v7
+	v14 = add : ptr v5, v8
+	v16 = add : ptr v6, v7
+	v17 = add : ptr v6, v8
+	v18 = add : ptr v6, v9
+	v19 = const : i64  16
+	v20 = load : f32 v2, v3, v5
+	v21 = load : f32 v2, v3, v13
+	v22 = load : f32 v2, v3, v14
+	v24 = load : f32 v2, v3, v6
+	v25 = load : f32 v2, v3, v16
+	v26 = load : f32 v2, v3, v17
+	v27 = load : f32 v2, v3, v18
+	v28 = fmul : f32 v20, v24
+	v29 = fmul : f32 v20, v25
+	v30 = fmul : f32 v22, v26
+	v31 = fmul : f32 v22, v27
+	v32 = store : mem v2, v3, v4, v28
+	v33 = store : mem v2, v32, v10, v29
+	v34 = store : mem v2, v33, v11, v30
+	v35 = store : mem v2, v34, v12, v31
+	v36 = add : ptr v4, v19
+	v37 = store : mem v2, v35, v36, v21
+	v40 = return : ctrl v2, v37
+}
+
+@expect
+func t(ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v27
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "c" of v0
+  v5 = proj : ptr  #3 "a" of v0
+  v23 = store : mem v2, v3, v4, v33
+  v27 = return : ctrl v2, v23
+  v28 = load : <4 x f32> v2, v3, v5
+  v29 = shuffle : <4 x f32>  #8704 v28, v28
+  v30 = shuffle : <4 x f32>  #13073 v28, v28
+  v31 = fsub : <4 x f32> v29, v30
+  v32 = fadd : <4 x f32> v29, v30
+  v33 = shuffle : <4 x f32>  #29264 v31, v32
+}
+
+func u(ptr restrict, ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, ptr)
+  v1 = stop : ctrl v36
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "c" of v0
+  v5 = proj : ptr  #3 "a" of v0
+  v6 = proj : ptr  #4 "b" of v0
+  v7 = const : i64  4
+  v8 = const : i64  8
+  v13 = add : ptr v5, v7
+  v14 = add : ptr v5, v8
+  v18 = const : i64  16
+  v19 = load : f32 v2, v3, v5
+  v20 = load : f32 v2, v3, v13
+  v21 = load : f32 v2, v3, v14
+  v30 = store : mem v2, v3, v4, v39
+  v34 = add : ptr v4, v18
+  v35 = store : mem v2, v30, v34, v20
+  v36 = return : ctrl v2, v35
+  v37 = pack : <4 x f32> v19, v19, v21, v21
+  v38 = load : <4 x f32> v2, v3, v6
+  v39 = fmul : <4 x f32> v37, v38
+}
