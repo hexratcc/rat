@@ -2,22 +2,15 @@
 
 namespace rat::cc {
 	Emitter::Value Emitter::emitAddrOf(Function& fn, const Expr* e) {
-		if(e->unary.operand->kind == ExprKind::Ident) {
-			const String& name = *e->unary.operand->ident.name;
-			auto f = syms.functions.find(name);
-			if(f != syms.functions.end())
-				return {fn.global(name), funcPtrType(f->second)};
-			if(isArrayType(lookupSymbol(name).type))
-				return emitExpr(fn, e->unary.operand);
-		}
+		const Expr* operand = e->unary.operand;
+		if(operand->kind == ExprKind::Ident &&
+			 lookupSymbol(*operand->ident.name).kind == Symbol::Kind::Function)
+			return emitExpr(fn, operand);
 		LValue lv;
-		if(!emitLValue(fn, e->unary.operand, lv))
+		if(!emitLValue(fn, operand, lv))
 			return {};
 		if(lv.isVar())
 			return diag.fail("cannot take the address of an SSA value");
-		// only a dereferenced array keeps its array type
-		if(isArrayType(lv.type) && !isDeref(e->unary.operand))
-			return {lv.addr, decay(lv.type)};
 		return {lv.addr, pointerTo(lv.type)};
 	}
 
@@ -31,12 +24,7 @@ namespace rat::cc {
 			diag.offset = e->offset;
 			return diag.fail("indirection requires a pointer operand");
 		}
-		CType pt = pointee(p.type);
-		if(isArrayType(pt))
-			return {p.node, decay(pt)};
-		if(isAggregate(pt))
-			return {p.node, pt};
-		return {fn.load(irType(pt), p.node, isTopVolatile(pt)), pt};
+		return loadObject(fn, p.node, pointee(p.type));
 	}
 
 	Emitter::Value Emitter::emitUnary(Function& fn, const Expr* e) {
@@ -110,21 +98,29 @@ namespace rat::cc {
 		}
 	}
 
+	Emitter::Value Emitter::loadObject(Function& fn, Node* addr, CType type) {
+		if(isArrayType(type))
+			return {addr, decay(type)};
+		if(isAggregate(type))
+			return {addr, type};
+		return {fn.load(irType(type), addr, isTopVolatile(type)), type};
+	}
+
 	Emitter::Value Emitter::emitIdent(Function& fn, const Expr* e) {
 		const String& name = *e->ident.name;
 		Symbol sym = lookupSymbol(name);
 		if(sym.kind == Symbol::Kind::None)
 			return failUndeclared(name);
+		return symbolValue(fn, name, sym);
+	}
+
+	Emitter::Value Emitter::symbolValue(Function& fn, const String& name, const Symbol& sym) {
 		if(sym.kind == Symbol::Kind::Function)
 			return {fn.global(name), sym.type};
 		if(sym.local && !sym.local->inMem())
 			return {fn.get(sym.local->var), sym.type};
 		Node* addr = sym.local ? sym.local->addr : fn.global(syms.resolveAlias(name));
-		if(isArrayType(sym.type))
-			return {addr, decay(sym.type)};
-		if(isAggregate(sym.type))
-			return {addr, sym.type};
-		return {fn.load(irType(sym.type), addr, isTopVolatile(sym.type)), sym.type};
+		return loadObject(fn, addr, sym.type);
 	}
 
 	Emitter::Value Emitter::emitSizeof(Function& fn, const Expr* e) {
@@ -138,7 +134,7 @@ namespace rat::cc {
 					return {loc.lengthNode, sz};
 			}
 			CType ot;
-			if(typeOf(operand, ot) && hasVlaDim(ot))
+			if(typeOfObject(operand, ot) && hasVlaDim(ot))
 				return {emitArrayByteSize(fn, ot), sz};
 			if(!sizeofOperand(operand, n))
 				return {};
@@ -166,7 +162,7 @@ namespace rat::cc {
 			}
 		}
 		CType ot;
-		if(!typeOf(e->sizeOf.operand, ot))
+		if(!typeOfObject(e->sizeOf.operand, ot))
 			return false;
 		out = alignOf(ot);
 		return true;
@@ -291,11 +287,9 @@ namespace rat::cc {
 			LValue lv;
 			if(!emitLValue(fn, e, lv))
 				return {};
-			if(isArrayType(lv.type))
-				return {lv.addr, decay(lv.type)};
-			if(isStruct(lv.type))
-				return {lv.addr, lv.type};
-			return {loadLValue(fn, lv), lv.type};
+			if(lv.isBitfield)
+				return {loadLValue(fn, lv), lv.type};
+			return loadObject(fn, lv.addr, lv.type);
 		}
 		case ExprKind::InitList:
 			return diag.fail("initializer list is only allowed in a declaration");
@@ -399,10 +393,7 @@ namespace rat::cc {
 				slot = fn.alloc(mod.getArray(irType(elem), (U32)count));
 			zeroSlot(fn, slot, total);
 			StoreSink sink(*this, fn, slot);
-			if(init->kind == ExprKind::StrLit) {
-				if(!sink.charArray(0, elem, (U32)count, init))
-					return {};
-			} else if(!initArrayInit(sink, 0, elem, (U32)count, init))
+			if(!initArrayInit(sink, 0, elem, (U32)count, init))
 				return {};
 			return {slot, pointerTo(elem)};
 		}

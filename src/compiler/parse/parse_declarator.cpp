@@ -234,13 +234,4 @@ namespace rat::cc {
 		if(isArrayType(d.type))
 			d.type = plainArray(d.type);
 	}
-
-	// declarator without a name
-	B32 Parser::parseAbstractDeclarator(CType base, DeclResult& out) {
-		if(!parseDeclarator(base, out))
-			return false;
-		if(out.name)
-			return fail(peek(), "unexpected name in a type name");
-		return true;
-	}
 } // namespace rat::cc

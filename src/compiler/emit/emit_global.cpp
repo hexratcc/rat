@@ -48,9 +48,7 @@ namespace rat::cc {
 		if(ok) {
 			List<U8> img(total, 0);
 			ImageSink sink(*this, img);
-			if(isArr && init->kind == ExprKind::StrLit)
-				ok = sink.charArray(0, elem, (U32)count, init);
-			else if(isArr)
+			if(isArr)
 				ok = initArrayInit(sink, 0, elem, (U32)count, init);
 			else if(isStruct(ty))
 				ok = initStructInit(sink, 0, ty.strukt, init);
@@ -88,28 +86,6 @@ namespace rat::cc {
 		g->setAlign(d.align);
 	}
 
-	B32 Emitter::registerStringArray(const Declarator& d,
-																	 const String& sym,
-																	 Function* fn,
-																	 I64 count) {
-		CType elem = arrayElem(d.type);
-		U32 elemSize = byteSize(elem);
-		U32 charWidth = d.init->str.isWide ? d.init->str.charSize : 1u;
-		if(elem.ptr != 0 || elem.bits != charWidth * 8)
-			return failStringNeedsCharArray();
-		const String& bytes = *d.init->str.bytes;
-		I64 nchars = (I64)bytes.size() / (I64)charWidth;
-		if(isUnsizedArray(d.type))
-			count = nchars + 1;
-		List<U8> init((U32)count * elemSize, 0);
-		for(I64 i = 0; i < nchars && i < count; ++i)
-			for(U32 k = 0; k < charWidth; ++k)
-				init[(U32)(i * elemSize) + k] = (U8)bytes[(U32)(i * charWidth + k)];
-		defineGlobal(d, sym, mod.getArray(irType(elem), (U32)count), std::move(init));
-		bindGlobal(d, sym, fn, sizedArray(arena, d.type, (U64)count));
-		return true;
-	}
-
 	B32 Emitter::registerGlobalArray(const Declarator& d, const String& sym, Function* fn) {
 		CType elem = arrayElem(d.type);
 		B32 scalarElem = !isArrayType(elem) && !isStruct(elem);
@@ -117,12 +93,13 @@ namespace rat::cc {
 		I64 count;
 		if(!arrayBound(d.type, count) || (haveLen && count <= 0))
 			return failArrayCount();
-		if(scalarElem && d.init && d.init->kind == ExprKind::StrLit)
-			return registerStringArray(d, sym, fn, count);
+		B32 isString = scalarElem && d.init && d.init->kind == ExprKind::StrLit;
 		B32 isList = d.init && d.init->kind == ExprKind::InitList;
-		if(scalarElem && d.init && !isList)
+		if(scalarElem && d.init && !isList && !isString)
 			return diag.fail("invalid initializer for an array");
-		if(!haveLen) {
+		if(!haveLen && isString)
+			count = (I64)(d.init->str.bytes->size() / d.init->str.charSize) + 1;
+		else if(!haveLen) {
 			if(!isList)
 				return failArrayUnknownSize(*d.name);
 			count = (I64)initArrayCount(elem, d.init);
@@ -135,7 +112,10 @@ namespace rat::cc {
 			img.assign(total, 0);
 			ImageSink sink(*this, img);
 			U32 pos = 0;
-			if(isStruct(elem) && initListIsFlat(d.init)) {
+			if(isString) {
+				if(!sink.charArray(0, elem, (U32)count, d.init))
+					return false;
+			} else if(isStruct(elem) && initListIsFlat(d.init)) {
 				if(!initFlatArray(sink, 0, elem, (U32)count, {d.init->args, pos}))
 					return false;
 			} else if(!initArrayInit(sink, 0, elem, (U32)count, d.init))

@@ -15,7 +15,8 @@ namespace rat::cc {
 	struct Local {
 		enum class Kind : U8 {
 			Var,
-			Mem
+			Mem,
+			Function // a block-scope function declaration, see lookupSymbol
 		};
 		Kind kind = Kind::Var;
 		Function::Var var = 0;

@@ -289,13 +289,9 @@ namespace rat::cc {
 			return false;
 		if(hasVlaDim(arrayElem(d.type)))
 			return true;
-		B32 savedFailed = diag.failed;
-		String savedMsg = diag.message;
+		DryRunDiag dryRun(diag);
 		I64 count;
-		B32 constant = arrayBound(d.type, count);
-		diag.failed = savedFailed;
-		diag.message = std::move(savedMsg);
-		return !constant;
+		return !arrayBound(d.type, count);
 	}
 
 	B32 Emitter::stmtHasVla(const Stmt* s) {

@@ -73,6 +73,8 @@ namespace rat::cc {
 		LValue lv;
 		if(!emitLValue(fn, e->unary.operand, lv))
 			return {};
+		if(isArrayType(lv.type))
+			return failArrayAssign(e->unary.operand);
 		if(isTopConst(lv.type))
 			return diag.fail("cannot modify a const-qualified lvalue");
 		CType type = lv.type;
@@ -150,7 +152,7 @@ namespace rat::cc {
 		if(!emitLValue(fn, e->binary.lhs, lv))
 			return {};
 		if(isArrayType(lv.type))
-			return diag.fail("array is not assignable");
+			return failArrayAssign(e->binary.lhs);
 		if(isTopConst(lv.type))
 			return diag.fail("cannot assign to a const-qualified lvalue");
 		CType targetType = lv.type;

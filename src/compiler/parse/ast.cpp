@@ -304,14 +304,15 @@ namespace rat::cc {
 			detail::dumpStmt(g, 0, os);
 		for(const FuncDef* fn : unit.functions) {
 			os << "func " << fn->name << "(";
-			for(U32 i = 0; i < fn->params.size(); ++i) {
+			const List<Param>& params = fn->type->params;
+			for(U32 i = 0; i < params.size(); ++i) {
 				if(i)
 					os << ", ";
-				os << typeName(fn->params[i].type);
-				if(fn->params[i].name)
-					os << " " << *fn->params[i].name;
+				os << typeName(params[i].type);
+				if(params[i].name)
+					os << " " << *params[i].name;
 			}
-			os << ") -> " << typeName(fn->retType) << "\n";
+			os << ") -> " << typeName(fn->type->ret) << "\n";
 			if(fn->body)
 				detail::dumpStmt(fn->body, 1, os);
 		}

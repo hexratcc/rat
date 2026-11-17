@@ -189,6 +189,7 @@ namespace rat::cc {
 		CType ctPtrDiff() const;
 		B32 resolveType(CType& t);
 		B32 typeOf(const Expr* expr, CType& out);
+		B32 typeOfObject(const Expr* expr, CType& out);
 		B32 typeOfUnary(const Expr* expr, CType& out);
 		B32 typeOfBinary(const Expr* expr, CType& out);
 		const Expr* genericSelect(const Expr* e);
@@ -224,11 +225,15 @@ namespace rat::cc {
 		Failed failUndeclared(const String& name) {
 			return diag.fail("use of undeclared identifier '" + name + "'");
 		}
+		Failed failArrayAssign(const Expr* target) {
+			if(target->kind == ExprKind::Ident)
+				return diag.fail("array '" + *target->ident.name + "' is not assignable");
+			return diag.fail("array is not assignable");
+		}
 		Failed failArrayCount() { return diag.fail("array size must be a positive integer constant"); }
 		Failed failArrayUnknownSize(const String& name) {
 			return diag.fail("array '" + name + "' has unknown size");
 		}
-		Failed failFieldInArray() { return diag.fail("field designator in an array initializer"); }
 		Failed failTooManyInits() { return diag.fail("too many initializers for the array"); }
 		Failed failNonConstInit() {
 			return diag.fail("initializer element is not a constant expression");
@@ -286,7 +291,9 @@ namespace rat::cc {
 		Value emitUnary(Function& fn, const Expr* expr);
 		Value emitAddrOf(Function& fn, const Expr* expr);
 		Value emitDeref(Function& fn, const Expr* expr);
+		Value loadObject(Function& fn, Node* addr, CType type);
 		Value emitIdent(Function& fn, const Expr* expr);
+		Value symbolValue(Function& fn, const String& name, const Symbol& sym);
 		Value emitSizeof(Function& fn, const Expr* expr);
 		B32 alignofValue(const Expr* e, U32& out);
 		Value emitStmtExpr(Function& fn, const Expr* expr);
@@ -380,7 +387,6 @@ namespace rat::cc {
 		B32 registerGlobals(const TransUnit& unit);
 		B32 registerGlobalAlias(const Declarator& d);
 		B32 registerGlobal(const Declarator& d, const String& sym, Function* fn);
-		B32 registerStringArray(const Declarator& d, const String& sym, Function* fn, I64 count);
 		B32 registerGlobalArray(const Declarator& d, const String& sym, Function* fn);
 		B32 registerGlobalStruct(const Declarator& d, const String& sym, Function* fn);
 		B32 registerGlobalScalar(const Declarator& d, const String& sym, Function* fn);
@@ -427,6 +433,7 @@ namespace rat::cc {
 											const FlatList& src,
 											U32* extent = nullptr);
 		B32 initFlatArrayObject(InitSink& sink, U32 base, CType elem, U32 count, const FlatList& src);
+		B32 checkStringElem(CType elem, U32 charSize);
 		U32 flexElemCount(const StructType* st, const Expr* init);
 		void encodeFloatBytes(CType dt, F80 v, List<U8>& out);
 		B32 writeConstScalar(List<U8>& img, U32 off, CType dt, const Expr* e, B32 addrFits);

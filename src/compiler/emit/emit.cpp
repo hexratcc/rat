@@ -110,14 +110,10 @@ namespace rat::cc {
 	// length of an array compound literal, false when it is not a positive constant
 	B32 Emitter::compoundArrayCount(const Expr* e, I64& count) {
 		CType ty = e->compound.type;
-		const Expr* init = e->compound.init;
 		count = 0;
 		if(!isUnsizedArray(ty))
 			return arrayBound(ty, count) && count > 0;
-		if(init->kind == ExprKind::StrLit)
-			count = (I64)init->str.bytes->size() + 1;
-		else if(init->kind == ExprKind::InitList)
-			count = (I64)initArrayCount(arrayElem(ty), init);
+		count = (I64)initArrayCount(arrayElem(ty), e->compound.init);
 		return count > 0;
 	}
 
@@ -267,8 +263,6 @@ namespace rat::cc {
 			Symbol sym = lookupSymbol(name);
 			if(sym.kind == Symbol::Kind::None || sym.kind == Symbol::Kind::Function)
 				return failUndeclared(name);
-			if(isArrayType(sym.type))
-				return diag.fail("array '" + name + "' is not assignable");
 			out.type = sym.type;
 			if(sym.local && !sym.local->inMem()) {
 				out.kind = LValue::Kind::Var;
@@ -279,7 +273,7 @@ namespace rat::cc {
 			out.addr = sym.local ? sym.local->addr : fn.global(syms.resolveAlias(name));
 			return true;
 		}
-		if(isDeref(e)) {
+		if(e->kind == ExprKind::Unary && e->unary.op == ExprOp::Deref) {
 			Value p = emitExpr(fn, e->unary.operand);
 			if(!p.node)
 				return false;
@@ -400,20 +394,15 @@ namespace rat::cc {
 		i32 = mod.getInt(32);
 
 		for(const FuncDef* def : unit.functions) {
-			FuncType* type = arena.make<FuncType>();
-			type->ret = def->retType;
-			type->params = def->params;
-			type->isVarArgs = def->isVarArgs;
-			type->unprototyped = def->unprototyped;
 			FunctionSignature sig;
-			sig.type = type;
+			sig.type = def->type;
 			sig.noInline = def->isNoInline;
 			sig.align = def->align;
 			auto prev = syms.functions.find(def->name);
 			if(prev != syms.functions.end()) {
 				sig.noInline |= prev->second.noInline;
 				sig.align = std::max(sig.align, prev->second.align); // an earlier declaration may carry it
-				if(def->unprototyped && !prev->second.type->unprototyped) {
+				if(def->type->unprototyped && !prev->second.type->unprototyped) {
 					prev->second.noInline = sig.noInline;
 					prev->second.align = sig.align;
 					continue;
@@ -455,9 +444,9 @@ namespace rat::cc {
 
 	// the ir params of each parameter, an aggregate in registers spreads over its eightbytes
 	List<AbiRegs> Emitter::lowerParams(const FuncDef* def, List<Type*>& paramTypes, CallAbi& abi) {
-		ArgRegs free = freeArgRegs(def->retType);
+		ArgRegs free = freeArgRegs(def->type->ret);
 		List<AbiRegs> regs;
-		for(const Param& p : def->params) {
+		for(const Param& p : def->type->params) {
 			AbiRegs r = takeArgRegs(p.type, free);
 			regs.push_back(r);
 			for(U32 k = 0; k < r.count; ++k)
@@ -476,8 +465,8 @@ namespace rat::cc {
 																	 U32 paramBase,
 																	 const List<AbiRegs>& regs) {
 		U32 index = paramBase;
-		for(U32 i = 0; i < def->params.size(); ++i) {
-			const Param& p = def->params[i];
+		for(U32 i = 0; i < def->type->params.size(); ++i) {
+			const Param& p = def->type->params[i];
 			if(isAggregate(p.type) && regs[i].count) {
 				Node* slot = bindEightbytes(fn, p.type, regs[i], index);
 				if(p.name)
@@ -526,25 +515,25 @@ namespace rat::cc {
 
 	B32 Emitter::emitFunctionBody(const FuncDef* def) {
 		diag.function = def->name;
-		B32 sretReturn = isAggregate(def->retType);
+		B32 sretReturn = isAggregate(def->type->ret);
 		List<Type*> paramTypes;
 		CallAbi abi;
 		if(sretReturn) {
 			paramTypes.push_back(mod.getPtr());
-			abi.ret = returnRegs(def->retType);
+			abi.ret = returnRegs(def->type->ret);
 		}
 		List<AbiRegs> regs = lowerParams(def, paramTypes, abi);
-		Type* retTy = isVoidType(def->retType) ? nullptr : irType(def->retType);
+		Type* retTy = isVoidType(def->type->ret) ? nullptr : irType(def->type->ret);
 		Function* fn = mod.createFunction(def->name, paramTypes, retTy);
 		FunctionAttrs& attrs = fn->getAttrs();
-		attrs.variadic = def->isVarArgs;
+		attrs.variadic = def->type->isVarArgs;
 		attrs.noInline = syms.functions[def->name].noInline;
 		attrs.align = syms.functions[def->name].align;
 		attrs.linkage = def->isStatic ? Linkage::Internal : Linkage::External;
 		attrs.abi = std::move(abi);
 
 		func.reset();
-		func.returnType = def->retType;
+		func.returnType = def->type->ret;
 		if(sretReturn)
 			func.sretSlot = fn->param(0);
 		U32 paramBase = sretReturn ? 1 : 0;
@@ -555,7 +544,7 @@ namespace rat::cc {
 			func.sp = fn->stackSave();
 		bindFunctionParams(*fn, def, paramBase, regs);
 		debugFunction(*fn, def);
-		for(const Param& p : def->params) {
+		for(const Param& p : def->type->params) {
 			if(!p.vlaBound)
 				continue;
 			diag.offset = p.offset;

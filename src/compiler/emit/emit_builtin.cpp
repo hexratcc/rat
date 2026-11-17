@@ -95,6 +95,7 @@ namespace rat::cc {
 				{"memset", ctVoidPtr()}, {"strcat", kCharPtr}, {"strchr", kCharPtr}, {"strcpy", kCharPtr},
 				{"strncat", kCharPtr}, {"strncpy", kCharPtr}, {"strrchr", kCharPtr}, {"strstr", kCharPtr},
 				{"abort", ctVoid()}, {"exit", ctVoid()}, {"free", ctVoid()}, {"longjmp", ctVoid()},
+				{"expect", ctInt64()}, {"constant_p", ctInt()},
 		};
 		// clang-format on
 		auto found = kTypes.find(stem);

@@ -335,7 +335,7 @@ namespace rat::cc {
 			if(e->unary.op == ExprOp::Addr)
 				return addrConstOf(e->unary.operand, sym, addend);
 			CType t;
-			if(e->unary.op == ExprOp::Deref && typeOf(e, t) && isArrayType(t))
+			if(e->unary.op == ExprOp::Deref && typeOfObject(e, t) && isArrayType(t))
 				return evalAddrConst(e->unary.operand, sym, addend);
 			return false;
 		}
@@ -357,9 +357,7 @@ namespace rat::cc {
 				return false;
 			CType pt;
 			I64 scale = 1;
-			if(typeOf(ptrSide, pt) && isArrayType(pt))
-				pt = decay(pt);
-			if(isPointer(pt))
+			if(typeOf(ptrSide, pt) && isPointer(pt))
 				scale = (I64)byteSize(pointee(pt));
 			addend += (e->binary.op == ExprOp::Sub ? -n : n) * scale;
 			return true;

@@ -154,14 +154,14 @@ namespace rat::cc {
 		df.name = def->name;
 		df.decl = debugLoc(def->offset);
 		if(dbg.describeVars)
-			df.ret = debugType(def->retType);
+			df.ret = debugType(def->type->ret);
 		df.external = !def->isStatic;
-		df.variadic = def->isVarArgs;
+		df.variadic = def->type->isVarArgs;
 		fn.setDebug(std::make_unique<DebugBody>());
 		fn.getDebug()->func = &df;
 		dbg.scope = 0;
 		dbg.funcBody = def->body;
-		for(const Param& p : def->params) {
+		for(const Param& p : def->type->params) {
 			Local l;
 			if(!dbg.describeVars || !p.name || !func.scopes.lookup(*p.name, l))
 				continue;
@@ -216,7 +216,8 @@ namespace rat::cc {
 
 	void Emitter::debugLocal(Function& fn, const Declarator& d) {
 		Local l;
-		if(!dbg.describeVars || d.isExtern || d.isTypedef || !func.scopes.lookup(*d.name, l))
+		if(!dbg.describeVars || d.isExtern || d.isTypedef || !func.scopes.lookup(*d.name, l) ||
+			 l.kind == Local::Kind::Function)
 			return;
 		String symbol = l.staticSymbol ? *l.staticSymbol : "";
 		DebugType* type = debugType(l.type);

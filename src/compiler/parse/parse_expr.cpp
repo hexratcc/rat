@@ -8,24 +8,23 @@ namespace rat::cc {
 	Expr* Parser::parseCastOrCompound() {
 		Token lp = advance(); // (
 		CType ty;
-		DeclResult r;
-		if(!parseTypeSpec(ty) || !parseAbstractDeclarator(ty, r) || !expect(TokKind::RParen))
+		if(!parseTypeName(ty) || !expect(TokKind::RParen))
 			return nullptr;
 		if(check(TokKind::LBrace)) {
 			Expr* init = parseInitializer();
 			if(!init)
 				return nullptr;
 			Expr* e = makeExpr(ExprKind::CompoundLit, lp.offset);
-			e->compound = {r.type, init};
+			e->compound = {ty, init};
 			return parsePostfixTail(e); // allow [..], .x, etc. after the literal
 		}
-		if(isArrayType(r.type))
+		if(isArrayType(ty))
 			return fail(lp, "array types may not be used in a cast");
 		Expr* operand = parseUnary();
 		if(!operand)
 			return nullptr;
 		Expr* e = makeExpr(ExprKind::Cast, lp.offset);
-		e->cast = {r.type, operand};
+		e->cast = {ty, operand};
 		return e;
 	}
 

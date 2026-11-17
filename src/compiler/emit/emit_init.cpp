@@ -13,9 +13,9 @@ namespace rat::cc {
 	} // namespace detail
 
 	const Expr* Emitter::peelAggregateCompound(const Expr* el) {
-		if(el->kind != ExprKind::CompoundLit || isArrayType(el->compound.type) || !el->compound.init)
+		if(el->kind != ExprKind::CompoundLit || isArrayType(el->compound.type))
 			return el;
-		return el->compound.init->kind == ExprKind::InitList ? el->compound.init : el;
+		return el->compound.init;
 	}
 
 	Expr* Emitter::wrapNested(const Designator* sub, const Expr* val) {
@@ -116,7 +116,7 @@ namespace rat::cc {
 			const Designator& des = init->designators[i];
 			if(des.isSet) {
 				if(!des.isIndex)
-					return failFieldInArray();
+					return diag.fail("field designator in an array initializer");
 				cur = (U32)des.index;
 			}
 			if(cur >= count)
@@ -288,8 +288,9 @@ namespace rat::cc {
 			}
 			if(isArray) {
 				if(el->kind == ExprKind::StrLit) {
-					if(fieldExtent && isCharType(elem))
-						*fieldExtent = std::max(*fieldExtent, (U32)el->str.bytes->size() + 1);
+					if(fieldExtent)
+						*fieldExtent =
+								std::max(*fieldExtent, (U32)(el->str.bytes->size() / el->str.charSize) + 1);
 					if(!sink.charArray(off, elem, fcount, el))
 						return false;
 				} else if(!initArrayInit(sink, off, elem, fcount, peelAggregateCompound(el), fieldExtent))

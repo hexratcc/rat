@@ -10,13 +10,11 @@ namespace rat::cc {
 			return tokSyntax(kind).spec &
 						 (TokSyntax::Qualifier | TokSyntax::Storage | TokSyntax::FuncSpec);
 		}
-
-		B32 isTypeStart(TokKind kind) { return tokSyntax(kind).spec != 0; }
 	} // namespace detail
 
 	// a type keyword, qualifier, storage class or typedef name
 	B32 Parser::startsType(const Token& tok) {
-		if(detail::isTypeStart(tok.kind))
+		if(detail::tokSyntax(tok.kind).spec != 0)
 			return true;
 		return tok.kind == TokKind::Identifier && typedefs.get(lex.text(tok)) != nullptr;
 	}
@@ -44,6 +42,7 @@ namespace rat::cc {
 				bindDeclarator(d, r);
 				d.isTypedef = true;
 				s->decls.push_back(d);
+				s->kind = StmtKind::Decl;
 			}
 			if(!accept(TokKind::Comma))
 				break;
@@ -88,18 +87,14 @@ namespace rat::cc {
 
 	// records one qualifier or storage-class keyword
 	void Parser::applyQualStorage(DeclSpecs& seen, TokKind kind) {
+		if(detail::tokSyntax(kind).spec & detail::TokSyntax::Storage)
+			++seen.storageCount;
 		switch(kind) {
 		case TokKind::KwStatic:
 			seen.isStatic = true;
-			++seen.storageCount;
 			break;
 		case TokKind::KwExtern:
 			seen.isExtern = true;
-			++seen.storageCount;
-			break;
-		case TokKind::KwAuto:
-		case TokKind::KwRegister:
-			++seen.storageCount;
 			break;
 		case TokKind::KwInline:
 			seen.isInline = true;
@@ -128,7 +123,7 @@ namespace rat::cc {
 				return false;
 		}
 		if(seen.isConst)
-			out.quals |= 1u;
+			setTopConst(out);
 		if(seen.isVolatile)
 			setTopVolatile(out);
 		specs = seen;

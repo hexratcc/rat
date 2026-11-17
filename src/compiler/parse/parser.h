@@ -86,7 +86,6 @@ namespace rat::cc {
 		};
 		void parsePointers(CType& t);
 		B32 parseDeclarator(CType base, DeclResult& out);
-		B32 parseAbstractDeclarator(CType base, DeclResult& out);
 		B32 parseDeclaratorOps(List<DeclOp>& ops, DeclResult& out);
 		B32 parseDirectDeclarator(List<DeclOp>& ops, DeclResult& out);
 		B32 parseDeclaratorSuffixes(List<DeclOp>& ops, U32& align);

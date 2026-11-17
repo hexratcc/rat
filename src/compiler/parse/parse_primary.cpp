@@ -53,8 +53,10 @@ namespace rat::cc {
 	B32 Parser::parseTypeName(CType& out) {
 		CType ty;
 		DeclResult r;
-		if(!parseTypeSpec(ty) || !parseAbstractDeclarator(ty, r))
+		if(!parseTypeSpec(ty) || !parseDeclarator(ty, r))
 			return false;
+		if(r.name)
+			return fail(peek(), "unexpected name in a type name");
 		out = r.type;
 		return true;
 	}

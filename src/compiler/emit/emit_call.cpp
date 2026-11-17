@@ -3,40 +3,22 @@
 namespace rat::cc {
 	B32 Emitter::resolveCallee(Function& fn, const Expr* e, Callee& c) {
 		if(e->call.callee) {
-			auto found = syms.functions.find(*e->call.callee);
-			if(found != syms.functions.end()) {
+			const String& name = *e->call.callee;
+			Symbol sym = lookupSymbol(name);
+			if(sym.kind == Symbol::Kind::None) {
 				c.direct = true;
-				c.ft = found->second.type;
+				c.ft = implicitFuncType(name);
 				return true;
 			}
-			Node* val = nullptr;
-			CType ct;
-			B32 isObject = false;
-			Local loc;
-			if(func.scopes.lookup(*e->call.callee, loc) && !isArrayType(loc.type)) {
-				if(loc.inMem())
-					val = fn.load(irType(loc.type), loc.addr);
-				else
-					val = fn.get(loc.var);
-				ct = loc.type;
-				isObject = true;
-			} else {
-				auto g = syms.globals.find(*e->call.callee);
-				if(g != syms.globals.end() && !isArrayType(g->second.type)) {
-					val = fn.load(irType(g->second.type), fn.global(syms.resolveAlias(*e->call.callee)));
-					ct = g->second.type;
-					isObject = true;
-				}
-			}
-			if(val && isFuncPtr(ct)) {
-				c.target = val;
-				c.ft = ct.func;
-			} else if(isObject) {
-				return diag.fail("called object is not a function or function pointer");
-			} else {
+			if(sym.kind == Symbol::Kind::Function) {
 				c.direct = true;
-				c.ft = implicitFuncType(*e->call.callee);
+				c.ft = sym.type.func;
+				return true;
 			}
+			if(!isFuncPtr(sym.type))
+				return diag.fail("called object is not a function or function pointer");
+			c.ft = sym.type.func;
+			c.target = symbolValue(fn, name, sym).node;
 			return true;
 		}
 		Value fpv = emitExpr(fn, e->call.target);

@@ -76,6 +76,13 @@ namespace rat::cc {
 		return true;
 	}
 
+	// a string fills an integer array whose element is one string unit wide
+	B32 Emitter::checkStringElem(CType elem, U32 charSize) {
+		if(!isInteger(elem) || elem.bits != charSize * 8)
+			return failStringNeedsCharArray();
+		return true;
+	}
+
 	B32 Emitter::StoreSink::scalar(U32 off, CType dt, const Expr* e) {
 		LValue lv;
 		lv.type = dt;
@@ -104,11 +111,12 @@ namespace rat::cc {
 		return true;
 	}
 	B32 Emitter::StoreSink::charArray(U32 base, CType elem, U32 count, const Expr* e) {
-		if(!isCharType(elem))
-			return emit.failStringNeedsCharArray();
+		U32 unitBytes = e->str.charSize;
+		if(!emit.checkStringElem(elem, unitBytes))
+			return false;
 		const String& bytes = *e->str.bytes;
 		Type* i8 = emit.mod.getInt(8);
-		U32 n = bytes.size() < count ? (U32)bytes.size() : count;
+		U32 n = std::min((U32)bytes.size(), count * unitBytes);
 		for(U32 i = 0; i < n; ++i)
 			fn.store(emit.offsetPtr(fn, slot, base + i), fn.constInt(i8, (U8)bytes[i]));
 		return true;
@@ -193,10 +201,11 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::ImageSink::charArray(U32 base, CType elem, U32 count, const Expr* e) {
-		if(!isCharType(elem))
-			return emit.failStringNeedsCharArray();
+		U32 unitBytes = e->str.charSize;
+		if(!emit.checkStringElem(elem, unitBytes))
+			return false;
 		const String& bytes = *e->str.bytes;
-		U32 n = bytes.size() < count ? (U32)bytes.size() : count;
+		U32 n = std::min((U32)bytes.size(), count * unitBytes);
 		for(U32 i = 0; i < n; ++i)
 			img[base + i] = (U8)bytes[i];
 		return true;

@@ -103,8 +103,8 @@ namespace rat::cc {
 		Type* elemTy = irType(elem);
 		U32 elemSize = byteSize(elem);
 		U32 cw = d.init->str.isWide ? d.init->str.charSize : 1u;
-		if(elem.ptr != 0 || elem.bits != cw * 8)
-			return failStringNeedsCharArray();
+		if(!checkStringElem(elem, cw))
+			return false;
 		const String& bytes = *d.init->str.bytes;
 		I64 nchars = (I64)bytes.size() / (I64)cw;
 		if(isUnsizedArray(d.type))
@@ -161,6 +161,12 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitOneDecl(Function& fn, const Declarator& d, B32 live) {
+		if(d.type.func && d.type.ptr == 0) {
+			Local proto;
+			proto.kind = Local::Kind::Function;
+			func.scopes.set(*d.name, proto);
+			return true;
+		}
 		if(d.isTypedef)
 			return bindVlaDims(&fn, d.type);
 		if(d.isExtern)

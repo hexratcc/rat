@@ -112,7 +112,6 @@ namespace rat::cc::detail {
 	inline const TokSyntax& tokSyntax(TokKind kind) { return kTokSyntax.rows[(U32)kind]; }
 	B32 isTypeQualifier(TokKind kind);
 	B32 isQualOrStorage(TokKind kind);
-	B32 isTypeStart(TokKind kind);
 
 	void utf8Encode(String& out, U32 cp);
 	U32 utf8Decode(const String& bytes, U32& i, U32 n);

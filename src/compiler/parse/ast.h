@@ -585,10 +585,7 @@ namespace rat::cc {
 
 	struct FuncDef {
 		String name;
-		CType retType = ctInt();
-		List<Param> params;
-		B32 isVarArgs = false;
-		B32 unprototyped = false;
+		FuncType* type = nullptr; // own copy, old-style decls fill in its params
 		B32 isExternInline = false;
 		B32 isStatic = false;
 		B32 isNoInline = false;
@@ -603,9 +600,6 @@ namespace rat::cc {
 		List<Stmt*> globals;
 	};
 
-	inline B32 isDeref(const Expr* e) {
-		return e->kind == ExprKind::Unary && e->unary.op == ExprOp::Deref;
-	}
 	constexpr B32 isAssignOp(ExprOp op) { return op >= ExprOp::Assign && op <= ExprOp::XorAssign; }
 	// '%', shifts and bitwise operators
 	constexpr B32 isIntegerOnlyOp(ExprOp op) {
