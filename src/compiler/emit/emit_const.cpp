@@ -128,6 +128,8 @@ namespace rat::cc {
 				if(!sizeofOperand(e->sizeOf.operand, sz))
 					return false;
 				out = sz;
+			} else if(hasVlaDim(e->sizeOf.type)) {
+				return false;
 			} else {
 				out = byteSize(e->sizeOf.type);
 			}

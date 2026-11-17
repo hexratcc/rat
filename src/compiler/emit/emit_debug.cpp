@@ -216,10 +216,10 @@ namespace rat::cc {
 
 	void Emitter::debugLocal(Function& fn, const Declarator& d) {
 		Local l;
-		if(!dbg.describeVars || d.isExtern || !func.scopes.lookup(*d.name, l))
+		if(!dbg.describeVars || d.isExtern || d.isTypedef || !func.scopes.lookup(*d.name, l))
 			return;
 		String symbol = l.staticSymbol ? *l.staticSymbol : "";
-		DebugType* type = debugType(isArrayType(d.type) ? l.type : d.type);
+		DebugType* type = debugType(l.type);
 		debugVar(fn, {*d.name, type, debugLoc(d.offset), symbol}, l, d.init != nullptr);
 	}
 

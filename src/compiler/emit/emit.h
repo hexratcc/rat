@@ -7,6 +7,7 @@
 namespace rat::cc {
 	namespace detail {
 		U32 alignedChunkWidth(U32 offset, U32 size);
+		B32 arrayParts(CType t, CType& elem, U32& count);
 		void writeLittleEndian(List<U8>& out, U32 off, U64 value, U32 size);
 		AbiClass mergeAbiClass(AbiClass a, AbiClass b);
 		void classifyBits(AbiClass (&cls)[2], U64 bitOffset, U64 bits, AbiClass c);
@@ -200,7 +201,10 @@ namespace rat::cc {
 		Node* allocBytes(Function& fn, U32 size, U32 align = 0);
 		Node* declSlot(Function& fn, const Declarator& d, Type* ty, U32 size);
 		Node* emitArrayByteSize(Function& fn, CType t);
+		Node* vlaDimCount(Function& fn, CType arr);
+		B32 bindVlaDims(Function* fn, CType t);
 		B32 arrayBound(CType arr, I64& count);
+		B32 compoundArrayCount(const Expr* e, I64& count);
 		Node* convert(Function& fn, Node* n, CType from, CType to);
 		Node* reduceBitfield(Function& fn, Node* n, CType t);
 		Node* toBool(Function& fn, const Value& v);
@@ -372,12 +376,11 @@ namespace rat::cc {
 		// globals
 		String internString(const Expr* strLit);
 		Node* floatLit(Function& fn, CType t, F80 v);
-		B32 compoundArrayCount(const Expr* e, I64& count);
 		B32 internCompoundLiteral(const Expr* compound, String& outSym);
 		B32 registerGlobals(const TransUnit& unit);
 		B32 registerGlobalAlias(const Declarator& d);
 		B32 registerGlobal(const Declarator& d, const String& sym, Function* fn);
-		B32 registerStringArray(const Declarator& d, const String& sym, Function* fn, I64 len);
+		B32 registerStringArray(const Declarator& d, const String& sym, Function* fn, I64 count);
 		B32 registerGlobalArray(const Declarator& d, const String& sym, Function* fn);
 		B32 registerGlobalStruct(const Declarator& d, const String& sym, Function* fn);
 		B32 registerGlobalScalar(const Declarator& d, const String& sym, Function* fn);

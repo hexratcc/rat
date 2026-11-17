@@ -70,7 +70,7 @@ namespace rat::cc {
 		if(operand->kind == ExprKind::CompoundLit && isArrayType(operand->compound.type)) {
 			I64 count;
 			if(!compoundArrayCount(operand, count))
-				return false;
+				return failArrayCount();
 			out = (U64)count * byteSize(arrayElem(operand->compound.type));
 			return true;
 		}

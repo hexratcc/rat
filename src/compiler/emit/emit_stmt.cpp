@@ -287,7 +287,7 @@ namespace rat::cc {
 	B32 Emitter::declMayBeVla(const Declarator& d) {
 		if(!isArrayType(d.type))
 			return false;
-		if(isVlaType(arrayElem(d.type)))
+		if(hasVlaDim(arrayElem(d.type)))
 			return true;
 		B32 savedFailed = diag.failed;
 		String savedMsg = diag.message;

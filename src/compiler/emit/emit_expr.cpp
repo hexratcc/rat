@@ -16,7 +16,7 @@ namespace rat::cc {
 		if(lv.isVar())
 			return diag.fail("cannot take the address of an SSA value");
 		// only a dereferenced array keeps its array type
-		if(isArrayType(lv.type) && e->unary.operand->kind != ExprKind::Unary)
+		if(isArrayType(lv.type) && !isDeref(e->unary.operand))
 			return {lv.addr, decay(lv.type)};
 		return {lv.addr, pointerTo(lv.type)};
 	}

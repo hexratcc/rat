@@ -16,15 +16,17 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitVlaDecl(Function& fn, const Declarator& d) {
-		Node* elemBytes = emitArrayByteSize(fn, arrayElem(d.type));
+		CType elem = arrayElem(d.type);
+		if(!bindVlaDims(&fn, elem))
+			return false;
+		Node* elemBytes = emitArrayByteSize(fn, elem);
 		if(!elemBytes)
 			return false;
 		Node* bytes = elemBytes;
 		if(d.type.array->countExpr) {
-			Value v = emitExpr(fn, d.type.array->countExpr);
-			if(!v.node)
+			Node* len = vlaDimCount(fn, d.type);
+			if(!len)
 				return false;
-			Node* len = convert(fn, v.node, v.type, ctSize());
 			bytes = fn.mul(len, elemBytes);
 		}
 		Node* slot = fn.stackAlloc(bytes);
@@ -105,7 +107,7 @@ namespace rat::cc {
 			return failStringNeedsCharArray();
 		const String& bytes = *d.init->str.bytes;
 		I64 nchars = (I64)bytes.size() / (I64)cw;
-		if(count == 0)
+		if(isUnsizedArray(d.type))
 			count = nchars + 1;
 		Node* slot = declSlot(fn, d, mod.getArray(elemTy, (U32)count), (U32)count * elemSize);
 		if(live) {
@@ -126,7 +128,7 @@ namespace rat::cc {
 		B32 scalarElem = !isArrayType(elem) && !isStruct(elem);
 		B32 haveLen = !isUnsizedArray(d.type);
 		I64 count;
-		if(!arrayBound(d.type, count) || isVlaType(elem)) {
+		if(!arrayBound(d.type, count) || hasVlaDim(elem)) {
 			if(live && d.init)
 				return diag.fail("a variable-length array may not be initialized");
 			return emitVlaDecl(fn, d);
@@ -159,6 +161,8 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitOneDecl(Function& fn, const Declarator& d, B32 live) {
+		if(d.isTypedef)
+			return bindVlaDims(&fn, d.type);
 		if(d.isExtern)
 			return declareExtern(fn, d);
 		if(d.isStatic)

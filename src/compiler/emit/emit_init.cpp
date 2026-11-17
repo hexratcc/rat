@@ -1,6 +1,17 @@
 #include "emit/emit.h"
 
 namespace rat::cc {
+	namespace detail {
+		// elem and count of an array, false for any other type
+		B32 arrayParts(CType t, CType& elem, U32& count) {
+			if(!isArrayType(t))
+				return false;
+			elem = arrayElem(t);
+			count = (U32)t.array->count;
+			return true;
+		}
+	} // namespace detail
+
 	const Expr* Emitter::peelAggregateCompound(const Expr* el) {
 		if(el->kind != ExprKind::CompoundLit || isArrayType(el->compound.type) || !el->compound.init)
 			return el;
@@ -94,6 +105,12 @@ namespace rat::cc {
 		U32 esz = byteSize(elem);
 		const List<Expr*>& els = init->args;
 		B32 elemIsChar = isCharType(elem);
+		B32 bracedString = els.size() == 1 && els[0]->kind == ExprKind::StrLit && !els[0]->str.isWide;
+		if(elemIsChar && bracedString && !init->designators[0].isSet) {
+			if(extent)
+				*extent = std::max(*extent, (U32)els[0]->str.bytes->size() + 1);
+			return sink.charArray(base, elem, count, els[0]);
+		}
 		U32 cur = 0;
 		for(U32 i = 0; i < els.size();) {
 			const Designator& des = init->designators[i];
@@ -177,17 +194,17 @@ namespace rat::cc {
 				return initStructInit(sink, goff, g, els[0]);
 			return initStructInit(sink, goff, g, init);
 		}
-		B32 isArr = isArrayType(f.type);
-		CType elem = isArr ? arrayElem(f.type) : f.type;
-		U32 count = isArr ? f.type.array->count : 0;
+		CType elem;
+		U32 count = 0;
+		B32 isArray = detail::arrayParts(f.type, elem, count);
 		if(des.isSet && des.next) {
-			if(isArr)
+			if(isArray)
 				return initArrayInit(sink, off, elem, count, wrapNested(des.next, els[0]));
 			if(isStruct(f.type))
 				return initStructInit(sink, off, f.type.strukt, wrapNested(des.next, els[0]));
 			return diag.fail("designator selects a sub-object of a scalar union member");
 		}
-		if(isArr) {
+		if(isArray) {
 			if(els[0]->kind == ExprKind::StrLit)
 				return sink.charArray(off, elem, count, els[0]);
 			if(els[0]->kind == ExprKind::InitList && els.size() == 1)
@@ -242,21 +259,21 @@ namespace rat::cc {
 				++cur; // the loop head skips the rest of the group
 				continue;
 			}
-			B32 isArr = isArrayType(f.type);
-			CType elem = isArr ? arrayElem(f.type) : f.type;
-			U32 fcount = isArr ? f.type.array->count : 0;
+			CType elem;
+			U32 fcount = 0;
+			B32 isArray = detail::arrayParts(f.type, elem, fcount);
 			U32* fieldExtent = nullptr;
-			if(isArr && fcount == 0 && cur == fields.size() - 1) {
+			if(isArray && fcount == 0 && cur == fields.size() - 1) {
 				fcount = data.flexCount;
 				fieldExtent = flexExtent;
 			}
 			// the rest of the designator applies to a nested brace list
 			if(des.isSet && des.next) {
-				if(!isArr && !isStruct(f.type))
+				if(!isArray && !isStruct(f.type))
 					return diag.fail("designator selects a sub-object of a scalar member");
 				el = wrapNested(des.next, el);
 			}
-			if(isArr && el->kind != ExprKind::InitList && el->kind != ExprKind::StrLit) {
+			if(isArray && el->kind != ExprKind::InitList && el->kind != ExprKind::StrLit) {
 				if(!initFlatArray(sink, off, elem, fcount, {els, i}, fieldExtent))
 					return false;
 				++cur;
@@ -269,7 +286,7 @@ namespace rat::cc {
 				++cur;
 				continue;
 			}
-			if(isArr) {
+			if(isArray) {
 				if(el->kind == ExprKind::StrLit) {
 					if(fieldExtent && isCharType(elem))
 						*fieldExtent = std::max(*fieldExtent, (U32)el->str.bytes->size() + 1);

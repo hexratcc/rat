@@ -53,10 +53,9 @@ namespace rat::cc {
 		while(isArrayType(cur)) {
 			Node* dim;
 			if(isVlaType(cur)) {
-				Value v = emitExpr(fn, cur.array->countExpr);
-				if(!v.node)
+				dim = vlaDimCount(fn, cur);
+				if(!dim)
 					return nullptr;
-				dim = convert(fn, v.node, v.type, ctSize());
 			} else {
 				dim = constSize(fn, cur.array->count);
 			}
@@ -66,10 +65,60 @@ namespace rat::cc {
 		return fn.mul(count, constSize(fn, byteSize(cur)));
 	}
 
+	// the outer bound of arr as a node, the one bindVlaDims took or evaluated here
+	Node* Emitter::vlaDimCount(Function& fn, CType arr) {
+		auto bound = func.vlaDims.find(arr.array);
+		if(bound != func.vlaDims.end())
+			return bound->second;
+		Value v = emitExpr(fn, arr.array->countExpr);
+		if(!v.node)
+			return nullptr;
+		return convert(fn, v.node, v.type, ctSize());
+	}
+
+	// takes every bound of t the parser left open, also behind pointers, inner first
+	// a constant is folded into the type, any other is evaluated once for all later uses
+	B32 Emitter::bindVlaDims(Function* fn, CType t) {
+		if(!t.array)
+			return true;
+		if(!bindVlaDims(fn, t.array->elem))
+			return false;
+		ArrayType* dim = const_cast<ArrayType*>(t.array);
+		if(dim->count != 0 || !dim->countExpr)
+			return true;
+		I64 count;
+		if(evalConst(dim->countExpr, count)) {
+			if(count > 0) {
+				dim->count = (U64)count;
+				dim->countExpr = nullptr;
+			}
+			return true;
+		}
+		if(!fn)
+			return failArrayCount();
+		Node* bound = vlaDimCount(*fn, t);
+		func.vlaDims[dim] = bound;
+		return bound != nullptr;
+	}
+
 	// the outer bound of arr, false when it is not a constant
 	B32 Emitter::arrayBound(CType arr, I64& count) {
 		count = (I64)arr.array->count;
 		return !arr.array->countExpr || evalConst(arr.array->countExpr, count);
+	}
+
+	// length of an array compound literal, false when it is not a positive constant
+	B32 Emitter::compoundArrayCount(const Expr* e, I64& count) {
+		CType ty = e->compound.type;
+		const Expr* init = e->compound.init;
+		count = 0;
+		if(!isUnsizedArray(ty))
+			return arrayBound(ty, count) && count > 0;
+		if(init->kind == ExprKind::StrLit)
+			count = (I64)init->str.bytes->size() + 1;
+		else if(init->kind == ExprKind::InitList)
+			count = (I64)initArrayCount(arrayElem(ty), init);
+		return count > 0;
 	}
 
 	Type* Emitter::irType(CType t) {
@@ -230,7 +279,7 @@ namespace rat::cc {
 			out.addr = sym.local ? sym.local->addr : fn.global(syms.resolveAlias(name));
 			return true;
 		}
-		if(e->kind == ExprKind::Unary && e->unary.op == ExprOp::Deref) {
+		if(isDeref(e)) {
 			Value p = emitExpr(fn, e->unary.operand);
 			if(!p.node)
 				return false;
@@ -342,7 +391,7 @@ namespace rat::cc {
 
 	Node* Emitter::elemStride(Function& fn, CType ptrType) {
 		CType elem = pointee(ptrType);
-		if(isVlaType(elem))
+		if(hasVlaDim(elem))
 			return emitArrayByteSize(fn, elem);
 		return constSize(fn, byteSize(elem));
 	}

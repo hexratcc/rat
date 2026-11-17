@@ -22,7 +22,8 @@ namespace rat::cc {
 	}
 
 	// typedef type-spec [ declarator [, declarator]... ] ;
-	B32 Parser::parseTypedef() {
+	// s lists the typedefs whose array bounds the emitter takes here, see bindVlaDims
+	B32 Parser::parseTypedef(Stmt* s) {
 		advance(); // typedef
 		CType base;
 		if(!parseTypeSpec(base))
@@ -38,6 +39,12 @@ namespace rat::cc {
 			CType named = r.type;
 			named.named = arena.make<NamedType>(NamedType{*r.name, r.type, {}, r.offset});
 			typedefs.set(*r.name, named);
+			if(hasUnfoldedDim(r.type)) {
+				Declarator d;
+				bindDeclarator(d, r);
+				d.isTypedef = true;
+				s->decls.push_back(d);
+			}
 			if(!accept(TokKind::Comma))
 				break;
 		}

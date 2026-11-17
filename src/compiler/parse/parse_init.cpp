@@ -153,7 +153,7 @@ namespace rat::cc {
 		}
 		if(e->sizeOf.operand)
 			return fail(peek(), "sizeof expression not allowed in constant expression");
-		if(isVlaType(e->sizeOf.type))
+		if(hasVlaDim(e->sizeOf.type))
 			return fail(peek(), "sizeof a variable-length array is not constant");
 		if(isStruct(e->sizeOf.type) && !e->sizeOf.type.strukt->complete)
 			return fail(peek(), "sizeof applied to an incomplete type");

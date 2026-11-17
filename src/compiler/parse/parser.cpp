@@ -247,9 +247,12 @@ namespace rat::cc {
 			return makeStmt(StmtKind::Empty, start.offset);
 		}
 		if(check(TokKind::KwTypedef)) {
-			if(!parseTypedef())
+			Stmt* s = makeStmt(StmtKind::Empty, start.offset);
+			if(!parseTypedef(s))
 				return nullptr;
-			return makeStmt(StmtKind::Empty, start.offset);
+			if(!s->decls.empty())
+				s->kind = StmtKind::Decl;
+			return s;
 		}
 		CType base;
 		if(!parseTypeSpec(base))

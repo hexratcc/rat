@@ -12,6 +12,7 @@ namespace rat::cc {
 		loops.clear();
 		switches.clear();
 		scopes.clear();
+		vlaDims.clear();
 	}
 
 	Failed Diagnostics::fail(const String& m) {

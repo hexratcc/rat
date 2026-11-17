@@ -68,6 +68,7 @@ namespace rat::cc {
 		List<LoopFrame> loops;
 		List<Map<const Stmt*, Block*>> switches;
 		Scopes scopes;
+		Map<const ArrayType*, Node*> vlaDims; // bound of a VLA dim, taken once at its declaration
 	};
 
 	struct Diagnostics {

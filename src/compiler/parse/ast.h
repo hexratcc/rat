@@ -231,10 +231,21 @@ namespace rat::cc {
 		return t.array->count == 0 && t.array->countExpr != nullptr;
 	}
 	// [] with no bound, the initializer gives the length
-	inline B32 isUnsizedArray(CType t) { return t.array->count == 0 && !t.array->countExpr; }
+	inline B32 isUnsizedArray(CType t) {
+		if(t.ptr != 0 || t.array == nullptr)
+			return false;
+		return t.array->count == 0 && !t.array->countExpr;
+	}
 	inline B32 hasVlaDim(CType t) {
 		for(CType c = t; c.ptr == 0 && c.array != nullptr; c = c.array->elem)
 			if(isVlaType(c))
+				return true;
+		return false;
+	}
+	// a bound the parser could not fold anywhere in t, also behind pointers
+	inline B32 hasUnfoldedDim(CType t) {
+		for(const ArrayType* dim = t.array; dim != nullptr; dim = dim->elem.array)
+			if(dim->count == 0 && dim->countExpr != nullptr)
 				return true;
 		return false;
 	}
@@ -464,6 +475,7 @@ namespace rat::cc {
 		CType type = ctInt();
 		B32 isStatic = false;
 		B32 isExtern = false;
+		B32 isTypedef = false; // names a type whose array bounds are taken here, see bindVlaDims
 		const String* aliasOf = nullptr;
 		U32 align = 0;
 		U32 offset = 0;
@@ -591,6 +603,9 @@ namespace rat::cc {
 		List<Stmt*> globals;
 	};
 
+	inline B32 isDeref(const Expr* e) {
+		return e->kind == ExprKind::Unary && e->unary.op == ExprOp::Deref;
+	}
 	constexpr B32 isAssignOp(ExprOp op) { return op >= ExprOp::Assign && op <= ExprOp::XorAssign; }
 	// '%', shifts and bitwise operators
 	constexpr B32 isIntegerOnlyOp(ExprOp op) {

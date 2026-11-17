@@ -62,7 +62,7 @@ namespace rat::cc {
 		B32 parseBitfield(StructType* st, Field f, U32 memberAlign, B32 isUnion, StructLayout& l);
 		U64 placeMember(U64 size, U32 align, B32 isUnion, StructLayout& l);
 		StructType* complexStruct(CType realType);
-		B32 parseTypedef();
+		B32 parseTypedef(Stmt* s);
 		B32 parseTypeName(CType& out);
 
 		// declarators
