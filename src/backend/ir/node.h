@@ -422,10 +422,6 @@ namespace rat {
 		Node* getSaved() const;
 	};
 
-	struct MemMergeNode : Node {
-		MemMergeNode(Function& fn, Type* memoryType, const List<Node*>& controlStores);
-	};
-
 	namespace detail {
 		template <typename T> B32 nodeIsa(const Node* n);
 		// clang-format off
@@ -452,11 +448,10 @@ namespace rat {
 		template <> inline B32 nodeIsa<StackSaveNode>(const Node* n)    { return n->getOpcode() == Opcode::StackSave; }
 		template <> inline B32 nodeIsa<StackRestoreNode>(const Node* n) { return n->getOpcode() == Opcode::StackRestore; }
 		template <> inline B32 nodeIsa<SplatNode>(const Node* n)    { return n->getOpcode() == Opcode::Splat; }
-		template <> inline B32 nodeIsa<ExtractNode>(const Node* n)  { return n->getOpcode() == Opcode::Extract; }
-		template <> inline B32 nodeIsa<PackNode>(const Node* n)     { return n->getOpcode() == Opcode::Pack; }
-		template <> inline B32 nodeIsa<ShuffleNode>(const Node* n)  { return n->getOpcode() == Opcode::Shuffle; }
-		template <> inline B32 nodeIsa<SelectNode>(const Node* n)   { return n->getOpcode() == Opcode::Select; }
-		template <> inline B32 nodeIsa<MemMergeNode>(const Node* n) { return n->getOpcode() == Opcode::MemMerge; }
+		template <> inline B32 nodeIsa<ExtractNode>(const Node* n) { return n->getOpcode() == Opcode::Extract; }
+		template <> inline B32 nodeIsa<PackNode>(const Node* n)    { return n->getOpcode() == Opcode::Pack; }
+		template <> inline B32 nodeIsa<ShuffleNode>(const Node* n) { return n->getOpcode() == Opcode::Shuffle; }
+		template <> inline B32 nodeIsa<SelectNode>(const Node* n)  { return n->getOpcode() == Opcode::Select; }
 	} // namespace detail
 
 	// isa/dyn_cast are null-safe
@@ -479,7 +474,7 @@ namespace rat {
 	B32 isControlNode(const Node* n);
 	// the state a load, store, call, asm or stack op reads, else null
 	Node* memoryInput(const Node* n);
-	// same kind and payload with null inputs, null for Start, Stop, Return and MemMerge
+	// same kind and payload with null inputs, null for Start, Stop and Return
 	Node* cloneShell(Function& into, const Node* n);
 	// a Binary, Unary, Compare, Convert or Select node of op on its inputs, null for other ops
 	Node* createArith(Function& fn, Opcode op, Type* type, Node* const* inputs);

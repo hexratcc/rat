@@ -1,5 +1,5 @@
 @name fold: (u + 1) nsw+ k becomes u + (k + 1) without nsw, as u + 1 may wrap, so the lanes stay scalar
-@passes fold slp
+@passes fold superword
 
 @input
 func plain(ptr, i32, i32) -> void {
@@ -123,7 +123,7 @@ func flagged(ptr, i32, i32) -> void {
   v12 = sext : i64 v11
   v13 = shl : i64 v12, v7
   v14 = add : ptr v4, v13
-  v31 = return : ctrl v2, v40
-  v39 = splat : <4 x i32> v6
-  v40 = store : mem v2, v3, v14, v39
+  v15 = store : mem v2, v3, v14, v38
+  v31 = return : ctrl v2, v15
+  v38 = splat : <4 x i32> v6
 }

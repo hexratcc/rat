@@ -74,9 +74,8 @@ namespace rat {
 				{"pack", 0, 0, 0, -1, 1, -1, OpClass::None},
 				{"shuffle", 0, 0, 0, -1, 2, 2, OpClass::None},
 				{"select", 0, 0, 0, -1, 3, 3, OpClass::None},
-				{"memmerge", 0, 0, 0, 0, 2, -1, OpClass::None},
 		};
-		static_assert(std::size(kOpcodeInfo) == (U32)Opcode::MemMerge + 1, "one per Opcode");
+		static_assert(std::size(kOpcodeInfo) == (U32)Opcode::Select + 1, "one per Opcode");
 	} // namespace detail
 
 	const OpcodeInfo& getOpcodeInfo(Opcode op) { return detail::kOpcodeInfo[(U32)op]; }
