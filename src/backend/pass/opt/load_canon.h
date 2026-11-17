@@ -1,6 +1,6 @@
 // load canonicalization: a load of an inner state of its block's store chain reads the earliest
 // chain state that holds its bytes, but none above a state read in its address cone, so the
-// schedule stays acyclic (C). superword moves it back when the chain packs nothing
+// schedule stays acyclic (C). slp moves it back when the chain packs nothing
 
 #ifndef RAT_PASS_OPT_LOADCANON_H
 #define RAT_PASS_OPT_LOADCANON_H
@@ -37,7 +37,7 @@ namespace rat {
 			StoreNode* state = nullptr; // the state it read before
 		};
 
-		// what loadcanon leaves for superword on the same function, its hoists, chains and addresses
+		// what loadcanon leaves for slp on the same function, its hoists, chains and addresses
 		// to save compile time
 		struct Handoff {
 			Handoff() = default;

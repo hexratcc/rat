@@ -1,5 +1,5 @@
 @name gvn: an nsw add that merges with a plain copy loses nsw, so its lane stays scalar
-@passes gvn superword
+@passes gvn slp
 
 @input
 func plain(ptr, ptr, i32, i32) -> void {
