@@ -184,8 +184,9 @@ namespace rat {
 		for(Node* u : root->getUsers())
 			if(u->getOpcode() == op && u->getType() == type)
 				return;
-		Set<const Node*> steps;
-		List<Node*> terms = flatten(root, steps);
+		Terms terms;
+		Terms steps;
+		flatten(root, terms, steps);
 		U32 laneCount = kVecBytes / type->byteSize(ptrBytes);
 		U32 vectorCount = (U32)terms.size() / laneCount;
 		// most roots have fewer terms than lanes, they return before the vector reset
@@ -199,7 +200,7 @@ namespace rat {
 		I32 gain = removed - 2 * (I32)(laneCount / 2) - 1;
 		vectors.clear();
 		vectorsOf = Map<const Node*, List<U32>>();
-		List<Node*> termVectors = tryPack(tuples, std::move(steps), gain);
+		List<Node*> termVectors = tryPack(tuples, Set<const Node*>(steps.begin(), steps.end()), gain);
 		if(termVectors.empty())
 			return;
 		Node* result = foldLanes(op, termVectors, type);
@@ -209,10 +210,10 @@ namespace rat {
 		++packedReductions;
 	}
 
-	List<Node*> SlpPass::flatten(Node* root, Set<const Node*>& steps) {
+	void SlpPass::flatten(Node* root, Terms& terms, Terms& steps) {
 		Opcode op = root->getOpcode();
 		Type* type = root->getType();
-		List<Node*> terms, todo = {root};
+		Terms todo = {root};
 		while(!todo.empty()) {
 			Node* n = todo.back();
 			todo.pop_back();
@@ -221,12 +222,13 @@ namespace rat {
 			// a step adds two terms
 			B32 room = terms.size() + todo.size() + 2 <= kMaxTerms;
 			if(isStep && room) {
-				steps.insert(n);
-				todo.insert(todo.end(), {n->getInput(0), n->getInput(1)});
+				steps.push_back(n);
+				todo.push_back(n->getInput(0));
+				todo.push_back(n->getInput(1));
 			} else
 				terms.push_back(n);
 		}
-		return {terms.rbegin(), terms.rend()};
+		std::reverse(terms.begin(), terms.end());
 	}
 
 	// the vectors combined by op, then their lanes folded by shuffles into lane 0

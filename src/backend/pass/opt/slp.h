@@ -30,6 +30,7 @@ namespace rat {
 		static constexpr I32 kMinProfit = 2; // scalar ops a pack must save
 
 		using Lanes = SmallList<Node*, kMaxLanes>;
+		using Terms = SmallList<Node*, 16>;
 
 		const C8* name() const override;
 		void printStats(const Module& module, std::ostream& os) const override;
@@ -59,7 +60,7 @@ namespace rat {
 
 		// reductions
 		void packReduction(Node* root);
-		static List<Node*> flatten(Node* root, Set<const Node*>& steps);
+		static void flatten(Node* root, Terms& terms, Terms& steps);
 		Node* foldLanes(Opcode op, const List<Node*>& termVectors, Type* scalarType);
 
 		// vectors
