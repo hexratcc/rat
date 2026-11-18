@@ -1,0 +1,38 @@
+@name slp: a three-store run is not a full vector and stays scalar
+@passes slp
+
+@input
+func t(ptr, i32) -> void {
+	v0 = start : (ctrl, mem, ptr, i32)
+	v1 = stop : ctrl v20
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : i32  #3 "k" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = add : ptr v4, v6
+	v9 = add : ptr v4, v7
+	v10 = store : mem v2, v3, v4, v5
+	v11 = store : mem v2, v10, v8, v5
+	v12 = store : mem v2, v11, v9, v5
+	v20 = return : ctrl v2, v12
+}
+
+@expect
+func t(ptr, i32) -> void {
+  v0 = start : (ctrl, mem, ptr, i32)
+  v1 = stop : ctrl v13
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "a" of v0
+  v5 = proj : i32  #3 "k" of v0
+  v6 = const : i64  4
+  v7 = const : i64  8
+  v8 = add : ptr v4, v6
+  v9 = add : ptr v4, v7
+  v10 = store : mem v2, v3, v4, v5
+  v11 = store : mem v2, v10, v8, v5
+  v12 = store : mem v2, v11, v9, v5
+  v13 = return : ctrl v2, v12
+}

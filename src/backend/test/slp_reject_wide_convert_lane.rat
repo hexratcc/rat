@@ -1,0 +1,42 @@
+@name slp: an f64 lane load of a convert reads bytes an earlier f32 store of the run wrote, so the 8-byte window does not pack
+@passes slp
+
+@input
+func t(ptr) -> void {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v20
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "u" of v0
+	v5 = const : i64  4
+	v6 = const : i64  8
+	v7 = add : ptr v4, v5
+	v8 = add : ptr v4, v6
+	v9 = load : f64 v2, v3, v8
+	v10 = fptrunc : f32 v9
+	v11 = store : mem v2, v3, v7, v10
+	v12 = load : f64 v2, v11, v4
+	v13 = fptrunc : f32 v12
+	v14 = store : mem v2, v11, v4, v13
+	v20 = return : ctrl v2, v14
+}
+
+@expect
+func t(ptr) -> void {
+  v0 = start : (ctrl, mem, ptr)
+  v1 = stop : ctrl v15
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "u" of v0
+  v5 = const : i64  4
+  v6 = const : i64  8
+  v7 = add : ptr v4, v5
+  v8 = add : ptr v4, v6
+  v9 = load : f64 v2, v3, v8
+  v10 = fptrunc : f32 v9
+  v11 = store : mem v2, v3, v7, v10
+  v12 = load : f64 v2, v11, v4
+  v13 = fptrunc : f32 v12
+  v14 = store : mem v2, v11, v4, v13
+  v15 = return : ctrl v2, v14
+}

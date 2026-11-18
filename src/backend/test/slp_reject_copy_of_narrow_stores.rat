@@ -1,0 +1,46 @@
+@name slp: a 16-byte load of the bytes that two 8-byte stores just wrote cannot forward from them and waits until they commit, so the copy of the stack object stays scalar
+@passes loadcanon slp
+
+@input
+func t(ptr, f64, f64) -> void {
+	v0 = start : (ctrl, mem, ptr, f64, f64)
+	v1 = stop : ctrl v17
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "dst" of v0
+	v5 = proj : f64  #3 "x" of v0
+	v6 = proj : f64  #4 "y" of v0
+	v7 = alloc : ptr  [16 x i8]
+	v8 = const : i64  8
+	v9 = add : ptr v7, v8
+	v10 = add : ptr v4, v8
+	v11 = store : mem v2, v3, v7, v5
+	v12 = store : mem v2, v11, v9, v6
+	v13 = load : i64 v2, v12, v7
+	v14 = load : i64 v2, v12, v9
+	v15 = store : mem v2, v12, v4, v13
+	v16 = store : mem v2, v15, v10, v14
+	v17 = return : ctrl v2, v16
+}
+
+@expect
+func t(ptr, f64, f64) -> void {
+  v0 = start : (ctrl, mem, ptr, f64, f64)
+  v1 = stop : ctrl v17
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "dst" of v0
+  v5 = proj : f64  #3 "x" of v0
+  v6 = proj : f64  #4 "y" of v0
+  v7 = alloc : ptr  [16 x i8]
+  v8 = const : i64  8
+  v9 = add : ptr v7, v8
+  v10 = add : ptr v4, v8
+  v11 = store : mem v2, v3, v7, v5
+  v12 = store : mem v2, v11, v9, v6
+  v13 = load : i64 v2, v12, v7
+  v14 = load : i64 v2, v12, v9
+  v15 = store : mem v2, v12, v4, v13
+  v16 = store : mem v2, v15, v10, v14
+  v17 = return : ctrl v2, v16
+}

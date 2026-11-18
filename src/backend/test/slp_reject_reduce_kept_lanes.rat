@@ -1,0 +1,88 @@
+@name slp: a reduction whose packed terms have other users is rejected, their scalar ops stay
+@passes slp
+
+@input
+func t(ptr, ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v38
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "p" of v0
+	v6 = const : i32  1
+	v7 = const : i32  2
+	v8 = const : i32  3
+	v9 = const : i32  4
+	v10 = const : i32  5
+	v11 = const : i32  6
+	v12 = const : i32  7
+	v13 = const : i32  8
+	v14 = load : i32 v2, v3, v4
+	v15 = add : i32 v14, v6
+	v16 = add : i32 v14, v7
+	v17 = add : i32 v14, v8
+	v18 = add : i32 v14, v9
+	v19 = add : i32 v14, v10
+	v20 = add : i32 v14, v11
+	v21 = add : i32 v14, v12
+	v22 = add : i32 v14, v13
+	v23 = store : mem v2, v3, v5, v15
+	v24 = store : mem v2, v23, v5, v16
+	v25 = store : mem v2, v24, v5, v17
+	v26 = store : mem v2, v25, v5, v18
+	v27 = store : mem v2, v26, v5, v19
+	v28 = store : mem v2, v27, v5, v20
+	v29 = store : mem v2, v28, v5, v21
+	v30 = store : mem v2, v29, v5, v22
+	v31 = add : i32 v15, v16
+	v32 = add : i32 v31, v17
+	v33 = add : i32 v32, v18
+	v34 = add : i32 v33, v19
+	v35 = add : i32 v34, v20
+	v36 = add : i32 v35, v21
+	v37 = add : i32 v36, v22
+	v38 = return : ctrl v2, v30, v37
+}
+
+@expect
+func t(ptr, ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v38
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "p" of v0
+	v6 = const : i32  1
+	v7 = const : i32  2
+	v8 = const : i32  3
+	v9 = const : i32  4
+	v10 = const : i32  5
+	v11 = const : i32  6
+	v12 = const : i32  7
+	v13 = const : i32  8
+	v14 = load : i32 v2, v3, v4
+	v15 = add : i32 v14, v6
+	v16 = add : i32 v14, v7
+	v17 = add : i32 v14, v8
+	v18 = add : i32 v14, v9
+	v19 = add : i32 v14, v10
+	v20 = add : i32 v14, v11
+	v21 = add : i32 v14, v12
+	v22 = add : i32 v14, v13
+	v23 = store : mem v2, v3, v5, v15
+	v24 = store : mem v2, v23, v5, v16
+	v25 = store : mem v2, v24, v5, v17
+	v26 = store : mem v2, v25, v5, v18
+	v27 = store : mem v2, v26, v5, v19
+	v28 = store : mem v2, v27, v5, v20
+	v29 = store : mem v2, v28, v5, v21
+	v30 = store : mem v2, v29, v5, v22
+	v31 = add : i32 v15, v16
+	v32 = add : i32 v31, v17
+	v33 = add : i32 v32, v18
+	v34 = add : i32 v33, v19
+	v35 = add : i32 v34, v20
+	v36 = add : i32 v35, v21
+	v37 = add : i32 v36, v22
+	v38 = return : ctrl v2, v30, v37
+}
