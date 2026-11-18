@@ -317,9 +317,6 @@ namespace rat {
 
 	Node* StackRestoreNode::getSaved() const { return getInput(2); }
 
-	MemMergeNode::MemMergeNode(Function& fn, Type* memoryType, const List<Node*>& controlStores)
-	: FixedOpcodeNode(fn, memoryType, controlStores) {}
-
 	SplatNode::SplatNode(Function& fn, Type* vecType, Node* scalar)
 	: FixedOpcodeNode(fn, vecType, {scalar}) {}
 

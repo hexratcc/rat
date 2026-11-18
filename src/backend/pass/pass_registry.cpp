@@ -24,7 +24,7 @@
 #include "pass/opt/memory_opt.h"
 #include "pass/opt/sccp.h"
 #include "pass/opt/simplify_cfg.h"
-#include "pass/opt/slp/slp_pack.h"
+#include "pass/opt/slp.h"
 #include "pass/opt/strength_reduce.h"
 
 namespace rat {
@@ -34,10 +34,6 @@ namespace rat {
 				return std::make_unique<P>(os);
 			else
 				return std::make_unique<P>();
-		}
-
-		template <SlpGuards G> UniquePtr<Pass> mkSlp(std::ostream&) {
-			return std::make_unique<SlpPackPass>(G);
 		}
 
 		template <typename B> struct Entry {
@@ -70,9 +66,7 @@ namespace rat {
 				{"inline", "function inlining", &mk<Pass, InlinePass>},
 				{"strengthreduce", "induction-variable strength reduction", &mk<Pass, StrengthReducePass>},
 				{"loadcanon", "move loads to their canonical memory state", &mk<Pass, LoadCanonPass>},
-				{"slp", "scheduling-free superword (SLP) vectorization", &mk<Pass, SlpPackPass>},
-				{"slp-noguards", "slp without runtime guards, an ablation", &mkSlp<SlpGuards::Off>},
-				{"slp-noguardcost", "slp with guard cost 0, a fuzz test mode", &mkSlp<SlpGuards::NoCost>},
+				{"slp", "scheduling-free SLP vectorization", &mk<Pass, SlpPass>},
 				{"dfe", "dead (unreferenced internal) function elimination", &mk<Pass, DeadFuncElimPass>},
 				{"verify", "edge consistency + structural invariants", &mk<Pass, VerifyPass>},
 				{"text-emitter", "textual IR visualization", &mk<Pass, TextEmitterPass>},

@@ -127,9 +127,9 @@ func flagged(ptr, ptr, i32, i32) -> void {
   v12 = sext : i64 v6
   v13 = shl : i64 v12, v8
   v14 = add : ptr v4, v13
+  v15 = store : mem v2, v3, v14, v34
   v16 = add : i32  nsw v6, v9
-  v32 = store : mem v2, v35, v5, v16
+  v32 = store : mem v2, v15, v5, v16
   v33 = return : ctrl v2, v32
   v34 = splat : <4 x i32> v7
-  v35 = store : mem v2, v3, v14, v34
 }

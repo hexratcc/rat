@@ -3,6 +3,7 @@
 #include "analysis/alias_analysis.h"
 #include "ir/function.h"
 #include "ir/node.h"
+#include "ir/type.h"
 #include "target/target.h"
 
 namespace rat {
@@ -11,8 +12,35 @@ namespace rat {
 		chains(collectChains(fn)),
 		addrs(AliasAnalysis::restrictFacts(fn), fn.idBound()) {}
 
-	List<SlpPackPass::Chain> LoadCanonPass::collectChains(Function& fn) {
-		List<SlpPackPass::Chain> chains;
+	U64 LoadCanonPass::pairKey(U32 high, I64 low) { return (U64)high << 32 | (U32)low; }
+
+	// the end of the 16-byte block at from, or end when it comes first
+	I64 LoadCanonPass::blockEnd(I64 from, I64 end) {
+		return std::min(end, (from | (I64)(kVecBytes - 1)) + 1);
+	}
+
+	LoadCanonPass::Access LoadCanonPass::accessOf(AddrCache& addrs, U32 ptrBytes, Node* n) {
+		Type* type = n->getType();
+		if(StoreNode* st = dyn_cast<StoreNode>(n))
+			type = st->getValue()->getType();
+		Access access{addrs.get(n->getInput(2)), type->byteSize(ptrBytes)}; // input 2 is the pointer
+		I64 offset = access.addr.offset;
+		if(!access.size || access.size > kVecBytes || offset > kMaxOffset || offset < -kMaxOffset)
+			access.addr = Addr{};
+		return access;
+	}
+
+	// a load reads the state after a store of chain but the last
+	B32 LoadCanonPass::hasInnerReader(const Chain& chain) {
+		for(U32 k = 0; k + 1 < chain.size(); ++k)
+			for(Node* u : chain[k]->getUsers())
+				if(isa<LoadNode>(u))
+					return true;
+		return false;
+	}
+
+	List<LoadCanonPass::Chain> LoadCanonPass::collectChains(Function& fn) {
+		List<Chain> chains;
 		for(Node* n : fn) {
 			StoreNode* st = dyn_cast<StoreNode>(n);
 			if(!st || st->isVolatile())
@@ -44,19 +72,19 @@ namespace rat {
 	// a reader of the state after store k, not the last, reads the state after store target < k,
 	// the later of its last possible overlap and the latest state its cone reads
 	void LoadCanonPass::hoistLoads(Handoff& h, U32 ptrBytes, U32 chainIndex, List<U32>& stateOf) {
-		const SlpPackPass::Chain& chain = h.chains[chainIndex];
+		const Chain& chain = h.chains[chainIndex];
 		Node* block = chain[0]->getControl();
 		Conflicts seen;
 		for(U32 k = 1; k <= chain.size(); ++k)
 			stateOf[chain[k - 1]->getId()] = k;
 		for(U32 k = 1; k < chain.size(); ++k) { // a hoist of a final state reader only adds an order
-			seen.add(k, SlpPackPass::accessOf(h.addrs, ptrBytes, chain[k - 1]));
+			seen.add(k, accessOf(h.addrs, ptrBytes, chain[k - 1]));
 			SmallList<LoadNode*, 8> readers; // copy first, a hoist changes the store's users
 			for(Node* u : chain[k - 1]->getUsers())
 				if(LoadNode* l = dyn_cast<LoadNode>(u); l && l->getControl() == block && !l->isVolatile())
 					readers.push_back(l);
 			for(LoadNode* l : readers) {
-				SlpPackPass::Access access = SlpPackPass::accessOf(h.addrs, ptrBytes, l);
+				Access access = accessOf(h.addrs, ptrBytes, l);
 				if(!access.addr.group)
 					continue;
 				U32 target = std::max(seen.lastConflict(access), coneState(l, stateOf));
@@ -96,7 +124,7 @@ namespace rat {
 		return latest;
 	}
 
-	void LoadCanonPass::Conflicts::add(U32 store, const SlpPackPass::Access& a) {
+	void LoadCanonPass::Conflicts::add(U32 store, const Access& a) {
 		all.add(store, a.addr.group);
 		if(!a.addr.object)
 			lastWild = store;
@@ -106,16 +134,16 @@ namespace rat {
 			return;
 		I64 end = a.addr.offset + (I64)a.size;
 		for(I64 from = a.addr.offset; from < end;) { // each 16-byte block
-			I64 to = SlpPackPass::blockEnd(from, end);
-			U64 blockKey = SlpPackPass::pairKey(a.addr.group, from >> SlpPackPass::kVecShift);
-			std::array<U32, SlpPackPass::kVecBytes>& writers = blocks[blockKey];
+			I64 to = blockEnd(from, end);
+			U64 blockKey = pairKey(a.addr.group, from >> kVecShift);
+			std::array<U32, kVecBytes>& writers = blocks[blockKey];
 			for(I64 byte = from; byte < to; ++byte)
-				writers[byte & (SlpPackPass::kVecBytes - 1)] = store;
+				writers[byte & (kVecBytes - 1)] = store;
 			from = to;
 		}
 	}
 
-	U32 LoadCanonPass::Conflicts::lastConflict(const SlpPackPass::Access& a) const {
+	U32 LoadCanonPass::Conflicts::lastConflict(const Access& a) const {
 		U32 conflict = lastWild;
 		if(!a.addr.object)
 			conflict = all.outside(a.addr.group);
@@ -123,10 +151,10 @@ namespace rat {
 			conflict = std::max(conflict, it->second.outside(a.addr.group));
 		I64 end = a.addr.offset + (I64)a.size;
 		for(I64 from = a.addr.offset; from < end;) { // each 16-byte block
-			I64 to = SlpPackPass::blockEnd(from, end);
-			auto it = blocks.find(SlpPackPass::pairKey(a.addr.group, from >> SlpPackPass::kVecShift));
+			I64 to = blockEnd(from, end);
+			auto it = blocks.find(pairKey(a.addr.group, from >> kVecShift));
 			for(I64 byte = from; it != blocks.end() && byte < to; ++byte)
-				conflict = std::max(conflict, it->second[byte & (SlpPackPass::kVecBytes - 1)]);
+				conflict = std::max(conflict, it->second[byte & (kVecBytes - 1)]);
 			from = to;
 		}
 		return conflict;
@@ -169,7 +197,7 @@ namespace rat {
 		h = Handoff(fn);
 		List<U32> stateOf; // node id -> store number in the walked chain, sized on first use
 		for(U32 c = 0; c < h.chains.size(); ++c)
-			if(SlpPackPass::hasInnerReader(h.chains[c].data(), (U32)h.chains[c].size())) {
+			if(hasInnerReader(h.chains[c])) {
 				stateOf.resize(fn.idBound(), 0);
 				hoistLoads(h, target.getPointerSizeInBytes(), c, stateOf);
 			}

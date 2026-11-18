@@ -1,0 +1,67 @@
+@name slp: i8 lanes at one address stay a gather, as x86 splats only dword and qword lanes
+@passes loadcanon slp
+
+@input
+func f(ptr restrict, ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, ptr)
+  v1 = stop : ctrl v87
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v6 = proj : ptr  #4 "arg2" of v0
+  v17 = load : i8 v2, v3, v5
+  v23 = load : i32 v2, v3, v6
+  v24 = sext : i32 v17
+  v25 = mul : i32  nsw v24, v23
+  v26 = store : mem v2, v3, v4, v25
+  v31 = add : ptr v4, v95
+  v37 = load : i8 v2, v26, v5
+  v42 = add : ptr v6, v95
+  v43 = load : i32 v2, v26, v42
+  v44 = sext : i32 v37
+  v45 = mul : i32  nsw v44, v43
+  v46 = store : mem v2, v26, v31, v45
+  v51 = add : ptr v4, v101
+  v57 = load : i8 v2, v46, v5
+  v62 = add : ptr v6, v101
+  v63 = load : i32 v2, v46, v62
+  v64 = sext : i32 v57
+  v65 = mul : i32  nsw v64, v63
+  v66 = store : mem v2, v46, v51, v65
+  v71 = add : ptr v4, v107
+  v77 = load : i8 v2, v66, v5
+  v82 = add : ptr v6, v107
+  v83 = load : i32 v2, v66, v82
+  v84 = sext : i32 v77
+  v85 = mul : i32  nsw v84, v83
+  v86 = store : mem v2, v66, v71, v85
+  v87 = return : ctrl v2, v86
+  v95 = const : i64  4
+  v101 = const : i64  8
+  v107 = const : i64  12
+}
+
+@expect
+func f(ptr restrict, ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, ptr)
+  v1 = stop : ctrl v36
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v6 = proj : ptr  #4 "arg2" of v0
+  v7 = load : i8 v2, v3, v5
+  v9 = sext : i32 v7
+  v12 = load : i8 v2, v3, v5
+  v13 = sext : i32 v12
+  v23 = load : i8 v2, v3, v5
+  v26 = sext : i32 v23
+  v30 = load : i8 v2, v3, v5
+  v33 = sext : i32 v30
+  v36 = return : ctrl v2, v40
+  v37 = pack : <4 x i32> v9, v13, v26, v33
+  v38 = load : <4 x i32> v2, v3, v6
+  v39 = mul : <4 x i32> v37, v38
+  v40 = store : mem v2, v3, v4, v39
+}

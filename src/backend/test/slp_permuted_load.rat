@@ -1,0 +1,49 @@
+@name slp: a permutation of consecutive loads becomes one wide load and a shuffle
+@passes slp
+
+@input
+func t(ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "c" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v7 = const : i64  4
+	v8 = const : i64  8
+	v9 = const : i64  12
+	v10 = add : ptr v4, v7
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v4, v9
+	v13 = add : ptr v5, v7
+	v14 = add : ptr v5, v8
+	v15 = add : ptr v5, v9
+	v20 = load : i32 v2, v3, v5
+	v21 = load : i32 v2, v3, v13
+	v22 = load : i32 v2, v3, v14
+	v23 = load : i32 v2, v3, v15
+	v28 = add : i32 v21, v20
+	v29 = add : i32 v20, v21
+	v30 = add : i32 v23, v22
+	v31 = add : i32 v22, v23
+	v32 = store : mem v2, v3, v4, v28
+	v33 = store : mem v2, v32, v10, v29
+	v34 = store : mem v2, v33, v11, v30
+	v35 = store : mem v2, v34, v12, v31
+	v40 = return : ctrl v2, v35
+}
+
+@expect
+func t(ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v27
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "c" of v0
+  v5 = proj : ptr  #3 "a" of v0
+  v27 = return : ctrl v2, v31
+  v28 = load : <4 x i32> v2, v3, v5
+  v29 = shuffle : <4 x i32>  #8961 v28, v28
+  v30 = add : <4 x i32> v29, v28
+  v31 = store : mem v2, v3, v4, v30
+}

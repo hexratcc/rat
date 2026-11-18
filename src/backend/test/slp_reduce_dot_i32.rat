@@ -64,29 +64,29 @@ func dot(ptr, ptr) -> i32 {
 	v99 = return : ctrl v2, v3, v66
 }
 
+
 @expect
 func dot(ptr, ptr) -> i32 {
-	v0 = start : (ctrl, mem, ptr, ptr)
-	v1 = stop : ctrl v22
-	v2 = proj : ctrl  #0 "ctrl" of v0
-	v3 = proj : mem  #1 "mem" of v0
-	v4 = proj : ptr  #2 "a" of v0
-	v5 = proj : ptr  #3 "b" of v0
-	v6 = load : <4 x i32> v2, v3, v4
-	v7 = load : <4 x i32> v2, v3, v5
-	v8 = mul : <4 x i32> v6, v7
-	v9 = const : i64  16
-	v10 = add : ptr v4, v9
-	v11 = load : <4 x i32> v2, v3, v10
-	v12 = const : i64  16
-	v13 = add : ptr v5, v12
-	v14 = load : <4 x i32> v2, v3, v13
-	v15 = mul : <4 x i32> v11, v14
-	v16 = add : <4 x i32> v8, v15
-	v17 = shuffle : <4 x i32>  #4146 v16, v16
-	v18 = add : <4 x i32> v16, v17
-	v19 = shuffle : <4 x i32>  #8961 v18, v18
-	v20 = add : <4 x i32> v18, v19
-	v21 = extract : i32  #0 v20
-	v22 = return : ctrl v2, v3, v21
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v58
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "a" of v0
+  v5 = proj : ptr  #3 "b" of v0
+  v9 = const : i64  16
+  v16 = add : ptr v4, v9
+  v23 = add : ptr v5, v9
+  v58 = return : ctrl v2, v3, v70
+  v59 = load : <4 x i32> v2, v3, v4
+  v60 = load : <4 x i32> v2, v3, v5
+  v61 = mul : <4 x i32> v59, v60
+  v62 = load : <4 x i32> v2, v3, v16
+  v63 = load : <4 x i32> v2, v3, v23
+  v64 = mul : <4 x i32> v62, v63
+  v65 = add : <4 x i32> v61, v64
+  v66 = shuffle : <4 x i32>  #4146 v65, v65
+  v67 = add : <4 x i32> v65, v66
+  v68 = shuffle : <4 x i32>  #8961 v67, v67
+  v69 = add : <4 x i32> v67, v68
+  v70 = extract : i32  #0 v69
 }

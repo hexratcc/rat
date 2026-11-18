@@ -1,0 +1,52 @@
+@name slp: a store that overlaps a member starts a new stretch, so no window spans the overwrite
+@passes slp
+
+@input
+func t(ptr, ptr) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v30
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "b" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v9 = add : ptr v4, v6
+	v10 = add : ptr v4, v7
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v5, v6
+	v13 = add : ptr v5, v7
+	v14 = add : ptr v5, v8
+	v15 = load : i32 v2, v3, v5
+	v16 = load : i32 v2, v3, v12
+	v17 = load : i32 v2, v3, v13
+	v18 = load : i32 v2, v3, v14
+	v19 = const : i32  7
+	v20 = store : mem v2, v3, v4, v15
+	v21 = store : mem v2, v20, v9, v16
+	v22 = store : mem v2, v21, v4, v19
+	v23 = store : mem v2, v22, v10, v17
+	v24 = store : mem v2, v23, v11, v18
+	v30 = return : ctrl v2, v24
+}
+
+@expect
+func t(ptr, ptr) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v25
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "a" of v0
+  v5 = proj : ptr  #3 "b" of v0
+  v7 = const : i64  8
+  v10 = add : ptr v4, v7
+  v13 = add : ptr v5, v7
+  v19 = const : i32  7
+  v20 = store : mem v2, v3, v4, v26
+  v22 = store : mem v2, v20, v4, v19
+  v23 = store : mem v2, v22, v10, v27
+  v25 = return : ctrl v2, v23
+  v26 = load : <2 x i32> v2, v3, v5
+  v27 = load : <2 x i32> v2, v3, v13
+}

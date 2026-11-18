@@ -434,10 +434,6 @@ namespace rat {
 		Node* getSaved() const;
 	};
 
-	struct MemMergeNode : FixedOpcodeNode<Opcode::MemMerge> {
-		MemMergeNode(Function& fn, Type* memoryType, const List<Node*>& controlStores);
-	};
-
 	// clang-format off
 	// isa/dyn_cast are null-safe
 	// cast is an unchecked static_cast and must only be used when the opcode is already known
@@ -459,7 +455,7 @@ namespace rat {
 	B32 isControlNode(const Node* n);
 	// the state a load, store, call, asm or stack op reads, else null
 	Node* memoryInput(const Node* n);
-	// same kind and payload with null inputs, null for Start, Stop, Return and MemMerge
+	// same kind and payload with null inputs, null for Start, Stop and Return
 	Node* cloneShell(Function& into, const Node* n);
 	// a Binary, Unary, Compare, Convert or Select node of op on its inputs, null for other ops
 	Node* createArith(Function& fn, Opcode op, Type* type, Node* const* inputs);

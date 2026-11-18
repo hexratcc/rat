@@ -1,0 +1,44 @@
+@name slp: a wide load is reused only at the same vector type
+@passes loadcanon slp
+
+@input
+func f(ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v46
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v16 = load : i32 v2, v3, v5
+  v17 = sext : i64 v16
+  v23 = load : i64 v2, v3, v5
+  v24 = add : i64  nsw v17, v23
+  v25 = store : mem v2, v3, v4, v24
+  v30 = add : ptr v4, v54
+  v35 = add : ptr v5, v56
+  v36 = load : i32 v2, v25, v35
+  v37 = sext : i64 v36
+  v42 = add : ptr v5, v54
+  v43 = load : i64 v2, v25, v42
+  v44 = add : i64  nsw v37, v43
+  v45 = store : mem v2, v25, v30, v44
+  v46 = return : ctrl v2, v45
+  v54 = const : i64  8
+  v56 = const : i64  4
+}
+
+@expect
+func f(ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v21
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v21 = return : ctrl v2, v26
+  v22 = load : <2 x i32> v2, v3, v5
+  v23 = sext : <2 x i64> v22
+  v24 = load : <2 x i64> v2, v3, v5
+  v25 = add : <2 x i64> v23, v24
+  v26 = store : mem v2, v3, v4, v25
+}

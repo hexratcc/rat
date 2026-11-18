@@ -1,0 +1,50 @@
+@name slp: a load of an inner state ends the stretch, so the window around it stays scalar
+@passes slp
+
+@input
+func t(ptr, ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v30
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "b" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v9 = add : ptr v4, v6
+	v10 = add : ptr v4, v7
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v5, v6
+	v13 = add : ptr v5, v7
+	v14 = add : ptr v5, v8
+	v15 = load : i32 v2, v3, v5
+	v16 = load : i32 v2, v3, v12
+	v17 = load : i32 v2, v3, v13
+	v18 = load : i32 v2, v3, v14
+	v20 = store : mem v2, v3, v4, v15
+	v21 = store : mem v2, v20, v9, v16
+	v22 = load : i32 v2, v21, v5
+	v23 = store : mem v2, v21, v10, v17
+	v24 = store : mem v2, v23, v11, v18
+	v30 = return : ctrl v2, v24, v22
+}
+
+@expect
+func t(ptr, ptr) -> i32 {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v24
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "a" of v0
+  v5 = proj : ptr  #3 "b" of v0
+  v7 = const : i64  8
+  v10 = add : ptr v4, v7
+  v13 = add : ptr v5, v7
+  v19 = store : mem v2, v3, v4, v25
+  v21 = load : i32 v2, v19, v5
+  v22 = store : mem v2, v19, v10, v26
+  v24 = return : ctrl v2, v22, v21
+  v25 = load : <2 x i32> v2, v3, v5
+  v26 = load : <2 x i32> v2, v3, v13
+}
