@@ -72,7 +72,6 @@ namespace rat {
 			Map<U64, std::array<U32, kVecBytes>> blocks;
 		};
 	public:
-		const C8* name() const override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 		static U64 pairKey(U32 high, I64 low);
 		static I64 blockEnd(I64 from, I64 end);

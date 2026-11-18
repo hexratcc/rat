@@ -20,12 +20,12 @@ namespace rat {
 
 	B32 FunctionPass::runFunction(Function& fn, const TargetInfo& target) {
 		B32 skippable = onlyReadsFunction();
-		if(skippable && fn.isCleanFor(name()))
+		if(skippable && fn.isCleanFor(name))
 			return false;
 		if(runOnFunction(fn, target))
 			return true;
 		if(skippable)
-			fn.markCleanFor(name());
+			fn.markCleanFor(name);
 		return false;
 	}
 } // namespace rat

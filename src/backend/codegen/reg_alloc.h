@@ -10,15 +10,12 @@ namespace rat {
 	namespace detail {
 		PhysReg firstFree(const List<PhysReg>& regs, U64 blocked);
 		U32 loopWeight(I32 depth, U32& level);
-		void groupBy(const List<Pair<U32, U32>>& in, U32 nk, List<U32>& first, List<U32>& out);
 	} // namespace detail
 
 	struct RegAllocPass : MachinePass {
-		explicit RegAllocPass(B32 local = false)
-		: local(local) {}
-
-		const C8* name() const override { return "regalloc"; }
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
+		// -O0 mode, a vreg live across blocks stays on the stack
+		void setLocal(B32 v) { local = v; }
 	private:
 		using Seg = Pair<I32, I32>;
 

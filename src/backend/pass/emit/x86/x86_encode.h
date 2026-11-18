@@ -18,7 +18,6 @@ namespace rat {
 		explicit X86EncodePass(std::ostream& os)
 		: os(&os) {}
 
-		const C8* name() const override { return "x86-encode"; }
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
 		void finish(Module& module, const TargetInfo& target) override;
 	private:
@@ -74,7 +73,8 @@ namespace rat {
 		static Reg toGp(PhysReg p);
 		static Reg gpOf(const MachineOperand& o);
 		static U32 xmmOf(const MachineOperand& o);
-		static U32 scaleOf(const MachineInstr& in);
+		// [use0 + disp], plus the scaled index in uses[indexUse] when imm2 bit 1 is set
+		static Mem memOf(const MachineInstr& in, U32 indexUse);
 		static U8 laneSel(U32 lane, U32 esz);
 		void readGp(const MachineOperand& o, Reg r);
 		void copyXmm(U32 d, U32 s);
@@ -112,7 +112,7 @@ namespace rat {
 		void emitX87Cmp(const MachineInstr& in);
 		void vaLoadResult(const MachineInstr& in);
 		void emitVaStart(const MachineInstr& in);
-		void vaFetchOverflow(I32 step, U32 align);
+		void vaFetchOverflow(I32 step, U32 align, I32 ptrDisp = 8);
 		void vaFetch(I32 offDisp, U32 limit, I32 regStep);
 		U32 vaNoRoom(I32 offDisp, U32 limit);
 		void vaCopyEightbyte(I32 offDisp, I32 regStep, I32 disp);

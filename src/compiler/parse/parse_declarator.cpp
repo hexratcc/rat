@@ -34,7 +34,7 @@ namespace rat::cc {
 			if(tryEvalIntConst(e, n) && n > 0)
 				op.count = (U64)n;
 		}
-		return expect(TokKind::RBracket, "']'");
+		return expect(TokKind::RBracket);
 	}
 
 	// a function parameter decays to a pointer, an array to a pointer to its element
@@ -42,7 +42,7 @@ namespace rat::cc {
 		if(t.func != nullptr && t.ptr == 0) {
 			t.ptr = 1;
 		} else if(t.array != nullptr && t.ptr == 0) {
-			if(vlaBound && t.array->countExpr)
+			if(vlaBound && isVlaType(t))
 				*vlaBound = t.array->countExpr;
 			t = decay(t);
 		}
@@ -58,7 +58,7 @@ namespace rat::cc {
 			if(!accept(TokKind::Comma))
 				break;
 		}
-		return expect(TokKind::RParen, "')'");
+		return expect(TokKind::RParen);
 	}
 
 	// [ void | param [, param]... [, '...'] ] ) | param-names
@@ -101,7 +101,7 @@ namespace rat::cc {
 			if(!accept(TokKind::Comma))
 				break;
 		}
-		return expect(TokKind::RParen, "')'");
+		return expect(TokKind::RParen);
 	}
 
 	// ( followed by * ( '[' noinline or a non-type name: a parenthesized declarator
@@ -128,8 +128,7 @@ namespace rat::cc {
 				ArrayType* at = arena.make<ArrayType>();
 				at->elem = b;
 				at->count = op.count;
-				if(op.count == 0)
-					at->countExpr = op.bound;
+				at->countExpr = op.bound;
 				b = CType{};
 				b.array = at;
 				break;
@@ -179,7 +178,7 @@ namespace rat::cc {
 		List<DeclOp> inner;
 		if(looksLikeGroupingParen()) {
 			advance(); // (
-			if(!parseDeclaratorOps(inner, out) || !expect(TokKind::RParen, "')'"))
+			if(!parseDeclaratorOps(inner, out) || !expect(TokKind::RParen))
 				return false;
 		} else if(check(TokKind::Identifier)) {
 			Token nameTok = advance();
@@ -224,45 +223,15 @@ namespace rat::cc {
 				return fail(peek(), "parameter names (without types) in function declaration");
 		}
 		out.type = applyDeclOps(t, ops);
-		if(!ops.empty() && ops.back().kind == DeclOp::Kind::Array) {
-			out.outerArray = true;
-			out.outerBound = ops.back().bound;
-		}
 		return true;
 	}
 
-	// the length of an array declarator: the bound as written, or the count of a typedef'd array
-	// type, null when unsized
-	Expr* Parser::declaredArrayLen(const DeclResult& r) {
-		if(r.outerBound)
-			return r.outerBound;
-		U64 count = r.type.array->count;
-		if(count == 0)
-			return nullptr;
-		Expr* len = makeExpr(ExprKind::IntLit, r.offset);
-		len->intLit = {(I64)count, 32, 0};
-		return len;
-	}
-
-	// splits an array type into the declarator's element type and length
 	void Parser::bindDeclarator(Declarator& d, const DeclResult& r) {
 		d.name = r.name;
 		d.offset = r.offset;
 		d.align = r.align;
 		d.type = r.type;
-		if(!isArrayType(r.type))
-			return;
-		d.isArray = true;
-		d.type = r.type.array->elem;
-		d.arrayLen = declaredArrayLen(r);
-	}
-
-	// declarator without a name
-	B32 Parser::parseAbstractDeclarator(CType base, DeclResult& out) {
-		if(!parseDeclarator(base, out))
-			return false;
-		if(out.name)
-			return fail(peek(), "unexpected name in a type name");
-		return true;
+		if(isArrayType(d.type))
+			d.type = plainArray(d.type);
 	}
 } // namespace rat::cc

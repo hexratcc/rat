@@ -49,8 +49,13 @@ namespace rat::cc {
 			return debugNamed(named);
 		if(t.ptr > 0)
 			return debugWrap(Kind::Pointer, debugType(pointee(t)));
-		if(isArrayType(t))
-			return debugObjectType(t.array->elem, true, t.array->count);
+		if(isArrayType(t)) {
+			DebugType* elem = debugType(t.array->elem);
+			DebugType* a = dbg.info->makeType(Kind::Array, "", (U32)byteSize(t));
+			a->elem = elem;
+			a->count = t.array->count;
+			return a;
+		}
 		if(t.func) {
 			DebugType* f = dbg.info->makeType(Kind::Function, "", 0);
 			f->elem = debugType(t.func->ret);
@@ -64,16 +69,6 @@ namespace rat::cc {
 		if(isAggregate(t) && !t.isComplex())
 			return debugRecord(t.strukt);
 		return debugBase(t);
-	}
-
-	DebugType* Emitter::debugObjectType(CType t, B32 isArray, U64 count) {
-		DebugType* elem = debugType(t);
-		if(!isArray)
-			return elem;
-		DebugType* a = dbg.info->makeType(DebugType::Kind::Array, "", (U32)(count * byteSize(t)));
-		a->elem = elem;
-		a->count = count;
-		return a;
 	}
 
 	namespace detail {
@@ -123,7 +118,7 @@ namespace rat::cc {
 		for(const Field& f : st->fields) {
 			if(!f.name)
 				continue;
-			DebugType* type = debugObjectType(f.type, f.isArray(), f.count);
+			DebugType* type = debugType(f.type);
 			U32 bits = f.isBitfield() ? f.bitWidth : 0;
 			rec->members.push_back({*f.name, type, (U32)f.offset, bits, f.bitOffset});
 		}
@@ -159,14 +154,14 @@ namespace rat::cc {
 		df.name = def->name;
 		df.decl = debugLoc(def->offset);
 		if(dbg.describeVars)
-			df.ret = debugType(def->retType);
+			df.ret = debugType(def->type->ret);
 		df.external = !def->isStatic;
-		df.variadic = def->isVarArgs;
+		df.variadic = def->type->isVarArgs;
 		fn.setDebug(std::make_unique<DebugBody>());
 		fn.getDebug()->func = &df;
 		dbg.scope = 0;
 		dbg.funcBody = def->body;
-		for(const Param& p : def->params) {
+		for(const Param& p : def->type->params) {
 			Local l;
 			if(!dbg.describeVars || !p.name || !func.scopes.lookup(*p.name, l))
 				continue;
@@ -221,10 +216,11 @@ namespace rat::cc {
 
 	void Emitter::debugLocal(Function& fn, const Declarator& d) {
 		Local l;
-		if(!dbg.describeVars || d.isExtern || !func.scopes.lookup(*d.name, l))
+		if(!dbg.describeVars || d.isExtern || d.isTypedef || !func.scopes.lookup(*d.name, l) ||
+			 l.kind == Local::Kind::Function)
 			return;
 		String symbol = l.staticSymbol ? *l.staticSymbol : "";
-		DebugType* type = debugObjectType(d.type, d.isArray, l.count);
+		DebugType* type = debugType(l.type);
 		debugVar(fn, {*d.name, type, debugLoc(d.offset), symbol}, l, d.init != nullptr);
 	}
 
@@ -232,7 +228,7 @@ namespace rat::cc {
 		if(!dbg.describeVars)
 			return;
 		const GlobalVariable& gv = syms.globals[*d.name];
-		DebugType* type = debugObjectType(gv.type, gv.isArray, gv.count);
+		DebugType* type = debugType(gv.type);
 		dbg.info->globals.push_back({*d.name, type, debugLoc(d.offset), *d.name});
 	}
 } // namespace rat::cc

@@ -36,30 +36,20 @@ namespace rat::cc {
 		B32 ok = true;
 		String name = data.nextName("__ratcc_cl");
 
-		U32 total = 0;
+		B32 isArr = isArrayType(ty);
+		CType elem = isArr ? arrayElem(ty) : ty;
+		U32 total = byteSize(ty);
 		I64 count = 0;
-		if(e->compound.isArray) {
-			if(e->compound.arrayLen)
-				ok = evalConst(e->compound.arrayLen, count);
-			else if(init->kind == ExprKind::StrLit)
-				count = (I64)init->str.bytes->size() + 1;
-			else if(init->kind == ExprKind::InitList)
-				count = (I64)arrayInitOuterExtent(ty, init);
-			ok = ok && count > 0;
-			total = (U32)count * byteSize(ty);
-		} else if(isStruct(ty)) {
-			total = ty.strukt->size;
-		} else {
-			total = byteSize(ty);
+		if(isArr) {
+			ok = compoundArrayCount(e, count);
+			total = (U32)count * byteSize(elem);
 		}
 
 		if(ok) {
 			List<U8> img(total, 0);
 			ImageSink sink(*this, img);
-			if(e->compound.isArray && init->kind == ExprKind::StrLit)
-				ok = sink.charArray(0, ty, (U32)count, init);
-			else if(e->compound.isArray)
-				ok = initArrayInit(sink, 0, ty, (U32)count, init);
+			if(isArr)
+				ok = initArrayInit(sink, 0, elem, (U32)count, init);
 			else if(isStruct(ty))
 				ok = initStructInit(sink, 0, ty.strukt, init);
 			else
@@ -74,20 +64,18 @@ namespace rat::cc {
 		data.relocs.swap(saved);
 		if(!ok)
 			return diag.fail("invalid file-scope compound literal initializer");
-		syms.globals[name] = GlobalVariable{ty, e->compound.isArray, 0};
+		syms.globals[name] = GlobalVariable{ty};
 		outSym = name;
 		return true;
 	}
 
-	void Emitter::bindGlobal(const Declarator& d, const String& sym, Function* fn, B32 arr, U32 n) {
+	void Emitter::bindGlobal(const Declarator& d, const String& sym, Function* fn, CType type) {
 		if(fn) {
-			Local loc = Local::mem(fn->global(sym), d.type);
-			loc.isArray = arr;
-			loc.count = n;
+			Local loc = Local::mem(fn->global(sym), type);
 			loc.staticSymbol = arena.make<String>(sym);
 			func.scopes.set(*d.name, loc);
 		} else {
-			syms.globals[*d.name] = GlobalVariable{d.type, arr, n};
+			syms.globals[*d.name] = GlobalVariable{type};
 		}
 	}
 
@@ -98,91 +86,51 @@ namespace rat::cc {
 		g->setAlign(d.align);
 	}
 
-	B32 Emitter::validateGlobalArrayLen(const Declarator& d, I64& count, B32& haveLen) {
-		haveLen = d.arrayLen != nullptr;
-		count = 0;
-		if(haveLen && (!evalConst(d.arrayLen, count) || count <= 0))
-			return failArrayCount();
-		return true;
-	}
-
-	B32 Emitter::registerGlobalAggArray(const Declarator& d, const String& sym, Function* fn) {
-		B32 haveLen;
+	B32 Emitter::registerGlobalArray(const Declarator& d, const String& sym, Function* fn) {
+		CType elem = arrayElem(d.type);
+		B32 scalarElem = !isArrayType(elem) && !isStruct(elem);
+		B32 haveLen = !isUnsizedArray(d.type);
 		I64 count;
-		if(!validateGlobalArrayLen(d, count, haveLen))
-			return false;
-		if(!haveLen) {
-			if(!d.init || d.init->kind != ExprKind::InitList)
+		if(!arrayBound(d.type, count) || (haveLen && count <= 0))
+			return failArrayCount();
+		B32 isString = scalarElem && d.init && d.init->kind == ExprKind::StrLit;
+		B32 isList = d.init && d.init->kind == ExprKind::InitList;
+		if(scalarElem && d.init && !isList && !isString)
+			return diag.fail("invalid initializer for an array");
+		if(!haveLen && isString)
+			count = (I64)(d.init->str.bytes->size() / d.init->str.charSize) + 1;
+		else if(!haveLen) {
+			if(!isList)
 				return failArrayUnknownSize(*d.name);
-			count = (I64)initArrayCount(d.type, d.init);
+			count = (I64)initArrayCount(elem, d.init);
 		}
-		U32 total = (U32)count * byteSize(d.type);
+		if(scalarElem && count <= 0)
+			return failArrayCount();
+		U32 total = (U32)count * byteSize(elem);
 		List<U8> img;
 		if(d.init) {
 			img.assign(total, 0);
 			ImageSink sink(*this, img);
 			U32 pos = 0;
-			if(isStruct(d.type) && initListIsFlat(d.init)) {
-				if(!initFlatArray(sink, 0, d.type, (U32)count, {d.init->args, pos}))
+			if(isString) {
+				if(!sink.charArray(0, elem, (U32)count, d.init))
 					return false;
-			} else if(!initArrayInit(sink, 0, d.type, (U32)count, d.init))
+			} else if(isStruct(elem) && initListIsFlat(d.init)) {
+				if(!initFlatArray(sink, 0, elem, (U32)count, {d.init->args, pos}))
+					return false;
+			} else if(!initArrayInit(sink, 0, elem, (U32)count, d.init))
 				return false;
 		}
-		defineGlobal(d, sym, byteArrayType(total), std::move(img));
-		bindGlobal(d, sym, fn, true, (U32)count);
-		return true;
-	}
-
-	B32 Emitter::registerGlobalArrayOfScalar(const Declarator& d, const String& sym, Function* fn) {
-		U32 elemSize = byteSize(d.type);
-		B32 haveLen;
-		I64 count;
-		if(!validateGlobalArrayLen(d, count, haveLen))
-			return false;
-
-		List<U8> init;
-
-		if(d.init && d.init->kind == ExprKind::StrLit) {
-			U32 charWidth = d.init->str.isWide ? d.init->str.charSize : 1u;
-			if(d.type.ptr != 0 || d.type.bits != charWidth * 8)
-				return failStringNeedsCharArray();
-			const String& bytes = *d.init->str.bytes;
-			I64 nchars = (I64)bytes.size() / (I64)charWidth;
-			if(!haveLen)
-				count = nchars + 1;
-			init.assign((U32)count * elemSize, 0);
-			for(I64 i = 0; i < nchars && i < count; ++i)
-				for(U32 k = 0; k < charWidth; ++k)
-					init[(U32)(i * elemSize) + k] = (U8)bytes[(U32)(i * charWidth + k)];
-		} else if(d.init && d.init->kind == ExprKind::InitList) {
-			const List<Expr*>& els = d.init->args;
-			List<I64> idx;
-			if(!resolveArrayIndices(d.init, haveLen, count, idx))
-				return false;
-			init.assign((U32)count * elemSize, 0);
-			ImageSink sink(*this, init);
-			for(U32 i = 0; i < els.size(); ++i) {
-				U32 base = (U32)idx[i] * elemSize;
-				if(!sink.scalar(base, d.type, els[i]))
-					return false;
-			}
-		} else if(d.init) {
-			return diag.fail("invalid initializer for an array");
-		} else if(!haveLen) {
-			return failArrayUnknownSize(*d.name);
-		}
-
-		defineGlobal(d, sym, mod.getArray(irType(d.type), (U32)count), std::move(init));
-		bindGlobal(d, sym, fn, true, (U32)count);
+		Type* type = scalarElem ? mod.getArray(irType(elem), (U32)count) : byteArrayType(total);
+		defineGlobal(d, sym, type, std::move(img));
+		bindGlobal(d, sym, fn, sizedArray(arena, d.type, (U64)count));
 		return true;
 	}
 
 	B32 Emitter::registerGlobal(const Declarator& d, const String& sym, Function* fn) {
 		data.relocs.clear();
-		if(d.isArray && (isArrayType(d.type) || isStruct(d.type)))
-			return registerGlobalAggArray(d, sym, fn);
-		if(d.isArray)
-			return registerGlobalArrayOfScalar(d, sym, fn);
+		if(isArrayType(d.type))
+			return registerGlobalArray(d, sym, fn);
 		if(isStruct(d.type))
 			return registerGlobalStruct(d, sym, fn);
 		return registerGlobalScalar(d, sym, fn);
@@ -194,7 +142,7 @@ namespace rat::cc {
 		U32 flex = flexElemCount(st, sinit);
 		U32 total = st->size;
 		if(flex > 0)
-			total += flex * byteSize(st->fields.back().type);
+			total += flex * byteSize(arrayElem(st->fields.back().type));
 		List<U8> init;
 		if(sinit && sinit->kind != ExprKind::InitList)
 			return diag.fail("invalid initializer for struct '" + *d.name + "'");
@@ -208,7 +156,7 @@ namespace rat::cc {
 				return false;
 		}
 		defineGlobal(d, sym, byteArrayType(total), std::move(init));
-		bindGlobal(d, sym, fn, false, 0);
+		bindGlobal(d, sym, fn, d.type);
 		return true;
 	}
 
@@ -219,33 +167,13 @@ namespace rat::cc {
 		B32 singleBraced = dinit && dinit->kind == ExprKind::InitList && dinit->args.size() == 1;
 		if(singleBraced && dinit->args[0]->kind != ExprKind::InitList)
 			dinit = dinit->args[0];
-		U64 value = 0;
-		List<U8> init;
-		if(dinit && isFloating(d.type)) {
-			F80 dv = 0;
-			if(!evalFloatConst(dinit, dv))
-				return diag.fail("initializer for '" + *d.name + "' is not a constant expression");
-			encodeFloatBytes(d.type, dv, init);
-		} else if(dinit) {
-			I64 iv = 0;
-			if(!evalConst(dinit, iv)) {
-				String target;
-				I64 add = 0;
-				B32 isIntScalar = !isPointer(d.type) && !isAggregate(d.type) && !isVoidType(d.type);
-				B32 fits = isPointer(d.type) || (isIntScalar && byteSize(d.type) >= 8);
-				if(!fits || !evalAddrConst(dinit, target, add))
-					return diag.fail("initializer for '" + *d.name + "' is not a constant expression");
-				data.relocs.push_back(Reloc{0, target, add});
-			}
-			value = (U64)iv;
-		}
-		U32 bytes = byteSize(d.type);
-		if(init.empty())
-			for(U32 i = 0; i < bytes; ++i)
-				init.push_back((U8)(value >> (8 * i)));
-		init.resize(bytes, 0);
+		List<U8> init(byteSize(d.type), 0);
+		B32 isIntScalar = !isPointer(d.type) && !isAggregate(d.type) && !isVoidType(d.type);
+		B32 addrFits = isPointer(d.type) || (isIntScalar && byteSize(d.type) >= 8);
+		if(dinit && !writeConstScalar(init, 0, d.type, dinit, addrFits))
+			return diag.fail("initializer for '" + *d.name + "' is not a constant expression");
 		defineGlobal(d, sym, irType(d.type), std::move(init));
-		bindGlobal(d, sym, fn, false, 0);
+		bindGlobal(d, sym, fn, d.type);
 		return true;
 	}
 
@@ -266,7 +194,7 @@ namespace rat::cc {
 			for(const Declarator& d : decl->decls) {
 				B32 defines = d.init != nullptr || !d.isExtern;
 				auto [it, fresh] = seen.try_emplace(*d.name, (U32)order.size());
-				if(fresh) {
+				if(fresh || d.isTypedef) {
 					order.push_back(&d);
 					needsStorage.push_back(defines);
 					continue;
@@ -274,7 +202,8 @@ namespace rat::cc {
 				const Declarator*& prev = order[it->second];
 				if(d.init && prev->init)
 					return diag.fail("redefinition of '" + *d.name + "'");
-				if(d.init && !prev->init)
+				B32 completes = isUnsizedArray(prev->type) && !d.isExtern;
+				if(!prev->init && (d.init || completes))
 					prev = &d;
 				if(defines)
 					needsStorage[it->second] = true;
@@ -282,13 +211,19 @@ namespace rat::cc {
 		}
 		for(U32 gi = 0; gi < order.size(); ++gi) {
 			const Declarator& d = *order[gi];
+			if(d.isTypedef) {
+				if(!bindVlaDims(nullptr, d.type))
+					return false;
+				continue;
+			}
 			if(d.aliasOf && !registerGlobalAlias(d))
 				return false;
 			if(d.aliasOf || !needsStorage[gi]) {
-				I64 count = 0;
-				if(d.isArray && d.arrayLen)
-					evalConst(d.arrayLen, count);
-				syms.globals[*d.name] = GlobalVariable{d.type, d.isArray, (U32)count};
+				CType type = d.type;
+				I64 count;
+				if(isArrayType(type) && arrayBound(type, count))
+					type = sizedArray(arena, type, (U64)count);
+				syms.globals[*d.name] = GlobalVariable{type};
 				continue;
 			}
 			if(!registerGlobal(d, *d.name, nullptr))

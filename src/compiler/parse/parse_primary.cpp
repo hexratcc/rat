@@ -8,12 +8,12 @@ namespace rat::cc {
 	// ( type-spec , name [ . name | '[' const-expr ']' ]... )
 	// folded to an integer
 	Expr* Parser::parseBuiltinOffsetof(const Token& kw) {
-		if(!expect(TokKind::LParen, "'('"))
+		if(!expect(TokKind::LParen))
 			return nullptr;
 		CType ty;
 		if(!parseTypeSpec(ty))
 			return fail(peek(), "expected a type in __builtin_offsetof");
-		if(!expect(TokKind::Comma, "','"))
+		if(!expect(TokKind::Comma))
 			return nullptr;
 		I64 off = 0;
 		CType cur = ty;
@@ -28,20 +28,22 @@ namespace rat::cc {
 				if(!f)
 					return fail(m, "no such member in __builtin_offsetof");
 				off += f->offset;
-				cur = f->type; // element type for array members
+				cur = f->type;
 			} else if(accept(TokKind::LBracket)) {
 				Expr* ix = parseConditional();
 				I64 v = 0;
 				if(!ix || !evalIntConst(ix, v))
 					return fail(peek(), "array index in __builtin_offsetof must be constant");
-				if(!expect(TokKind::RBracket, "']'"))
+				if(!expect(TokKind::RBracket))
 					return nullptr;
+				if(isArrayType(cur))
+					cur = arrayElem(cur);
 				off += v * (I64)typeSizeBytes(cur);
 			} else {
 				break;
 			}
 		}
-		if(!expect(TokKind::RParen, "')'"))
+		if(!expect(TokKind::RParen))
 			return nullptr;
 		U8 sizeMods = (U8)(CType::Unsigned | CType::Long | (lay.longBits < 64 ? CType::LongLong : 0));
 		return makeInt(kw, off, 64, sizeMods);
@@ -51,8 +53,10 @@ namespace rat::cc {
 	B32 Parser::parseTypeName(CType& out) {
 		CType ty;
 		DeclResult r;
-		if(!parseTypeSpec(ty) || !parseAbstractDeclarator(ty, r))
+		if(!parseTypeSpec(ty) || !parseDeclarator(ty, r))
 			return false;
+		if(r.name)
+			return fail(peek(), "unexpected name in a type name");
 		out = r.type;
 		return true;
 	}
@@ -61,7 +65,7 @@ namespace rat::cc {
 	// assoc: type-name : assignment | default : assignment
 	Expr* Parser::parseGeneric() {
 		Token kw = advance(); // _Generic
-		if(!expect(TokKind::LParen, "'('"))
+		if(!expect(TokKind::LParen))
 			return nullptr;
 		Expr* control = parseAssignment();
 		if(!control)
@@ -74,14 +78,14 @@ namespace rat::cc {
 				assoc.isDefault = true;
 			else if(!parseTypeName(assoc.type))
 				return nullptr;
-			if(!expect(TokKind::Colon, "':'"))
+			if(!expect(TokKind::Colon))
 				return nullptr;
 			assoc.result = parseAssignment();
 			if(!assoc.result)
 				return nullptr;
 			e->assocs.push_back(assoc);
 		}
-		if(!expect(TokKind::RParen, "')'"))
+		if(!expect(TokKind::RParen))
 			return nullptr;
 		return e;
 	}
@@ -105,9 +109,7 @@ namespace rat::cc {
 		}
 		String bytes;
 		for(const Token& t : parts) {
-			if(unitBytes == 1 && !parseStringLiteral(t, bytes))
-				return nullptr;
-			if(unitBytes != 1 && !parseWideStringLiteral(t, unitBytes, bytes))
+			if(!parseStringLiteral(t, unitBytes, bytes))
 				return nullptr;
 		}
 		Expr* e = makeExpr(ExprKind::StrLit, parts[0].offset);
@@ -173,7 +175,7 @@ namespace rat::cc {
 			return parseParenCond();
 		Token open = advance(); // ( of a GNU statement expression
 		Stmt* body = parseCompound();
-		if(!body || !expect(TokKind::RParen, "')'"))
+		if(!body || !expect(TokKind::RParen))
 			return nullptr;
 		Expr* e = makeExpr(ExprKind::StmtExpr, open.offset);
 		e->stmtExpr.body = body;
@@ -220,14 +222,12 @@ namespace rat::cc {
 	Expr* Parser::parseVaArg() {
 		Token lp = advance(); // (
 		Expr* ap = parseAssignment();
-		if(!ap)
-			return nullptr;
-		if(!expect(TokKind::Comma, "','"))
+		if(!ap || !expect(TokKind::Comma))
 			return nullptr;
 		CType ty;
 		if(!parseTypeName(ty))
 			return fail(peek(), "expected a type in __builtin_va_arg");
-		if(!expect(TokKind::RParen, "')'"))
+		if(!expect(TokKind::RParen))
 			return nullptr;
 		Expr* va = makeExpr(ExprKind::VaArg, lp.offset);
 		va->vaArg = {ap, ty};
@@ -252,7 +252,7 @@ namespace rat::cc {
 					break;
 			}
 		}
-		if(!expect(TokKind::RParen, "')'"))
+		if(!expect(TokKind::RParen))
 			return nullptr;
 		return callE;
 	}
@@ -272,9 +272,7 @@ namespace rat::cc {
 			} else if(k == TokKind::LBracket) {
 				Token lb = advance();
 				Expr* idx = parseExpression();
-				if(!idx)
-					return nullptr;
-				if(!expect(TokKind::RBracket, "']'"))
+				if(!idx || !expect(TokKind::RBracket))
 					return nullptr;
 				Expr* sum = makeBinary(lb.offset, ExprOp::Add, e, idx);
 				e = makeUnary(lb.offset, ExprOp::Deref, sum);

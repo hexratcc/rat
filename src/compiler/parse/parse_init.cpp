@@ -26,7 +26,7 @@ namespace rat::cc {
 				return fail(peek(), "invalid range designator");
 			rangeEnd = hv;
 		}
-		return expect(TokKind::RBracket, "']'");
+		return expect(TokKind::RBracket);
 	}
 
 	// designator... =
@@ -81,7 +81,7 @@ namespace rat::cc {
 			if(!accept(TokKind::Comma))
 				break;
 		}
-		if(!expect(TokKind::RBrace, "'}'"))
+		if(!expect(TokKind::RBrace))
 			return nullptr;
 		return e;
 	}
@@ -153,7 +153,7 @@ namespace rat::cc {
 		}
 		if(e->sizeOf.operand)
 			return fail(peek(), "sizeof expression not allowed in constant expression");
-		if(isVlaType(e->sizeOf.type))
+		if(hasVlaDim(e->sizeOf.type))
 			return fail(peek(), "sizeof a variable-length array is not constant");
 		if(isStruct(e->sizeOf.type) && !e->sizeOf.type.strukt->complete)
 			return fail(peek(), "sizeof applied to an incomplete type");

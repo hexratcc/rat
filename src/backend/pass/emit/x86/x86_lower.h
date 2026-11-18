@@ -18,7 +18,6 @@ namespace rat {
 	} // namespace detail
 
 	struct X86LowerPass : MachinePass {
-		const C8* name() const override { return "x86-lower"; }
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
 	private:
 		// matched address, after its base and index are in registers

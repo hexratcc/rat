@@ -564,26 +564,13 @@ namespace rat {
 			U32 w = lhs->getType()->getIntWidth();
 			ConstantNode* cl = dyn_cast<ConstantNode>(lhs);
 			ConstantNode* cr = dyn_cast<ConstantNode>(rhs);
-			if(cl && cr) {
+			if((cl && cr) || lhs == rhs) { // x op x folds like 0 op 0
+				I64 a = cl ? cl->getValue() : 0;
+				I64 b = cr ? cr->getValue() : 0;
 				I64 res;
-				if(!evalCompareConst(op, w, cl->getValue(), cr->getValue(), res))
+				if(!evalCompareConst(op, w, a, b, res))
 					return nullptr;
 				return fn.constBool(res != 0);
-			}
-
-			if(lhs == rhs) {
-				switch(op) {
-				case Opcode::Eq:
-				case Opcode::Sle:
-				case Opcode::Ule:
-					return fn.constBool(true);
-				case Opcode::Ne:
-				case Opcode::Slt:
-				case Opcode::Ult:
-					return fn.constBool(false);
-				default:
-					return nullptr;
-				}
 			}
 			return foldBoolRetest(fn, op, lhs, cr);
 		}
@@ -709,6 +696,4 @@ namespace rat {
 			fn.eliminateDeadNodes();
 		return changed;
 	}
-
-	const C8* FoldPass::name() const { return "fold"; }
 } // namespace rat

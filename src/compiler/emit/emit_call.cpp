@@ -3,45 +3,22 @@
 namespace rat::cc {
 	B32 Emitter::resolveCallee(Function& fn, const Expr* e, Callee& c) {
 		if(e->call.callee) {
-			auto found = syms.functions.find(*e->call.callee);
-			if(found != syms.functions.end()) {
+			const String& name = *e->call.callee;
+			Symbol sym = lookupSymbol(name);
+			if(sym.kind == Symbol::Kind::None) {
 				c.direct = true;
-				c.sig = found->second;
+				c.ft = implicitFuncType(name);
 				return true;
 			}
-			Node* val = nullptr;
-			CType ct;
-			B32 isObject = false;
-			Local loc;
-			if(func.scopes.lookup(*e->call.callee, loc) && !loc.isArray) {
-				if(loc.inMem())
-					val = fn.load(irType(loc.type), loc.addr);
-				else
-					val = fn.get(loc.var);
-				ct = loc.type;
-				isObject = true;
-			} else {
-				auto g = syms.globals.find(*e->call.callee);
-				if(g != syms.globals.end() && !g->second.isArray) {
-					val = fn.load(irType(g->second.type), fn.global(syms.resolveAlias(*e->call.callee)));
-					ct = g->second.type;
-					isObject = true;
-				}
-			}
-			if(val && isFuncPtr(ct)) {
-				c.target = val;
-				c.ft = ct.func;
-			} else if(isObject) {
-				return diag.fail("called object is not a function or function pointer");
-			} else {
-				const String& callee = *e->call.callee;
-				if(callee.rfind("__builtin_", 0) != 0 && syms.implicitFunctions.insert(callee).second)
-					diag.warnings.push_back("warning: implicit declaration of function '" + callee + "'");
+			if(sym.kind == Symbol::Kind::Function) {
 				c.direct = true;
-				c.sig.unprototyped = true;
-				if(!builtinReturnType(callee, lay.longBits, c.sig.returnType))
-					c.sig.returnType = ctInt();
+				c.ft = sym.type.func;
+				return true;
 			}
+			if(!isFuncPtr(sym.type))
+				return diag.fail("called object is not a function or function pointer");
+			c.ft = sym.type.func;
+			c.target = symbolValue(fn, name, sym).node;
 			return true;
 		}
 		Value fpv = emitExpr(fn, e->call.target);
@@ -54,6 +31,20 @@ namespace rat::cc {
 		return true;
 	}
 
+	// one unprototyped type per implicitly declared name, warned about once
+	const FuncType* Emitter::implicitFuncType(const String& callee) {
+		auto [found, firstUse] = syms.implicitFunctions.try_emplace(callee, nullptr);
+		if(!firstUse)
+			return found->second;
+		if(callee.rfind("__builtin_", 0) != 0)
+			diag.warnings.push_back("warning: implicit declaration of function '" + callee + "'");
+		FuncType* type = arena.make<FuncType>();
+		type->unprototyped = true;
+		builtinReturnType(callee, lay.longBits, type->ret);
+		found->second = type;
+		return type;
+	}
+
 	B32 Emitter::emitArgs(Function& fn, const Expr* e, const Callee& c, U32 n, CallArgs& args) {
 		for(U32 i = 0; i < e->args.size(); ++i) {
 			Value a = emitExpr(fn, e->args[i]);
@@ -61,7 +52,7 @@ namespace rat::cc {
 				return false;
 			CType pt;
 			if(i < n)
-				pt = c.direct ? c.sig.params[i] : c.ft->params[i].type;
+				pt = c.ft->params[i].type;
 			else
 				pt = completeComplex(defaultArgPromote(a.type));
 			if(isAggregate(pt)) {
@@ -113,12 +104,11 @@ namespace rat::cc {
 		if(!resolveCallee(fn, e, c))
 			return {};
 
-		CType ret = c.direct ? c.sig.returnType : c.ft->ret;
-		U32 nparams = c.direct ? (U32)c.sig.params.size() : (U32)c.ft->params.size();
-		B32 unproto = c.direct ? c.sig.unprototyped : c.ft->unprototyped;
-		B32 variadic = c.direct ? c.sig.isVarArgs : c.ft->isVarArgs;
+		CType ret = c.ft->ret;
+		U32 nparams = (U32)c.ft->params.size();
+		B32 variadic = c.ft->isVarArgs;
 		B32 va = true;
-		if(!unproto) {
+		if(!c.ft->unprototyped) {
 			va = variadic;
 			U32 nargs = (U32)e->args.size();
 			if(nargs < nparams || (!variadic && nargs > nparams)) {
@@ -143,9 +133,7 @@ namespace rat::cc {
 		}
 		if(!emitArgs(fn, e, c, nparams, args))
 			return {};
-		Type* retTy = nullptr;
-		if(!isVoidType(ret))
-			retTy = irType(ret);
+		Type* retTy = isVoidType(ret) ? nullptr : irType(ret);
 		Node* call;
 		if(c.direct)
 			call = fn.call(sym, retTy, args.nodes, va, args.abi);

@@ -22,7 +22,6 @@ namespace rat {
 	struct RegionNode;
 
 	struct SCCPPass : FunctionPass {
-		const C8* name() const override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
 		struct Lattice {

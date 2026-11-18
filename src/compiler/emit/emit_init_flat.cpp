@@ -18,19 +18,8 @@ namespace rat::cc {
 			}
 			return initFlatStruct(sink, base, ty.strukt, src);
 		}
-		if(isArrayType(ty)) {
-			CType el = arrayElem(ty);
-			U32 cnt = ty.array->count;
-			if(e->kind == ExprKind::InitList) {
-				++src.pos;
-				return initArrayInit(sink, base, el, cnt, e);
-			}
-			if(isCharType(el) && e->kind == ExprKind::StrLit) {
-				++src.pos;
-				return sink.charArray(base, el, cnt, e);
-			}
-			return initFlatArray(sink, base, el, cnt, src);
-		}
+		if(isArrayType(ty))
+			return initFlatArrayObject(sink, base, arrayElem(ty), ty.array->count, src);
 		++src.pos;
 		return sink.scalar(base, ty, e);
 	}
@@ -42,19 +31,7 @@ namespace rat::cc {
 			const Field& f = st->fields[fi];
 			if(f.anonMember() && !f.anonFirst())
 				continue;
-			if(f.isArray()) {
-				const Expr* e = src.els[src.pos];
-				if(e->kind == ExprKind::InitList) {
-					++src.pos;
-					if(!initArrayInit(sink, base + f.offset, f.type, f.count, e))
-						return false;
-				} else if(isCharType(f.type) && e->kind == ExprKind::StrLit) {
-					++src.pos;
-					if(!sink.charArray(base + f.offset, f.type, f.count, e))
-						return false;
-				} else if(!initFlatArray(sink, base + f.offset, f.type, f.count, src))
-					return false;
-			} else if(f.isBitfield()) {
+			if(f.isBitfield()) {
 				if(!sink.bitfield(base + f.offset, f.type, f.bitWidth, f.bitOffset, src.els[src.pos]))
 					return false;
 				++src.pos;
@@ -67,14 +44,42 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::initFlatArray(InitSink& sink, U32 base, CType elem, U32 count, const FlatList& src) {
+	B32 Emitter::initFlatArrayObject(
+			InitSink& sink, U32 base, CType elem, U32 count, const FlatList& src) {
+		const Expr* e = src.els[src.pos];
+		if(e->kind == ExprKind::InitList) {
+			++src.pos;
+			return initArrayInit(sink, base, elem, count, e);
+		}
+		if(isCharType(elem) && e->kind == ExprKind::StrLit) {
+			++src.pos;
+			return sink.charArray(base, elem, count, e);
+		}
+		return initFlatArray(sink, base, elem, count, src);
+	}
+
+	B32 Emitter::initFlatArray(
+			InitSink& sink, U32 base, CType elem, U32 count, const FlatList& src, U32* extent) {
 		U32 esz = byteSize(elem);
 		for(U32 i = 0; i < count && src.pos < src.els.size(); ++i) {
 			if(i != 0 && src.des && (*src.des)[src.pos].isSet)
 				break;
+			if(extent && i >= *extent)
+				*extent = i + 1;
+			U32 first = src.pos;
 			if(!initFlatObject(sink, base + i * esz, elem, src))
 				return false;
+			// a zero size element takes nothing
+			if(src.pos == first)
+				break;
 		}
+		return true;
+	}
+
+	// a string fills an integer array whose element is one string unit wide
+	B32 Emitter::checkStringElem(CType elem, U32 charSize) {
+		if(!isInteger(elem) || elem.bits != charSize * 8)
+			return failStringNeedsCharArray();
 		return true;
 	}
 
@@ -106,11 +111,12 @@ namespace rat::cc {
 		return true;
 	}
 	B32 Emitter::StoreSink::charArray(U32 base, CType elem, U32 count, const Expr* e) {
-		if(!isCharType(elem))
-			return emit.failStringNeedsCharArray();
+		U32 unitBytes = e->str.charSize;
+		if(!emit.checkStringElem(elem, unitBytes))
+			return false;
 		const String& bytes = *e->str.bytes;
 		Type* i8 = emit.mod.getInt(8);
-		U32 n = bytes.size() < count ? (U32)bytes.size() : count;
+		U32 n = std::min((U32)bytes.size(), count * unitBytes);
 		for(U32 i = 0; i < n; ++i)
 			fn.store(emit.offsetPtr(fn, slot, base + i), fn.constInt(i8, (U8)bytes[i]));
 		return true;
@@ -136,34 +142,46 @@ namespace rat::cc {
 			out.push_back(i < 10 ? p[i] : (U8)0);
 	}
 
+	namespace detail {
+		void writeLittleEndian(List<U8>& out, U32 off, U64 value, U32 size) {
+			for(U32 b = 0; b < size; ++b)
+				out[off + b] = (U8)(value >> (8 * b));
+		}
+	} // namespace detail
+
+	// constant scalar -> bytes at off, or an address reloc there, no diagnostics of its own
+	B32 Emitter::writeConstScalar(List<U8>& img, U32 off, CType dt, const Expr* e, B32 addrFits) {
+		if(isFloating(dt)) {
+			F80 fv = 0;
+			if(!evalFloatConst(e, fv))
+				return false;
+			List<U8> bytes;
+			encodeFloatBytes(dt, fv, bytes);
+			for(U32 b = 0; b < bytes.size() && off + b < img.size(); ++b)
+				img[off + b] = bytes[b];
+			return true;
+		}
+		I64 iv = 0;
+		if(evalConst(e, iv)) {
+			detail::writeLittleEndian(img, off, (U64)iv, byteSize(dt));
+			return true;
+		}
+		String sym;
+		I64 add = 0;
+		if(!addrFits || !evalAddrConst(e, sym, add))
+			return false;
+		data.setReloc(off, sym, add);
+		return true;
+	}
+
 	B32 Emitter::ImageSink::scalar(U32 off, CType dt, const Expr* e) {
 		B32 skip = false;
 		if(!emit.unwrapScalarInit(e, skip))
 			return false;
 		if(skip)
 			return true;
-		if(isFloating(dt)) {
-			F80 d = 0;
-			if(!emit.evalFloatConst(e, d))
-				return emit.failNonConstInit();
-			List<U8> fb;
-			emit.encodeFloatBytes(dt, d, fb);
-			for(U32 b = 0; b < fb.size() && off + b < img.size(); ++b)
-				img[off + b] = fb[b];
-			return true;
-		}
-		I64 v = 0;
-		if(!emit.evalConst(e, v)) {
-			String sym;
-			I64 add = 0;
-			if(!isPointer(dt) || !emit.evalAddrConst(e, sym, add))
-				return emit.failNonConstInit();
-			emit.data.setReloc(off, sym, add);
-			return true;
-		}
-		U32 sz = emit.byteSize(dt);
-		for(U32 b = 0; b < sz; ++b)
-			img[off + b] = (U8)((U64)v >> (8 * b));
+		if(!emit.writeConstScalar(img, off, dt, e, isPointer(dt)))
+			return emit.failNonConstInit();
 		return true;
 	}
 
@@ -178,22 +196,27 @@ namespace rat::cc {
 		for(U32 b = 0; b < sz; ++b)
 			unit |= (U64)img[off + b] << (8 * b);
 		unit |= placed;
-		for(U32 b = 0; b < sz; ++b)
-			img[off + b] = (U8)(unit >> (8 * b));
+		detail::writeLittleEndian(img, off, unit, sz);
 		return true;
 	}
 
 	B32 Emitter::ImageSink::charArray(U32 base, CType elem, U32 count, const Expr* e) {
-		if(!isCharType(elem))
-			return emit.failStringNeedsCharArray();
+		U32 unitBytes = e->str.charSize;
+		if(!emit.checkStringElem(elem, unitBytes))
+			return false;
 		const String& bytes = *e->str.bytes;
-		U32 n = bytes.size() < count ? (U32)bytes.size() : count;
+		U32 n = std::min((U32)bytes.size(), count * unitBytes);
 		for(U32 i = 0; i < n; ++i)
 			img[base + i] = (U8)bytes[i];
 		return true;
 	}
 
 	B32 Emitter::ImageSink::structCopy(U32, CType, const Expr*) { return emit.failNonConstInit(); }
+
+	B32 Emitter::ExtentSink::scalar(U32, CType, const Expr*) { return true; }
+	B32 Emitter::ExtentSink::bitfield(U32, CType, U32, U32, const Expr*) { return true; }
+	B32 Emitter::ExtentSink::charArray(U32, CType, U32, const Expr*) { return true; }
+	B32 Emitter::ExtentSink::structCopy(U32, CType, const Expr*) { return true; }
 
 	const StructType* Emitter::anonGroupType(const StructType* st, U32 firstIdx) {
 		StructType* g = arena.make<StructType>();
@@ -214,91 +237,17 @@ namespace rat::cc {
 		return g;
 	}
 
-	void Emitter::flatConsumeObject(CType ty, const List<Expr*>& els, U32& pos) {
-		if(pos >= els.size())
-			return;
-		const Expr* e = els[pos];
-		if(isStruct(ty)) {
-			if(e->kind == ExprKind::InitList || peelAggregateCompound(e) != e) {
-				++pos;
-				return;
-			}
-			for(U32 fi = 0; fi < ty.strukt->fields.size() && pos < els.size(); ++fi) {
-				const Field& f = ty.strukt->fields[fi];
-				if(f.anonMember() && !f.anonFirst())
-					continue;
-				U32 count = f.isArray() ? f.count : 1;
-				for(U32 i = 0; i < count && pos < els.size(); ++i)
-					flatConsumeObject(f.type, els, pos);
-				if(ty.strukt->isUnion)
-					break;
-			}
-			return;
-		}
-		if(isArrayType(ty)) {
-			CType el = arrayElem(ty);
-			U32 cnt = ty.array->count;
-			if(e->kind == ExprKind::InitList || (isCharType(el) && e->kind == ExprKind::StrLit)) {
-				++pos;
-				return;
-			}
-			for(U32 i = 0; i < cnt && pos < els.size(); ++i)
-				flatConsumeObject(el, els, pos);
-			return;
-		}
-		++pos; // scalar
-	}
-
-	U32 Emitter::flatArrayCount(CType elem, const List<Expr*>& els) {
-		U32 pos = 0, n = 0;
-		while(pos < els.size()) {
-			flatConsumeObject(elem, els, pos);
-			++n;
-		}
-		return n;
-	}
-
+	// flexible array member length, from a dry run of the real walk
 	U32 Emitter::flexElemCount(const StructType* st, const Expr* init) {
-		if(st->isUnion || st->fields.empty() || !init || init->kind != ExprKind::InitList)
+		if(!init)
 			return 0;
-		const Field& flex = st->fields.back();
-		if(!flex.isArray() || flex.count != 0)
-			return 0;
-		const List<Expr*>& els = init->args;
-		U32 cur = 0, flexFi = st->fields.size() - 1;
-		for(U32 i = 0; i < els.size();) {
-			const Designator& des = init->designators[i];
-			if(des.isSet) {
-				I64 fi = fieldIndex(st, des);
-				if(fi < 0)
-					return 0;
-				cur = (U32)fi;
-			}
-			while(cur < st->fields.size() && st->fields[cur].anonMember() && !st->fields[cur].anonFirst())
-				++cur;
-			if(cur >= st->fields.size())
-				break;
-			if(cur == flexFi) {
-				const Expr* el = els[i];
-				if(!des.next && isCharType(flex.type) && el->kind == ExprKind::StrLit)
-					return (U32)el->str.bytes->size() + 1;
-				if(el->kind == ExprKind::InitList && !des.next)
-					return flatArrayCount(flex.type, el->args);
-				List<Expr*> tail(els.begin() + i, els.end());
-				return flatArrayCount(flex.type, tail);
-			}
-			const Field& f = st->fields[cur];
-			const Expr* el = els[i];
-			B32 charString = f.isArray() && isCharType(f.type) && el->kind == ExprKind::StrLit;
-			if(el->kind == ExprKind::InitList || charString) {
-				++i;
-			} else {
-				U32 count = f.isArray() ? f.count : 1;
-				for(U32 k = 0; k < count && i < els.size(); ++k)
-					flatConsumeObject(f.type, els, i);
-			}
-			++cur;
-		}
-		return 0;
+		DryRunDiag dryRun(diag);
+		ExtentSink sink;
+		U32 extent = 0;
+		U32 savedFlexCount = data.flexCount;
+		data.flexCount = UINT32_MAX;
+		initStructInit(sink, 0, st, init, &extent);
+		data.flexCount = savedFlexCount;
+		return extent;
 	}
 } // namespace rat::cc

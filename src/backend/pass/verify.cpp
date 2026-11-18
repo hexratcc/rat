@@ -16,10 +16,8 @@ namespace rat {
 	void VerifyPass::FunctionVerifier::run() {
 		inFn.insert(fn.begin(), fn.end());
 
-		if(!fn.getStart())
-			err(nullptr, "function has no Start node");
-		if(!fn.getStop())
-			err(nullptr, "function has no Stop node");
+		require(fn.getStart() != nullptr, nullptr, "function has no Start node");
+		require(fn.getStop() != nullptr, nullptr, "function has no Stop node");
 
 		for(Node* n : fn) {
 			checkEdges(n);
@@ -33,6 +31,12 @@ namespace rat {
 		if(n)
 			os << vref(n) << ": ";
 		os << msg << "\n";
+	}
+
+	B32 VerifyPass::FunctionVerifier::require(B32 ok, const Node* n, const C8* msg) {
+		if(!ok)
+			err(n, msg);
+		return ok;
 	}
 
 	B32 VerifyPass::FunctionVerifier::isCtrl(const Node* n) { return n && n->getType()->isControl(); }
@@ -75,10 +79,8 @@ namespace rat {
 				err(n, "broken reverse edge: input " + vref(in) + " slot " + std::to_string(i));
 		}
 		for(Node* u : n->getUsers()) {
-			if(!u) {
-				err(n, "has a null user");
+			if(!require(u != nullptr, n, "has a null user"))
 				continue;
-			}
 			if(!listsAsInput(u, n))
 				err(n, "broken forward edge: user " + vref(u) + " does not use " + vref(n));
 		}
@@ -123,35 +125,27 @@ namespace rat {
 		case Opcode::Asm:
 			return checkAsm(n);
 		case Opcode::Stop:
-			if(n != fn.getStop())
-				err(n, "duplicate Stop node");
-			if(!t->isControl())
-				err(n, "Stop type must be control");
+			require(n == fn.getStop(), n, "duplicate Stop node");
+			require(t->isControl(), n, "Stop type must be control");
 			break;
 		case Opcode::Constant:
-			if(!(t->isInt() || t->isFloat()))
-				err(n, "Constant type must be an integer or a float");
+			require(t->isInt() || t->isFloat(), n, "Constant type must be an integer or a float");
 			break;
 		case Opcode::Global:
-			if(!t->isPtr())
-				err(n, "Global type must be a pointer");
+			require(t->isPtr(), n, "Global type must be a pointer");
 			if(!fn.getModule().getGlobal(cast<GlobalNode>(n)->getSymbol()))
 				err(n, "Global references unknown symbol '" + cast<GlobalNode>(n)->getSymbol() + "'");
 			break;
 		case Opcode::Alloc:
-			if(!t->isPtr())
-				err(n, "Alloc type must be a pointer");
-			if(!cast<AllocNode>(n)->getAllocType())
-				err(n, "Alloc has no allocated type");
+			require(t->isPtr(), n, "Alloc type must be a pointer");
+			require(cast<AllocNode>(n)->getAllocType() != nullptr, n, "Alloc has no allocated type");
 			break;
 		case Opcode::StackAlloc:
 		case Opcode::StackSave:
-			if(!t->isPtr())
-				err(n, "stack op type must be a pointer");
+			require(t->isPtr(), n, "stack op type must be a pointer");
 			break;
 		case Opcode::StackRestore:
-			if(!t->isMemory())
-				err(n, "StackRestore type must be memory");
+			require(t->isMemory(), n, "StackRestore type must be memory");
 			break;
 		default:
 			return checkArithmetic(n);
@@ -183,8 +177,7 @@ namespace rat {
 	}
 
 	void VerifyPass::FunctionVerifier::checkStart(const Node* n) {
-		if(n != fn.getStart())
-			err(n, "duplicate Start node");
+		require(n == fn.getStart(), n, "duplicate Start node");
 		U32 np = fn.getParamCount();
 		if(!checkTuple(n, "Start", 2 + np, "(control, memory, params)"))
 			return;
@@ -211,8 +204,7 @@ namespace rat {
 
 	void VerifyPass::FunctionVerifier::checkRegion(const Node* n) {
 		const RegionNode* r = cast<RegionNode>(n);
-		if(!n->getType()->isControl())
-			err(n, "Region type must be control");
+		require(n->getType()->isControl(), n, "Region type must be control");
 		for(U32 i = 0, e = r->getPredecessorCount(); i < e; ++i)
 			if(!isCtrl(r->getPredecessor(i)))
 				err(n, "Region predecessor " + std::to_string(i) + " is not control-typed");
@@ -221,10 +213,8 @@ namespace rat {
 	void VerifyPass::FunctionVerifier::checkIf(const Node* n) {
 		const IfNode* iff = cast<IfNode>(n);
 		const Type* t = n->getType();
-		if(!isCtrl(iff->getControl()))
-			err(n, "If input 0 (control) is not control-typed");
-		if(!isBool(iff->getPredicate()->getType()))
-			err(n, "If predicate must be i1");
+		require(isCtrl(iff->getControl()), n, "If input 0 (control) is not control-typed");
+		require(isBool(iff->getPredicate()->getType()), n, "If predicate must be i1");
 		B32 isPair = t->isTuple() && t->getTupleElementCount() == 2;
 		if(!(isPair && t->getTupleElement(0)->isControl() && t->getTupleElement(1)->isControl()))
 			err(n, "If type must be (ctrl, ctrl)");
@@ -236,10 +226,8 @@ namespace rat {
 	void VerifyPass::FunctionVerifier::checkSwitch(const Node* n) {
 		const SwitchNode* sw = cast<SwitchNode>(n);
 		const Type* t = n->getType();
-		if(!isCtrl(sw->getControl()))
-			err(n, "Switch input 0 (control) is not control-typed");
-		if(!sw->getSelector()->getType()->isInt())
-			err(n, "Switch selector must be an integer");
+		require(isCtrl(sw->getControl()), n, "Switch input 0 (control) is not control-typed");
+		require(sw->getSelector()->getType()->isInt(), n, "Switch selector must be an integer");
 		if(!t->isTuple() || t->getTupleElementCount() == 0) {
 			err(n, "Switch type must be a non-empty tuple of control");
 			return;
@@ -271,16 +259,13 @@ namespace rat {
 		const PhiNode* phi = cast<PhiNode>(n);
 		const Type* t = n->getType();
 		const RegionNode* r = dyn_cast<RegionNode>(phi->getInput(0));
-		if(!r) {
-			err(n, "Phi input 0 must be a Region");
+		if(!require(r != nullptr, n, "Phi input 0 must be a Region"))
 			return;
-		}
 		if(phi->getValueCount() != r->getPredecessorCount()) {
 			String preds = vref(r) + " has " + std::to_string(r->getPredecessorCount()) + " predecessors";
 			err(n, "Phi has " + std::to_string(phi->getValueCount()) + " values but its region " + preds);
 		}
-		if(!(t->isData() || t->isMemory()))
-			err(n, "Phi type must be a data or memory type");
+		require(t->isData() || t->isMemory(), n, "Phi type must be a data or memory type");
 		for(U32 i = 0, e = phi->getValueCount(); i < e; ++i)
 			if(phi->getValue(i)->getType() != t)
 				err(n, "Phi value " + std::to_string(i) + " has a type different from the phi");
@@ -297,20 +282,15 @@ namespace rat {
 				err(n, "Splat scalar type does not match the vector element");
 			break;
 		case Opcode::Extract:
-			if(!in->isVec()) {
-				err(n, "Extract operand must be a vector");
+			if(!require(in->isVec(), n, "Extract operand must be a vector"))
 				break;
-			}
-			if(t != in->getVecElement())
-				err(n, "Extract type does not match the vector element");
+			require(t == in->getVecElement(), n, "Extract type does not match the vector element");
 			if(cast<ExtractNode>(n)->getLane() >= in->getVecLanes())
 				err(n, "Extract lane is out of range");
 			break;
 		case Opcode::Pack:
-			if(!t->isVec()) {
-				err(n, "Pack type must be a vector");
+			if(!require(t->isVec(), n, "Pack type must be a vector"))
 				break;
-			}
 			if(n->getInputCount() != t->getVecLanes())
 				err(n, "Pack operand count does not match the lane count");
 			for(U32 i = 0, e = n->getInputCount(); i < e; ++i)
@@ -344,10 +324,8 @@ namespace rat {
 		} else if(!isBool(cond->getType())) {
 			err(n, "Select condition must be i1");
 		}
-		if(s->getTrue()->getType() != t)
-			err(n, "Select then-value type does not match the result");
-		if(s->getFalse()->getType() != t)
-			err(n, "Select else-value type does not match the result");
+		require(s->getTrue()->getType() == t, n, "Select then-value type does not match the result");
+		require(s->getFalse()->getType() == t, n, "Select else-value type does not match the result");
 	}
 
 	void VerifyPass::FunctionVerifier::checkMemoryOp(const Node* n) {
@@ -357,14 +335,11 @@ namespace rat {
 		if(!n->getInput(2)->getType()->isPtr())
 			err(n, String(what) + " address is not a pointer");
 		if(load) {
-			if(!n->getType()->isData())
-				err(n, "Load result type must be a data type");
+			require(n->getType()->isData(), n, "Load result type must be a data type");
 			return;
 		}
-		if(!n->getInput(3)->getType()->isData())
-			err(n, "Store value is not a data type");
-		if(!n->getType()->isMemory())
-			err(n, "Store result type must be memory");
+		require(n->getInput(3)->getType()->isData(), n, "Store value is not a data type");
+		require(n->getType()->isMemory(), n, "Store result type must be memory");
 	}
 
 	void VerifyPass::FunctionVerifier::checkCall(const Node* n) {
@@ -405,11 +380,9 @@ namespace rat {
 	void VerifyPass::FunctionVerifier::checkCompare(const Node* n) {
 		const Type* t = n->getType();
 		const Type* in = n->getInput(0)->getType();
-		if(in != n->getInput(1)->getType())
-			err(n, "comparison operands have different types");
+		require(in == n->getInput(1)->getType(), n, "comparison operands have different types");
 		if(!in->isVec()) {
-			if(!isBool(t))
-				err(n, "comparison result must be i1");
+			require(isBool(t), n, "comparison result must be i1");
 			return;
 		}
 		U32 ptrBytes = TargetInfo::kPointerSizeInBits / 8;
@@ -423,8 +396,7 @@ namespace rat {
 		Opcode op = n->getOpcode();
 		const Type* lt = n->getInput(0)->getType();
 		const Type* rt = n->getInput(1)->getType();
-		if(lt != n->getType())
-			err(n, "binary result type differs from its left operand");
+		require(lt == n->getType(), n, "binary result type differs from its left operand");
 		B32 shift = isShiftOpcode(op) || op == Opcode::Rotl || op == Opcode::Rotr;
 		if(lt->isPtr()) {
 			if(!(op == Opcode::Add || op == Opcode::Sub))
@@ -434,8 +406,7 @@ namespace rat {
 		} else if(!lt->isData()) {
 			err(n, "binary operates on a non-data type");
 		} else if(shift && !lt->isFloat()) { // a shift amount is one scalar, also for a vector
-			if(!rt->isInt())
-				err(n, "shift amount is not an integer");
+			require(rt->isInt(), n, "shift amount is not an integer");
 		} else if(rt != lt) {
 			err(n, "binary operands have different types");
 		}
@@ -460,13 +431,11 @@ namespace rat {
 		const Type* t = n->getType();
 		if(n->getOpcode() == Opcode::FNeg) {
 			B32 floatLanes = t->isVec() && t->getVecElement()->isFloat();
-			if(!t->isFloat() && !floatLanes)
-				err(n, "fneg operates on a non-float type");
+			require(t->isFloat() || floatLanes, n, "fneg operates on a non-float type");
 		} else if(!t->isInt()) {
 			err(n, "unary operates on a non-integer type");
 		}
-		if(u->getOperand()->getType() != t)
-			err(n, "unary result type differs from its operand");
+		require(u->getOperand()->getType() == t, n, "unary result type differs from its operand");
 	}
 
 	void VerifyPass::FunctionVerifier::checkConvert(const Node* n) {
@@ -475,10 +444,9 @@ namespace rat {
 		const Type* t = n->getType();
 		const Type* src = c->getOperand()->getType();
 		if(t->isVec() || src->isVec()) {
-			if(!t->isVec() || !src->isVec() || t->getVecLanes() != src->getVecLanes()) {
-				err(n, "vector conversion changes the lane count");
+			B32 sameLanes = t->isVec() && src->isVec() && t->getVecLanes() == src->getVecLanes();
+			if(!require(sameLanes, n, "vector conversion changes the lane count"))
 				return;
-			}
 			t = t->getVecElement(); // the rules below hold per lane
 			src = src->getVecElement();
 		}
@@ -534,14 +502,11 @@ namespace rat {
 			if(in && in->getOpcode() != Opcode::Return)
 				err(stop, "Stop input " + std::to_string(i) + " (" + vref(in) + ") is not a Return");
 		}
-		if(stop->getInputCount() == 0)
-			err(stop, "function never returns (Stop has no Return inputs)");
+		require(stop->getInputCount() != 0, stop, "function never returns (Stop has no Return inputs)");
 	}
 
 	VerifyPass::VerifyPass(std::ostream& os)
 	: os(&os) {}
-
-	const C8* VerifyPass::name() const { return "verify"; }
 
 	B32 VerifyPass::run(Module& module, const TargetInfo&) {
 		for(const Function* fn : module)

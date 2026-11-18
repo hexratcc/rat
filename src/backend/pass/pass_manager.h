@@ -21,10 +21,6 @@ namespace rat {
 		explicit PassManager(const TargetInfo& target)
 		: target(&target) {}
 
-		template <typename T, typename... Args> T* add(Args&&... args) {
-			return static_cast<T*>(add(std::make_unique<T>(std::forward<Args>(args)...)));
-		}
-
 		Pass* add(UniquePtr<Pass> pass);
 		MachinePass* add(UniquePtr<MachinePass> p);
 		void run(Module& module, std::ostream* log = nullptr);

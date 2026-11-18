@@ -42,12 +42,12 @@ namespace rat::cc {
 		return false;
 	}
 
+	// what defaults to the quoted spelling of kind
 	B32 Parser::expect(TokKind kind, const C8* what) {
-		if(peek().kind == kind) {
-			advance();
+		if(accept(kind))
 			return true;
-		}
-		return fail(peek(), String("expected ") + what + ", found '" + tokKindName(peek().kind) + "'");
+		String expected = what ? String(what) : "'" + String(tokKindName(kind)) + "'";
+		return fail(peek(), "expected " + expected + ", found '" + tokKindName(peek().kind) + "'");
 	}
 
 	Expr* Parser::makeExpr(ExprKind kind, U32 offset) {
@@ -88,11 +88,12 @@ namespace rat::cc {
 
 	// no two named parameters share a name
 	B32 Parser::checkParamNames(const FuncDef* fn) {
-		for(U32 i = 0; i < fn->params.size(); i++) {
-			if(!fn->params[i].name)
+		const List<Param>& params = fn->type->params;
+		for(U32 i = 0; i < params.size(); i++) {
+			if(!params[i].name)
 				continue;
 			for(U32 j = 0; j < i; j++) {
-				if(fn->params[j].name && *fn->params[j].name == *fn->params[i].name)
+				if(params[j].name && *params[j].name == *params[i].name)
 					return fail(peek(), "redefinition of parameter");
 			}
 		}
@@ -101,13 +102,9 @@ namespace rat::cc {
 
 	// the FuncDef of a function declarator, with the storage of its type-spec
 	FuncDef* Parser::makeFuncDef(const DeclResult& r, const Token& start, const DeclSpecs& ds) {
-		const FuncType* ft = r.type.func;
 		FuncDef* fn = arena.make<FuncDef>();
 		fn->name = *r.name;
-		fn->retType = ft->ret;
-		fn->params = ft->params;
-		fn->isVarArgs = ft->isVarArgs;
-		fn->unprototyped = ft->unprototyped;
+		fn->type = arena.make<FuncType>(*r.type.func);
 		fn->isExternInline = ds.isExtern && ds.isInline;
 		fn->isStatic = ds.isStatic;
 		fn->isNoInline = ds.isNoInline;
@@ -131,7 +128,7 @@ namespace rat::cc {
 					return fail(peek(), "expected parameter name");
 				adjustParamType(r.type);
 				B32 matched = false;
-				for(Param& p : fn->params) {
+				for(Param& p : fn->type->params) {
 					if(p.name && *p.name == *r.name) {
 						p.type = r.type;
 						matched = true;
@@ -143,7 +140,7 @@ namespace rat::cc {
 				if(!accept(TokKind::Comma))
 					break;
 			}
-			if(!expect(TokKind::Semicolon, "';'"))
+			if(!expect(TokKind::Semicolon))
 				return false;
 		}
 		return true;
@@ -208,7 +205,7 @@ namespace rat::cc {
 	// init-declarator [, init-declarator]... ;
 	// init-declarator: declarator function-declarator | declarator object-declarator
 	// a function body ends the list without the ;
-	// objects go to s, functions to the unit or, in a block, to blockProtos
+	// objects go to s, functions to the unit or, in a block, to blockProtos and s
 	B32 Parser::parseDeclarators(CType base, const Token& start, Stmt* s, TransUnit* unit) {
 		DeclSpecs ds = specs;
 		U32 align = specAlign;
@@ -226,17 +223,22 @@ namespace rat::cc {
 					return false;
 				if(defined)
 					return true;
+				if(!unit) {
+					Declarator d;
+					bindDeclarator(d, r);
+					s->decls.push_back(d);
+				}
 			} else if(!parseObjectDeclarator(r, start, ds, s, unit != nullptr)) {
 				return false;
 			}
 			if(!accept(TokKind::Comma))
 				break;
 		}
-		return expect(TokKind::Semicolon, "';'");
+		return expect(TokKind::Semicolon);
 	}
 
 	// static-assert | typedef | type-spec ; | type-spec declarators
-	// the Decl stmt lists the objects, functions go to the unit or, in a block, to blockProtos
+	// the Decl stmt lists the objects and block-scope functions, every function goes to the unit or blockProtos
 	Stmt* Parser::parseDeclaration(TransUnit* unit) {
 		Token start = peek();
 		if(check(TokKind::KwStaticAssert)) {
@@ -245,9 +247,10 @@ namespace rat::cc {
 			return makeStmt(StmtKind::Empty, start.offset);
 		}
 		if(check(TokKind::KwTypedef)) {
-			if(!parseTypedef())
+			Stmt* s = makeStmt(StmtKind::Empty, start.offset);
+			if(!parseTypedef(s))
 				return nullptr;
-			return makeStmt(StmtKind::Empty, start.offset);
+			return s;
 		}
 		CType base;
 		if(!parseTypeSpec(base))

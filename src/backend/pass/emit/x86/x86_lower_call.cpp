@@ -127,9 +127,7 @@ namespace rat {
 		call.isCall = true;
 		call.clobbers = callerSavedClobbers();
 
-		VReg target = kNoVReg;
-		if(c->isIndirect())
-			target = gpValue(c->getTarget());
+		VReg target = c->isIndirect() ? gpValue(c->getTarget()) : kNoVReg;
 
 		// classify and materialize every argument up front
 		X86ArgAssigner as(*conv);
@@ -143,9 +141,7 @@ namespace rat {
 		}
 		// a return in registers lands in the slot arg 0 points at
 		const AbiRegs& retRegs = c->getAbi().ret;
-		VReg retSlot = kNoVReg;
-		if(retRegs.count)
-			retSlot = gpValue(c->getArg(0));
+		VReg retSlot = retRegs.count ? gpValue(c->getArg(0)) : kNoVReg;
 		pushCallArgs(c, as, args);
 
 		call.uses = callUses(c, args, as.sseUsed);
@@ -245,8 +241,7 @@ namespace rat {
 			return;
 		VReg d = vregFor(vp);
 		if(isSseTy(rt)) {
-			U32 w = opWidth(rt);
-			movaps(d, xmm(0, w));
+			movaps(d, xmm(0, opWidth(rt)));
 		} else {
 			mov(d, RAX);
 			if(rt->isInt())
@@ -463,11 +458,7 @@ namespace rat {
 		agg.align = (U32)cast<ConstantNode>(c->getArg(2))->getValue();
 		agg.regs = c->getAbi().ret;
 		Node* vp = c->projection(CallNode::valueProjIndex());
-		MachineOperand def;
-		if(vp)
-			def = vr(vregFor(vp));
-		else
-			def = vr(fresh(detail::kGp));
+		MachineOperand def = vr(vp ? vregFor(vp) : fresh(detail::kGp));
 		VReg ptr = gpValue(c->getArg(0));
 		I64 desc = detail::packVaAggregate(agg);
 		MachineInstr& m = put(X86Op::VaArg, {def}, {vr(ptr)}, (I64)VaArgKind::Aggregate, desc);

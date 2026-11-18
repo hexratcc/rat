@@ -95,6 +95,7 @@ namespace rat::cc {
 				{"memset", ctVoidPtr()}, {"strcat", kCharPtr}, {"strchr", kCharPtr}, {"strcpy", kCharPtr},
 				{"strncat", kCharPtr}, {"strncpy", kCharPtr}, {"strrchr", kCharPtr}, {"strstr", kCharPtr},
 				{"abort", ctVoid()}, {"exit", ctVoid()}, {"free", ctVoid()}, {"longjmp", ctVoid()},
+				{"expect", ctInt64()}, {"constant_p", ctInt()},
 		};
 		// clang-format on
 		auto found = kTypes.find(stem);
@@ -123,6 +124,13 @@ namespace rat::cc {
 		return diag.fail("'" + *e->call.callee + "' expects one argument");
 	}
 
+	// the single argument of e, a null node after a diagnostic
+	Emitter::Value Emitter::emitOneArg(Function& fn, const Expr* e) {
+		if(!oneArg(e))
+			return {};
+		return emitExpr(fn, e->args[0]);
+	}
+
 	// a failed builtin still counts as handled
 	B32 Emitter::failBuiltin(const String& msg) {
 		diag.fail(msg);
@@ -132,11 +140,7 @@ namespace rat::cc {
 	B32 Emitter::emitVaBuiltin(Function& fn, const Expr* e, Value& out) {
 		List<Node*> args;
 		for(U32 i = 0; i < e->args.size(); ++i) {
-			Node* n;
-			if(i == 0)
-				n = vaListRef(fn, e->args[i]);
-			else
-				n = emitExpr(fn, e->args[i]).node;
+			Node* n = i == 0 ? vaListRef(fn, e->args[i]) : emitExpr(fn, e->args[i]).node;
 			if(!n)
 				return true;
 			args.push_back(n);
@@ -164,9 +168,7 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitAllocaBuiltin(Function& fn, const Expr* e, Value& out) {
-		if(!oneArg(e))
-			return true;
-		Value n = emitExpr(fn, e->args[0]);
+		Value n = emitOneArg(fn, e);
 		if(!n.node)
 			return true;
 		func.sawAlloca = true;
@@ -243,9 +245,7 @@ namespace rat::cc {
 		}
 		if(bits == 0)
 			return false;
-		if(!oneArg(e))
-			return true;
-		Value a = emitExpr(fn, e->args[0]);
+		Value a = emitOneArg(fn, e);
 		if(!a.node)
 			return true;
 		CType ut = ctUnsigned(bits);
@@ -292,9 +292,7 @@ namespace rat::cc {
 	B32 Emitter::emitBswapBuiltin(Function& fn, const Expr* e, Value& out) {
 		String widthDigits = e->call.callee->substr(sizeof("__builtin_bswap") - 1);
 		U32 bits = (U32)std::stoul(widthDigits);
-		if(!oneArg(e))
-			return true;
-		Value a = emitExpr(fn, e->args[0]);
+		Value a = emitOneArg(fn, e);
 		if(!a.node)
 			return true;
 		CType wt = ctUnsigned(bits == 16 ? 32 : bits);
@@ -334,9 +332,7 @@ namespace rat::cc {
 			kind = IsFinite;
 		else
 			return false;
-		if(!oneArg(e))
-			return true;
-		Value a = emitExpr(fn, e->args[0]);
+		Value a = emitOneArg(fn, e);
 		if(!a.node)
 			return true;
 		CType ft = isFloating(a.type) ? a.type : ctDouble();
@@ -441,9 +437,8 @@ namespace rat::cc {
 			return true;
 		if(name.rfind("__builtin_", 0) != 0)
 			return false;
-		if(emitBitCountBuiltin(fn, e, out) || emitOverflowBuiltin(fn, e, out))
-			return true;
-		if(emitFpClassBuiltin(fn, e, out))
+		if(emitBitCountBuiltin(fn, e, out) || emitOverflowBuiltin(fn, e, out) ||
+			 emitFpClassBuiltin(fn, e, out))
 			return true;
 		if(!detail::isKnownBuiltin(name))
 			return failBuiltin("unsupported builtin '" + name + "'");

@@ -79,15 +79,9 @@ namespace rat {
 			c.gpArgs = kSysVGpArgs;
 			c.gpArgCount = 6;
 			c.sseArgCount = 8;
-			c.sharedSlots = false;
-			c.x87ByRef = false;
-			c.shadowBytes = 0;
 			c.stackParamOff = 16;
-			c.homeOff = 0;
-			c.probeStack = false;
 			c.vaList = X86VaList::SysV;
 			c.alHoldsSseCount = true;
-			c.dupSseArgsInGp = false;
 			c.gpSaveBytes = 6 * 8;
 			c.sseSlotBytes = 16;
 			c.regSaveBytes = 6 * 8 + 8 * 16;
@@ -109,11 +103,7 @@ namespace rat {
 			c.homeOff = 16;
 			c.probeStack = true;
 			c.vaList = X86VaList::CharPtr;
-			c.alHoldsSseCount = false;
 			c.dupSseArgsInGp = true;
-			c.gpSaveBytes = 0;
-			c.sseSlotBytes = 0;
-			c.regSaveBytes = 0;
 			c.gpCalleeSaved = kWin64GpCalleeSaved;
 			c.gpCalleeSavedCount = 7;
 			c.sseVolatileCount = 6;
@@ -157,6 +147,18 @@ namespace rat {
 		I64 addend;
 	};
 
+	// [base + disp], or [base + index*(1<<scaleLog2) + disp] when indexed
+	struct Mem {
+		Reg base;
+		I32 disp = 0;
+		Reg index = (Reg)0;
+		U32 scaleLog2 = 0;
+		B32 indexed = false;
+	};
+
+	// the only way to build an indexed Mem, a bare index without indexed would encode wrong
+	Mem indexedMem(Reg base, Reg index, U32 scaleLog2, I32 disp);
+
 	// x86-64 instruction encoder, appends machine bytes to code and reloc records to relocs
 	struct Asm {
 		List<U8>& code;
@@ -195,18 +197,10 @@ namespace rat {
 			kMemW = 1,				// REX.W
 			kMemRexForce = 2, // emit REX even when it would be a bare 0x40
 			kMemEsc = 4,			// 0x0f two-byte opcode escape
-			kMemSib = 8,			// [base + index * scale + disp] instead of [base + disp]
 		};
 
-		// generic reg-mem opcode with optional prefix/escape/SIB (flags from MemFlags)
-		void memOp(U8 pfx,
-							 U8 flags,
-							 U8 opcode,
-							 U32 reg,
-							 Reg base,
-							 I32 disp,
-							 Reg index = (Reg)0,
-							 U32 scaleLog2 = 0);
+		// generic reg-mem opcode with optional prefix/escape (flags from MemFlags)
+		void memOp(U8 pfx, U8 flags, U8 opcode, U32 reg, const Mem& mem);
 		void memImmTail(I64 imm, U32 width);
 		static U8 opSizePrefix(U32 width);
 		static U8 memStoreFlags(U32 width, Reg src);
@@ -216,17 +210,14 @@ namespace rat {
 		void movRR(Reg dst, Reg src);
 		void movsxd32(Reg dst, Reg src);
 
-		void storeMem(Reg base, I32 disp, Reg src, U32 width);
-		void storeMemSib(Reg base, Reg index, U32 scaleLog2, I32 disp, Reg src, U32 width);
-		void storeMemImmSib(Reg base, Reg index, U32 scaleLog2, I32 disp, I64 imm, U32 width);
-		// mov imm, [base+disp]
-		void storeMemImm(Reg base, I32 disp, I64 imm, U32 width);
+		void storeMem(const Mem& mem, Reg src, U32 width);
+		// mov imm, [mem]
+		void storeMemImm(const Mem& mem, I64 imm, U32 width);
 
 		void load64(Reg dst, Reg base, I32 disp);
 		// REX.W / opcode (and the 0x0f escape) for a width-and-sign extending load
 		static void loadExtForm(U32 width, B32 sign, U8& flags, U8& opcode);
-		void loadExt(Reg dst, Reg base, I32 disp, U32 width, B32 sign);
-		void loadExtSib(Reg dst, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width, B32 sign);
+		void loadExt(Reg dst, const Mem& mem, U32 width, B32 sign);
 
 		void aluRR(U8 op, Reg dst, Reg src);
 		void subRR(Reg d, Reg s);
@@ -273,9 +264,7 @@ namespace rat {
 		void ud2();
 		void repMovsq();
 
-		void leaMem(Reg dst, Reg base, I32 disp);
-		// lea dst, [base + index*(1<<scaleLog2) + disp]
-		void leaSib(Reg dst, Reg base, Reg index, U32 scaleLog2, I32 disp);
+		void leaMem(Reg dst, const Mem& mem);
 		void leaRipSym(Reg dst, const String& sym, I64 addend);
 
 		void pushPop(U8 base, Reg r);
@@ -301,10 +290,8 @@ namespace rat {
 
 		static U8 ssePrefixByte(U32 width);
 		// movss, movsd or movups by width
-		void loadXmm(U32 xmm, Reg base, I32 disp, U32 width);
-		void storeXmm(U32 xmm, Reg base, I32 disp, U32 width);
-		void storeXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width);
-		void loadXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width);
+		void loadXmm(U32 xmm, const Mem& mem, U32 width);
+		void storeXmm(U32 xmm, const Mem& mem, U32 width);
 		void loadXmmRipSym(U32 xmm, const String& sym, U32 width);
 		// packed SSE op with an explicit mandatory prefix and escape byte 0x38 or 0x3a, 0 = none
 		void ssePacked(U8 pfx, U8 op, U32 dst, U32 src, U8 esc);
@@ -328,10 +315,9 @@ namespace rat {
 		void x87Mem(U8 esc, U8 reg, Reg base, I32 disp);
 		void fldT(Reg base, I32 disp);
 		void fstpT(Reg base, I32 disp);
-		void fldD(Reg base, I32 disp);
-		void fstpD(Reg base, I32 disp);
-		void fldL(Reg base, I32 disp);
-		void fstpL(Reg base, I32 disp);
+		// m32fp when width is 4, else m64fp
+		void fldFloat(Reg base, I32 disp, U32 width);
+		void fstpFloat(Reg base, I32 disp, U32 width);
 		void fildQ(Reg base, I32 disp);
 		void fistpQ(Reg base, I32 disp);
 		void fnstcw(Reg base, I32 disp);

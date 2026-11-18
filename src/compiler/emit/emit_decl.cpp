@@ -15,94 +15,49 @@ namespace rat::cc {
 		return registerGlobal(d, sym, &fn);
 	}
 
-	B32 Emitter::declIsVla(const Declarator& d, I64& count) {
-		count = 0;
-		B32 outerVla = d.arrayLen && !evalConst(d.arrayLen, count);
-		return outerVla || isVlaType(d.type);
-	}
-
 	B32 Emitter::emitVlaDecl(Function& fn, const Declarator& d) {
-		Node* elemBytes = emitArrayByteSize(fn, d.type);
+		CType elem = arrayElem(d.type);
+		if(!bindVlaDims(&fn, elem))
+			return false;
+		Node* elemBytes = emitArrayByteSize(fn, elem);
 		if(!elemBytes)
 			return false;
 		Node* bytes = elemBytes;
-		if(d.arrayLen) {
-			Value v = emitExpr(fn, d.arrayLen);
-			if(!v.node)
+		if(d.type.array->countExpr) {
+			Node* len = vlaDimCount(fn, d.type);
+			if(!len)
 				return false;
-			Node* len = convert(fn, v.node, v.type, ctSize());
 			bytes = fn.mul(len, elemBytes);
 		}
 		Node* slot = fn.stackAlloc(bytes);
 		func.sp = slot; // the block's exit restore hands this storage back
-		Local loc = Local::memArray(slot, d.type);
+		Local loc = Local::mem(slot, sizedArray(arena, d.type, 0)); // debug info gets no outer bound
 		loc.lengthNode = bytes;
 		func.scopes.set(*d.name, loc);
 		return true;
 	}
 
 	B32 Emitter::declareExtern(Function& fn, const Declarator& d) {
-		Node* addr = fn.global(*d.name);
-		GlobalVariable gv{d.type, d.isArray, 0};
+		CType type = d.type;
 		auto g = syms.globals.find(*d.name);
 		if(g != syms.globals.end())
-			gv = g->second;
-		if(gv.isArray)
-			func.scopes.set(*d.name, Local::memArray(addr, gv.type, gv.count));
-		else if(isArrayType(gv.type))
-			func.scopes.set(*d.name, Local::memArray(addr, arrayElem(gv.type)));
-		else
-			func.scopes.set(*d.name, Local::mem(addr, gv.type));
+			type = g->second.type;
+		func.scopes.set(*d.name, Local::mem(fn.global(*d.name), type));
 		return true;
 	}
 
 	B32 Emitter::declareDead(Function& fn, const Stmt* s) {
-		for(const Declarator& d : s->decls) {
-			if(d.isExtern || d.isStatic) {
-				if(!emitOneDecl(fn, d))
-					return false;
-				continue;
-			}
-			if(d.isArray) {
-				I64 count;
-				if(declIsVla(d, count)) {
-					if(!emitVlaDecl(fn, d))
-						return false;
-					continue;
-				}
-				if(d.arrayLen) {
-					if(count <= 0)
-						return failArrayCount();
-				} else if(d.init && d.init->kind == ExprKind::InitList) {
-					count = (I64)d.init->args.size();
-				} else {
-					return failArrayUnknownSize(*d.name);
-				}
-				U32 total = (U32)count * byteSize(d.type);
-				Node* slot = declSlot(fn, d, byteArrayType(total), total);
-				func.scopes.set(*d.name, Local::memArray(slot, d.type, (U32)count));
-				continue;
-			}
-			if(isAggregate(d.type)) {
-				Node* slot = declSlot(fn, d, byteArrayType(d.type.strukt->size), d.type.strukt->size);
-				func.scopes.set(*d.name, Local::mem(slot, d.type));
-				continue;
-			}
-			if(isArrayType(d.type)) {
-				Node* slot = declSlot(fn, d, byteArrayType(byteSize(d.type)), byteSize(d.type));
-				func.scopes.set(*d.name, Local::memArray(slot, arrayElem(d.type)));
-				continue;
-			}
-			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
-			func.scopes.set(*d.name, Local::mem(slot, d.type));
-		}
+		B32 live = false;
+		for(const Declarator& d : s->decls)
+			if(!emitOneDecl(fn, d, live))
+				return false;
 		return true;
 	}
 
-	B32 Emitter::emitComplexDecl(Function& fn, const Declarator& d) {
+	B32 Emitter::emitComplexDecl(Function& fn, const Declarator& d, B32 live) {
 		CType ct = completeComplex(d.type);
 		Node* slot = declSlot(fn, d, byteArrayType(ct.strukt->size), ct.strukt->size);
-		if(d.init) {
+		if(live && d.init) {
 			if(d.init->kind == ExprKind::InitList) {
 				CType re = complexElem(ct);
 				zeroSlot(fn, slot, ct.strukt->size);
@@ -124,14 +79,14 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::emitStructDecl(Function& fn, const Declarator& d) {
+	B32 Emitter::emitStructDecl(Function& fn, const Declarator& d, B32 live) {
 		Node* slot = declSlot(fn, d, byteArrayType(d.type.strukt->size), d.type.strukt->size);
-		if(d.init && d.init->kind == ExprKind::InitList) {
+		if(live && d.init && d.init->kind == ExprKind::InitList) {
 			zeroSlot(fn, slot, d.type.strukt->size);
 			StoreSink sink(*this, fn, slot);
 			if(!initStructInit(sink, 0, d.type.strukt, d.init))
 				return false;
-		} else if(d.init) {
+		} else if(live && d.init) {
 			Value v = emitExpr(fn, d.init);
 			if(!v.node)
 				return false;
@@ -143,59 +98,19 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::emitTypedefArrayDecl(Function& fn, const Declarator& d) {
-		if(d.init)
-			return diag.fail("invalid initializer for array variable '" + *d.name + "'");
-		Node* slot = declSlot(fn, d, byteArrayType(byteSize(d.type)), byteSize(d.type));
-		func.scopes.set(*d.name, Local::memArray(slot, arrayElem(d.type)));
-		return true;
-	}
-
-	B32 Emitter::emitAggArrayDecl(Function& fn, const Declarator& d, I64 count, B32 haveLen) {
-		if(!haveLen) {
-			if(!d.init || d.init->kind != ExprKind::InitList)
-				return failArrayUnknownSize(*d.name);
-			count = (I64)initArrayCount(d.type, d.init);
-		}
-		if(isStruct(d.type) && count <= 0)
-			return failArrayCount();
-		U32 elemSize = byteSize(d.type);
-		U32 total = (U32)count * elemSize;
-		Node* slot = declSlot(fn, d, byteArrayType(total), total);
-		zeroSlot(fn, slot, total);
-		StoreSink sink(*this, fn, slot);
-		if(d.init && !initArrayInit(sink, 0, d.type, (U32)count, d.init))
+	B32 Emitter::emitStringArrayDecl(Function& fn, const Declarator& d, I64 count, B32 live) {
+		CType elem = arrayElem(d.type);
+		Type* elemTy = irType(elem);
+		U32 elemSize = byteSize(elem);
+		U32 cw = d.init->str.isWide ? d.init->str.charSize : 1u;
+		if(!checkStringElem(elem, cw))
 			return false;
-		func.scopes.set(*d.name, Local::memArray(slot, d.type, (U32)count));
-		return true;
-	}
-
-	B32 Emitter::emitArrayDecl(Function& fn, const Declarator& d) {
-		if(!d.isArray && isArrayType(d.type))
-			return emitTypedefArrayDecl(fn, d);
-		B32 haveLen = d.arrayLen != nullptr;
-		I64 count;
-		if(declIsVla(d, count)) {
-			if(d.init)
-				return diag.fail("a variable-length array may not be initialized");
-			return emitVlaDecl(fn, d);
-		}
-		if(haveLen && count <= 0)
-			return failArrayCount();
-		if(isArrayType(d.type) || isStruct(d.type))
-			return emitAggArrayDecl(fn, d, count, haveLen);
-		Type* elemTy = irType(d.type);
-		U32 elemSize = byteSize(d.type);
-
-		if(d.init && d.init->kind == ExprKind::StrLit) {
-			U32 cw = d.init->str.isWide ? d.init->str.charSize : 1u;
-			if(d.type.ptr != 0 || d.type.bits != cw * 8)
-				return failStringNeedsCharArray();
-			const String& bytes = *d.init->str.bytes;
-			I64 nchars = (I64)bytes.size() / (I64)cw;
-			if(!haveLen)
-				count = nchars + 1;
-			Node* slot = declSlot(fn, d, mod.getArray(elemTy, (U32)count), (U32)count * elemSize);
+		const String& bytes = *d.init->str.bytes;
+		I64 nchars = (I64)bytes.size() / (I64)cw;
+		if(isUnsizedArray(d.type))
+			count = nchars + 1;
+		Node* slot = declSlot(fn, d, mod.getArray(elemTy, (U32)count), (U32)count * elemSize);
+		if(live) {
 			for(I64 i = 0; i < count; ++i) {
 				I64 val = 0;
 				if(i < nchars)
@@ -203,48 +118,72 @@ namespace rat::cc {
 						val |= (I64)(U8)bytes[(U32)(i * cw + k)] << (8 * k);
 				fn.store(offsetPtr(fn, slot, (U64)i * elemSize), fn.constInt(elemTy, val));
 			}
-			func.scopes.set(*d.name, Local::memArray(slot, d.type, (U32)count));
-			return true;
 		}
-
-		if(d.init && d.init->kind == ExprKind::InitList) {
-			const List<Expr*>& els = d.init->args;
-			List<I64> idx;
-			if(!resolveArrayIndices(d.init, haveLen, count, idx))
-				return false;
-			Node* slot = declSlot(fn, d, mod.getArray(elemTy, (U32)count), (U32)count * elemSize);
-			zeroSlot(fn, slot, (U32)count * elemSize);
-			for(U32 i = 0; i < els.size(); ++i) {
-				Value v = emitExpr(fn, els[i]);
-				if(!v.node)
-					return false;
-				Node* val = convert(fn, v.node, v.type, d.type);
-				fn.store(offsetPtr(fn, slot, (U64)idx[i] * elemSize), val);
-			}
-			func.scopes.set(*d.name, Local::memArray(slot, d.type, (U32)count));
-			return true;
-		}
-
-		if(d.init)
-			return diag.fail("invalid initializer for an array");
-		if(!haveLen)
-			return failArrayUnknownSize(*d.name);
-		Node* slot = declSlot(fn, d, mod.getArray(elemTy, (U32)count), (U32)count * elemSize);
-		func.scopes.set(*d.name, Local::memArray(slot, d.type, (U32)count));
+		func.scopes.set(*d.name, Local::mem(slot, sizedArray(arena, d.type, (U64)count)));
 		return true;
 	}
 
-	B32 Emitter::emitOneDecl(Function& fn, const Declarator& d) {
+	B32 Emitter::emitArrayDecl(Function& fn, const Declarator& d, B32 live) {
+		CType elem = arrayElem(d.type);
+		B32 scalarElem = !isArrayType(elem) && !isStruct(elem);
+		B32 haveLen = !isUnsizedArray(d.type);
+		I64 count;
+		if(!arrayBound(d.type, count) || hasVlaDim(elem)) {
+			if(live && d.init)
+				return diag.fail("a variable-length array may not be initialized");
+			return emitVlaDecl(fn, d);
+		}
+		if(haveLen && count <= 0)
+			return failArrayCount();
+		if(scalarElem && d.init && d.init->kind == ExprKind::StrLit)
+			return emitStringArrayDecl(fn, d, count, live);
+		B32 isList = d.init && d.init->kind == ExprKind::InitList;
+		if(scalarElem && live && d.init && !isList)
+			return diag.fail("invalid initializer for an array");
+		if(!haveLen) {
+			if(!isList)
+				return failArrayUnknownSize(*d.name);
+			count = (I64)initArrayCount(elem, d.init);
+		}
+		if(!isArrayType(elem) && count <= 0)
+			return failArrayCount();
+		U32 total = (U32)count * byteSize(elem);
+		Type* type = scalarElem ? mod.getArray(irType(elem), (U32)count) : byteArrayType(total);
+		Node* slot = declSlot(fn, d, type, total);
+		if(live && (d.init || !scalarElem)) {
+			zeroSlot(fn, slot, total);
+			StoreSink sink(*this, fn, slot);
+			if(d.init && !initArrayInit(sink, 0, elem, (U32)count, d.init))
+				return false;
+		}
+		func.scopes.set(*d.name, Local::mem(slot, sizedArray(arena, d.type, (U64)count)));
+		return true;
+	}
+
+	B32 Emitter::emitOneDecl(Function& fn, const Declarator& d, B32 live) {
+		if(d.type.func && d.type.ptr == 0) {
+			Local proto;
+			proto.kind = Local::Kind::Function;
+			func.scopes.set(*d.name, proto);
+			return true;
+		}
+		if(d.isTypedef)
+			return bindVlaDims(&fn, d.type);
 		if(d.isExtern)
 			return declareExtern(fn, d);
 		if(d.isStatic)
 			return declareStatic(fn, d);
-		if(!d.isArray && isComplexType(d.type))
-			return emitComplexDecl(fn, d);
-		if(!d.isArray && isStruct(d.type))
-			return emitStructDecl(fn, d);
-		if(isArrayType(d.type) || d.isArray)
-			return emitArrayDecl(fn, d);
+		if(isArrayType(d.type))
+			return emitArrayDecl(fn, d, live);
+		if(isComplexType(d.type))
+			return emitComplexDecl(fn, d, live);
+		if(isStruct(d.type))
+			return emitStructDecl(fn, d, live);
+		if(!live) {
+			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
+			func.scopes.set(*d.name, Local::mem(slot, d.type));
+			return true;
+		}
 		if(d.init && exprRefersTo(d.init, *d.name)) {
 			Node* slot = declSlot(fn, d, irType(d.type), byteSize(d.type));
 			func.scopes.set(*d.name, Local::mem(slot, d.type));

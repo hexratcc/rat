@@ -75,7 +75,6 @@ namespace rat {
 	} // namespace detail
 
 	struct FoldPass : FunctionPass {
-		const C8* name() const override;
 		U32 runOnFunction(Function& fn, const TargetInfo& target) override;
 	private:
 		void push(Node* n);

@@ -24,7 +24,6 @@ namespace rat {
 			void work(const TestSuiteSpec& spec, const List<String>& cases);
 		};
 
-		B32 hasSuffix(const String& s, const C8* suffix);
 		void collectCases(const String& dir, const C8* ext, List<String>& out);
 		String findDir(const List<String>& candidates);
 	} // namespace detail

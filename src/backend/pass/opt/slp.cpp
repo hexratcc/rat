@@ -67,8 +67,6 @@ namespace rat {
 		return narrow | t->isInt(32) * kInt32 | t->isInt(64) * kInt64;
 	}
 
-	const C8* SlpPass::name() const { return "slp"; }
-
 	void SlpPass::printStats(const Module&, std::ostream& os) const {
 		os << "slp: windows " << packedWindows;
 		os << " reductions " << packedReductions << "\n";

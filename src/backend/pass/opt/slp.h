@@ -32,7 +32,6 @@ namespace rat {
 		using Lanes = SmallList<Node*, kMaxLanes>;
 		using Terms = SmallList<Node*, 16>;
 
-		const C8* name() const override;
 		void printStats(const Module& module, std::ostream& os) const override;
 		U32 runOnFunction(Function& function, const TargetInfo& target) override;
 	private:

@@ -105,8 +105,6 @@ namespace rat {
 		}
 	} // namespace detail
 
-	const C8* StrengthReducePass::name() const { return "strengthreduce"; }
-
 	// turn an i32 IV read only by its loop test, sexts and p + k sums into an i64 IV
 	U32 StrengthReducePass::widen(Function& fn, PhiNode* p, I64 step, U32 recIdx) {
 		CompareNode* cmp = detail::loopTest(p, recIdx);

@@ -80,6 +80,13 @@ namespace rat::cc {
 			return t;
 		}
 
+		PpToken Preprocessor::makeTokenAt(Pk kind, const String& text, const PpToken& at) {
+			PpToken t = makeToken(kind, text);
+			t.line = at.line;
+			t.col = at.col;
+			return t;
+		}
+
 		List<PpToken> Preprocessor::lexFragment(const String& text, const String* file) {
 			String spliced;
 			List<LineMark> marks;
@@ -303,39 +310,42 @@ namespace rat::cc {
 			return true;
 		}
 
-		void Preprocessor::emitAttrMarkers(const PpToken& at, const ArgLists& raw, List<PpToken>& os) {
-			B32 noinl = false;
-			const PpToken* aliasTarget = nullptr;
+		AttrArgs Preprocessor::scanAttrArgs(const ArgLists& raw) {
+			AttrArgs attr;
 			for(const List<PpToken>& arg : raw) {
 				for(U32 i = 0; i < arg.size(); ++i) {
 					const PpToken& w = arg[i];
 					if(w.kind != Pk::Id)
 						continue;
 					if(w.text == idNoinline || w.text == idNoinline2)
-						noinl = true;
+						attr.noinline = true;
 					B32 isAlias = (w.text == idAlias || w.text == idAlias2) && i + 2 < arg.size();
 					if(isAlias && isPunct(arg[i + 1], "(") && arg[i + 2].kind == Pk::Str)
-						aliasTarget = &arg[i + 2];
+						attr.aliasTarget = &arg[i + 2];
+					B32 isAligned = (w.text == idAligned || w.text == idAligned2) && i + 1 < arg.size();
+					if(!isAligned || !isPunct(arg[i + 1], "("))
+						continue;
+					U32 e = matchParen(arg, i + 1);
+					if(e < arg.size())
+						attr.alignParens = PpSpan(&arg[i + 1], &arg[e] + 1);
 				}
 			}
-			if(noinl) {
+			return attr;
+		}
+
+		void Preprocessor::emitAttrMarkers(const PpToken& at, const AttrArgs& attr, List<PpToken>& os) {
+			if(attr.noinline) {
 				PpToken n = at;
 				n.text = idNoinlineMark;
 				os.push_back(n);
 			}
-			if(aliasTarget) {
+			if(attr.aliasTarget) {
 				PpToken n = at;
 				n.text = idAliasMark;
 				os.push_back(n);
-				PpToken lp = makeToken(Pk::Punct, "(");
-				PpToken rp = makeToken(Pk::Punct, ")");
-				lp.line = at.line;
-				lp.col = at.col;
-				rp.line = at.line;
-				rp.col = at.col;
-				os.push_back(lp);
-				os.push_back(*aliasTarget);
-				os.push_back(rp);
+				os.push_back(makeTokenAt(Pk::Punct, "(", at));
+				os.push_back(*attr.aliasTarget);
+				os.push_back(makeTokenAt(Pk::Punct, ")", at));
 			}
 		}
 
@@ -357,50 +367,29 @@ namespace rat::cc {
 		B32 Preprocessor::expandBuiltinName(const PpToken& t, List<PpToken>& os) {
 			PpToken n;
 			if(t.text == idLine) {
-				n = makeToken(Pk::Num, std::to_string((U64)((I64)t.line + lineDelta)));
+				n = makeTokenAt(Pk::Num, std::to_string((U64)((I64)t.line + lineDelta)), t);
 			} else if(t.text == idFile) {
 				String file = fileName;
 				if(file.empty() && t.file)
 					file = *t.file;
-				n = makeToken(Pk::Str, "\"" + file + "\"");
+				n = makeTokenAt(Pk::Str, "\"" + file + "\"", t);
 			} else {
 				return false;
 			}
-			n.line = t.line;
-			n.col = t.col;
 			n.spaceBefore = t.spaceBefore;
 			n.bol = t.bol;
 			os.push_back(n);
 			return true;
 		}
 
-		void Preprocessor::requeueAlignas(const PpToken& at, const ArgLists& raw, List<PpToken>& work) {
-			const List<PpToken>* alignArg = nullptr;
-			U32 alignAt = 0;
-			U32 alignEnd = 0;
-			for(const List<PpToken>& arg : raw) {
-				for(U32 i = 0; i < arg.size(); ++i) {
-					const PpToken& w = arg[i];
-					if(w.kind != Pk::Id || (w.text != idAligned && w.text != idAligned2))
-						continue;
-					if(i + 1 >= arg.size() || !isPunct(arg[i + 1], "("))
-						continue;
-					U32 e = matchParen(arg, i + 1);
-					if(e < arg.size()) {
-						alignArg = &arg;
-						alignAt = i + 1;
-						alignEnd = e;
-					}
-				}
-			}
-			if(!alignArg)
+		void Preprocessor::requeueAlignas(const PpToken& at, PpSpan alignParens, List<PpToken>& work) {
+			if(alignParens.empty())
 				return;
 			List<PpToken> r;
 			PpToken n = at;
 			n.text = idAlignas;
 			r.push_back(n);
-			for(U32 i = alignAt; i <= alignEnd; ++i)
-				r.push_back((*alignArg)[i]);
+			r.insert(r.end(), alignParens.b, alignParens.e);
 			requeueExpansion(r, at, work);
 		}
 
@@ -449,8 +438,9 @@ namespace rat::cc {
 				// as marker keywords and aligned(n) as the equivalent _Alignas(n), so the
 				// parser can honor all three
 				if(t.text == idAttr || t.text == idAttr2) {
-					emitAttrMarkers(t, raw, os);
-					requeueAlignas(t, raw, work);
+					AttrArgs attr = scanAttrArgs(raw);
+					emitAttrMarkers(t, attr, os);
+					requeueAlignas(t, attr.alignParens, work);
 					continue;
 				}
 				const HideSet* hs = hideInsert(hideIntersect(t.hide, rparen.hide), t.text);

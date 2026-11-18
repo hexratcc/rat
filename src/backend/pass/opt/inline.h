@@ -22,7 +22,6 @@ namespace rat {
 		static constexpr U32 kMaxInlinesPerFunction = 256; // per-caller fuel
 		static constexpr U32 kCallerGrowthBudget = 768;		 // max nodes a caller may gain
 
-		const C8* name() const override;
 		void beginModule(Module& module, const CallGraph& graph) override;
 		U32 runOnFunction(Function& caller, const TargetInfo& target) override;
 		B32 onlyReadsFunction() const override { return false; } // reads callees

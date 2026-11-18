@@ -15,12 +15,39 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::identIsArray(const String& name) {
-		Local loc;
-		if(func.scopes.lookup(name, loc))
-			return loc.isArray;
-		auto gv = syms.globals.find(name);
-		return gv != syms.globals.end() && gv->second.isArray;
+	Symbol Emitter::lookupSymbol(const String& name) {
+		Symbol sym;
+		const Local* local = func.scopes.get(name);
+		if(local && local->kind != Local::Kind::Function) {
+			sym.kind = Symbol::Kind::Local;
+			sym.local = local;
+			sym.type = local->type;
+			return sym;
+		}
+		auto global = syms.globals.find(name);
+		if(!local && global != syms.globals.end()) {
+			sym.kind = Symbol::Kind::Global;
+			sym.type = global->second.type;
+			return sym;
+		}
+		auto function = syms.functions.find(name);
+		if(function != syms.functions.end()) {
+			sym.kind = Symbol::Kind::Function;
+			sym.type = funcPtrType(function->second);
+		}
+		return sym;
+	}
+
+	// false when the base has no type, field is null when there is no such member
+	B32 Emitter::memberField(const Expr* e, CType& structType, const Field*& field) {
+		field = nullptr;
+		CType base;
+		if(!typeOf(e->member.base, base))
+			return false;
+		structType = e->member.arrow ? pointee(base) : base;
+		if(structType.strukt)
+			field = structType.strukt->find(*e->member.name);
+		return true;
 	}
 
 	B32 Emitter::sizeofOperand(const Expr* operand, U64& out) {
@@ -29,45 +56,23 @@ namespace rat::cc {
 			return true;
 		}
 		if(operand->kind == ExprKind::Ident) {
-			const String& name = *operand->ident.name;
-			Local loc;
-			B32 isLocal = func.scopes.lookup(name, loc);
-			if(isLocal && loc.isArray) {
-				if(loc.lengthNode)
-					return false;
-				out = loc.count * byteSize(loc.type);
-				return true;
-			}
-			auto gv = syms.globals.find(name);
-			if(gv != syms.globals.end()) {
-				if(gv->second.isArray) {
-					out = gv->second.count * byteSize(gv->second.type);
-					return true;
-				}
-			} else if(!isLocal && syms.functions.count(name)) {
+			Symbol sym = lookupSymbol(*operand->ident.name);
+			if(sym.local && sym.local->lengthNode)
+				return false;
+			if(sym.kind == Symbol::Kind::Function) {
 				out = 1;
 				return true;
 			}
 		}
-		if(operand->kind == ExprKind::Member) {
-			CType base;
-			if(!typeOf(operand->member.base, base))
-				return false;
-			CType st = operand->member.arrow ? pointee(base) : base;
-			if(isStruct(st)) {
-				const Field* f = st.strukt->find(*operand->member.name);
-				if(f && f->isArray()) {
-					out = f->count * byteSize(f->type);
-					return true;
-				}
-				if(f && isArrayType(f->type)) {
-					out = byteSize(f->type);
-					return true;
-				}
-			}
+		if(operand->kind == ExprKind::CompoundLit && isArrayType(operand->compound.type)) {
+			I64 count;
+			if(!compoundArrayCount(operand, count))
+				return failArrayCount();
+			out = (U64)count * byteSize(arrayElem(operand->compound.type));
+			return true;
 		}
 		CType t;
-		if(!typeOf(operand, t))
+		if(!typeOfObject(operand, t))
 			return false;
 		out = byteSize(t);
 		return true;
@@ -118,8 +123,6 @@ namespace rat::cc {
 		CType ctrl;
 		if(!typeOf(e->generic.control, ctrl))
 			return nullptr;
-		if(isArrayType(ctrl))
-			ctrl = decay(ctrl);
 		clearTopConst(ctrl);
 		clearTopVolatile(ctrl);
 
@@ -144,8 +147,12 @@ namespace rat::cc {
 		}
 		const Expr* operand = e->unary.operand;
 		CType t;
-		if(!typeOf(operand, t))
+		if(e->unary.op == ExprOp::Addr) {
+			if(!typeOfObject(operand, t))
+				return false;
+		} else if(!typeOf(operand, t)) {
 			return false;
+		}
 		switch(e->unary.op) {
 		case ExprOp::PreInc:
 		case ExprOp::PreDec:
@@ -154,18 +161,13 @@ namespace rat::cc {
 			out = t;
 			return true;
 		case ExprOp::Addr:
-			if(operand->kind == ExprKind::Ident && identIsArray(*operand->ident.name))
-				out = t;
-			else
-				out = pointerTo(t);
+			out = pointerTo(t);
 			return true;
 		case ExprOp::Deref:
 			if(t.func && t.ptr == 1) {
 				out = t;
 				return true;
 			}
-			if(isArrayType(t))
-				t = decay(t);
 			if(!isPointer(t))
 				return diag.fail("indirection requires a pointer operand");
 			out = pointee(t);
@@ -220,6 +222,15 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::typeOf(const Expr* e, CType& out) {
+		if(!typeOfObject(e, out))
+			return false;
+		if(isArrayType(out))
+			out = decay(out);
+		return true;
+	}
+
+	// an array keeps its type
+	B32 Emitter::typeOfObject(const Expr* e, CType& out) {
 		diag.offset = e->offset;
 		switch(e->kind) {
 		case ExprKind::IntLit:
@@ -244,51 +255,21 @@ namespace rat::cc {
 			}
 			return true;
 		case ExprKind::Ident: {
-			Local loc;
-			if(func.scopes.lookup(*e->ident.name, loc)) {
-				out = loc.isArray ? pointerTo(loc.type) : loc.type;
-				return true;
-			}
-			auto g = syms.globals.find(*e->ident.name);
-			if(g != syms.globals.end()) {
-				out = g->second.isArray ? pointerTo(g->second.type) : g->second.type;
-				return true;
-			}
-			auto f = syms.functions.find(*e->ident.name);
-			if(f != syms.functions.end()) {
-				out = funcPtrType(f->second);
-				return true;
-			}
-			return failUndeclared(*e->ident.name);
+			Symbol sym = lookupSymbol(*e->ident.name);
+			if(sym.kind == Symbol::Kind::None)
+				return failUndeclared(*e->ident.name);
+			out = sym.type;
+			return true;
 		}
 		case ExprKind::Call: {
 			if(e->call.callee) {
-				if(*e->call.callee == "__builtin_expect") {
-					out = ctInt64();
-					return true;
-				}
-				if(*e->call.callee == "__builtin_constant_p") {
-					out = ctInt();
-					return true;
-				}
-				auto found = syms.functions.find(*e->call.callee);
-				if(found != syms.functions.end()) {
-					out = found->second.returnType;
-					return true;
-				}
-				if(builtinReturnType(*e->call.callee, lay.longBits, out))
-					return true;
-				Local loc;
-				if(func.scopes.lookup(*e->call.callee, loc) && isFuncPtr(loc.type)) {
-					out = loc.type.func->ret;
-					return true;
-				}
-				auto g = syms.globals.find(*e->call.callee);
-				if(g != syms.globals.end() && !g->second.isArray && isFuncPtr(g->second.type)) {
-					out = g->second.type.func->ret;
+				Symbol sym = lookupSymbol(*e->call.callee);
+				if(isFuncPtr(sym.type)) {
+					out = sym.type.func->ret;
 					return true;
 				}
 				out = ctInt();
+				builtinReturnType(*e->call.callee, lay.longBits, out);
 				return true;
 			}
 			CType t;
@@ -321,25 +302,21 @@ namespace rat::cc {
 		case ExprKind::Comma:
 			return typeOf(e->comma.rhs, out);
 		case ExprKind::Member: {
-			CType base;
-			if(!typeOf(e->member.base, base))
+			CType st;
+			const Field* f;
+			if(!memberField(e, st, f))
 				return false;
-			CType st = e->member.arrow ? pointee(base) : base;
 			if(!isStruct(st))
 				return diag.fail("member reference base type is not a struct or union");
-			const Field* f = st.strukt->find(*e->member.name);
 			if(!f)
 				return diag.fail("no member named '" + *e->member.name + "' in '" + typeName(st) + "'");
-			if(f->isArray())
-				out = pointerTo(f->type);
-			else
-				out = isArrayType(f->type) ? decay(f->type) : f->type;
+			out = f->type;
 			return true;
 		}
 		case ExprKind::InitList:
 			return diag.fail("initializer list has no type");
 		case ExprKind::CompoundLit:
-			out = e->compound.isArray ? pointerTo(e->compound.type) : e->compound.type;
+			out = e->compound.type;
 			return true;
 		case ExprKind::StmtExpr: {
 			const List<Stmt*>& stmts = e->stmtExpr.body->body;
@@ -355,7 +332,7 @@ namespace rat::cc {
 			const Expr* sel = genericSelect(e);
 			if(!sel)
 				return false;
-			return typeOf(sel, out);
+			return typeOfObject(sel, out);
 		}
 		}
 		return false;

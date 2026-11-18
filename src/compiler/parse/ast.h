@@ -180,7 +180,6 @@ namespace rat::cc {
 
 	struct Field {
 		enum Mods : U8 {
-			Array = 1u << 0,			// count is the element count
 			Bitfield = 1u << 1,		// bitWidth/bitOffset are meaningful
 			AnonMember = 1u << 2, // lifted out of an anonymous struct/union
 			AnonFirst = 1u << 3,	// first field of its anonymous group
@@ -190,7 +189,6 @@ namespace rat::cc {
 		const String* name = nullptr;
 		CType type;
 		U64 offset = 0;
-		U64 count = 0;
 		U32 bitWidth = 0;
 		U32 bitOffset = 0;
 		U8 mods = 0;
@@ -199,7 +197,6 @@ namespace rat::cc {
 		constexpr void set(Mods m, B32 on = true) {
 			mods = on ? (U8)(mods | (U8)m) : (U8)(mods & ~(U8)m);
 		}
-		constexpr B32 isArray() const { return has(Array); }
 		constexpr B32 isBitfield() const { return has(Bitfield); }
 		constexpr B32 anonMember() const { return has(AnonMember); }
 		constexpr B32 anonFirst() const { return has(AnonFirst); }
@@ -225,15 +222,30 @@ namespace rat::cc {
 	struct ArrayType {
 		CType elem;
 		U64 count = 0;
-		const Expr* countExpr = nullptr;
+		const Expr* countExpr = nullptr; // bound as written, a VLA bound when count is 0
 	};
 
 	inline B32 isVlaType(CType t) {
-		return t.ptr == 0 && t.array != nullptr && t.array->countExpr != nullptr;
+		if(t.ptr != 0 || t.array == nullptr)
+			return false;
+		return t.array->count == 0 && t.array->countExpr != nullptr;
+	}
+	// [] with no bound, the initializer gives the length
+	inline B32 isUnsizedArray(CType t) {
+		if(t.ptr != 0 || t.array == nullptr)
+			return false;
+		return t.array->count == 0 && !t.array->countExpr;
 	}
 	inline B32 hasVlaDim(CType t) {
 		for(CType c = t; c.ptr == 0 && c.array != nullptr; c = c.array->elem)
-			if(c.array->countExpr != nullptr)
+			if(isVlaType(c))
+				return true;
+		return false;
+	}
+	// a bound the parser could not fold anywhere in t, also behind pointers
+	inline B32 hasUnfoldedDim(CType t) {
+		for(const ArrayType* dim = t.array; dim != nullptr; dim = dim->elem.array)
+			if(dim->count == 0 && dim->countExpr != nullptr)
 				return true;
 		return false;
 	}
@@ -254,10 +266,17 @@ namespace rat::cc {
 	};
 
 	StructType* makeComplexLayout(Arena& arena, CType complexType);
+	CType sizedArray(Arena& arena, CType arr, U64 count);
 
 	constexpr B32 isFuncPtr(CType t) { return t.func != nullptr && t.ptr > 0; }
 	constexpr B32 isArrayType(CType t) { return t.array != nullptr && t.ptr == 0; }
 	constexpr CType arrayElem(CType t) { return t.array->elem; }
+	// the array of t without its typedef name and qualifiers
+	constexpr CType plainArray(CType t) {
+		CType plain;
+		plain.array = t.array;
+		return plain;
+	}
 	constexpr CType pointee(CType t) {
 		if(t.ptr)
 			--t.ptr;
@@ -267,7 +286,13 @@ namespace rat::cc {
 		++t.ptr;
 		return t;
 	}
-	constexpr CType decay(CType t) { return pointerTo(t.array->elem); }
+	// a volatile array has volatile elements
+	constexpr CType decay(CType t) {
+		CType elem = t.array->elem;
+		if(isTopVolatile(t))
+			setTopVolatile(elem);
+		return pointerTo(elem);
+	}
 
 	// v wrapped to a bits wide integer, _Bool keeps the truth value, not the low bit
 	constexpr I64 wrapInt(I64 v, U32 bits, B32 isUnsigned) {
@@ -407,8 +432,6 @@ namespace rat::cc {
 			struct {
 				CType type;
 				Expr* init;
-				Expr* arrayLen;
-				B32 isArray;
 			} compound;
 			struct {
 				Expr* ap;
@@ -450,10 +473,9 @@ namespace rat::cc {
 		const String* name = nullptr;
 		Expr* init = nullptr; // optional initializer
 		CType type = ctInt();
-		B32 isArray = false;
-		Expr* arrayLen = nullptr;
 		B32 isStatic = false;
 		B32 isExtern = false;
+		B32 isTypedef = false; // names a type whose array bounds are taken here, see bindVlaDims
 		const String* aliasOf = nullptr;
 		U32 align = 0;
 		U32 offset = 0;
@@ -563,10 +585,7 @@ namespace rat::cc {
 
 	struct FuncDef {
 		String name;
-		CType retType = ctInt();
-		List<Param> params;
-		B32 isVarArgs = false;
-		B32 unprototyped = false;
+		FuncType* type = nullptr; // own copy, old-style decls fill in its params
 		B32 isExternInline = false;
 		B32 isStatic = false;
 		B32 isNoInline = false;

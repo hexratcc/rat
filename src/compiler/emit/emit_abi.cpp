@@ -101,9 +101,7 @@ namespace rat::cc {
 				detail::classifyBits(cls, at * 8 + f.bitOffset, f.bitWidth, AbiClass::Integer);
 				continue;
 			}
-			U64 count = f.isArray() ? f.count : 1;
-			for(U64 i = 0; i < count; ++i)
-				classifyEightbytes(f.type, at + i * byteSize(f.type), cls);
+			classifyEightbytes(f.type, at, cls);
 		}
 	}
 

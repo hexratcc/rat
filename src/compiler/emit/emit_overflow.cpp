@@ -73,14 +73,16 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
+	// the high half of a 64-bit lo extended to 128 bits
+	Node* Emitter::wideHigh(Function& fn, Node* lo, B32 isUnsigned) {
+		return isUnsigned ? fn.constInt(lo->getType(), 0) : fn.ashr(lo, fn.constInt(i32, 63));
+	}
+
 	Emitter::Wide Emitter::wideExtend(Function& fn, Node* v, CType from) {
 		Wide r;
 		CType wideType = from.isUnsigned() ? ctUnsigned(64) : ctInt64();
 		r.lo = convert(fn, v, from, wideType);
-		if(from.isUnsigned())
-			r.hi = fn.constInt(r.lo->getType(), 0);
-		else
-			r.hi = fn.ashr(r.lo, fn.constInt(i32, 63));
+		r.hi = wideHigh(fn, r.lo, from.isUnsigned());
 		return r;
 	}
 
@@ -125,11 +127,7 @@ namespace rat::cc {
 	}
 
 	Node* Emitter::wideFits(Function& fn, Wide v, CType rt) {
-		Node* hiOk;
-		if(rt.isUnsigned())
-			hiOk = fn.eq(v.hi, fn.constInt(v.lo->getType(), 0));
-		else
-			hiOk = fn.eq(v.hi, fn.ashr(v.lo, fn.constInt(i32, 63)));
+		Node* hiOk = fn.eq(v.hi, wideHigh(fn, v.lo, rt.isUnsigned()));
 		if(rt.bits >= 64)
 			return hiOk;
 		// a narrower rt also checks the low half like an exact 64-bit result

@@ -19,7 +19,7 @@ namespace rat::cc {
 		Token advance() { return lex.next(); }
 		B32 check(TokKind kind) { return peek().kind == kind; }
 		B32 accept(TokKind kind);
-		B32 expect(TokKind kind, const C8* what);
+		B32 expect(TokKind kind, const C8* what = nullptr);
 		Failed fail(const Token& at, const String& msg);
 
 		// type specifiers
@@ -58,11 +58,11 @@ namespace rat::cc {
 		B32 parseStructBody(StructType* st, B32 isUnion);
 		void spliceAnonMember(StructType* st, const StructType* inner, B32 isUnion, StructLayout& l);
 		B32 parseStructMember(StructType* st, CType base, U32 baseAlign, B32 isUnion, StructLayout& l);
-		B32 arrayMemberCount(CType t, U64& count);
+		B32 arrayMemberCount(CType& t);
 		B32 parseBitfield(StructType* st, Field f, U32 memberAlign, B32 isUnion, StructLayout& l);
 		U64 placeMember(U64 size, U32 align, B32 isUnion, StructLayout& l);
 		StructType* complexStruct(CType realType);
-		B32 parseTypedef();
+		B32 parseTypedef(Stmt* s);
 		B32 parseTypeName(CType& out);
 
 		// declarators
@@ -82,13 +82,10 @@ namespace rat::cc {
 			const String* name = nullptr; // null for an abstract declarator
 			U32 offset = 0;								// of the name
 			CType type;
-			B32 outerArray = false;			// the declarator itself ends in an array suffix
-			Expr* outerBound = nullptr; // its bound as written, null for []
-			U32 align = 0;							// raised by alignas inside the declarator
+			U32 align = 0; // raised by alignas inside the declarator
 		};
 		void parsePointers(CType& t);
 		B32 parseDeclarator(CType base, DeclResult& out);
-		B32 parseAbstractDeclarator(CType base, DeclResult& out);
 		B32 parseDeclaratorOps(List<DeclOp>& ops, DeclResult& out);
 		B32 parseDirectDeclarator(List<DeclOp>& ops, DeclResult& out);
 		B32 parseDeclaratorSuffixes(List<DeclOp>& ops, U32& align);
@@ -98,7 +95,6 @@ namespace rat::cc {
 		B32 looksLikeGroupingParen();
 		CType applyDeclOps(CType base, const List<DeclOp>& ops);
 		void adjustParamType(CType& t, const Expr** vlaBound = nullptr);
-		Expr* declaredArrayLen(const DeclResult& r);
 		void bindDeclarator(Declarator& d, const DeclResult& r);
 
 		// declarations
@@ -136,10 +132,10 @@ namespace rat::cc {
 		Stmt* parseCaseLabel();
 		Stmt* parseBreak();
 		Stmt* parseReturn();
+		B32 parseOptionalExpr(TokKind end, Expr*& out);
 		Stmt* parseExprStatement();
 		Expr* parseParenCond();
-		Stmt* parseIf();
-		Stmt* parseWhile();
+		Stmt* parseCondStmt(StmtKind kind);
 		Stmt* parseDoWhile();
 		Stmt* parseFor();
 		Stmt* parseSwitch();
@@ -187,8 +183,7 @@ namespace rat::cc {
 		B32 parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods);
 		U8 intLiteralMods(U64 v, B32 dec, B32 isUnsigned, U32 lCount, U32& bits) const;
 		B32 parseCharLiteral(const Token& tok, I64& value);
-		B32 parseStringLiteral(const Token& tok, String& out);
-		B32 parseWideStringLiteral(const Token& tok, U32 unitBytes, String& out);
+		B32 parseStringLiteral(const Token& tok, U32 unitBytes, String& out);
 		B32 decodeUcn(const String& s, U32& i, U32 end, const Token& tok, U32& cp);
 		B32 decodeBackslash(const String& s, U32& i, U32 end, const Token& tok, U32 maxVal, U32& out);
 

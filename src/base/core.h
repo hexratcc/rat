@@ -173,6 +173,19 @@ namespace rat {
 		}
 
 		template <typename T> void destroy(void* p) { static_cast<T*>(p)->~T(); }
+
+		template <typename T>
+		void groupBy(const List<Pair<U32, T>>& in, U32 nk, List<U32>& first, List<T>& out) {
+			first.assign(nk + 1, 0);
+			for(const auto& [k, x] : in)
+				++first[k + 1];
+			for(U32 k = 0; k < nk; ++k)
+				first[k + 1] += first[k];
+			List<U32> pos(first.begin(), first.end() - 1);
+			out.resize(in.size());
+			for(const auto& [k, x] : in)
+				out[pos[k]++] = x;
+		}
 	} // namespace detail
 
 	struct Arena {

@@ -7,11 +7,6 @@
 
 namespace rat {
 	namespace detail {
-		B32 hasSuffix(const String& s, const C8* suffix) {
-			String suf = suffix;
-			return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
-		}
-
 		void collectCases(const String& dir, const C8* ext, List<String>& out) {
 			std::error_code ec;
 			List<String> subdirs;
@@ -20,7 +15,7 @@ namespace rat {
 				String path = e.path().generic_string();
 				if(e.is_directory(ec))
 					subdirs.push_back(path);
-				else if(hasSuffix(path, ext))
+				else if(e.path().extension() == ext)
 					files.push_back(path);
 			}
 			std::sort(files.begin(), files.end());

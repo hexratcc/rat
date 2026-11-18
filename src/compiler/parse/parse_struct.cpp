@@ -42,14 +42,13 @@ namespace rat::cc {
 	}
 
 	// array members need a constant, non-negative bound on every level
-	B32 Parser::arrayMemberCount(CType t, U64& count) {
-		count = t.array->count;
-		if(!t.array->countExpr && !hasVlaDim(t.array->elem))
+	B32 Parser::arrayMemberCount(CType& t) {
+		if(!hasVlaDim(t))
 			return true;
 		I64 n = 0;
 		if(hasVlaDim(t.array->elem) || !evalIntConst(t.array->countExpr, n) || n < 0)
 			return fail(peek(), "array member size must be a constant");
-		count = (U64)n;
+		t = sizedArray(arena, t, (U64)n);
 		return true;
 	}
 
@@ -70,8 +69,7 @@ namespace rat::cc {
 		U32 unitBits = unitBytes * 8;
 		U32 unitStart = 0;
 		if(isUnion) {
-			if(unitBytes > l.offset)
-				l.offset = unitBytes;
+			l.offset = std::max<U64>(l.offset, unitBytes);
 		} else {
 			if(w == 0 || l.bitPos % unitBits + (U32)w > unitBits)
 				l.bitPos = alignUp(l.bitPos, unitBits);
@@ -105,11 +103,10 @@ namespace rat::cc {
 			return false;
 		CType ft = r.type;
 		B32 isArr = isArrayType(ft);
-		U64 count = 0;
 		if(isArr) {
-			if(!arrayMemberCount(ft, count))
+			if(!arrayMemberCount(ft))
 				return false;
-			ft = ft.array->elem;
+			ft = plainArray(ft);
 		}
 		Field f;
 		f.name = r.name;
@@ -122,9 +119,10 @@ namespace rat::cc {
 		}
 		if(!r.name)
 			return fail(peek(), "expected member name");
-		if(isStruct(ft) && !ft.strukt->complete)
+		CType elem = isArr ? arrayElem(ft) : ft;
+		if(isStruct(elem) && !elem.strukt->complete)
 			return fail(peek(), "member has incomplete struct type");
-		if(isArr && count == 0 && !r.outerBound) {
+		if(isArr && isUnsizedArray(r.type)) {
 			if(isUnion)
 				return fail(peek(), "flexible array member not allowed in union");
 			if(st->fields.empty())
@@ -132,13 +130,8 @@ namespace rat::cc {
 			if(!(check(TokKind::Semicolon) && peek2().kind == TokKind::RBrace))
 				return fail(peek(), "flexible array member must be the last member");
 		}
-		f.set(Field::Array, isArr);
-		f.count = count;
-		U64 size = typeSizeBytes(ft);
-		if(isArr)
-			size *= count;
 		U32 falign = std::max(typeAlignBytes(ft), r.align);
-		f.offset = placeMember(size, falign, isUnion, l);
+		f.offset = placeMember(typeSizeBytes(ft), falign, isUnion, l);
 		st->fields.push_back(f);
 		return true;
 	}
@@ -162,10 +155,10 @@ namespace rat::cc {
 				if(!accept(TokKind::Comma))
 					break;
 			}
-			if(!expect(TokKind::Semicolon, "';'"))
+			if(!expect(TokKind::Semicolon))
 				return false;
 		}
-		if(!expect(TokKind::RBrace, "'}'"))
+		if(!expect(TokKind::RBrace))
 			return false;
 		st->align = l.align;
 		st->size = alignUp(l.offset, l.align);
@@ -226,7 +219,7 @@ namespace rat::cc {
 	// typeof ( type-name | expr )
 	B32 Parser::parseTypeofSpec(CType& out) {
 		advance(); // typeof / __typeof / __typeof__
-		if(!expect(TokKind::LParen, "'('"))
+		if(!expect(TokKind::LParen))
 			return false;
 		if(startsType(peek())) {
 			if(!parseTypeName(out))
@@ -238,7 +231,7 @@ namespace rat::cc {
 			out = CType{};
 			out.typeofExpr = e;
 		}
-		return expect(TokKind::RParen, "')'");
+		return expect(TokKind::RParen);
 	}
 
 	// [ enumerator [, enumerator]... [,] ] }
@@ -267,7 +260,7 @@ namespace rat::cc {
 				break;
 		}
 		e.type.set(CType::Unsigned, !anyNegative);
-		return expect(TokKind::RBrace, "'}'");
+		return expect(TokKind::RBrace);
 	}
 
 	// enum [alignas]... [tag] [ { enumerators ]

@@ -32,18 +32,6 @@ namespace rat {
 			}
 			return weight;
 		}
-
-		void groupBy(const List<Pair<U32, U32>>& in, U32 nk, List<U32>& first, List<U32>& out) {
-			first.assign(nk + 1, 0);
-			for(const auto& [k, x] : in)
-				++first[k + 1];
-			for(U32 k = 0; k < nk; ++k)
-				first[k + 1] += first[k];
-			List<U32> pos(first.begin(), first.end() - 1);
-			out.resize(in.size());
-			for(const auto& [k, x] : in)
-				out[pos[k]++] = x;
-		}
 	} // namespace detail
 
 	B32 RegAllocPass::run(Module&, const Function&, MachineFunc& mf, const TargetInfo& target) {

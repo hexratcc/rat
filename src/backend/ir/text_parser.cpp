@@ -152,17 +152,8 @@ namespace rat {
 					return nullptr;
 				return mod.getTuple(elems);
 			}
-			U32 count = 0;
-			if(t.front() == '[') {
-				if(Type* elem = parseCounted(t, "array", "array count", count))
-					return mod.getArray(elem, count);
-				return nullptr;
-			}
-			if(t.front() == '<') {
-				if(Type* elem = parseCounted(t, "vector", "vector lane count", count))
-					return mod.getVec(elem, count);
-				return nullptr;
-			}
+			if(t.front() == '[' || t.front() == '<')
+				return parseCounted(t);
 			if(t == "ctrl")
 				return mod.getControl();
 			if(t == "mem")
@@ -176,21 +167,25 @@ namespace rat {
 			return failNull("unknown type '" + t + "'");
 		}
 
-		Type* Parser::parseCounted(const String& t, const C8* kind, const C8* countName, U32& count) {
-			C8 close = t.front() == '[' ? ']' : '>';
+		Type* Parser::parseCounted(const String& t) {
+			B32 isArray = t.front() == '[';
+			String kind = isArray ? "array" : "vector";
+			String countName = isArray ? "array count" : "vector lane count";
+			C8 close = isArray ? ']' : '>';
 			if(t.back() != close)
-				return failNull("unbalanced " + String(kind) + " type: " + t);
+				return failNull("unbalanced " + kind + " type: " + t);
 			String inner = t.substr(1, t.size() - 2);
 			U64 x = inner.find(" x ");
 			if(x == String::npos)
-				return failNull(String(kind) + " type must be '" + t.front() + "N x T" + close + "': " + t);
+				return failNull(kind + " type must be '" + t.front() + "N x T" + close + "': " + t);
 			String countStr = trim(inner.substr(0, x));
 			if(!allDigits(countStr))
-				return failNull("bad " + String(countName) + " in: " + t);
+				return failNull("bad " + countName + " in: " + t);
 			Type* elem = parseType(inner.substr(x + 3));
-			if(elem)
-				count = (U32)std::stoul(countStr);
-			return elem;
+			if(!elem)
+				return nullptr;
+			U32 count = (U32)std::stoul(countStr);
+			return isArray ? mod.getArray(elem, count) : mod.getVec(elem, count);
 		}
 
 		B32 Parser::parseTypeList(const String& s, List<Type*>& out, U64* restricts) {

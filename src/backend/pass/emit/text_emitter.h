@@ -29,7 +29,6 @@ namespace rat {
 
 		explicit TextEmitterPass(std::ostream& os);
 
-		const C8* name() const override;
 		B32 run(Module& module, const TargetInfo& target) override;
 	private:
 		void emitFunction(const Function& fn);

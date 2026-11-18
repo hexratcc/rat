@@ -230,6 +230,4 @@ namespace rat {
 			caller.eliminateDeadNodes();
 		return count;
 	}
-
-	const C8* InlinePass::name() const { return "inline"; }
 } // namespace rat

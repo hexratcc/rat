@@ -32,6 +32,10 @@ namespace rat {
 		return l;
 	}
 
+	Mem indexedMem(Reg base, Reg index, U32 scaleLog2, I32 disp) {
+		return {base, disp, index, scaleLog2, true};
+	}
+
 	U32 Asm::here() const { return (U32)code.size(); }
 	void Asm::b(U8 v) { code.push_back(v); }
 	void Asm::d32(U32 v) { le::put32(code, v); }
@@ -120,22 +124,21 @@ namespace rat {
 		memDisp(mod, disp);
 	}
 
-	void
-	Asm::memOp(U8 pfx, U8 flags, U8 opcode, U32 reg, Reg base, I32 disp, Reg index, U32 scaleLog2) {
+	void Asm::memOp(U8 pfx, U8 flags, U8 opcode, U32 reg, const Mem& mem) {
 		if(pfx)
 			b(pfx);
 		B32 w = (flags & kMemW) != 0;
 		if(flags & kMemRexForce)
-			rexForce(w, reg, index, base);
+			rexForce(w, reg, mem.index, mem.base);
 		else
-			rex(w, reg, index, base);
+			rex(w, reg, mem.index, mem.base);
 		if(flags & kMemEsc)
 			b(0x0f);
 		b(opcode);
-		if(flags & kMemSib)
-			modrmMemSib(reg, base, index, scaleLog2, disp);
+		if(mem.indexed)
+			modrmMemSib(reg, mem.base, mem.index, mem.scaleLog2, mem.disp);
 		else
-			modrmMem(reg, base, disp);
+			modrmMem(reg, mem.base, mem.disp);
 	}
 
 	void Asm::memImmTail(I64 imm, U32 width) {
@@ -168,32 +171,19 @@ namespace rat {
 
 	void Asm::movsxd32(Reg dst, Reg src) { opRR(true, 0x63, dst, src); }
 
-	void Asm::storeMem(Reg base, I32 disp, Reg src, U32 width) {
+	void Asm::storeMem(const Mem& mem, Reg src, U32 width) {
 		U8 opc = width == 1 ? 0x88 : 0x89;
-		memOp(opSizePrefix(width), memStoreFlags(width, src), opc, src, base, disp);
+		memOp(opSizePrefix(width), memStoreFlags(width, src), opc, src, mem);
 	}
 
-	void Asm::storeMemSib(Reg base, Reg index, U32 scaleLog2, I32 disp, Reg src, U32 width) {
-		U8 flags = (U8)(memStoreFlags(width, src) | kMemSib);
-		U8 opc = width == 1 ? 0x88 : 0x89;
-		memOp(opSizePrefix(width), flags, opc, src, base, disp, index, scaleLog2);
-	}
-
-	void Asm::storeMemImmSib(Reg base, Reg index, U32 scaleLog2, I32 disp, I64 imm, U32 width) {
-		U8 flags = (U8)((width == 8 ? kMemW : 0) | kMemSib);
-		U8 opc = width == 1 ? 0xc6 : 0xc7;
-		memOp(opSizePrefix(width), flags, opc, 0, base, disp, index, scaleLog2);
-		memImmTail(imm, width);
-	}
-
-	void Asm::storeMemImm(Reg base, I32 disp, I64 imm, U32 width) {
+	void Asm::storeMemImm(const Mem& mem, I64 imm, U32 width) {
 		U8 flags = (U8)(width == 8 ? kMemW : 0);
 		U8 opc = width == 1 ? 0xc6 : 0xc7;
-		memOp(opSizePrefix(width), flags, opc, 0, base, disp);
+		memOp(opSizePrefix(width), flags, opc, 0, mem);
 		memImmTail(imm, width);
 	}
 
-	void Asm::load64(Reg dst, Reg base, I32 disp) { memOp(0, kMemW, 0x8b, dst, base, disp); }
+	void Asm::load64(Reg dst, Reg base, I32 disp) { memOp(0, kMemW, 0x8b, dst, {base, disp}); }
 
 	void Asm::loadExtForm(U32 width, B32 sign, U8& flags, U8& opcode) {
 		if(width == 8) {
@@ -211,16 +201,10 @@ namespace rat {
 		}
 	}
 
-	void Asm::loadExt(Reg dst, Reg base, I32 disp, U32 width, B32 sign) {
+	void Asm::loadExt(Reg dst, const Mem& mem, U32 width, B32 sign) {
 		U8 flags, opcode;
 		loadExtForm(width, sign, flags, opcode);
-		memOp(0, flags, opcode, dst, base, disp);
-	}
-
-	void Asm::loadExtSib(Reg dst, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width, B32 sign) {
-		U8 flags, opcode;
-		loadExtForm(width, sign, flags, opcode);
-		memOp(0, (U8)(flags | kMemSib), opcode, dst, base, disp, index, scaleLog2);
+		memOp(0, flags, opcode, dst, mem);
 	}
 
 	void Asm::aluRR(U8 op, Reg dst, Reg src) { opRR(true, op, src, dst); }
@@ -266,7 +250,7 @@ namespace rat {
 		d32((U32)imm);
 	}
 
-	void Asm::addRegMem(Reg dst, Reg base, I32 disp) { memOp(0, kMemW, 0x03, dst, base, disp); }
+	void Asm::addRegMem(Reg dst, Reg base, I32 disp) { memOp(0, kMemW, 0x03, dst, {base, disp}); }
 
 	void Asm::negReg(Reg r) { opRR(true, 0xf7, 3, r); }
 	void Asm::notReg(Reg r) { opRR(true, 0xf7, 2, r); }
@@ -306,7 +290,7 @@ namespace rat {
 		b((U8)(0xc8 + (r & 7)));
 	}
 
-	void Asm::prefetch(U8 hint, Reg base, I32 disp) { memOp(0, kMemEsc, 0x18, hint, base, disp); }
+	void Asm::prefetch(U8 hint, Reg base, I32 disp) { memOp(0, kMemEsc, 0x18, hint, {base, disp}); }
 
 	void Asm::ud2() {
 		b(0x0f);
@@ -321,11 +305,7 @@ namespace rat {
 
 	void Asm::movzxByte(Reg dst, Reg src) { op0fRR(true, 0xb6, dst, src); }
 
-	void Asm::leaMem(Reg dst, Reg base, I32 disp) { memOp(0, kMemW, 0x8d, dst, base, disp); }
-
-	void Asm::leaSib(Reg dst, Reg base, Reg index, U32 scaleLog2, I32 disp) {
-		memOp(0, kMemW | kMemSib, 0x8d, dst, base, disp, index, scaleLog2);
-	}
+	void Asm::leaMem(Reg dst, const Mem& mem) { memOp(0, kMemW, 0x8d, dst, mem); }
 
 	void Asm::leaRipSym(Reg dst, const String& sym, I64 addend) {
 		U32 at = leaRipDisp(dst);
@@ -370,7 +350,7 @@ namespace rat {
 	}
 
 	void Asm::movsxdSib4(Reg dst, Reg base, Reg index) {
-		memOp(0, kMemW | kMemSib, 0x63, dst, base, 0, index, 2);
+		memOp(0, kMemW, 0x63, dst, indexedMem(base, index, 2, 0));
 	}
 
 	void Asm::addRR(Reg dst, Reg src) { aluRR(0x01, dst, src); }
@@ -390,17 +370,11 @@ namespace rat {
 			return 0;
 		return width == 4 ? 0xf3 : 0xf2;
 	}
-	void Asm::loadXmm(U32 xmm, Reg base, I32 disp, U32 width) {
-		memOp(ssePrefixByte(width), kMemEsc, 0x10, xmm, base, disp);
+	void Asm::loadXmm(U32 xmm, const Mem& mem, U32 width) {
+		memOp(ssePrefixByte(width), kMemEsc, 0x10, xmm, mem);
 	}
-	void Asm::storeXmm(U32 xmm, Reg base, I32 disp, U32 width) {
-		memOp(ssePrefixByte(width), kMemEsc, 0x11, xmm, base, disp);
-	}
-	void Asm::storeXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width) {
-		memOp(ssePrefixByte(width), kMemEsc | kMemSib, 0x11, xmm, base, disp, index, scaleLog2);
-	}
-	void Asm::loadXmmSib(U32 xmm, Reg base, Reg index, U32 scaleLog2, I32 disp, U32 width) {
-		memOp(ssePrefixByte(width), kMemEsc | kMemSib, 0x10, xmm, base, disp, index, scaleLog2);
+	void Asm::storeXmm(U32 xmm, const Mem& mem, U32 width) {
+		memOp(ssePrefixByte(width), kMemEsc, 0x11, xmm, mem);
 	}
 	void Asm::loadXmmRipSym(U32 xmm, const String& sym, U32 width) {
 		if(U8 p = ssePrefixByte(width))
@@ -459,13 +433,15 @@ namespace rat {
 		op0fRR(w, opc, dst, src);
 	}
 
-	void Asm::x87Mem(U8 esc, U8 reg, Reg base, I32 disp) { memOp(0, 0, esc, reg, base, disp); }
+	void Asm::x87Mem(U8 esc, U8 reg, Reg base, I32 disp) { memOp(0, 0, esc, reg, {base, disp}); }
 	void Asm::fldT(Reg base, I32 disp) { x87Mem(0xdb, 5, base, disp); }
 	void Asm::fstpT(Reg base, I32 disp) { x87Mem(0xdb, 7, base, disp); }
-	void Asm::fldD(Reg base, I32 disp) { x87Mem(0xd9, 0, base, disp); }
-	void Asm::fstpD(Reg base, I32 disp) { x87Mem(0xd9, 3, base, disp); }
-	void Asm::fldL(Reg base, I32 disp) { x87Mem(0xdd, 0, base, disp); }
-	void Asm::fstpL(Reg base, I32 disp) { x87Mem(0xdd, 3, base, disp); }
+	void Asm::fldFloat(Reg base, I32 disp, U32 width) {
+		x87Mem(width == 4 ? 0xd9 : 0xdd, 0, base, disp);
+	}
+	void Asm::fstpFloat(Reg base, I32 disp, U32 width) {
+		x87Mem(width == 4 ? 0xd9 : 0xdd, 3, base, disp);
+	}
 	void Asm::fildQ(Reg base, I32 disp) { x87Mem(0xdf, 5, base, disp); }
 	void Asm::fistpQ(Reg base, I32 disp) { x87Mem(0xdf, 7, base, disp); }
 	void Asm::fnstcw(Reg base, I32 disp) { x87Mem(0xd9, 7, base, disp); }

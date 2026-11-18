@@ -33,7 +33,6 @@ namespace rat {
 	} // namespace detail
 
 	struct X86LayoutPass : MachinePass {
-		const C8* name() const override { return "x86-layout"; }
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
 	};
 } // namespace rat

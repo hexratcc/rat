@@ -48,7 +48,7 @@ namespace rat {
 			B32 skip(const String& t);
 			B32 parse(std::istream& in);
 			Type* parseType(const String& s);
-			Type* parseCounted(const String& t, const C8* kind, const C8* countName, U32& count);
+			Type* parseCounted(const String& t);
 			B32 parseTypeList(const String& s, List<Type*>& out, U64* restricts = nullptr);
 			B32 flushType(String& cur, List<Type*>& out, U64* restricts);
 			B32 parseGlobal(const String& line);

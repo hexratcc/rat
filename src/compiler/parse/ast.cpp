@@ -15,6 +15,17 @@ namespace rat::cc {
 		return st;
 	}
 
+	// arr with count as its outer bound
+	CType sizedArray(Arena& arena, CType arr, U64 count) {
+		if(arr.array->count == count && !isVlaType(arr))
+			return arr;
+		ArrayType* sized = arena.make<ArrayType>();
+		sized->elem = arr.array->elem;
+		sized->count = count;
+		arr.array = sized;
+		return arr;
+	}
+
 	CType promote(CType t) {
 		if(t.isVoid())
 			return t;
@@ -223,8 +234,7 @@ namespace rat::cc {
 					dumpExpr(el, depth + 1, os);
 				return;
 			case ExprKind::CompoundLit:
-				os << "compound " << typeName(e->compound.type) << (e->compound.isArray ? "[]" : "")
-					 << "\n";
+				os << "compound " << typeName(e->compound.type) << "\n";
 				dumpExpr(e->compound.init, depth + 1, os);
 				return;
 			case ExprKind::VaArg:
@@ -294,14 +304,15 @@ namespace rat::cc {
 			detail::dumpStmt(g, 0, os);
 		for(const FuncDef* fn : unit.functions) {
 			os << "func " << fn->name << "(";
-			for(U32 i = 0; i < fn->params.size(); ++i) {
+			const List<Param>& params = fn->type->params;
+			for(U32 i = 0; i < params.size(); ++i) {
 				if(i)
 					os << ", ";
-				os << typeName(fn->params[i].type);
-				if(fn->params[i].name)
-					os << " " << *fn->params[i].name;
+				os << typeName(params[i].type);
+				if(params[i].name)
+					os << " " << *params[i].name;
 			}
-			os << ") -> " << typeName(fn->retType) << "\n";
+			os << ") -> " << typeName(fn->type->ret) << "\n";
 			if(fn->body)
 				detail::dumpStmt(fn->body, 1, os);
 		}

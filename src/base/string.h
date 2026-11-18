@@ -14,21 +14,17 @@ namespace rat {
 		return (B32)!in.bad();
 	}
 
+	constexpr const C8* kSpaces = " \t\n\v\f\r";
+
 	inline String ltrim(const String& s) {
-		U32 i = 0;
-		while(i < s.size() && std::isspace((U8)s[i]))
-			++i;
-		return s.substr(i);
+		U64 first = s.find_first_not_of(kSpaces);
+		return first == String::npos ? String() : s.substr(first);
 	}
 
-	inline String rtrim(const String& s) {
-		U32 e = (U32)s.size();
-		while(e > 0 && std::isspace((U8)s[e - 1]))
-			--e;
-		return s.substr(0, e);
+	inline String trim(const String& s) {
+		String t = ltrim(s);
+		return t.substr(0, t.find_last_not_of(kSpaces) + 1);
 	}
-
-	inline String trim(const String& s) { return rtrim(ltrim(s)); }
 
 	// comma/whitespace separated tokens
 	inline List<String> splitTokens(String s) {

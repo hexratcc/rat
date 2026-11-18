@@ -128,6 +128,8 @@ namespace rat::cc {
 				if(!sizeofOperand(e->sizeOf.operand, sz))
 					return false;
 				out = sz;
+			} else if(hasVlaDim(e->sizeOf.type)) {
+				return false;
 			} else {
 				out = byteSize(e->sizeOf.type);
 			}
@@ -261,29 +263,23 @@ namespace rat::cc {
 		addend = 0;
 		switch(lv->kind) {
 		case ExprKind::Ident: {
-			const String& n = *lv->ident.name;
-			Local loc;
-			if(func.scopes.lookup(n, loc)) {
-				if(!loc.staticSymbol)
+			const String& name = *lv->ident.name;
+			Symbol found = lookupSymbol(name);
+			if(found.local) {
+				if(!found.local->staticSymbol)
 					return false;
-				sym = *loc.staticSymbol;
+				sym = *found.local->staticSymbol;
 				return true;
 			}
-			if(syms.globals.count(n) || syms.functions.count(n)) {
-				sym = syms.resolveAlias(n);
-				return true;
-			}
-			return false;
+			if(found.kind == Symbol::Kind::None)
+				return false;
+			sym = syms.resolveAlias(name);
+			return true;
 		}
 		case ExprKind::Member: {
-			CType bt;
-			if(!typeOf(lv->member.base, bt))
-				return false;
-			const StructType* st = lv->member.arrow ? pointee(bt).strukt : bt.strukt;
-			if(!st)
-				return false;
-			const Field* f = st->find(*lv->member.name);
-			if(!f)
+			CType st;
+			const Field* f;
+			if(!memberField(lv, st, f) || !f)
 				return false;
 			I64 base = 0;
 			if(lv->member.arrow) {
@@ -312,34 +308,26 @@ namespace rat::cc {
 			sym = internString(e);
 			return true;
 		case ExprKind::CompoundLit:
-			return e->compound.isArray && internCompoundLiteral(e, sym);
+			return isArrayType(e->compound.type) && internCompoundLiteral(e, sym);
 		case ExprKind::Cast:
 			return evalAddrConst(e->cast.operand, sym, addend);
 		case ExprKind::Ident: {
-			Local loc;
-			if(func.scopes.lookup(*e->ident.name, loc)) {
-				if(!loc.staticSymbol || !loc.isArray)
+			Symbol found = lookupSymbol(*e->ident.name);
+			if(found.local) {
+				if(!found.local->staticSymbol || !isArrayType(found.type))
 					return false;
-				sym = *loc.staticSymbol;
+				sym = *found.local->staticSymbol;
 				return true;
 			}
-			auto gv = syms.globals.find(*e->ident.name);
-			B32 globalArr = gv != syms.globals.end() && gv->second.isArray;
-			if(syms.functions.count(*e->ident.name) || globalArr) {
-				sym = *e->ident.name;
-				return true;
-			}
-			return false;
+			if(found.kind != Symbol::Kind::Function && !isArrayType(found.type))
+				return false;
+			sym = *e->ident.name;
+			return true;
 		}
 		case ExprKind::Member: {
-			CType base;
-			if(!typeOf(e->member.base, base))
-				return false;
-			CType st = e->member.arrow ? pointee(base) : base;
-			if(!isStruct(st))
-				return false;
-			const Field* f = st.strukt->find(*e->member.name);
-			if(!f || !f->isArray())
+			CType st;
+			const Field* f;
+			if(!memberField(e, st, f) || !f || !isStruct(st) || !isArrayType(f->type))
 				return false;
 			return addrConstOf(e, sym, addend);
 		}
@@ -347,7 +335,7 @@ namespace rat::cc {
 			if(e->unary.op == ExprOp::Addr)
 				return addrConstOf(e->unary.operand, sym, addend);
 			CType t;
-			if(e->unary.op == ExprOp::Deref && typeOf(e, t) && isArrayType(t))
+			if(e->unary.op == ExprOp::Deref && typeOfObject(e, t) && isArrayType(t))
 				return evalAddrConst(e->unary.operand, sym, addend);
 			return false;
 		}
@@ -369,9 +357,7 @@ namespace rat::cc {
 				return false;
 			CType pt;
 			I64 scale = 1;
-			if(typeOf(ptrSide, pt) && isArrayType(pt))
-				pt = decay(pt);
-			if(isPointer(pt))
+			if(typeOf(ptrSide, pt) && isPointer(pt))
 				scale = (I64)byteSize(pointee(pt));
 			addend += (e->binary.op == ExprOp::Sub ? -n : n) * scale;
 			return true;

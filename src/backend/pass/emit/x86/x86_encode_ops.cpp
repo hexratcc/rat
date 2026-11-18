@@ -11,9 +11,9 @@ namespace rat {
 			if(d.isPhys() && s.isPhys())
 				copyXmm(xmmOf(d), xmmOf(s));
 			else if(d.isPhys() && s.isFrameSlot())
-				a->loadXmm(xmmOf(d), RBP, s.slot, d.width);
+				a->loadXmm(xmmOf(d), {RBP, s.slot}, d.width);
 			else if(d.isFrameSlot() && s.isPhys())
-				a->storeXmm(xmmOf(s), RBP, d.slot, d.width);
+				a->storeXmm(xmmOf(s), {RBP, d.slot}, d.width);
 			return;
 		}
 		if(d.isPhys()) {
@@ -21,7 +21,7 @@ namespace rat {
 		} else if(d.isFrameSlot()) {
 			Reg r = s.isPhys() ? gpOf(s) : R11;
 			readGp(s, r);
-			a->storeMem(RBP, d.slot, r, 8);
+			a->storeMem({RBP, d.slot}, r, 8);
 		}
 	}
 
@@ -50,9 +50,9 @@ namespace rat {
 	void X86EncodePass::emitSetJmp(const MachineInstr& in) {
 		Reg buf = gpOf(in.uses[0]);
 		U32 leaAt = a->leaRipDisp(R10);
-		a->storeMem(buf, 0, RBP, 8);
-		a->storeMem(buf, 8, R10, 8);
-		a->storeMem(buf, 16, RSP, 8);
+		a->storeMem({buf, 0}, RBP, 8);
+		a->storeMem({buf, 8}, R10, 8);
+		a->storeMem({buf, 16}, RSP, 8);
 		a->movRegImm32(RAX, 0);
 		U32 done = a->jmpRel32();
 		a->patchRel32(leaAt, a->here()); // resume label
@@ -75,10 +75,7 @@ namespace rat {
 		if(addr.isFrameSlot())
 			return a->load64(gpOf(d), RBP, addr.slot);
 		B32 sign = (in.imm2 & 1) != 0;
-		Reg base = gpOf(addr);
-		if(in.imm2 & 2) // scaled index in use[1]
-			return a->loadExtSib(gpOf(d), base, gpOf(in.uses[1]), scaleOf(in), (I32)in.imm, w, sign);
-		a->loadExt(gpOf(d), base, (I32)in.imm, w, sign);
+		a->loadExt(gpOf(d), memOf(in, 1), w, sign);
 	}
 
 	void X86EncodePass::emitStore(const MachineInstr& in) {
@@ -86,18 +83,13 @@ namespace rat {
 		const MachineOperand& src = in.uses[1];
 		if(a0.isFrameSlot()) {
 			if(src.isImm())
-				return a->storeMemImm(RBP, a0.slot, src.imm, 8);
-			return a->storeMem(RBP, a0.slot, gpOf(src), 8);
+				return a->storeMemImm({RBP, a0.slot}, src.imm, 8);
+			return a->storeMem({RBP, a0.slot}, gpOf(src), 8);
 		}
-		if(in.imm2 & 2) { // scaled index in use[2]
-			Reg index = gpOf(in.uses[2]);
-			if(src.isImm())
-				return a->storeMemImmSib(gpOf(a0), index, scaleOf(in), (I32)in.imm, src.imm, src.width);
-			return a->storeMemSib(gpOf(a0), index, scaleOf(in), (I32)in.imm, gpOf(src), src.width);
-		}
+		Mem mem = memOf(in, 2);
 		if(src.isImm())
-			return a->storeMemImm(gpOf(a0), (I32)in.imm, src.imm, src.width);
-		a->storeMem(gpOf(a0), (I32)in.imm, gpOf(src), src.width);
+			return a->storeMemImm(mem, src.imm, src.width);
+		a->storeMem(mem, gpOf(src), src.width);
 	}
 
 	void X86EncodePass::emitFLoad(const MachineInstr& in) {
@@ -108,25 +100,19 @@ namespace rat {
 			return a->loadXmmRipSym(xmmOf(d), addr.sym(), w);
 		if(addr.isImm()) {
 			immToScratch(addr.imm);
-			return a->loadXmm(xmmOf(d), RBP, fl->ldScratch, w);
+			return a->loadXmm(xmmOf(d), {RBP, fl->ldScratch}, w);
 		}
 		if(addr.isFrameSlot())
-			return a->loadXmm(xmmOf(d), RBP, addr.slot, w);
-		if(in.imm2 & 2) // scaled index in use[1]
-			return a->loadXmmSib(xmmOf(d), gpOf(addr), gpOf(in.uses[1]), scaleOf(in), (I32)in.imm, w);
-		a->loadXmm(xmmOf(d), gpOf(addr), (I32)in.imm, w);
+			return a->loadXmm(xmmOf(d), {RBP, addr.slot}, w);
+		a->loadXmm(xmmOf(d), memOf(in, 1), w);
 	}
 
 	void X86EncodePass::emitFStore(const MachineInstr& in) {
 		const MachineOperand& a0 = in.uses[0];
 		const MachineOperand& src = in.uses[1];
 		if(a0.isFrameSlot())
-			return a->storeXmm(xmmOf(src), RBP, a0.slot, src.width);
-		if(in.imm2 & 2) { // scaled index in use[2]
-			Reg index = gpOf(in.uses[2]);
-			return a->storeXmmSib(xmmOf(src), gpOf(a0), index, scaleOf(in), (I32)in.imm, src.width);
-		}
-		a->storeXmm(xmmOf(src), gpOf(a0), (I32)in.imm, src.width);
+			return a->storeXmm(xmmOf(src), {RBP, a0.slot}, src.width);
+		a->storeXmm(xmmOf(src), memOf(in, 2), src.width);
 	}
 
 	void X86EncodePass::emitAlu(const MachineInstr& in, U8 aluOp) {
@@ -223,8 +209,8 @@ namespace rat {
 			return;
 		}
 		// staged through the 16-byte scratch slot
-		a->storeXmm(src, RBP, fl->vecScratch, 16);
-		a->loadExt(d, RBP, fl->vecScratch + (I32)(lane * esz), esz, true);
+		a->storeXmm(src, {RBP, fl->vecScratch}, 16);
+		a->loadExt(d, {RBP, fl->vecScratch + (I32)(lane * esz)}, esz, true);
 	}
 
 	// the lanes are gathered through the 16-byte vec scratch slot (float, or int without
@@ -233,9 +219,9 @@ namespace rat {
 		U32 esz = (U32)in.imm;
 		I32 disp = fl->vecScratch + (I32)(((U32)in.imm2 >> 1) * esz);
 		if(in.imm2 & 1)
-			a->storeMem(RBP, disp, gpOf(in.uses[0]), esz);
+			a->storeMem({RBP, disp}, gpOf(in.uses[0]), esz);
 		else
-			a->storeXmm(xmmOf(in.uses[0]), RBP, disp, esz);
+			a->storeXmm(xmmOf(in.uses[0]), {RBP, disp}, esz);
 	}
 
 	void X86EncodePass::copyXmm(U32 d, U32 s) {
@@ -291,10 +277,10 @@ namespace rat {
 	void X86EncodePass::emitX87ToInt(const MachineInstr& in) {
 		fldSlot(in.uses[0]);
 		a->fnstcw(RBP, fl->ldScratch + 8);
-		a->loadExt(R10, RBP, fl->ldScratch + 8, 2, false);
+		a->loadExt(R10, {RBP, fl->ldScratch + 8}, 2, false);
 		a->movRegImm64(R11, 0x0c00);
 		a->orRR(R10, R11);
-		a->storeMem(RBP, fl->ldScratch + 10, R10, 2);
+		a->storeMem({RBP, fl->ldScratch + 10}, R10, 2);
 		a->fldcw(RBP, fl->ldScratch + 10);
 		a->fistpQ(RBP, fl->ldScratch);
 		a->fldcw(RBP, fl->ldScratch + 8);
@@ -308,22 +294,16 @@ namespace rat {
 			return;
 		}
 		U32 sw = (U32)in.imm;
-		a->storeXmm(xmmOf(in.uses[0]), RBP, fl->ldScratch, sw);
-		if(sw == 4)
-			a->fldD(RBP, fl->ldScratch);
-		else
-			a->fldL(RBP, fl->ldScratch);
+		a->storeXmm(xmmOf(in.uses[0]), {RBP, fl->ldScratch}, sw);
+		a->fldFloat(RBP, fl->ldScratch, sw);
 		fstpSlot(in.defs[0]);
 	}
 
 	void X86EncodePass::emitX87ToSse(const MachineInstr& in) {
 		U32 dw = (U32)in.imm;
 		fldSlot(in.uses[0]);
-		if(dw == 4)
-			a->fstpD(RBP, fl->ldScratch);
-		else
-			a->fstpL(RBP, fl->ldScratch);
-		a->loadXmm(xmmOf(in.defs[0]), RBP, fl->ldScratch, dw);
+		a->fstpFloat(RBP, fl->ldScratch, dw);
+		a->loadXmm(xmmOf(in.defs[0]), {RBP, fl->ldScratch}, dw);
 	}
 
 	void X86EncodePass::emitX87Binary(const MachineInstr& in, U32 idx) {

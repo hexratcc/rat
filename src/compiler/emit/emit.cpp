@@ -52,11 +52,10 @@ namespace rat::cc {
 		CType cur = t;
 		while(isArrayType(cur)) {
 			Node* dim;
-			if(cur.array->countExpr) {
-				Value v = emitExpr(fn, cur.array->countExpr);
-				if(!v.node)
+			if(isVlaType(cur)) {
+				dim = vlaDimCount(fn, cur);
+				if(!dim)
 					return nullptr;
-				dim = convert(fn, v.node, v.type, ctSize());
 			} else {
 				dim = constSize(fn, cur.array->count);
 			}
@@ -64,6 +63,58 @@ namespace rat::cc {
 			cur = cur.array->elem;
 		}
 		return fn.mul(count, constSize(fn, byteSize(cur)));
+	}
+
+	// the outer bound of arr as a node, the one bindVlaDims took or evaluated here
+	Node* Emitter::vlaDimCount(Function& fn, CType arr) {
+		auto bound = func.vlaDims.find(arr.array);
+		if(bound != func.vlaDims.end())
+			return bound->second;
+		Value v = emitExpr(fn, arr.array->countExpr);
+		if(!v.node)
+			return nullptr;
+		return convert(fn, v.node, v.type, ctSize());
+	}
+
+	// takes every bound of t the parser left open, also behind pointers, inner first
+	// a constant is folded into the type, any other is evaluated once for all later uses
+	B32 Emitter::bindVlaDims(Function* fn, CType t) {
+		if(!t.array)
+			return true;
+		if(!bindVlaDims(fn, t.array->elem))
+			return false;
+		ArrayType* dim = const_cast<ArrayType*>(t.array);
+		if(dim->count != 0 || !dim->countExpr)
+			return true;
+		I64 count;
+		if(evalConst(dim->countExpr, count)) {
+			if(count > 0) {
+				dim->count = (U64)count;
+				dim->countExpr = nullptr;
+			}
+			return true;
+		}
+		if(!fn)
+			return failArrayCount();
+		Node* bound = vlaDimCount(*fn, t);
+		func.vlaDims[dim] = bound;
+		return bound != nullptr;
+	}
+
+	// the outer bound of arr, false when it is not a constant
+	B32 Emitter::arrayBound(CType arr, I64& count) {
+		count = (I64)arr.array->count;
+		return !arr.array->countExpr || evalConst(arr.array->countExpr, count);
+	}
+
+	// length of an array compound literal, false when it is not a positive constant
+	B32 Emitter::compoundArrayCount(const Expr* e, I64& count) {
+		CType ty = e->compound.type;
+		count = 0;
+		if(!isUnsizedArray(ty))
+			return arrayBound(ty, count) && count > 0;
+		count = (I64)initArrayCount(arrayElem(ty), e->compound.init);
+		return count > 0;
 	}
 
 	Type* Emitter::irType(CType t) {
@@ -75,16 +126,8 @@ namespace rat::cc {
 	}
 
 	CType Emitter::funcPtrType(const FunctionSignature& sig) {
-		FuncType* ft = arena.make<FuncType>();
-		ft->ret = sig.returnType;
-		for(CType pt : sig.params) {
-			Param p;
-			p.type = pt;
-			ft->params.push_back(p);
-		}
-		ft->isVarArgs = sig.isVarArgs;
 		CType t;
-		t.func = ft;
+		t.func = sig.type;
 		t.ptr = 1;
 		return t;
 	}
@@ -98,9 +141,8 @@ namespace rat::cc {
 			if(n->getOpcode() == Opcode::Constant)
 				return fn.constInt(mod.getPtr(), cast<ConstantNode>(n)->getValue());
 			U32 fromBits = from.bits == 0 ? 32 : from.bits;
-			Opcode ext = Opcode::SExt;
-			if(fromBits < lay.ptrBytes * 8 && from.isUnsigned())
-				ext = Opcode::ZExt;
+			B32 zeroExtend = fromBits < lay.ptrBytes * 8 && from.isUnsigned();
+			Opcode ext = zeroExtend ? Opcode::ZExt : Opcode::SExt;
 			return fn.convert(ext, n, mod.getPtr());
 		}
 		if(isPointer(from) || isPointer(to))
@@ -192,7 +234,6 @@ namespace rat::cc {
 		out.type = f->type;
 		if(isTopVolatile(structType))
 			setTopVolatile(out.type);
-		out.isArray = f->isArray();
 		out.isBitfield = f->isBitfield();
 		out.bitWidth = f->bitWidth;
 		out.bitOffset = f->bitOffset;
@@ -204,18 +245,13 @@ namespace rat::cc {
 		if(!v.node)
 			return false;
 		out.kind = LValue::Kind::Addr;
-		if(e->compound.isArray) {
+		out.type = e->compound.type;
+		if(isArrayType(out.type) || isStruct(out.type)) {
 			out.addr = v.node;
-			out.type = e->compound.type;
-			out.isArray = true;
-		} else if(isStruct(e->compound.type)) {
-			out.addr = v.node;
-			out.type = v.type;
 		} else {
 			Node* slot = fn.alloc(irType(v.type));
 			fn.store(slot, v.node);
 			out.addr = slot;
-			out.type = v.type;
 		}
 		return true;
 	}
@@ -223,30 +259,19 @@ namespace rat::cc {
 	B32 Emitter::emitLValue(Function& fn, const Expr* e, LValue& out) {
 		diag.offset = e->offset;
 		if(e->kind == ExprKind::Ident) {
-			Local loc;
-			if(func.scopes.lookup(*e->ident.name, loc)) {
-				if(loc.isArray)
-					return diag.fail("array '" + *e->ident.name + "' is not assignable");
-				if(loc.inMem()) {
-					out.kind = LValue::Kind::Addr;
-					out.addr = loc.addr;
-				} else {
-					out.kind = LValue::Kind::Var;
-					out.var = loc.var;
-				}
-				out.type = loc.type;
+			const String& name = *e->ident.name;
+			Symbol sym = lookupSymbol(name);
+			if(sym.kind == Symbol::Kind::None || sym.kind == Symbol::Kind::Function)
+				return failUndeclared(name);
+			out.type = sym.type;
+			if(sym.local && !sym.local->inMem()) {
+				out.kind = LValue::Kind::Var;
+				out.var = sym.local->var;
 				return true;
 			}
-			auto g = syms.globals.find(*e->ident.name);
-			if(g != syms.globals.end()) {
-				if(g->second.isArray)
-					return diag.fail("array '" + *e->ident.name + "' is not assignable");
-				out.kind = LValue::Kind::Addr;
-				out.addr = fn.global(syms.resolveAlias(*e->ident.name));
-				out.type = g->second.type;
-				return true;
-			}
-			return failUndeclared(*e->ident.name);
+			out.kind = LValue::Kind::Addr;
+			out.addr = sym.local ? sym.local->addr : fn.global(syms.resolveAlias(name));
+			return true;
 		}
 		if(e->kind == ExprKind::Unary && e->unary.op == ExprOp::Deref) {
 			Value p = emitExpr(fn, e->unary.operand);
@@ -259,7 +284,6 @@ namespace rat::cc {
 			out.kind = LValue::Kind::Addr;
 			out.addr = p.node;
 			out.type = pointee(p.type);
-			out.isArray = isArrayType(out.type);
 			return true;
 		}
 		if(e->kind == ExprKind::Unary && (e->unary.op == ExprOp::Real || e->unary.op == ExprOp::Imag)) {
@@ -361,7 +385,7 @@ namespace rat::cc {
 
 	Node* Emitter::elemStride(Function& fn, CType ptrType) {
 		CType elem = pointee(ptrType);
-		if(isVlaType(elem))
+		if(hasVlaDim(elem))
 			return emitArrayByteSize(fn, elem);
 		return constSize(fn, byteSize(elem));
 	}
@@ -371,18 +395,14 @@ namespace rat::cc {
 
 		for(const FuncDef* def : unit.functions) {
 			FunctionSignature sig;
-			sig.returnType = def->retType;
-			sig.isVarArgs = def->isVarArgs;
-			sig.unprototyped = def->unprototyped;
+			sig.type = def->type;
 			sig.noInline = def->isNoInline;
 			sig.align = def->align;
-			for(const Param& p : def->params)
-				sig.params.push_back(p.type);
 			auto prev = syms.functions.find(def->name);
 			if(prev != syms.functions.end()) {
 				sig.noInline |= prev->second.noInline;
 				sig.align = std::max(sig.align, prev->second.align); // an earlier declaration may carry it
-				if(def->unprototyped && !prev->second.unprototyped) {
+				if(def->type->unprototyped && !prev->second.type->unprototyped) {
 					prev->second.noInline = sig.noInline;
 					prev->second.align = sig.align;
 					continue;
@@ -402,9 +422,7 @@ namespace rat::cc {
 		}
 
 		for(const FuncDef* def : unit.functions) {
-			if(!def->body || def->isExternInline)
-				continue;
-			if(!emitFunctionBody(def))
+			if(def->body && !def->isExternInline && !emitFunctionBody(def))
 				return false;
 		}
 		return checkAliases() && !diag.failed;
@@ -426,9 +444,9 @@ namespace rat::cc {
 
 	// the ir params of each parameter, an aggregate in registers spreads over its eightbytes
 	List<AbiRegs> Emitter::lowerParams(const FuncDef* def, List<Type*>& paramTypes, CallAbi& abi) {
-		ArgRegs free = freeArgRegs(def->retType);
+		ArgRegs free = freeArgRegs(def->type->ret);
 		List<AbiRegs> regs;
-		for(const Param& p : def->params) {
+		for(const Param& p : def->type->params) {
 			AbiRegs r = takeArgRegs(p.type, free);
 			regs.push_back(r);
 			for(U32 k = 0; k < r.count; ++k)
@@ -447,8 +465,8 @@ namespace rat::cc {
 																	 U32 paramBase,
 																	 const List<AbiRegs>& regs) {
 		U32 index = paramBase;
-		for(U32 i = 0; i < def->params.size(); ++i) {
-			const Param& p = def->params[i];
+		for(U32 i = 0; i < def->type->params.size(); ++i) {
+			const Param& p = def->type->params[i];
 			if(isAggregate(p.type) && regs[i].count) {
 				Node* slot = bindEightbytes(fn, p.type, regs[i], index);
 				if(p.name)
@@ -497,27 +515,25 @@ namespace rat::cc {
 
 	B32 Emitter::emitFunctionBody(const FuncDef* def) {
 		diag.function = def->name;
-		B32 sretReturn = isAggregate(def->retType);
+		B32 sretReturn = isAggregate(def->type->ret);
 		List<Type*> paramTypes;
 		CallAbi abi;
 		if(sretReturn) {
 			paramTypes.push_back(mod.getPtr());
-			abi.ret = returnRegs(def->retType);
+			abi.ret = returnRegs(def->type->ret);
 		}
 		List<AbiRegs> regs = lowerParams(def, paramTypes, abi);
-		Type* retTy = nullptr;
-		if(!isVoidType(def->retType))
-			retTy = irType(def->retType);
+		Type* retTy = isVoidType(def->type->ret) ? nullptr : irType(def->type->ret);
 		Function* fn = mod.createFunction(def->name, paramTypes, retTy);
 		FunctionAttrs& attrs = fn->getAttrs();
-		attrs.variadic = def->isVarArgs;
+		attrs.variadic = def->type->isVarArgs;
 		attrs.noInline = syms.functions[def->name].noInline;
 		attrs.align = syms.functions[def->name].align;
 		attrs.linkage = def->isStatic ? Linkage::Internal : Linkage::External;
 		attrs.abi = std::move(abi);
 
 		func.reset();
-		func.returnType = def->retType;
+		func.returnType = def->type->ret;
 		if(sretReturn)
 			func.sretSlot = fn->param(0);
 		U32 paramBase = sretReturn ? 1 : 0;
@@ -528,7 +544,7 @@ namespace rat::cc {
 			func.sp = fn->stackSave();
 		bindFunctionParams(*fn, def, paramBase, regs);
 		debugFunction(*fn, def);
-		for(const Param& p : def->params) {
+		for(const Param& p : def->type->params) {
 			if(!p.vlaBound)
 				continue;
 			diag.offset = p.offset;
@@ -540,14 +556,8 @@ namespace rat::cc {
 		func.scopes.pop();
 		for(auto& [name, label] : func.labels)
 			fn->seal(label.block);
-		if(!fn->blockFinished()) {
-			if(func.sretSlot)
-				fn->ret(func.sretSlot);
-			else if(isVoidType(func.returnType))
-				fn->retVoid();
-			else
-				fn->ret(fn->constInt(irType(func.returnType), 0));
-		}
+		if(!fn->blockFinished())
+			emitReturn(*fn, nullptr);
 		fn->setLoc(0); // nodes later passes create carry no line
 		// statements emitted into unreachable blocks leave anchored nodes with a
 		// null control input behind. Drop them so every backend sees a graph

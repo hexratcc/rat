@@ -347,11 +347,7 @@ namespace rat {
 		Type* et = n->getType()->getVecElement();
 		U32 esz = et->byteSize(ptrBytes);
 		B32 inGp = !et->isFloat() && !splatOnlyLoad(n->getScalar());
-		VReg s = kNoVReg;
-		if(inGp)
-			s = gpValue(n->getScalar());
-		else
-			s = sseValue(n->getScalar());
+		VReg s = classValue(n->getScalar(), inGp ? detail::kGp : detail::kFp);
 		U32 sw = inGp ? 8 : esz;
 		put(X86Op::VSplat, {vr(vregFor(n), 16)}, {vr(s, sw)}, (I64)esz, inGp);
 	}
@@ -417,15 +413,11 @@ namespace rat {
 	void X86LowerPass::emitPackMem(PackNode* n, U32 esz, B32 isInt) {
 		if(fl->vecScratch == 0)
 			fl->vecScratch = reserve(16);
-		List<MachineOperand> lanes;
-		for(U32 i = 0; i < n->getLaneCount(); ++i) {
-			Node* lane = n->getLane(i);
-			if(isInt)
-				lanes.push_back(vr(gpValue(lane)));
-			else
-				lanes.push_back(vr(sseValue(lane), esz));
-		}
 		U32 laneClass = isInt ? detail::kGp : detail::kFp;
+		U32 laneWidth = isInt ? 8 : esz;
+		List<MachineOperand> lanes;
+		for(U32 i = 0; i < n->getLaneCount(); ++i)
+			lanes.push_back(vr(classValue(n->getLane(i), laneClass), laneWidth));
 		for(U32 i = 0; i < (U32)lanes.size(); ++i) {
 			I64 desc = ((I64)i << 1) | isInt;
 			put(X86Op::VPackLane, {}, {lanes[i]}, (I64)esz, desc).regClass = laneClass;
@@ -589,9 +581,7 @@ namespace rat {
 			return;
 		}
 		U32 w = opWidth(n->getType());
-		U32 lane = w;
-		if(n->getType()->isVec())
-			lane = opWidth(n->getType()->getVecElement());
+		U32 lane = n->getType()->isVec() ? opWidth(n->getType()->getVecElement()) : w;
 		VReg s = sseValue(n->getOperand());
 		needScratch();
 		// the encoder builds the sign mask of each lane through the top volatile xmm
@@ -999,10 +989,8 @@ namespace rat {
 		VReg s = kNoVReg;
 		if(isX87Ty(st))
 			x = x87Value(src);
-		else if(isSseTy(st))
-			s = sseValue(src);
 		else
-			s = gpValue(src);
+			s = classValue(src, classOf(st));
 		needScratch();
 		switch(op) {
 		case Opcode::FPExt:

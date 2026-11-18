@@ -12,6 +12,7 @@ namespace rat::cc {
 		loops.clear();
 		switches.clear();
 		scopes.clear();
+		vlaDims.clear();
 	}
 
 	Failed Diagnostics::fail(const String& m) {
@@ -24,6 +25,12 @@ namespace rat::cc {
 		failed = true;
 		return {};
 	}
+
+	DryRunDiag::DryRunDiag(Diagnostics& current)
+	: diag(current),
+		saved(std::exchange(current, {})) {}
+
+	DryRunDiag::~DryRunDiag() { diag = std::move(saved); }
 
 	const String& Symbols::resolveAlias(const String& name) const {
 		auto it = aliases.find(name);
