@@ -23,7 +23,7 @@ $ make bench
 - [**inline**](./src/backend/pass/opt/inline.h): function inlining
 - [**strengthreduce**](./src/backend/pass/opt/strength_reduce.h): induction-variable strength reduction
 - [**loadcanon**](./src/backend/pass/opt/load_canon.h): moves loads to their canonical memory state
-- [**superword**](./src/backend/pass/opt/superword.h): scheduling-free SLP vectorization
+- [**slp**](./src/backend/pass/opt/slp.h): scheduling-free SLP vectorization
 - [**dfe**](./src/backend/pass/opt/dead_func_elim.h): dead function elimination
 ### machine passes
 - [**GCM**](./src/backend/codegen/schedule.h): global code motion
