@@ -101,6 +101,15 @@ namespace rat::cc {
 		return bound != nullptr;
 	}
 
+	// arr with count as its outer bound, set in place so expressions the parser typed see it
+	// an unsized array of a declarator is its own, see declareObject
+	CType Emitter::completeArray(CType arr, U64 count) {
+		ArrayType* dim = const_cast<ArrayType*>(arr.array);
+		dim->count = count;
+		dim->countExpr = nullptr;
+		return arr;
+	}
+
 	// the outer bound of arr, false when it is not a constant
 	B32 Emitter::arrayBound(CType arr, I64& count) {
 		count = (I64)arr.array->count;
@@ -304,8 +313,8 @@ namespace rat::cc {
 			return emitMemberLValue(fn, e, out);
 		if(e->kind == ExprKind::CompoundLit)
 			return emitCompoundLitLValue(fn, e, out);
-		CType st;
-		if(typeOf(e, st) && isStruct(st)) {
+		CType st = valueType(e->type);
+		if(isStruct(st)) {
 			Value v = emitExpr(fn, e);
 			if(!v.node)
 				return false;

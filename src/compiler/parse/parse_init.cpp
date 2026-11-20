@@ -88,7 +88,7 @@ namespace rat::cc {
 
 	// wraps v to the width and signedness of an integer type
 	I64 Parser::castConstValue(I64 v, CType ty) const {
-		if(!isInteger(ty) || ty.typeofExpr)
+		if(!isInteger(ty))
 			return v;
 		return wrapInt(v, ty.bits, ty.isUnsigned());
 	}

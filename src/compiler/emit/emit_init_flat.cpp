@@ -11,8 +11,8 @@ namespace rat::cc {
 				++src.pos;
 				return initStructInit(sink, base, ty.strukt, peeled);
 			}
-			CType et;
-			if(typeOf(e, et) && isStruct(et) && et.strukt == ty.strukt) {
+			CType et = valueType(e->type);
+			if(isStruct(et) && et.strukt == ty.strukt) {
 				++src.pos;
 				return sink.structCopy(base, ty, e);
 			}

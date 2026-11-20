@@ -61,8 +61,7 @@ namespace rat::cc {
 		return expect(TokKind::RParen);
 	}
 
-	// [ void | param [, param]... [, '...'] ] ) | param-names
-	// param: type-spec declarator
+	// [ void | params ] ) | param-names
 	// a bare name list is old style: the types follow in a declaration list before the body
 	B32 Parser::parseParamTypeList(FuncType* ft) {
 		if(accept(TokKind::RParen)) {
@@ -78,6 +77,16 @@ namespace rat::cc {
 			ft->oldStyle = true;
 			return parseParamNames(ft);
 		}
+		idents.push(); // prototype scope, a later bound may name an earlier parameter
+		B32 ok = parseParams(ft);
+		idents.pop();
+		keepParamEnumerators(ft);
+		return ok;
+	}
+
+	// param [, param]... [, '...'] )
+	// param: type-spec declarator
+	B32 Parser::parseParams(FuncType* ft) {
 		for(;;) {
 			if(check(TokKind::Ellipsis)) {
 				if(ft->params.empty())
@@ -98,6 +107,8 @@ namespace rat::cc {
 			Param p{r.name, r.type, pstart.offset};
 			adjustParamType(p.type, &p.vlaBound);
 			ft->params.push_back(p);
+			if(p.name)
+				declare(*p.name, p.type);
 			if(!accept(TokKind::Comma))
 				break;
 		}

@@ -133,9 +133,8 @@ namespace rat::cc {
 				if(func.scopes.lookup(*operand->ident.name, loc) && loc.lengthNode)
 					return {loc.lengthNode, sz};
 			}
-			CType ot;
-			if(typeOfObject(operand, ot) && hasVlaDim(ot))
-				return {emitArrayByteSize(fn, ot), sz};
+			if(hasVlaDim(operand->type))
+				return {emitArrayByteSize(fn, operand->type), sz};
 			if(!sizeofOperand(operand, n))
 				return {};
 		} else {
@@ -161,10 +160,7 @@ namespace rat::cc {
 				return true;
 			}
 		}
-		CType ot;
-		if(!typeOfObject(e->sizeOf.operand, ot))
-			return false;
-		out = alignOf(ot);
+		out = alignOf(e->sizeOf.operand->type);
 		return true;
 	}
 
@@ -192,7 +188,7 @@ namespace rat::cc {
 		}
 		func.scopes.pop();
 		if(!result.node)
-			return {fn.constInt(i32, 0), ctInt()};
+			return voidValue(fn);
 		return result;
 	}
 
@@ -230,8 +226,6 @@ namespace rat::cc {
 			return emitCall(fn, e);
 		case ExprKind::Cast: {
 			CType castTy = e->cast.type;
-			if(!resolveType(castTy))
-				return {};
 			Value v = emitExpr(fn, e->cast.operand);
 			if(!v.node)
 				return {};
@@ -266,12 +260,6 @@ namespace rat::cc {
 		}
 		case ExprKind::StmtExpr:
 			return emitStmtExpr(fn, e);
-		case ExprKind::Generic: {
-			const Expr* sel = genericSelect(e);
-			if(!sel)
-				return {};
-			return emitExpr(fn, sel);
-		}
 		case ExprKind::Unary:
 			return emitUnary(fn, e);
 		case ExprKind::Binary:
@@ -300,52 +288,9 @@ namespace rat::cc {
 		return diag.fail("unsupported expression");
 	}
 
-	Emitter::Value Emitter::emitTernarySelect(Function& fn, const Expr* e) {
-		Value cond = emitExpr(fn, e->ternary.cond);
-		if(!cond.node)
-			return {};
-		Value whenTrue = emitExpr(fn, e->ternary.whenTrue);
-		if(!whenTrue.node)
-			return {};
-		Value whenFalse = emitExpr(fn, e->ternary.whenFalse);
-		if(!whenFalse.node)
-			return {};
-		CType ct = usualArithmetic(whenTrue.type, whenFalse.type);
-		Node* t = convert(fn, whenTrue.node, whenTrue.type, ct);
-		Node* f = convert(fn, whenFalse.node, whenFalse.type, ct);
-		if(isFloating(ct)) {
-			Node* c = convert(fn, fromBool(fn, toBool(fn, cond)), ctInt(), ct);
-			Node* diff = fn.binary(Opcode::FSub, t, f);
-			Node* scaled = fn.binary(Opcode::FMul, diff, c);
-			return {fn.binary(Opcode::FAdd, f, scaled), ct};
-		}
-		Node* mask = fn.neg(fromBool(fn, toBool(fn, cond)));
-		mask = convert(fn, mask, ctInt(), ct);
-		Node* keepTrue = fn.and_(t, mask);
-		Node* keepFalse = fn.and_(f, fn.bitNot(mask));
-		return {fn.or_(keepTrue, keepFalse), ct};
-	}
-
 	Emitter::Value Emitter::emitTernary(Function& fn, const Expr* e) {
-		CType tt, ft;
-		if(!typeOf(e->ternary.whenTrue, tt) || !typeOf(e->ternary.whenFalse, ft))
-			return emitTernarySelect(fn, e);
-		B32 isVoidRes = isVoidType(tt) || isVoidType(ft);
-		CType rt;
-		if(isVoidRes)
-			rt = isVoidType(tt) ? tt : ft;
-		else if(isComplexType(tt) || isComplexType(ft))
-			rt = usualArithmetic(tt, ft);
-		else if(isStruct(tt))
-			rt = tt;
-		else if(isStruct(ft))
-			rt = ft;
-		else if(isPointer(tt))
-			rt = tt;
-		else if(isPointer(ft))
-			rt = ft;
-		else
-			rt = usualArithmetic(tt, ft);
+		CType rt = e->type; // see ternaryType
+		B32 isVoidRes = isVoidType(rt);
 		Value cv = emitExpr(fn, e->ternary.cond);
 		if(!cv.node)
 			return {};

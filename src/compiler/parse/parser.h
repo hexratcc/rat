@@ -90,6 +90,7 @@ namespace rat::cc {
 		B32 parseDeclaratorSuffixes(List<DeclOp>& ops, U32& align);
 		B32 parseArrayBound(DeclOp& op);
 		B32 parseParamTypeList(FuncType* ft);
+		B32 parseParams(FuncType* ft);
 		B32 parseParamNames(FuncType* ft);
 		B32 looksLikeGroupingParen();
 		CType applyDeclOps(CType base, const List<DeclOp>& ops);
@@ -111,6 +112,11 @@ namespace rat::cc {
 		B32 parseDeclAttributes(const String*& aliasOut, B32& noInlineOut, U32& alignOut);
 		B32 checkParamNames(const FuncDef* fn);
 		B32 checkObjectComplete(const Declarator& d);
+		void declare(const String& name, CType type);
+		void declareObject(Declarator& d, B32 hasInit);
+		void declareParams(const FuncType* ft);
+		void keepParamEnumerators(const FuncType* ft);
+		const CType* typedefType(const String& name);
 		B32 parseStaticAssert();
 		Stmt* parseDeclaration(TransUnit* unit);
 
@@ -160,6 +166,7 @@ namespace rat::cc {
 		Expr* parseVaArg();
 		Expr* parseCall(Expr* e);
 		Expr* parseGeneric();
+		B32 parseGenericAssoc(CType control, Expr*& selected, Expr*& fallback);
 		Expr* parseBuiltinOffsetof(const Token& kw);
 
 		static constexpr U32 kMaxParseDepth = 256;
@@ -177,6 +184,17 @@ namespace rat::cc {
 		Expr* makeInt(const Token& tok, I64 value, U32 bits, U8 mods = 0);
 		Expr* makeUnary(U32 offset, ExprOp op, Expr* operand);
 		Expr* makeBinary(U32 offset, ExprOp op, Expr* lhs, Expr* rhs);
+
+		// expression types, see parse_typed.cpp
+		Expr* typed(Expr* e);
+		B32 unaryType(Expr* e);
+		CType binaryType(const Expr* e);
+		CType callType(const Expr* e);
+		B32 memberType(Expr* e);
+		CType strType(const Expr* e);
+		CType stmtExprType(const Expr* e);
+		CType sizeType() const;
+		CType ptrDiffType() const;
 
 		// literals
 		B32 parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods);
@@ -200,6 +218,17 @@ namespace rat::cc {
 			StructType* type = nullptr;
 			U32 depth = 0;
 		};
+		// what an ordinary identifier names
+		struct Ident {
+			enum class Kind : U8 {
+				Object,
+				Typedef,
+				EnumConst
+			};
+			Kind kind = Kind::Object;
+			CType type;		 // a function has func set and ptr 0
+			I64 value = 0; // of an enum constant
+		};
 
 		// input
 		TokenStream& lex;
@@ -216,14 +245,14 @@ namespace rat::cc {
 
 		// scopes
 		U32 scopeDepth = 0;
-		ScopeMap<CType> typedefs;
-		ScopeMap<I64> enumConstants;
+		ScopeMap<Ident> idents; // objects, functions, typedef names and enum constants
 		ScopeMap<const NamedType*> enumTags;
 		ScopeMap<TagBinding> structTypes;
 
 		// unit-wide tables
 		Map<String, FuncDef*> funcDefs;
 		List<FuncDef*> blockProtos;
+		Map<String, CType> linkedObjects; // the type of each object with linkage
 	};
 } // namespace rat::cc
 

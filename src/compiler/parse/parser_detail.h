@@ -118,6 +118,7 @@ namespace rat::cc::detail {
 	void appendCodeUnits(String& out, U32 cp, U32 unitBytes);
 	U32 escapeMaxVal(C8 prefix);
 	B32 ucnAt(const String& s, U32 i, U32 end);
+	B32 isAbsName(const String& name);
 	Pair<U32, U32> quotedRange(const String& s, C8 quote);
 } // namespace rat::cc::detail
 

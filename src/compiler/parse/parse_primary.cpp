@@ -61,8 +61,27 @@ namespace rat::cc {
 		return true;
 	}
 
+	// type-name : assignment | default : assignment
+	// the first association whose type matches control is selected
+	B32 Parser::parseGenericAssoc(CType control, Expr*& selected, Expr*& fallback) {
+		B32 isDefault = accept(TokKind::KwDefault);
+		CType type;
+		if(!isDefault && !parseTypeName(type))
+			return false;
+		if(!expect(TokKind::Colon))
+			return false;
+		Expr* result = parseAssignment();
+		if(!result)
+			return false;
+		if(isDefault)
+			fallback = result;
+		else if(!selected && typesCompatible(control, type))
+			selected = result;
+		return true;
+	}
+
 	// _Generic ( assignment [, assoc]... )
-	// assoc: type-name : assignment | default : assignment
+	// resolved here, the selected expression stands for the whole
 	Expr* Parser::parseGeneric() {
 		Token kw = advance(); // _Generic
 		if(!expect(TokKind::LParen))
@@ -70,24 +89,21 @@ namespace rat::cc {
 		Expr* control = parseAssignment();
 		if(!control)
 			return nullptr;
-		Expr* e = makeExpr(ExprKind::Generic, kw.offset);
-		e->generic.control = control;
-		while(accept(TokKind::Comma)) {
-			GenericAssoc assoc;
-			if(accept(TokKind::KwDefault))
-				assoc.isDefault = true;
-			else if(!parseTypeName(assoc.type))
+		CType controlType = valueType(control->type);
+		clearTopConst(controlType);
+		clearTopVolatile(controlType);
+		Expr* selected = nullptr;
+		Expr* fallback = nullptr;
+		while(accept(TokKind::Comma))
+			if(!parseGenericAssoc(controlType, selected, fallback))
 				return nullptr;
-			if(!expect(TokKind::Colon))
-				return nullptr;
-			assoc.result = parseAssignment();
-			if(!assoc.result)
-				return nullptr;
-			e->assocs.push_back(assoc);
-		}
 		if(!expect(TokKind::RParen))
 			return nullptr;
-		return e;
+		if(!selected)
+			selected = fallback;
+		if(!selected)
+			return fail(kw, "no _Generic association matches the controlling type");
+		return selected;
 	}
 
 	// string-literal...
@@ -114,7 +130,7 @@ namespace rat::cc {
 		}
 		Expr* e = makeExpr(ExprKind::StrLit, parts[0].offset);
 		e->str = {arena.make<String>(std::move(bytes)), unitBytes != 1, unitBytes};
-		return e;
+		return typed(e);
 	}
 
 	// float-const
@@ -147,25 +163,32 @@ namespace rat::cc {
 		else if(isLongDouble)
 			bits = 128;
 		e->floatLit = {value, bits, isImaginary};
-		return e;
+		return typed(e);
 	}
 
 	// name
 	// __func__, __builtin_offsetof and enum constants fold here
+	// only a call may name an undeclared function
 	Expr* Parser::parsePrimaryName() {
-		Token id = advance();
-		const String& name = lex.text(id);
+		Token tok = advance();
+		const String& name = lex.text(tok);
 		if(name == "__func__") {
-			Expr* e = makeExpr(ExprKind::StrLit, id.offset);
+			Expr* e = makeExpr(ExprKind::StrLit, tok.offset);
 			e->str = {arena.make<String>(curFuncName), false, 1};
-			return e;
+			return typed(e);
 		}
 		if(name == "__builtin_offsetof")
-			return parseBuiltinOffsetof(id);
-		if(const I64* ec = enumConstants.get(name))
-			return makeInt(id, *ec, 32);
-		Expr* e = makeExpr(ExprKind::Ident, id.offset);
+			return parseBuiltinOffsetof(tok);
+		const Ident* id = idents.get(name);
+		if(id && id->kind == Ident::Kind::EnumConst)
+			return makeInt(tok, id->value, 32);
+		B32 declared = id && id->kind == Ident::Kind::Object;
+		if(!declared && !check(TokKind::LParen))
+			return fail(tok, "use of undeclared identifier '" + name + "'");
+		Expr* e = makeExpr(ExprKind::Ident, tok.offset);
 		e->ident.name = arena.make<String>(name);
+		if(declared)
+			e->type = id->type;
 		return e;
 	}
 
@@ -179,7 +202,7 @@ namespace rat::cc {
 			return nullptr;
 		Expr* e = makeExpr(ExprKind::StmtExpr, open.offset);
 		e->stmtExpr.body = body;
-		return e;
+		return typed(e);
 	}
 
 	// generic | string-literal... | char-const | int-const | float-const | name
@@ -231,7 +254,7 @@ namespace rat::cc {
 			return nullptr;
 		Expr* va = makeExpr(ExprKind::VaArg, lp.offset);
 		va->vaArg = {ap, ty};
-		return va;
+		return typed(va);
 	}
 
 	// ( [ assignment [, assignment]... ] )
@@ -254,7 +277,7 @@ namespace rat::cc {
 		}
 		if(!expect(TokKind::RParen))
 			return nullptr;
-		return callE;
+		return typed(callE);
 	}
 
 	// [ call | '[' expr ']' | . name | -> name | ++ | -- ]...
@@ -267,8 +290,6 @@ namespace rat::cc {
 					e = parseVaArg();
 				else
 					e = parseCall(e);
-				if(!e)
-					return nullptr;
 			} else if(k == TokKind::LBracket) {
 				Token lb = advance();
 				Expr* idx = parseExpression();
@@ -284,7 +305,7 @@ namespace rat::cc {
 				Token nameTok = advance();
 				Expr* m = makeExpr(ExprKind::Member, t.offset);
 				m->member = {e, arena.make<String>(lex.text(nameTok)), k == TokKind::Arrow};
-				e = m;
+				e = typed(m);
 			} else if(k == TokKind::PlusPlus || k == TokKind::MinusMinus) {
 				Token t = advance();
 				ExprOp op = k == TokKind::PlusPlus ? ExprOp::PostInc : ExprOp::PostDec;
@@ -292,6 +313,8 @@ namespace rat::cc {
 			} else {
 				break;
 			}
+			if(!e)
+				return nullptr;
 		}
 		return e;
 	}

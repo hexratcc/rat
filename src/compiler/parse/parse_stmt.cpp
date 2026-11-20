@@ -74,10 +74,12 @@ namespace rat::cc {
 
 	// for ( for-init [expr] ; [expr] ) stmt
 	// for-init: declaration | [expr] ;
+	// a for-init declaration is scoped to the loop
 	Stmt* Parser::parseFor() {
 		Token kw = advance(); // for
 		if(!expect(TokKind::LParen))
 			return nullptr;
+		pushScope();
 
 		Stmt* init = nullptr;
 		if(startsType(peek()) || check(TokKind::KwTypedef)) {
@@ -103,7 +105,7 @@ namespace rat::cc {
 		Stmt* body = parseStatement();
 		if(!body)
 			return nullptr;
-
+		popScope();
 		Stmt* s = makeStmt(StmtKind::For, kw.offset, cond, body);
 		s->forInit = init;
 		s->forPost = post;
@@ -283,8 +285,7 @@ namespace rat::cc {
 	}
 
 	void Parser::pushScope() {
-		typedefs.push();
-		enumConstants.push();
+		idents.push();
 		enumTags.push();
 		structTypes.push();
 		++scopeDepth;
@@ -292,8 +293,7 @@ namespace rat::cc {
 
 	void Parser::popScope() {
 		--scopeDepth;
-		typedefs.pop();
-		enumConstants.pop();
+		idents.pop();
 		enumTags.pop();
 		structTypes.pop();
 	}

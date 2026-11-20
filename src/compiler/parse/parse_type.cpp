@@ -16,7 +16,7 @@ namespace rat::cc {
 	B32 Parser::startsType(const Token& tok) {
 		if(detail::tokSyntax(tok.kind).spec != 0)
 			return true;
-		return tok.kind == TokKind::Identifier && typedefs.get(lex.text(tok)) != nullptr;
+		return tok.kind == TokKind::Identifier && typedefType(lex.text(tok)) != nullptr;
 	}
 
 	// typedef type-spec [ declarator [, declarator]... ] ;
@@ -36,7 +36,7 @@ namespace rat::cc {
 				return fail(peek(), "expected typedef name");
 			CType named = r.type;
 			named.named = arena.make<NamedType>(NamedType{*r.name, r.type, {}, r.offset});
-			typedefs.set(*r.name, named);
+			idents.set(*r.name, {Ident::Kind::Typedef, named});
 			if(hasUnfoldedDim(r.type)) {
 				Declarator d;
 				bindDeclarator(d, r);
@@ -216,7 +216,7 @@ namespace rat::cc {
 		if(check(TokKind::KwStruct) || check(TokKind::KwUnion))
 			return parseStructSpec(out) && finishTypeSpec(seen, out);
 		if(check(TokKind::Identifier)) {
-			if(const CType* td = typedefs.get(lex.text(peek()))) {
+			if(const CType* td = typedefType(lex.text(peek()))) {
 				advance();
 				out = *td;
 				return finishTypeSpec(seen, out);

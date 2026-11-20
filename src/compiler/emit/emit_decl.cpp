@@ -119,7 +119,7 @@ namespace rat::cc {
 				fn.store(offsetPtr(fn, slot, (U64)i * elemSize), fn.constInt(elemTy, val));
 			}
 		}
-		func.scopes.set(*d.name, Local::mem(slot, sizedArray(arena, d.type, (U64)count)));
+		func.scopes.set(*d.name, Local::mem(slot, completeArray(d.type, (U64)count)));
 		return true;
 	}
 
@@ -156,7 +156,7 @@ namespace rat::cc {
 			if(d.init && !initArrayInit(sink, 0, elem, (U32)count, d.init))
 				return false;
 		}
-		func.scopes.set(*d.name, Local::mem(slot, sizedArray(arena, d.type, (U64)count)));
+		func.scopes.set(*d.name, Local::mem(slot, completeArray(d.type, (U64)count)));
 		return true;
 	}
 

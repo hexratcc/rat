@@ -16,7 +16,7 @@ namespace rat::cc {
 				return nullptr;
 			Expr* e = makeExpr(ExprKind::CompoundLit, lp.offset);
 			e->compound = {ty, init};
-			return parsePostfixTail(e); // allow [..], .x, etc. after the literal
+			return parsePostfixTail(typed(e)); // allow [..], .x, etc. after the literal
 		}
 		if(isArrayType(ty))
 			return fail(lp, "array types may not be used in a cast");
@@ -25,7 +25,7 @@ namespace rat::cc {
 			return nullptr;
 		Expr* e = makeExpr(ExprKind::Cast, lp.offset);
 		e->cast = {ty, operand};
-		return e;
+		return typed(e);
 	}
 
 	// size-op ( type-name ) | size-op unary
@@ -45,7 +45,7 @@ namespace rat::cc {
 			if(!e->sizeOf.operand)
 				return nullptr;
 		}
-		return e;
+		return typed(e);
 	}
 
 	// size-op-expr | cast-or-compound | unary-op unary | ++ unary | -- unary | primary postfix-tail
@@ -106,7 +106,7 @@ namespace rat::cc {
 			return nullptr;
 		Expr* e = makeExpr(ExprKind::Ternary, q.offset);
 		e->ternary = {cond, whenTrue, whenFalse};
-		return e;
+		return typed(e);
 	}
 
 	// conditional [ assign-op assignment ]
@@ -137,7 +137,7 @@ namespace rat::cc {
 				return nullptr;
 			Expr* comma = makeExpr(ExprKind::Comma, c.offset);
 			comma->comma = {e, rhs};
-			e = comma;
+			e = typed(comma);
 		}
 		return e;
 	}

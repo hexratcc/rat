@@ -97,7 +97,6 @@ namespace rat::cc {
 		const StructType* strukt = nullptr;
 		const ArrayType* array = nullptr;
 		const FuncType* func = nullptr;
-		const Expr* typeofExpr = nullptr;
 		const NamedType* named = nullptr; // typedef or enum spelled, see outerNamedType
 
 		constexpr B32 has(Mods m) const { return (mods & (U8)m) != 0; }
@@ -353,13 +352,6 @@ namespace rat::cc {
 		CompoundLit, // (type){ ... } C99 compound literal
 		VaArg,			 // __builtin_va_arg(ap, type)
 		StmtExpr,		 // GNU statement expression ({ stmts; value; })
-		Generic,		 // C11 _Generic(ctrl, type: expr, ..., default: expr)
-	};
-
-	struct GenericAssoc {
-		B32 isDefault = false;
-		CType type;
-		Expr* result = nullptr;
 	};
 
 	struct Designator {
@@ -375,6 +367,7 @@ namespace rat::cc {
 
 		ExprKind kind = ExprKind::IntLit;
 		U32 offset = 0; // byte offset of the leading token (diagnostics)
+		CType type;			// as the parser typed it, before array and function decay
 		union {
 			struct {
 				I64 value;
@@ -440,13 +433,9 @@ namespace rat::cc {
 			struct {
 				Stmt* body;
 			} stmtExpr;
-			struct {
-				Expr* control;
-			} generic;
 		};
 		List<Expr*> args;
 		List<Designator> designators;
-		List<GenericAssoc> assocs;
 	};
 
 	enum class StmtKind : U8 {
@@ -514,8 +503,14 @@ namespace rat::cc {
 	CType promote(CType t);
 	CType defaultArgPromote(CType t);
 	CType usualArithmetic(CType a, CType b);
+	CType valueType(CType t);
+	CType rvalueType(CType t);
+	B32 isNullPointerConst(const Expr* e);
+	CType ternaryType(const Expr* whenTrue, const Expr* whenFalse);
+	B32 typesCompatible(const CType& a, const CType& b);
+	B32 builtinReturnType(const String& name, U32 longBits, CType& out);
 
-	// a name table whose pop undoes every set and erase since the matching push
+	// a name table whose pop undoes every set since the matching push
 	template <typename V> struct ScopeMap {
 		struct Undo {
 			String name;
@@ -531,7 +526,6 @@ namespace rat::cc {
 		void push() { marks.push_back((U32)undo.size()); }
 		void pop();
 		void set(const String& key, V value);
-		void erase(const String& key);
 		void clear() {
 			table.clear();
 			undo.clear();
@@ -570,15 +564,6 @@ namespace rat::cc {
 			undo.push_back({key, inserted ? V{} : it->second, !inserted});
 		if(!inserted)
 			it->second = value;
-	}
-
-	template <typename V> void ScopeMap<V>::erase(const String& key) {
-		auto it = table.find(key);
-		if(it == table.end())
-			return;
-		if(!marks.empty())
-			undo.push_back({key, it->second, true});
-		table.erase(it);
 	}
 
 	String typeName(CType t);
@@ -628,6 +613,7 @@ namespace rat::cc {
 		const C8* floatName(U32 bits);
 		const C8* intName(U32 bits);
 		String funcTypeName(CType t);
+		B32 funcTypesCompatible(const FuncType* a, const FuncType* b);
 		void pad(std::ostream& os, U32 depth);
 		void dumpStmt(const Stmt* s, U32 depth, std::ostream& os);
 		void dumpExpr(const Expr* e, U32 depth, std::ostream& os);

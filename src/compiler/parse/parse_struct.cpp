@@ -209,6 +209,7 @@ namespace rat::cc {
 	}
 
 	// typeof ( type-name | expr )
+	// an expr gives its type before decay, a bitfield its plain type
 	B32 Parser::parseTypeofSpec(CType& out) {
 		advance(); // typeof / __typeof / __typeof__
 		if(!expect(TokKind::LParen))
@@ -220,8 +221,8 @@ namespace rat::cc {
 			Expr* e = parseExpression();
 			if(!e)
 				return false;
-			out = CType{};
-			out.typeofExpr = e;
+			out = e->type;
+			out.bitPrec = 0;
 		}
 		return expect(TokKind::RParen);
 	}
@@ -245,7 +246,7 @@ namespace rat::cc {
 				return fail(name, "enumerator value is not representable as int");
 			if(value < 0)
 				anyNegative = true;
-			enumConstants.set(lex.text(name), value);
+			idents.set(lex.text(name), {Ident::Kind::EnumConst, ctInt(), value});
 			e.enumerators.push_back({lex.text(name), value});
 			next = value + 1;
 			if(!accept(TokKind::Comma))

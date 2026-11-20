@@ -31,8 +31,6 @@ namespace rat::cc {
 		B32 exactInUnsigned64(Opcode op, CType a, CType b);
 		I64 narrowToType(I64 v, CType ty);
 		CType arithResultType(CType a, CType b);
-		B32 genericTypesMatch(const CType& a, const CType& b);
-		B32 funcTypesMatch(const FuncType* a, const FuncType* b);
 		B32 isLabeledStmt(const Stmt* s);
 		B32 isRegConstraint(const String& c, B32 isOutput, B32& readWrite);
 		B32 matchingConstraint(const String& c, U32& index);
@@ -61,7 +59,6 @@ namespace rat::cc {
 		B32 walkStmtChildren(AstWalk& w, const Stmt* s);
 	} // namespace detail
 
-	B32 builtinReturnType(const String& name, U32 longBits, CType& out);
 	String builtinLibcName(const String& name);
 
 	struct Emitter {
@@ -187,14 +184,8 @@ namespace rat::cc {
 		U32 alignOf(CType t) const;
 		CType ctSize() const;
 		CType ctPtrDiff() const;
-		B32 resolveType(CType& t);
-		B32 typeOf(const Expr* expr, CType& out);
-		B32 typeOfObject(const Expr* expr, CType& out);
-		B32 typeOfUnary(const Expr* expr, CType& out);
-		B32 typeOfBinary(const Expr* expr, CType& out);
-		const Expr* genericSelect(const Expr* e);
 		Symbol lookupSymbol(const String& name);
-		B32 memberField(const Expr* e, CType& structType, const Field*& field);
+		void memberField(const Expr* e, CType& structType, const Field*& field);
 		B32 sizeofOperand(const Expr* operand, U64& out);
 
 		// memory and conversions
@@ -205,6 +196,7 @@ namespace rat::cc {
 		Node* vlaDimCount(Function& fn, CType arr);
 		B32 bindVlaDims(Function* fn, CType t);
 		B32 arrayBound(CType arr, I64& count);
+		CType completeArray(CType arr, U64 count);
 		B32 compoundArrayCount(const Expr* e, I64& count);
 		Node* convert(Function& fn, Node* n, CType from, CType to);
 		Node* reduceBitfield(Function& fn, Node* n, CType t);
@@ -298,7 +290,6 @@ namespace rat::cc {
 		B32 alignofValue(const Expr* e, U32& out);
 		Value emitStmtExpr(Function& fn, const Expr* expr);
 		Value emitTernary(Function& fn, const Expr* expr);
-		Value emitTernarySelect(Function& fn, const Expr* expr);
 		Value emitCompoundLit(Function& fn, const Expr* expr);
 		Value emitAssign(Function& fn, const Expr* expr);
 		Value assignStruct(Function& fn, const Expr* e, const LValue& lv, Value rhs);

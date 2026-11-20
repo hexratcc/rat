@@ -75,36 +75,6 @@ namespace rat::cc {
 		return String();
 	}
 
-	B32 builtinReturnType(const String& name, U32 longBits, CType& out) {
-		if(name.rfind("__builtin_", 0) != 0)
-			return false;
-		String stem = name.substr(10);
-		if(stem == "strlen") {
-			out = ctUnsigned(longBits);
-			out.set(CType::Long);
-			return true;
-		}
-		constexpr CType kFloat{32, 0, 0, 0, 0, CType::Base::Float};
-		constexpr CType kCharPtr{8, 1, 0, 0, 0, CType::Base::Int, CType::PlainChar};
-		// clang-format off
-		static const Map<String, CType> kTypes = {
-				{"sqrtf", kFloat}, {"fabsf", kFloat}, {"copysignf", kFloat},
-				{"sqrt", ctDouble()}, {"fabs", ctDouble()}, {"copysign", ctDouble()},
-				{"alloca", ctVoidPtr()}, {"calloc", ctVoidPtr()}, {"malloc", ctVoidPtr()},
-				{"realloc", ctVoidPtr()}, {"memcpy", ctVoidPtr()}, {"memmove", ctVoidPtr()},
-				{"memset", ctVoidPtr()}, {"strcat", kCharPtr}, {"strchr", kCharPtr}, {"strcpy", kCharPtr},
-				{"strncat", kCharPtr}, {"strncpy", kCharPtr}, {"strrchr", kCharPtr}, {"strstr", kCharPtr},
-				{"abort", ctVoid()}, {"exit", ctVoid()}, {"free", ctVoid()}, {"longjmp", ctVoid()},
-				{"expect", ctInt64()}, {"constant_p", ctInt()},
-		};
-		// clang-format on
-		auto found = kTypes.find(stem);
-		if(found == kTypes.end())
-			return false;
-		out = found->second;
-		return true;
-	}
-
 	Emitter::Value Emitter::voidValue(Function& fn) { return {fn.constInt(i32, 0), ctVoid()}; }
 
 	Node* Emitter::vaListRef(Function& fn, const Expr* ap) {
@@ -264,23 +234,12 @@ namespace rat::cc {
 
 	// false when the operand is not an integer, the call then goes to libc
 	B32 Emitter::emitAbsBuiltin(Function& fn, const Expr* e, Value& out) {
-		const String& name = *e->call.callee;
-		String stem = name;
-		if(name.rfind("__builtin_", 0) == 0)
-			stem = name.substr(10);
-		CType at;
-		if(e->args.size() != 1 || !typeOf(e->args[0], at) || !isInteger(at))
+		if(e->args.size() != 1 || !isInteger(valueType(e->args[0]->type)))
 			return false;
 		Value v = emitExpr(fn, e->args[0]);
 		if(!v.node)
 			return true;
-		CType rt;
-		if(stem == "labs")
-			rt.bits = lay.longBits;
-		else if(stem == "llabs")
-			rt.bits = 64;
-		rt.set(CType::Long, stem != "abs");
-		rt.set(CType::LongLong, stem == "llabs");
+		CType rt = e->type; // see builtinReturnType
 		Type* ty = irType(rt);
 		Node* x = convert(fn, v.node, v.type, rt);
 		Node* mask = fn.ashr(x, fn.constInt(ty, (I64)rt.bits - 1));
@@ -307,10 +266,7 @@ namespace rat::cc {
 	B32 Emitter::emitClassifyBuiltin(Function& fn, const Expr* e, Value& out) {
 		if(!oneArg(e))
 			return true;
-		CType t;
-		if(!typeOf(e->args[0], t))
-			return failBuiltin("cannot classify the operand of '" + *e->call.callee + "'");
-		out = {fn.constInt(i32, typeClassOf(t)), ctInt()};
+		out = {fn.constInt(i32, typeClassOf(valueType(e->args[0]->type))), ctInt()};
 		return true;
 	}
 

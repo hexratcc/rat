@@ -123,7 +123,7 @@ namespace rat::cc {
 		}
 		Type* type = scalarElem ? mod.getArray(irType(elem), (U32)count) : byteArrayType(total);
 		defineGlobal(d, sym, type, std::move(img));
-		bindGlobal(d, sym, fn, sizedArray(arena, d.type, (U64)count));
+		bindGlobal(d, sym, fn, completeArray(d.type, (U64)count));
 		return true;
 	}
 
@@ -222,7 +222,7 @@ namespace rat::cc {
 				CType type = d.type;
 				I64 count;
 				if(isArrayType(type) && arrayBound(type, count))
-					type = sizedArray(arena, type, (U64)count);
+					type = completeArray(type, (U64)count);
 				syms.globals[*d.name] = GlobalVariable{type};
 				continue;
 			}

@@ -22,8 +22,8 @@ namespace rat::cc {
 			vl->count = lay.ptrBytes * 4;
 			vaList.array = vl;
 		}
-		typedefs.set("va_list", vaList);
-		typedefs.set("__builtin_va_list", vaList);
+		idents.set("va_list", {Ident::Kind::Typedef, vaList});
+		idents.set("__builtin_va_list", {Ident::Kind::Typedef, vaList});
 	}
 
 	Failed Parser::fail(const Token& at, const String& msg) {
@@ -71,19 +71,65 @@ namespace rat::cc {
 		if(mods & CType::LongLong) // 'long long' subsumes 'long'
 			mods |= CType::Long;
 		e->intLit = {value, bits, mods};
-		return e;
+		return typed(e);
 	}
 
 	Expr* Parser::makeUnary(U32 offset, ExprOp op, Expr* operand) {
 		Expr* e = makeExpr(ExprKind::Unary, offset);
 		e->unary = {op, operand};
-		return e;
+		return typed(e);
 	}
 
 	Expr* Parser::makeBinary(U32 offset, ExprOp op, Expr* lhs, Expr* rhs) {
 		Expr* e = makeExpr(ExprKind::Binary, offset);
 		e->binary = {op, lhs, rhs};
-		return e;
+		return typed(e);
+	}
+
+	void Parser::declare(const String& name, CType type) {
+		idents.set(name, {Ident::Kind::Object, type});
+	}
+
+	// an unsized array an initializer completes gets its own ArrayType, see completeArray
+	// an object with linkage keeps the bound of an earlier declaration a later one lacks
+	void Parser::declareObject(Declarator& d, B32 hasInit) {
+		if(hasInit && isUnsizedArray(d.type))
+			d.type.array = arena.make<ArrayType>(*d.type.array);
+		B32 hasLinkage = scopeDepth == 0 || d.isExtern;
+		if(!hasLinkage) {
+			declare(*d.name, d.type);
+			return;
+		}
+		auto [linked, fresh] = linkedObjects.try_emplace(*d.name, d.type);
+		if(!fresh && !(isUnsizedArray(d.type) && !hasInit))
+			linked->second = d.type;
+		declare(*d.name, linked->second);
+	}
+
+	// enum constants a parameter type declares stay visible after the prototype scope
+	void Parser::keepParamEnumerators(const FuncType* ft) {
+		for(const Param& p : ft->params) {
+			const NamedType* named = p.type.named;
+			if(!named || !named->isEnum)
+				continue;
+			for(const auto& [name, value] : named->enumerators)
+				if(!idents.get(name))
+					idents.set(name, {Ident::Kind::EnumConst, ctInt(), value});
+		}
+	}
+
+	void Parser::declareParams(const FuncType* ft) {
+		for(const Param& p : ft->params)
+			if(p.name)
+				declare(*p.name, p.type);
+	}
+
+	// the type a typedef name stands for, null for any other name
+	const CType* Parser::typedefType(const String& name) {
+		const Ident* id = idents.get(name);
+		if(!id || id->kind != Ident::Kind::Typedef)
+			return nullptr;
+		return &id->type;
 	}
 
 	// no two named parameters share a name
@@ -131,6 +177,7 @@ namespace rat::cc {
 				for(Param& p : fn->type->params) {
 					if(p.name && *p.name == *r.name) {
 						p.type = r.type;
+						declare(*r.name, r.type);
 						matched = true;
 						break;
 					}
@@ -148,10 +195,13 @@ namespace rat::cc {
 
 	// [old-style-decls] compound
 	B32 Parser::parseFunctionDef(FuncDef* fn, B32 oldStyle) {
+		idents.push(); // the parameters, an old-style declaration may name an earlier one
+		declareParams(fn->type);
 		if((oldStyle && !parseOldStyleDecls(fn)) || !checkParamNames(fn))
 			return false;
 		curFuncName = fn->name;
 		fn->body = parseCompound();
+		idents.pop();
 		curFuncName.clear();
 		return fn->body != nullptr;
 	}
@@ -189,6 +239,7 @@ namespace rat::cc {
 		B32 noInline = false;
 		if(!parseDeclAttributes(d.aliasOf, noInline, d.align))
 			return false;
+		declareObject(d, check(TokKind::Assign));
 		if(accept(TokKind::Assign)) {
 			if(!fileScope && d.isExtern)
 				return fail(start, "'extern' variable cannot have an initializer");
@@ -218,6 +269,7 @@ namespace rat::cc {
 			if(!r.name)
 				return fail(peek(), "expected declarator name");
 			if(r.type.func && r.type.ptr == 0) {
+				declare(*r.name, r.type);
 				B32 defined = false;
 				if(!parseFunctionDeclarator(r, start, ds, unit, defined))
 					return false;
@@ -260,8 +312,6 @@ namespace rat::cc {
 			return s;
 		if(!parseDeclarators(base, start, s, unit))
 			return nullptr;
-		for(const Declarator& d : s->decls)
-			typedefs.erase(*d.name);
 		return s;
 	}
 

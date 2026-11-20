@@ -146,8 +146,6 @@ namespace rat::cc {
 		}
 		case ExprKind::Cast: {
 			ty = e->cast.type;
-			if(!resolveType(ty)) // typeof(expr) casts
-				return false;
 			CType opTy;
 			if(!evalConstTyped(e->cast.operand, out, opTy)) {
 				F80 fv;
@@ -186,10 +184,7 @@ namespace rat::cc {
 		case ExprKind::Call: {
 			if(!e->call.callee || *e->call.callee != "__builtin_classify_type" || e->args.size() != 1)
 				return false;
-			CType opTy;
-			if(!typeOf(e->args[0], opTy))
-				return false;
-			out = typeClassOf(opTy);
+			out = typeClassOf(valueType(e->args[0]->type));
 			ty = ctInt();
 			return true;
 		}
@@ -279,7 +274,8 @@ namespace rat::cc {
 		case ExprKind::Member: {
 			CType st;
 			const Field* f;
-			if(!memberField(lv, st, f) || !f)
+			memberField(lv, st, f);
+			if(!f)
 				return false;
 			I64 base = 0;
 			if(lv->member.arrow) {
@@ -327,15 +323,15 @@ namespace rat::cc {
 		case ExprKind::Member: {
 			CType st;
 			const Field* f;
-			if(!memberField(e, st, f) || !f || !isStruct(st) || !isArrayType(f->type))
+			memberField(e, st, f);
+			if(!f || !isStruct(st) || !isArrayType(f->type))
 				return false;
 			return addrConstOf(e, sym, addend);
 		}
 		case ExprKind::Unary: {
 			if(e->unary.op == ExprOp::Addr)
 				return addrConstOf(e->unary.operand, sym, addend);
-			CType t;
-			if(e->unary.op == ExprOp::Deref && typeOfObject(e, t) && isArrayType(t))
+			if(e->unary.op == ExprOp::Deref && isArrayType(e->type))
 				return evalAddrConst(e->unary.operand, sym, addend);
 			return false;
 		}
@@ -355,9 +351,9 @@ namespace rat::cc {
 			I64 n = 0;
 			if(!evalConst(intSide, n))
 				return false;
-			CType pt;
+			CType pt = valueType(ptrSide->type);
 			I64 scale = 1;
-			if(typeOf(ptrSide, pt) && isPointer(pt))
+			if(isPointer(pt))
 				scale = (I64)byteSize(pointee(pt));
 			addend += (e->binary.op == ExprOp::Sub ? -n : n) * scale;
 			return true;

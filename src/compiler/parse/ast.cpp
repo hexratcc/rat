@@ -90,6 +90,136 @@ namespace rat::cc {
 		return s;
 	}
 
+	// t as an rvalue, an array decays to a pointer to its element and a function to a pointer
+	CType valueType(CType t) {
+		if(isArrayType(t))
+			return decay(t);
+		if(t.func && t.ptr == 0)
+			return pointerTo(t);
+		return t;
+	}
+
+	// the value of an expression of type t, without its top qualifiers
+	CType rvalueType(CType t) {
+		t = valueType(t);
+		clearTopConst(t);
+		clearTopVolatile(t);
+		return t;
+	}
+
+	// 0 or (void*)0, C99 6.3.2.3p3
+	B32 isNullPointerConst(const Expr* e) {
+		if(e->kind == ExprKind::Cast && isVoidType(pointee(e->type)) && e->type.ptr == 1)
+			e = e->cast.operand;
+		return e->kind == ExprKind::IntLit && e->intLit.value == 0;
+	}
+
+	// c ? a : b, a null pointer constant takes the type of the other pointer arm
+	CType ternaryType(const Expr* whenTrue, const Expr* whenFalse) {
+		CType a = rvalueType(whenTrue->type);
+		CType b = rvalueType(whenFalse->type);
+		if(isPointer(b) && isNullPointerConst(whenTrue))
+			return b;
+		if(isVoidType(a))
+			return a;
+		if(isVoidType(b))
+			return b;
+		if(isComplexType(a) || isComplexType(b))
+			return usualArithmetic(a, b);
+		if(isStruct(a))
+			return a;
+		if(isStruct(b))
+			return b;
+		if(isPointer(a))
+			return a;
+		if(isPointer(b))
+			return b;
+		return usualArithmetic(a, b);
+	}
+
+	namespace detail {
+		B32 funcTypesCompatible(const FuncType* a, const FuncType* b) {
+			if(a->isVarArgs != b->isVarArgs || a->params.size() != b->params.size())
+				return false;
+			if(!typesCompatible(a->ret, b->ret))
+				return false;
+			for(U32 i = 0; i < a->params.size(); ++i)
+				if(!typesCompatible(a->params[i].type, b->params[i].type))
+					return false;
+			return true;
+		}
+	} // namespace detail
+
+	// the same type as _Generic sees it, the spelling of long and plain char counts
+	B32 typesCompatible(const CType& a, const CType& b) {
+		if(a.ptr != b.ptr || a.quals != b.quals || a.vquals != b.vquals)
+			return false;
+		if((a.func != nullptr) != (b.func != nullptr))
+			return false;
+		if(a.func)
+			return detail::funcTypesCompatible(a.func, b.func);
+		if(isArrayType(a) != isArrayType(b))
+			return false;
+		if(isArrayType(a))
+			return a.array->count == b.array->count && typesCompatible(a.array->elem, b.array->elem);
+		if((a.strukt != nullptr) != (b.strukt != nullptr))
+			return false;
+		if(a.strukt)
+			return a.strukt == b.strukt;
+		if(a.isVoid() != b.isVoid() || a.isFloat() != b.isFloat() || a.bits != b.bits)
+			return false;
+		if(a.isFloat() || a.isVoid())
+			return true;
+		if(a.isUnsigned() != b.isUnsigned())
+			return false;
+		if(a.bits == 8 && a.isPlainChar() != b.isPlainChar())
+			return false;
+		if(a.bits == 32 && a.isLong() != b.isLong())
+			return false;
+		return a.bits != 64 || a.isLongLong() == b.isLongLong();
+	}
+
+	// the return type of a builtin the emitter knows by name, see emitBuiltinCall
+	// abs, labs, llabs and alloca count without the __builtin_ prefix too
+	B32 builtinReturnType(const String& name, U32 longBits, CType& out) {
+		B32 prefixed = name.rfind("__builtin_", 0) == 0;
+		if(!prefixed && name != "abs" && name != "labs" && name != "llabs" && name != "alloca")
+			return false;
+		String stem = name;
+		if(prefixed)
+			stem = name.substr(10);
+		if(stem == "strlen" || stem == "labs") {
+			out = {longBits};
+			out.set(CType::Long);
+			out.set(CType::Unsigned, stem == "strlen");
+			return true;
+		}
+		constexpr CType kFloat{32, 0, 0, 0, 0, CType::Base::Float};
+		constexpr CType kCharPtr{8, 1, 0, 0, 0, CType::Base::Int, CType::PlainChar};
+		constexpr CType kLongLong{64, 0, 0, 0, 0, CType::Base::Int, CType::Long | CType::LongLong};
+		// clang-format off
+		static const Map<String, CType> kTypes = {
+				{"sqrtf", kFloat}, {"fabsf", kFloat}, {"copysignf", kFloat},
+				{"sqrt", ctDouble()}, {"fabs", ctDouble()}, {"copysign", ctDouble()},
+				{"alloca", ctVoidPtr()}, {"calloc", ctVoidPtr()}, {"malloc", ctVoidPtr()},
+				{"realloc", ctVoidPtr()}, {"memcpy", ctVoidPtr()}, {"memmove", ctVoidPtr()},
+				{"memset", ctVoidPtr()}, {"strcat", kCharPtr}, {"strchr", kCharPtr}, {"strcpy", kCharPtr},
+				{"strncat", kCharPtr}, {"strncpy", kCharPtr}, {"strrchr", kCharPtr}, {"strstr", kCharPtr},
+				{"abort", ctVoid()}, {"exit", ctVoid()}, {"free", ctVoid()}, {"longjmp", ctVoid()},
+				{"expect", ctInt64()}, {"constant_p", ctInt()}, {"abs", ctInt()}, {"llabs", kLongLong},
+				{"bswap16", ctUnsigned(16)}, {"bswap32", ctUnsigned(32)}, {"bswap64", ctUnsigned(64)},
+				{"va_start", ctVoid()}, {"va_end", ctVoid()}, {"va_copy", ctVoid()},
+				{"trap", ctVoid()}, {"unreachable", ctVoid()}, {"prefetch", ctVoid()},
+				{"frame_address", ctVoidPtr()}, {"return_address", ctVoidPtr()},
+		};
+		// clang-format on
+		auto found = kTypes.find(stem);
+		if(found == kTypes.end())
+			return false;
+		out = found->second;
+		return true;
+	}
+
 	namespace detail {
 		const C8* floatName(U32 bits) {
 			if(bits == 32)
@@ -251,15 +381,6 @@ namespace rat::cc {
 			case ExprKind::StmtExpr:
 				os << "stmt-expr\n";
 				dumpStmt(e->stmtExpr.body, depth + 1, os);
-				return;
-			case ExprKind::Generic:
-				os << "_Generic\n";
-				dumpExpr(e->generic.control, depth + 1, os);
-				for(const GenericAssoc& a : e->assocs) {
-					pad(os, depth + 1);
-					os << (a.isDefault ? "default" : typeName(a.type)) << ":\n";
-					dumpExpr(a.result, depth + 2, os);
-				}
 				return;
 			}
 		}
