@@ -73,9 +73,10 @@ namespace rat::cc {
 				Func
 			};
 			Kind kind = Kind::Pointer;
-			U64 count = 0;						// stars of a Pointer, elements of an Array (0 when not constant)
+			U64 count = 0;						// elements of an Array (0 when not constant)
 			Expr* bound = nullptr;		// bound of an Array as written
 			FuncType* func = nullptr; // parameter list of a Func
+			CType pointers = {};			// stars and qualifiers of a Pointer, relative to the type below
 		};
 		struct DeclResult {
 			B32 allowOldStyle = false;		// in: an old-style name list may end the declarator

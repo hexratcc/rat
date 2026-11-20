@@ -133,7 +133,12 @@ namespace rat::cc {
 		for(const DeclOp& op : ops) {
 			switch(op.kind) {
 			case DeclOp::Kind::Pointer:
-				b.ptr += (U32)op.count;
+				if(b.ptr < 32) {
+					b.quals |= op.pointers.quals << b.ptr;
+					b.vquals |= op.pointers.vquals << b.ptr;
+					b.rquals |= op.pointers.rquals << b.ptr;
+				}
+				b.ptr += op.pointers.ptr;
 				break;
 			case DeclOp::Kind::Array: {
 				ArrayType* at = arena.make<ArrayType>();
@@ -207,24 +212,17 @@ namespace rat::cc {
 		DepthScope scope(*this);
 		if(!enterDepth())
 			return false;
-		U32 stars = 0;
-		for(;;) {
-			while(detail::isTypeQualifier(peek().kind))
-				advance();
-			if(!accept(TokKind::Star))
-				break;
-			++stars;
-		}
-		if(stars)
-			ops.push_back({DeclOp::Kind::Pointer, stars});
+		DeclOp op;
+		parsePointers(op.pointers);
+		const CType& p = op.pointers;
+		if(p.ptr || p.quals || p.vquals || p.rquals) // no empty op, an old-style Func must stay last
+			ops.push_back(op);
 		return parseDirectDeclarator(ops, out);
 	}
 
-	// pointers declarator-ops, resolved against base
+	// declarator-ops, resolved against base
 	// an old-style name list is only allowed on the outermost function declarator of a definition
 	B32 Parser::parseDeclarator(CType base, DeclResult& out) {
-		CType t = base;
-		parsePointers(t);
 		List<DeclOp> ops;
 		if(!parseDeclaratorOps(ops, out) || failed)
 			return false;
@@ -233,7 +231,7 @@ namespace rat::cc {
 			if(oldStyle && (i + 1 < ops.size() || !out.allowOldStyle))
 				return fail(peek(), "parameter names (without types) in function declaration");
 		}
-		out.type = applyDeclOps(t, ops);
+		out.type = applyDeclOps(base, ops);
 		return true;
 	}
 

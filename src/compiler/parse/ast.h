@@ -275,8 +275,13 @@ namespace rat::cc {
 		return plain;
 	}
 	constexpr CType pointee(CType t) {
-		if(t.ptr)
-			--t.ptr;
+		if(!t.ptr)
+			return t;
+		U32 ownQual = t.ptr < 32 ? 1u << t.ptr : 0u; // the qualifiers of the pointer itself
+		t.quals &= ~ownQual;
+		t.vquals &= ~ownQual;
+		t.rquals &= ~ownQual;
+		--t.ptr;
 		return t;
 	}
 	constexpr CType pointerTo(CType t) {
