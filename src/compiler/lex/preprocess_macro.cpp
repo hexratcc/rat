@@ -91,14 +91,14 @@ namespace rat::cc {
 			String spliced;
 			List<LineMark> marks;
 			splice(text, spliced, marks);
-			PpLexer lx{spliced, marks, file, interner, {}};
-			LexResult lr = lx.run();
-			if(!lr.err.empty()) {
-				fail((file ? *file : String("<fragment>")) + ": " + lr.err);
+			PpLexer lx{spliced, marks, file, interner, {}, {}};
+			lx.run();
+			if(!lx.err.empty()) {
+				fail((file ? *file : String("<fragment>")) + ": " + lx.err);
 				return {};
 			}
-			lr.toks.pop_back(); // drop Eof
-			return std::move(lr.toks);
+			lx.toks.pop_back(); // drop Eof
+			return std::move(lx.toks);
 		}
 
 		void Preprocessor::pasteInto(PpToken& dst, const PpToken& r) {
@@ -265,7 +265,7 @@ namespace rat::cc {
 			I32 depth = 1;
 			List<PpToken> cur;
 			for(;;) {
-				if(work.empty() || work.back().kind == Pk::Eof)
+				if(work.empty())
 					return fail("unterminated macro argument list");
 				PpToken w = work.back();
 				work.pop_back();

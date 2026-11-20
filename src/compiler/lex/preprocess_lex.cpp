@@ -1,6 +1,7 @@
 #include "lex/preprocess_detail.h"
 
 #include "lex/char_class.h"
+#include "lex/lexer.h"
 
 #include "hash.h"
 
@@ -211,6 +212,9 @@ namespace rat::cc {
 			}
 		}
 
+		const std::string_view kDigraphs[][2] = {
+				{"<:", "["}, {":>", "]"}, {"<%", "{"}, {"%>", "}"}, {"%:", "#"}, {"%:%:", "##"}};
+
 		// apply splice line-corrections at offsets <= p
 		inline void PpLexer::advanceTo(U64 p) {
 			while(mi < marks.size() && marks[mi].off <= p) {
@@ -222,20 +226,10 @@ namespace rat::cc {
 
 		inline void PpLexer::push(Pk kind, U64 start, U64 end) {
 			std::string_view sv(s.data() + start, end - start);
-			if(kind == Pk::Punct) {
-				// digraph canonicalization
-				if(sv == "<:")
-					sv = "[";
-				else if(sv == ":>")
-					sv = "]";
-				else if(sv == "<%")
-					sv = "{";
-				else if(sv == "%>")
-					sv = "}";
-				else if(sv == "%:")
-					sv = "#";
-				else if(sv == "%:%:")
-					sv = "##";
+			if(kind == Pk::Punct) { // digraph canonicalization
+				for(const auto& [digraph, canonical] : kDigraphs)
+					if(sv == digraph)
+						sv = canonical;
 			}
 			PpToken t;
 			t.kind = kind;
@@ -245,7 +239,7 @@ namespace rat::cc {
 			t.line = line;
 			t.col = (U16)std::min<U64>(start - lineStart + 1, 0xFFFF);
 			t.file = file;
-			r.toks.push_back(t);
+			toks.push_back(t);
 			lineOpen = true;
 			bolPending = false;
 			spacePending = false;
@@ -269,7 +263,7 @@ namespace rat::cc {
 				++i;
 			}
 			if(i + 1 >= n) {
-				r.err = "unterminated comment";
+				err = "unterminated comment";
 				return n;
 			}
 			return i + 2;
@@ -284,20 +278,6 @@ namespace rat::cc {
 				else
 					return j;
 			}
-		}
-
-		U64 PpLexer::quotedEnd(U64 i) const {
-			C8 quote = s[i];
-			U64 j = i + 1, n = s.size();
-			while(j < n && s[j] != quote) {
-				if(s[j] == '\\' && j + 1 < n)
-					j += 2;
-				else if(s[j] == '\n')
-					break;
-				else
-					++j;
-			}
-			return j < n && s[j] == quote ? j + 1 : 0;
 		}
 
 		U64 PpLexer::numberEnd(U64 j) const {
@@ -334,9 +314,9 @@ namespace rat::cc {
 			}
 
 			if(c == '"' || c == '\'') {
-				U64 j = quotedEnd(i);
+				U64 j = quotedEnd(s.data(), s.size(), i);
 				if(!j) {
-					r.err = "unterminated literal";
+					err = "unterminated literal";
 					return n;
 				}
 				push(c == '"' ? Pk::Str : Pk::Char, pfx, j);
@@ -356,15 +336,15 @@ namespace rat::cc {
 			return i + plen;
 		}
 
-		LexResult PpLexer::run() {
+		void PpLexer::run() {
 			U64 i = 0, n = s.size();
-			r.toks.reserve(n / 3 + 8);
+			toks.reserve(n / 3 + 8);
 			while(i < n) {
 				advanceTo(i);
 				C8 c = s[i];
 				if(c == '\n') {
 					if(lineOpen) { // comments and splices may end the line of the last token later
-						PpToken& last = r.toks.back();
+						PpToken& last = toks.back();
 						last.trailingLines = (U8)std::min<U32>(line - last.line, 63);
 						lineOpen = false;
 					}
@@ -386,8 +366,8 @@ namespace rat::cc {
 				} else {
 					i = lexToken(i);
 				}
-				if(!r.err.empty())
-					return std::move(r);
+				if(!err.empty())
+					return;
 			}
 
 			PpToken eof;
@@ -395,8 +375,7 @@ namespace rat::cc {
 			eof.text = in.intern(std::string_view());
 			eof.bol = true;
 			eof.file = file;
-			r.toks.push_back(eof);
-			return std::move(r);
+			toks.push_back(eof);
 		}
 
 		I64 parseCharConst(const String& txt) {

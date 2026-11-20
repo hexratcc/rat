@@ -45,10 +45,13 @@ namespace rat::cc {
 												 const String& source,
 												 const PpOptions& opts,
 												 TokenStream& ts,
+												 String* text,
 												 String& err) {
 		detail::Preprocessor pp(opts);
 		if(!pp.run(path, source, err))
 			return false;
+		if(text)
+			*text = pp.serialize();
 
 		// pointer-keyed keyword/punct maps over the pp interner
 		Map<const String*, TokKind> kindOf;
@@ -65,8 +68,6 @@ namespace rat::cc {
 		const String* lastFile = nullptr;
 		U16 file = 0;
 		for(const detail::PpToken& t : pp.out) {
-			if(t.kind == detail::Pk::Eof || t.kind == detail::Pk::Placemarker)
-				continue;
 			if(t.file != lastFile) {
 				file = detail::fileIndex(ts, t.file, indexOfFile);
 				lastFile = t.file;

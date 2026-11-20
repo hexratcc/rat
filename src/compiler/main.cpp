@@ -3,7 +3,7 @@
 
 #include "emit/emit.h"
 #include "lex/lexer.h"
-#include "lex/preprocess.h"
+#include "lex/token_stream.h"
 #include "parse/parser.h"
 #include <chrono>
 #include <cstdlib>
@@ -327,16 +327,12 @@ namespace detail {
 		if(!opt.noPredefs)
 			source = builtinPredefs(targetTriple()) + "#line 1 \"" + path + "\"\n" + source;
 
-		// only -E needs serialized text, every -emit kind runs off the pp token stream
-		B32 needText = opt.preprocessOnly, needToks = !opt.emits.empty();
-
 		String pped;
 		String ppErr;
 		TokenStream& ts = *new TokenStream; // never freed, as the compile state
 		PhaseClock::time_point tPp = PhaseClock::now();
-		B32 ppOk = !needText || preprocess(path, source, opt.pp, pped, ppErr);
-		if(ppOk && needToks)
-			ppOk = preprocessToTokens(path, source, opt.pp, ts, ppErr);
+		String* text = opt.preprocessOnly ? &pped : nullptr; // only -E needs serialized text
+		B32 ppOk = preprocessToTokens(path, source, opt.pp, ts, text, ppErr);
 		gPpMs = msSince(tPp);
 		if(!ppOk) {
 			cli::error(kTool, ppErr);

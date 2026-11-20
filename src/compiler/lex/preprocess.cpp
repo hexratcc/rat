@@ -1,5 +1,3 @@
-#include "lex/preprocess.h"
-
 #include <ctime>
 #include <fstream>
 
@@ -24,20 +22,6 @@ namespace rat::cc {
 			return s;
 		}
 
-		List<String> stampDefs() {
-			String date = "\"??? ?? ????\"";
-			String time = "\"??:??:??\"";
-			time_t now = ::time(nullptr);
-			if(struct tm* lt = std::localtime(&now)) {
-				C8 buf[64];
-				std::strftime(buf, sizeof buf, "%b %e %Y", lt);
-				date = String("\"") + buf + "\"";
-				std::strftime(buf, sizeof buf, "%H:%M:%S", lt);
-				time = String("\"") + buf + "\"";
-			}
-			return {"__DATE__ " + date, "__TIME__ " + time};
-		}
-
 		// clang-format off
 		const C8* const kBuiltinDefs[] = {
 				"__STDC__ 1", "__STDC_HOSTED__ 1", "__STDC_VERSION__ 199901L",
@@ -60,11 +44,6 @@ namespace rat::cc {
 				err = m;
 			}
 			return false;
-		}
-
-		String Preprocessor::dirOf(const String& path) {
-			U64 s = path.find_last_of('/');
-			return s == String::npos ? String() : path.substr(0, s + 1);
 		}
 
 		B32 Preprocessor::readFile(const String& path, String& content) {
@@ -140,7 +119,7 @@ namespace rat::cc {
 				fail("#include expects \"file\" or <file>");
 				return;
 			}
-			String curDir = dirOf(path);
+			String curDir = path.substr(0, path.find_last_of('/') + 1); // npos + 1 wraps to 0, no dir
 			List<String> tries;
 			if(isAbsPath(fname)) {
 				tries.push_back(fname);
@@ -178,20 +157,18 @@ namespace rat::cc {
 			const String* key = intern(mname);
 			if(push) {
 				auto it = macros.find(key);
-				SavedMacro sv;
-				sv.defined = it != macros.end();
-				if(sv.defined)
-					sv.macro = it->second;
-				macroStack[key].push_back(std::move(sv));
+				std::optional<Macro>& saved = macroStack[key].emplace_back();
+				if(it != macros.end())
+					saved = it->second;
 				return;
 			}
 			auto it = macroStack.find(key);
 			if(it == macroStack.end() || it->second.empty())
 				return;
-			SavedMacro sv = std::move(it->second.back());
+			std::optional<Macro> saved = std::move(it->second.back());
 			it->second.pop_back();
-			if(sv.defined)
-				macros[key] = std::move(sv.macro);
+			if(saved)
+				macros[key] = std::move(*saved);
 			else
 				macros.erase(key);
 		}
@@ -386,10 +363,16 @@ namespace rat::cc {
 		}
 
 		void Preprocessor::installBuiltins() {
-			static const List<String> stamps = stampDefs();
+			C8 date[32] = "\"??? ?? ????\"";
+			C8 time[32] = "\"??:??:??\"";
+			time_t now = ::time(nullptr);
+			if(struct tm* lt = std::localtime(&now)) {
+				std::strftime(date, sizeof date, "\"%b %e %Y\"", lt);
+				std::strftime(time, sizeof time, "\"%H:%M:%S\"", lt);
+			}
 			const String* builtin = intern("<builtin>");
-			for(const String& d : stamps)
-				doDefine(lexFragment(d, builtin));
+			doDefine(lexFragment(String("__DATE__ ") + date, builtin));
+			doDefine(lexFragment(String("__TIME__ ") + time, builtin));
 			for(const C8* d : kBuiltinDefs)
 				doDefine(lexFragment(d, builtin));
 		}
@@ -420,14 +403,7 @@ namespace rat::cc {
 
 		String Preprocessor::serialize() {
 			String s;
-			U64 total = 0;
-			for(const PpToken& t : out)
-				if(t.kind != Pk::Placemarker && t.kind != Pk::Eof)
-					total += t.text->size() + 1;
-			s.reserve(total + 2);
 			for(const PpToken& t : out) {
-				if(t.kind == Pk::Placemarker || t.kind == Pk::Eof)
-					continue;
 				if(!s.empty())
 					s += t.bol ? '\n' : ' ';
 				s += *t.text;
@@ -436,13 +412,4 @@ namespace rat::cc {
 			return s;
 		}
 	} // namespace detail
-
-	B32 preprocess(
-			const String& path, const String& source, const PpOptions& opts, String& out, String& err) {
-		detail::Preprocessor pp(opts);
-		if(!pp.run(path, source, err))
-			return false;
-		out = pp.serialize();
-		return true;
-	}
 } // namespace rat::cc

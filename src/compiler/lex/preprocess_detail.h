@@ -2,9 +2,10 @@
 #define RAT_CC_PREPROCESS_DETAIL_H
 
 #include <deque>
+#include <optional>
 #include <string_view>
 
-#include "lex/preprocess.h"
+#include "lex/token_stream.h"
 
 namespace rat::cc {
 	namespace detail {
@@ -106,19 +107,14 @@ namespace rat::cc {
 
 		String withSlash(String dir);
 		String joinSpelling(PpSpan toks);
-		List<String> stampDefs();
-
-		struct LexResult {
-			List<PpToken> toks;
-			String err; // empty on success
-		};
 
 		struct PpLexer {
 			const String& s;
 			const List<LineMark>& marks;
 			const String* file;
 			Interner& in;
-			LexResult r;
+			List<PpToken> toks;
+			String err; // empty on success
 			U64 mi = 0;
 			U32 line = 1;
 			U64 lineStart = 0; // offset of the current physical line
@@ -130,10 +126,9 @@ namespace rat::cc {
 			void push(Pk kind, U64 start, U64 end);
 			U64 skipComment(U64 i);
 			U64 wordEnd(U64 j) const;
-			U64 quotedEnd(U64 i) const;
 			U64 numberEnd(U64 j) const;
 			U64 lexToken(U64 i);
-			LexResult run();
+			void run();
 		};
 
 		using ArgLists = List<List<PpToken>>;
@@ -195,11 +190,7 @@ namespace rat::cc {
 			List<PpToken> out;
 			Set<String> pragmaOnce;
 			Map<String, List<PpToken>> fileToks;
-			struct SavedMacro {
-				B32 defined;
-				Macro macro;
-			};
-			Map<const String*, List<SavedMacro>> macroStack;
+			Map<const String*, List<std::optional<Macro>>> macroStack; // nullopt when undefined
 			U32 includeDepth = 0;
 			// interned
 			Interner interner;
@@ -280,7 +271,6 @@ namespace rat::cc {
 			B32 checkMacroBody(const Macro& m);
 			void doDefine(PpSpan toks);
 			void doUndef(PpSpan rest);
-			static String dirOf(const String& path);
 			B32 readFile(const String& path, String& content);
 			B32 includeName(PpSpan toks, String& fname, B32& angled);
 			U64 nextIncludeDir(const String& curDir);

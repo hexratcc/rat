@@ -4,9 +4,14 @@
 #include <deque>
 
 #include "lex/lexer.h"
-#include "lex/preprocess.h"
 
 namespace rat::cc {
+	struct PpOptions {
+		List<String> includeDirs;
+		List<String> defines;
+		List<String> undefs;
+	};
+
 	// parser tokens straight from the pp, no serialize-then-relex:
 	// Token.offset indexes the stream, text() gives the interned spelling
 	struct TokenStream {
@@ -46,6 +51,7 @@ namespace rat::cc {
 												 const String& source,
 												 const PpOptions& opts,
 												 TokenStream& ts,
+												 String* text, // filled for -E when set
 												 String& err);
 } // namespace rat::cc
 

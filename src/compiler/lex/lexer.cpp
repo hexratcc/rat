@@ -158,18 +158,27 @@ namespace rat::cc {
 			return scanSuffix(s, n, i, isFloat, kind, err);
 		}
 
-		B32 scanQuoted(const C8* s, U32 n, U32& i, C8 quote, const C8* unterminated, String& err) {
-			++i; // opening quote
-			while(i < n && s[i] != quote && s[i] != '\n') {
-				if(s[i] == '\\')
-					++i; // an escaped character never closes the literal
-				++i;
+		U64 quotedEnd(const C8* s, U64 n, U64 i) {
+			C8 quote = s[i];
+			U64 j = i + 1;
+			while(j < n && s[j] != quote) {
+				if(s[j] == '\\' && j + 1 < n)
+					j += 2;
+				else if(s[j] == '\n')
+					break;
+				else
+					++j;
 			}
-			if(charAt(s, n, i) != quote) {
+			return j < n && s[j] == quote ? j + 1 : 0;
+		}
+
+		B32 scanQuoted(const C8* s, U32 n, U32& i, const C8* unterminated, String& err) {
+			U64 end = quotedEnd(s, n, i);
+			if(!end) {
 				err = unterminated;
 				return false;
 			}
-			++i; // closing quote
+			i = (U32)end;
 			return true;
 		}
 
@@ -191,10 +200,10 @@ namespace rat::cc {
 			B32 ok = false;
 			C8 c = charAt(s, n, i);
 			if(c == '\'') {
-				ok = scanQuoted(s, n, i, '\'', "unterminated character constant", err);
+				ok = scanQuoted(s, n, i, "unterminated character constant", err);
 				kind = TokKind::CharConstant;
 			} else if(c == '"') {
-				ok = scanQuoted(s, n, i, '"', "unterminated string literal", err);
+				ok = scanQuoted(s, n, i, "unterminated string literal", err);
 				kind = TokKind::StringLiteral;
 			} else {
 				i = 0; // no prefix on a pp-number

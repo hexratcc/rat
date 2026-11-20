@@ -133,7 +133,9 @@ namespace rat::cc {
 		B32 scanDecNumber(const C8* s, U32 n, U32& i, B32& isFloat, String& err);
 		U32 encodingPrefix(const C8* s, U32 n);
 		B32 scanNumber(const C8* s, U32 n, U32& i, TokKind& kind, String& err);
-		B32 scanQuoted(const C8* s, U32 n, U32& i, C8 quote, const C8* unterminated, String& err);
+		// one past the closing quote of the literal opening at s[i], 0 when unterminated
+		U64 quotedEnd(const C8* s, U64 n, U64 i);
+		B32 scanQuoted(const C8* s, U32 n, U32& i, const C8* unterminated, String& err);
 
 		// kind of one complete pp-number, char constant or string literal
 		TokKind classifyLiteral(const String& text, String& err);
