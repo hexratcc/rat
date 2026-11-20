@@ -232,6 +232,7 @@ namespace rat::cc {
 	B32 Parser::parseEnumerators(NamedType& e) {
 		I64 next = 0;
 		B32 anyNegative = false;
+		B32 anyAboveInt = false;
 		while(!check(TokKind::RBrace) && !check(TokKind::Eof)) {
 			if(!check(TokKind::Identifier))
 				return fail(peek(), "expected enumerator name");
@@ -242,16 +243,20 @@ namespace rat::cc {
 				if(!init || !evalIntConst(init, value))
 					return false;
 			}
-			if(value < detail::kIntMin || value > detail::kIntMax)
-				return fail(name, "enumerator value is not representable as int");
+			if(value < detail::kIntMin || value > detail::kUintMax)
+				return fail(name, "enumerator value is not representable as int or unsigned int");
 			if(value < 0)
 				anyNegative = true;
+			if(value > detail::kIntMax)
+				anyAboveInt = true;
 			idents.set(lex.text(name), {Ident::Kind::EnumConst, ctInt(), value});
 			e.enumerators.push_back({lex.text(name), value});
 			next = value + 1;
 			if(!accept(TokKind::Comma))
 				break;
 		}
+		if(anyNegative && anyAboveInt)
+			return fail(peek(), "enumerator values do not fit one of int or unsigned int");
 		e.type.set(CType::Unsigned, !anyNegative);
 		return expect(TokKind::RBrace);
 	}

@@ -182,7 +182,7 @@ namespace rat::cc {
 		List<Pair<U64, Block*>> keyed;
 		for(const Stmt* c : caseStmts) {
 			I64 v;
-			if(!evalConst(c->expr, v))
+			if(!folder.evalInt(c->expr, v))
 				return diag.fail("case label is not an integer constant expression");
 			U64 key = (U64)v ^ bias;
 			for(const auto& [seenKey, block] : keyed)

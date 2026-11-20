@@ -51,20 +51,6 @@ namespace rat::cc {
 		}
 	} // namespace detail
 
-	I64 Emitter::typeClassOf(CType t) {
-		if(isPointer(t) || isArrayType(t) || t.func != nullptr)
-			return 5; // pointer_type_class
-		if(isVoidType(t))
-			return 0; // void_type_class
-		if(isComplexType(t))
-			return 9; // complex_type_class
-		if(isStruct(t))
-			return t.strukt->isUnion ? 13 : 12; // union_ / record_type_class
-		if(isFloating(t))
-			return 8; // real_type_class
-		return 1;		// integer_type_class
-	}
-
 	String builtinLibcName(const String& name) {
 		if(name.rfind("__builtin_", 0) != 0)
 			return String();
@@ -142,7 +128,7 @@ namespace rat::cc {
 		if(!n.node)
 			return true;
 		func.sawAlloca = true;
-		out = {fn.stackAlloc(convert(fn, n.node, n.type, ctSize())), ctVoidPtr()};
+		out = {fn.stackAlloc(convert(fn, n.node, n.type, sizeType(lay))), ctVoidPtr()};
 		return true;
 	}
 
@@ -182,7 +168,7 @@ namespace rat::cc {
 		if(e->args.size() != 1)
 			return failBuiltin("__builtin_constant_p expects one argument");
 		I64 v = 0;
-		B32 isConst = e->args[0]->kind == ExprKind::StrLit || evalConst(e->args[0], v);
+		B32 isConst = e->args[0]->kind == ExprKind::StrLit || folder.evalInt(e->args[0], v);
 		out = {fn.constInt(i32, isConst ? 1 : 0), ctInt()};
 		return true;
 	}
@@ -330,7 +316,7 @@ namespace rat::cc {
 		if(!oneArg(e))
 			return true;
 		I64 level = 0;
-		if(!evalConst(e->args[0], level))
+		if(!folder.evalInt(e->args[0], level))
 			return failBuiltin("'" + name + "' expects a constant level");
 		if(level != 0) {
 			out = {fn.constInt(mod.getPtr(), 0), ctVoidPtr()};
@@ -348,9 +334,9 @@ namespace rat::cc {
 			return true;
 		I64 rw = 0, loc = 3;
 		if(e->args.size() > 1)
-			evalConst(e->args[1], rw);
+			folder.evalInt(e->args[1], rw);
 		if(e->args.size() > 2)
-			evalConst(e->args[2], loc);
+			folder.evalInt(e->args[2], loc);
 		Node* addr = convert(fn, a.node, a.type, ctVoidPtr());
 		List<Node*> args = {addr, fn.constInt(i32, rw), fn.constInt(i32, loc)};
 		fn.call(*e->call.callee, nullptr, args, false);

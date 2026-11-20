@@ -153,7 +153,7 @@ namespace rat::cc {
 	B32 Emitter::writeConstScalar(List<U8>& img, U32 off, CType dt, const Expr* e, B32 addrFits) {
 		if(isFloating(dt)) {
 			F80 fv = 0;
-			if(!evalFloatConst(e, fv))
+			if(!folder.evalFloat(e, fv))
 				return false;
 			List<U8> bytes;
 			encodeFloatBytes(dt, fv, bytes);
@@ -162,7 +162,7 @@ namespace rat::cc {
 			return true;
 		}
 		I64 iv = 0;
-		if(evalConst(e, iv)) {
+		if(folder.evalAs(e, dt, iv)) {
 			detail::writeLittleEndian(img, off, (U64)iv, byteSize(dt));
 			return true;
 		}
@@ -187,7 +187,7 @@ namespace rat::cc {
 
 	B32 Emitter::ImageSink::bitfield(U32 off, CType dt, U32 width, U32 bitOff, const Expr* e) {
 		I64 v = 0;
-		if(!emit.evalConst(e, v))
+		if(!emit.folder.evalAs(e, dt, v))
 			return emit.failNonConstInit();
 		U32 sz = emit.byteSize(dt);
 		U64 maskBits = width >= 64 ? ~0ull : ((1ull << width) - 1);

@@ -19,19 +19,9 @@ namespace rat::cc {
 
 	U32 Emitter::alignOf(CType t) const { return typeAlign(t, lay.ptrBytes); }
 
-	CType Emitter::ctSize() const {
-		CType t = ctPtrDiff();
-		t.set(CType::Unsigned);
-		return t;
+	Node* Emitter::constSize(Function& fn, U64 value) {
+		return fn.constInt(irType(sizeType(lay)), value);
 	}
-
-	CType Emitter::ctPtrDiff() const {
-		CType t;
-		t.bits = lay.ptrBytes * 8;
-		return t;
-	}
-
-	Node* Emitter::constSize(Function& fn, U64 value) { return fn.constInt(irType(ctSize()), value); }
 
 	Type* Emitter::byteArrayType(U32 n) { return mod.getArray(mod.getInt(8), n); }
 
@@ -73,7 +63,7 @@ namespace rat::cc {
 		Value v = emitExpr(fn, arr.array->countExpr);
 		if(!v.node)
 			return nullptr;
-		return convert(fn, v.node, v.type, ctSize());
+		return convert(fn, v.node, v.type, sizeType(lay));
 	}
 
 	// takes every bound of t the parser left open, also behind pointers, inner first
@@ -87,7 +77,7 @@ namespace rat::cc {
 		if(dim->count != 0 || !dim->countExpr)
 			return true;
 		I64 count;
-		if(evalConst(dim->countExpr, count)) {
+		if(folder.evalInt(dim->countExpr, count)) {
 			if(count > 0) {
 				dim->count = (U64)count;
 				dim->countExpr = nullptr;
@@ -113,7 +103,7 @@ namespace rat::cc {
 	// the outer bound of arr, false when it is not a constant
 	B32 Emitter::arrayBound(CType arr, I64& count) {
 		count = (I64)arr.array->count;
-		return !arr.array->countExpr || evalConst(arr.array->countExpr, count);
+		return !arr.array->countExpr || folder.evalInt(arr.array->countExpr, count);
 	}
 
 	// length of an array compound literal, false when it is not a positive constant

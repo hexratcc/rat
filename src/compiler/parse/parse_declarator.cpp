@@ -31,7 +31,7 @@ namespace rat::cc {
 				return false;
 			op.bound = e;
 			I64 n = 0;
-			if(tryEvalIntConst(e, n) && n > 0)
+			if(ConstEval(lay).evalInt(e, n) && n > 0)
 				op.count = (U64)n;
 		}
 		return expect(TokKind::RBracket);

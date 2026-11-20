@@ -3,6 +3,7 @@
 
 #include "lex/token_stream.h"
 #include "parse/ast.h"
+#include "parse/const_eval.h"
 #include "target_layout.h"
 
 namespace rat::cc {
@@ -193,8 +194,6 @@ namespace rat::cc {
 		B32 memberType(Expr* e);
 		CType strType(const Expr* e);
 		CType stmtExprType(const Expr* e);
-		CType sizeType() const;
-		CType ptrDiffType() const;
 
 		// literals
 		B32 parseIntLiteral(const Token& tok, I64& value, U32& bits, U8& mods);
@@ -206,11 +205,6 @@ namespace rat::cc {
 
 		// constant folding
 		B32 evalIntConst(const Expr* e, I64& out);
-		B32 evalUnaryConst(const Expr* e, I64& out);
-		B32 evalBinaryConst(const Expr* e, I64& out);
-		B32 evalSizeofConst(const Expr* e, I64& out);
-		B32 tryEvalIntConst(const Expr* e, I64& out);
-		I64 castConstValue(I64 v, CType ty) const;
 		U64 typeSizeBytes(CType t) const { return typeSize(t, lay.ptrBytes); }
 		U32 typeAlignBytes(CType t) const { return typeAlign(t, lay.ptrBytes); }
 	private:

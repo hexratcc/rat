@@ -45,8 +45,8 @@ namespace rat::cc {
 		}
 		if(!expect(TokKind::RParen))
 			return nullptr;
-		U8 sizeMods = (U8)(CType::Unsigned | CType::Long | (lay.longBits < 64 ? CType::LongLong : 0));
-		return makeInt(kw, off, 64, sizeMods);
+		CType size = sizeType(lay);
+		return makeInt(kw, off, size.bits, size.mods);
 	}
 
 	// type-spec abstract-declarator
@@ -180,6 +180,8 @@ namespace rat::cc {
 		if(name == "__builtin_offsetof")
 			return parseBuiltinOffsetof(tok);
 		const Ident* id = idents.get(name);
+		if(id && id->kind == Ident::Kind::EnumConst && id->value > detail::kIntMax)
+			return makeInt(tok, id->value, 32, CType::Unsigned); // as gcc
 		if(id && id->kind == Ident::Kind::EnumConst)
 			return makeInt(tok, id->value, 32);
 		B32 declared = id && id->kind == Ident::Kind::Object;

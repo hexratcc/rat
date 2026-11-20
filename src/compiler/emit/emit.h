@@ -2,6 +2,7 @@
 #define RAT_CC_EMIT_H
 
 #include "emit/emit_state.h"
+#include "parse/const_eval.h"
 #include "target_layout.h"
 
 namespace rat::cc {
@@ -29,8 +30,6 @@ namespace rat::cc {
 		U32 signedWidth(CType t);
 		B32 exactInSigned64(Opcode op, CType a, CType b);
 		B32 exactInUnsigned64(Opcode op, CType a, CType b);
-		I64 narrowToType(I64 v, CType ty);
-		CType arithResultType(CType a, CType b);
 		B32 isLabeledStmt(const Stmt* s);
 		B32 isRegConstraint(const String& c, B32 isOutput, B32& readWrite);
 		B32 matchingConstraint(const String& c, U32& index);
@@ -120,6 +119,15 @@ namespace rat::cc {
 			ArgRegs free;
 		};
 
+		// the shared folder with the sizes only the emitter knows, see sizeofOperand
+		struct ConstFolder final : ConstEval {
+			explicit ConstFolder(Emitter& e)
+			: ConstEval(e.lay),
+				emit(e) {}
+			B32 sizeOf(const Expr* e, U64& out) const override;
+			Emitter& emit;
+		};
+
 		// initializer sinks
 		struct InitSink {
 			virtual ~InitSink() = default;
@@ -182,8 +190,6 @@ namespace rat::cc {
 		CType funcPtrType(const FunctionSignature& sig);
 		U64 byteSize(CType t) const;
 		U32 alignOf(CType t) const;
-		CType ctSize() const;
-		CType ctPtrDiff() const;
 		Symbol lookupSymbol(const String& name);
 		void memberField(const Expr* e, CType& structType, const Field*& field);
 		B32 sizeofOperand(const Expr* operand, U64& out);
@@ -287,7 +293,6 @@ namespace rat::cc {
 		Value emitIdent(Function& fn, const Expr* expr);
 		Value symbolValue(Function& fn, const String& name, const Symbol& sym);
 		Value emitSizeof(Function& fn, const Expr* expr);
-		B32 alignofValue(const Expr* e, U32& out);
 		Value emitStmtExpr(Function& fn, const Expr* expr);
 		Value emitTernary(Function& fn, const Expr* expr);
 		Value emitCompoundLit(Function& fn, const Expr* expr);
@@ -348,7 +353,6 @@ namespace rat::cc {
 		B32 emitFpClassBuiltin(Function& fn, const Expr* expr, Value& out);
 		B32 emitFrameBuiltin(Function& fn, const Expr* expr, Value& out);
 		B32 emitPrefetchBuiltin(Function& fn, const Expr* expr, Value& out);
-		static I64 typeClassOf(CType t);
 		Value voidValue(Function& fn);
 		Node* vaListRef(Function& fn, const Expr* ap);
 		B32 oneArg(const Expr* e);
@@ -362,11 +366,6 @@ namespace rat::cc {
 		Node* fitsIn64(Function& fn, Node* r, CType rt, B32 sgn);
 
 		// constants
-		B32 evalConst(const Expr* expr, I64& out);
-		B32 evalConstTyped(const Expr* expr, I64& out, CType& ty);
-		B32 evalConstUnary(ExprOp op, I64 v, CType opTy, I64& out, CType& ty);
-		B32 evalConstBinary(ExprOp op, I64 a, CType aTy, I64 b, CType bTy, I64& out, CType& ty);
-		B32 evalFloatConst(const Expr* expr, F80& out);
 		B32 evalAddrConst(const Expr* expr, String& symbol, I64& addend);
 		B32 addrConstOf(const Expr* lv, String& symbol, I64& addend);
 
@@ -439,6 +438,7 @@ namespace rat::cc {
 		Symbols syms;
 		GlobalData data;
 		DebugState dbg;
+		ConstFolder folder{*this};
 	};
 } // namespace rat::cc
 

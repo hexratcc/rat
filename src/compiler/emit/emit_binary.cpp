@@ -4,7 +4,7 @@ namespace rat::cc {
 	Emitter::Value Emitter::emitPtrArith(Function& fn, ExprOp op, Value lhs, Value rhs) {
 		B32 bothPointers = isPointer(lhs.type) && isPointer(rhs.type);
 		if(op == ExprOp::Sub && bothPointers) {
-			CType pd = ctPtrDiff();
+			CType pd = ptrDiffType(lay);
 			Node* la = fn.convert(Opcode::SExt, lhs.node, irType(pd));
 			Node* ra = fn.convert(Opcode::SExt, rhs.node, irType(pd));
 			Node* diff = fn.sub(la, ra); // byte difference
@@ -24,7 +24,7 @@ namespace rat::cc {
 		Value i = isPointer(lhs.type) ? rhs : lhs;
 		if(!isInteger(i.type))
 			return diag.fail("pointer arithmetic requires an integer operand");
-		Node* idx = convert(fn, i.node, i.type, ctSize());
+		Node* idx = convert(fn, i.node, i.type, sizeType(lay));
 		Node* stride = elemStride(fn, p.type);
 		if(!stride)
 			return {};
@@ -223,7 +223,7 @@ namespace rat::cc {
 
 	Emitter::Value Emitter::emitComparison(Function& fn, ExprOp op, Value lhs, Value rhs) {
 		B32 ptrCmp = isPointer(lhs.type) || isPointer(rhs.type);
-		CType ct = ctSize();
+		CType ct = sizeType(lay);
 		Node* l = lhs.node;
 		Node* r = rhs.node;
 		if(!ptrCmp) {

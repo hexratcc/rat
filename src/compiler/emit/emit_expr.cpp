@@ -124,44 +124,22 @@ namespace rat::cc {
 	}
 
 	Emitter::Value Emitter::emitSizeof(Function& fn, const Expr* e) {
-		CType sz = ctSize();
+		CType sz = sizeType(lay);
 		const Expr* operand = e->sizeOf.operand;
+		CType t = e->sizeOf.type;
+		if(operand)
+			t = operand->type;
+		if(operand && operand->kind == ExprKind::Ident) {
+			Local loc;
+			if(func.scopes.lookup(*operand->ident.name, loc) && loc.lengthNode)
+				return {loc.lengthNode, sz};
+		}
+		if(hasVlaDim(t))
+			return {emitArrayByteSize(fn, t), sz};
 		U64 n;
-		if(operand) {
-			if(operand->kind == ExprKind::Ident) {
-				Local loc;
-				if(func.scopes.lookup(*operand->ident.name, loc) && loc.lengthNode)
-					return {loc.lengthNode, sz};
-			}
-			if(hasVlaDim(operand->type))
-				return {emitArrayByteSize(fn, operand->type), sz};
-			if(!sizeofOperand(operand, n))
-				return {};
-		} else {
-			CType t = e->sizeOf.type;
-			if(hasVlaDim(t))
-				return {emitArrayByteSize(fn, t), sz};
-			if(isStruct(t) && (t.strukt == nullptr || !t.strukt->complete))
-				return diag.fail("sizeof applied to an incomplete type");
-			n = byteSize(t);
-		}
+		if(!folder.sizeOf(e, n))
+			return diag.fail("sizeof applied to an incomplete type");
 		return {constSize(fn, n), sz};
-	}
-
-	B32 Emitter::alignofValue(const Expr* e, U32& out) {
-		if(!e->sizeOf.operand) {
-			out = alignOf(e->sizeOf.type);
-			return true;
-		}
-		if(e->sizeOf.operand->kind == ExprKind::Ident) {
-			auto fit = syms.functions.find(*e->sizeOf.operand->ident.name);
-			if(fit != syms.functions.end()) {
-				out = fit->second.align ? fit->second.align : 1u;
-				return true;
-			}
-		}
-		out = alignOf(e->sizeOf.operand->type);
-		return true;
 	}
 
 	Emitter::Value Emitter::emitStmtExpr(Function& fn, const Expr* e) {
@@ -244,10 +222,9 @@ namespace rat::cc {
 		case ExprKind::Sizeof:
 			return emitSizeof(fn, e);
 		case ExprKind::AlignOf: {
-			U32 n;
-			if(!alignofValue(e, n))
-				return {};
-			return {constSize(fn, n), ctSize()};
+			U64 n;
+			folder.sizeOf(e, n);
+			return {constSize(fn, n), sizeType(lay)};
 		}
 		case ExprKind::VaArg: {
 			Node* ap = vaListRef(fn, e->vaArg.ap);

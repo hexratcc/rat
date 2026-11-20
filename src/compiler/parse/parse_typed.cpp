@@ -3,10 +3,6 @@
 #include "parse/parser_detail.h"
 
 namespace rat::cc {
-	CType Parser::sizeType() const { return ctUnsigned(lay.ptrBytes * 8); }
-
-	CType Parser::ptrDiffType() const { return {lay.ptrBytes * 8}; }
-
 	// an array of the code units with the terminator
 	CType Parser::strType(const Expr* e) {
 		CType elem;
@@ -90,7 +86,6 @@ namespace rat::cc {
 			e->type = isComplexType(r) ? r : promote(r);
 			return true;
 		}
-			return true;
 		}
 	}
 
@@ -108,7 +103,7 @@ namespace rat::cc {
 		if(op == ExprOp::Shl || op == ExprOp::Shr)
 			return promote(l);
 		if(op == ExprOp::Sub && isPointer(l) && isPointer(r))
-			return ptrDiffType();
+			return ptrDiffType(lay);
 		if(isPointer(l))
 			return l;
 		if(isPointer(r))
@@ -158,7 +153,7 @@ namespace rat::cc {
 			break;
 		case ExprKind::Sizeof:
 		case ExprKind::AlignOf:
-			e->type = sizeType();
+			e->type = sizeType(lay);
 			break;
 		case ExprKind::Unary:
 			return unaryType(e) ? e : nullptr;
