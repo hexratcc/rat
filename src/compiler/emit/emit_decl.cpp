@@ -55,7 +55,7 @@ namespace rat::cc {
 	}
 
 	B32 Emitter::emitComplexDecl(Function& fn, const Declarator& d, B32 live) {
-		CType ct = completeComplex(d.type);
+		CType ct = d.type;
 		Node* slot = declSlot(fn, d, byteArrayType(ct.strukt->size), ct.strukt->size);
 		if(live && d.init) {
 			if(d.init->kind == ExprKind::InitList) {

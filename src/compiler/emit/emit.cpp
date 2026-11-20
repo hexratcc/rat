@@ -134,7 +134,7 @@ namespace rat::cc {
 
 	Node* Emitter::convert(Function& fn, Node* n, CType from, CType to) {
 		if(isComplexType(to))
-			return toComplex(fn, {n, from}, completeComplex(to)).node;
+			return toComplex(fn, {n, from}, to).node;
 		if(isComplexType(from))
 			return convert(fn, complexReal(fn, {n, from}), complexElem(from), to);
 		if(isPointer(to) && !isPointer(from) && !isFloating(from)) {

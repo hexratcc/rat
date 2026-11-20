@@ -175,7 +175,7 @@ namespace rat::cc {
 				t.bits = 128;
 			t.set(CType::Complex, isComplex);
 			if(isComplex)
-				t.strukt = complexStruct(t);
+				t.strukt = complexLayout(t.bits);
 		} else if(w.of(TokKind::KwBool)) {
 			t = ctUnsigned(1);
 		} else {

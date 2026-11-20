@@ -1,16 +1,6 @@
 #include "emit/emit.h"
 
 namespace rat::cc {
-	CType Emitter::completeComplex(CType t) {
-		if(!isComplexType(t) || t.strukt != nullptr)
-			return t;
-		StructType*& st = syms.complexTypes[t.bits];
-		if(!st)
-			st = makeComplexLayout(arena, t);
-		t.strukt = st;
-		return t;
-	}
-
 	Node* Emitter::complexReal(Function& fn, const Value& v) {
 		return fn.load(irType(complexElem(v.type)), v.node);
 	}
@@ -21,7 +11,6 @@ namespace rat::cc {
 	}
 
 	Emitter::Value Emitter::makeComplex(Function& fn, CType type, Node* re, Node* im) {
-		type = completeComplex(type);
 		Node* slot = allocBytes(fn, type.strukt->size);
 		fn.store(slot, re);
 		fn.store(offsetPtr(fn, slot, byteSize(complexElem(type))), im);

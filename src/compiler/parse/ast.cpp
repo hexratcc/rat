@@ -3,16 +3,22 @@
 #include <ostream>
 
 namespace rat::cc {
-	StructType* makeComplexLayout(Arena& arena, CType complexType) {
-		U32 elemBytes = (complexType.bits + 7) / 8;
-		CType elem = complexElem(complexType);
-		StructType* st = arena.make<StructType>();
-		st->size = 2 * elemBytes;
-		st->align = elemBytes;
-		st->complete = true;
-		st->fields.push_back({arena.make<String>("__real"), elem, 0});
-		st->fields.push_back({arena.make<String>("__imag"), elem, elemBytes});
-		return st;
+	// one shared { re, im } layout per element width
+	const StructType* complexLayout(U32 bits) {
+		static const String kReal = "__real";
+		static const String kImag = "__imag";
+		static Map<U32, StructType> layouts;
+		StructType& st = layouts[bits];
+		if(st.complete)
+			return &st;
+		U32 elemBytes = (bits + 7) / 8;
+		CType elem = {bits, 0, 0, 0, 0, CType::Base::Float};
+		st.size = 2 * elemBytes;
+		st.align = elemBytes;
+		st.complete = true;
+		st.fields.push_back({&kReal, elem, 0});
+		st.fields.push_back({&kImag, elem, elemBytes});
+		return &st;
 	}
 
 	// arr with count as its outer bound
@@ -60,6 +66,7 @@ namespace rat::cc {
 			CType r = usualArithmetic(ra, rb);
 			r.set(CType::Complex);
 			r.base = CType::Base::Float;
+			r.strukt = complexLayout(r.bits);
 			return r;
 		}
 		if(isFloating(a) || isFloating(b)) {

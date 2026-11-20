@@ -435,7 +435,7 @@ namespace rat::cc {
 		if(func.sretSlot) {
 			if(v.node) {
 				if(isComplexType(func.returnType)) {
-					storeComplex(fn, func.sretSlot, completeComplex(func.returnType), v);
+					storeComplex(fn, func.sretSlot, func.returnType, v);
 				} else if(!isStruct(v.type) || v.type.strukt != func.returnType.strukt) {
 					return diag.fail("invalid return value for a struct/union function");
 				} else {

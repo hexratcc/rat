@@ -54,7 +54,7 @@ namespace rat::cc {
 			if(i < n)
 				pt = c.ft->params[i].type;
 			else
-				pt = completeComplex(defaultArgPromote(a.type));
+				pt = defaultArgPromote(a.type);
 			if(isAggregate(pt)) {
 				Node* src = a.node;
 				if(isComplexType(pt))

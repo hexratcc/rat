@@ -213,6 +213,7 @@ namespace rat::cc {
 			if(e->floatLit.imaginary) {
 				CType ct = t;
 				ct.set(CType::Complex);
+				ct.strukt = complexLayout(ct.bits);
 				return makeComplex(fn, ct, fn.constFloat(irType(t), 0.0), lit);
 			}
 			return {lit, t};
@@ -258,7 +259,7 @@ namespace rat::cc {
 			Node* ap = vaListRef(fn, e->vaArg.ap);
 			if(!ap)
 				return {};
-			CType fetched = completeComplex(e->vaArg.type);
+			CType fetched = e->vaArg.type;
 			if(isAggregate(fetched))
 				return emitVaArgAggregate(fn, ap, fetched);
 			return {fn.call("__builtin_va_arg", irType(e->vaArg.type), {ap}), e->vaArg.type};
@@ -334,7 +335,7 @@ namespace rat::cc {
 		if(isVoidRes)
 			rt = isVoidType(tt) ? tt : ft;
 		else if(isComplexType(tt) || isComplexType(ft))
-			rt = completeComplex(usualArithmetic(tt, ft));
+			rt = usualArithmetic(tt, ft);
 		else if(isStruct(tt))
 			rt = tt;
 		else if(isStruct(ft))

@@ -120,7 +120,6 @@ namespace rat::cc {
 		Map<String, const FuncType*> implicitFunctions; // unprototyped, by name
 		Map<String, GlobalVariable> globals;
 		Map<String, String> aliases;
-		Map<U32, StructType*> complexTypes;
 	};
 
 	// -g state, inactive while info is null

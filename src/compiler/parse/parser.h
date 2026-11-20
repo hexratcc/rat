@@ -61,7 +61,6 @@ namespace rat::cc {
 		B32 arrayMemberCount(CType& t);
 		B32 parseBitfield(StructType* st, Field f, U32 memberAlign, B32 isUnion, StructLayout& l);
 		U64 placeMember(U64 size, U32 align, B32 isUnion, StructLayout& l);
-		StructType* complexStruct(CType realType);
 		B32 parseTypedef(Stmt* s);
 		B32 parseTypeName(CType& out);
 
@@ -223,7 +222,6 @@ namespace rat::cc {
 		ScopeMap<TagBinding> structTypes;
 
 		// unit-wide tables
-		Map<U32, StructType*> complexLayouts;
 		Map<String, FuncDef*> funcDefs;
 		List<FuncDef*> blockProtos;
 	};

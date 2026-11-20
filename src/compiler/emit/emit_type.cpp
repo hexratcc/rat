@@ -243,6 +243,8 @@ namespace rat::cc {
 			out.base = CType::Base::Float;
 			out.bits = e->floatLit.bits;
 			out.set(CType::Complex, e->floatLit.imaginary);
+			if(e->floatLit.imaginary)
+				out.strukt = complexLayout(out.bits);
 			return true;
 		case ExprKind::StrLit:
 			out = CType{};

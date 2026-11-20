@@ -265,7 +265,7 @@ namespace rat::cc {
 		B32 oldStyle = false;			// (a, b): types follow in a declaration list
 	};
 
-	StructType* makeComplexLayout(Arena& arena, CType complexType);
+	const StructType* complexLayout(U32 bits);
 	CType sizedArray(Arena& arena, CType arr, U64 count);
 
 	constexpr B32 isFuncPtr(CType t) { return t.func != nullptr && t.ptr > 0; }

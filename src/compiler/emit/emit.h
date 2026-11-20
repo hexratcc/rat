@@ -313,7 +313,6 @@ namespace rat::cc {
 		Node* emitArith(Function& fn, ExprOp op, Node* l, Node* r, CType ct);
 
 		// complex numbers
-		CType completeComplex(CType t);
 		Node* complexReal(Function& fn, const Value& v);
 		Node* complexImag(Function& fn, const Value& v);
 		Value makeComplex(Function& fn, CType type, Node* re, Node* im);
