@@ -35,7 +35,6 @@ namespace rat::cc {
 		const String& text(const Token& tok) const { return *texts[tok.offset]; }
 		const String& file() const { return fileName; }
 		const String& error() const { return errMsg; }
-		void reset() { pos = 0; }
 	};
 
 	namespace detail {

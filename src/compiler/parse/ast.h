@@ -3,8 +3,6 @@
 
 #include "core.h"
 
-#include <iosfwd>
-
 namespace rat::cc {
 	enum class ExprOp : U8 {
 		// unary
@@ -614,13 +612,7 @@ namespace rat::cc {
 		const C8* intName(U32 bits);
 		String funcTypeName(CType t);
 		B32 funcTypesCompatible(const FuncType* a, const FuncType* b);
-		void pad(std::ostream& os, U32 depth);
-		void dumpStmt(const Stmt* s, U32 depth, std::ostream& os);
-		void dumpExpr(const Expr* e, U32 depth, std::ostream& os);
 	} // namespace detail
-
-	const C8* exprOpName(ExprOp op);
-	void dumpAst(const TransUnit& unit, std::ostream& os);
 } // namespace rat::cc
 
 #endif

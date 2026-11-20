@@ -2,7 +2,6 @@
 #include "predef.h"
 
 #include "emit/emit.h"
-#include "lex/lexer.h"
 #include "lex/token_stream.h"
 #include "parse/parser.h"
 #include <chrono>
@@ -22,16 +21,9 @@ using namespace rat::cc;
 namespace detail {
 	using PhaseClock = std::chrono::steady_clock;
 
-	enum struct Emit {
-		Tok,
-		Ast,
-		X86
-	};
-
 	struct Options {
 		String input;						 // root input file ("" => stdin)
-		String output = "a.out"; // -o base, x86 object lands here
-		List<Emit> emits;				 // requested -emit kinds (in order)
+		String output = "a.out"; // -o, x86 object lands here
 		U32 optLevel = 0;
 		String passSpec;					// -fpasses=: exact opt pipeline
 		String machineSpec;				// -fmachine-passes=: exact x86 machine pipeline
@@ -59,16 +51,10 @@ namespace detail {
 #if defined(_WIN32)
 		t.os = OS::Windows; // native builds default to the host platform
 #endif
-		const C8* env = std::getenv("RATCC_TARGET");
-		if(env && *env) {
-			String err;
-			if(!TargetTriple::parse(env, t, err))
-				std::cerr << "ratcc: ignoring RATCC_TARGET: " << err << "\n";
-		}
 		return t;
 	}
 
-	// RATCC_TARGET is read on first use, -target overrides it
+	// the default target, -target overrides it
 	TargetTriple& targetTriple() {
 		static TargetTriple triple = defaultTriple();
 		return triple;
@@ -99,27 +85,6 @@ namespace detail {
 		pm.add(createMachinePass("x86-encode", out));
 	}
 
-	const String kEmitNames[] = {"tok", "ast", "x86"}; // Emit order
-
-	void parseEmit(const String& spec, List<Emit>& out) {
-		for(const String& k : splitTokens(spec)) {
-			U32 e = (U32)(std::find(kEmitNames, kEmitNames + 3, k) - kEmitNames);
-			if(e == 3)
-				cli::die(kTool, "unknown -emit kind '" + k + "'");
-			out.push_back((Emit)e);
-		}
-	}
-
-	String pathFor(const Options& opt, Emit e) {
-		if(e == Emit::X86)
-			return opt.output;
-		U64 dot = opt.output.rfind('.'), slash = opt.output.rfind('/');
-		String base = opt.output;
-		if(dot != String::npos && (slash == String::npos || dot > slash))
-			base = base.substr(0, dot);
-		return base + "." + kEmitNames[(U32)e];
-	}
-
 	void usage(std::ostream& os) {
 		os << "usage: ratcc [options] <input.c>\n"
 					"\n"
@@ -136,8 +101,6 @@ namespace detail {
 					"  -version              show version\n"
 					"\n"
 					"rat extensions:\n"
-					"  -emit <k,...>         any of: tok, ast, x86 (default x86);\n"
-					"                        side outputs derive from the -o base name\n"
 					"  -f<pass>              append one opt pass (see -list-passes)\n"
 					"  -fpasses=<a,b,...>    exact opt pipeline, overrides the -O selection\n"
 					"  -fmachine-passes=<a,b,...>\n"
@@ -191,8 +154,6 @@ namespace detail {
 				opt.passStats = true;
 			else if(arg.rfind("-g", 0) == 0)
 				opt.debugLevel = parseDebugLevel(arg);
-			else if(String spec; cli::value(kTool, argc, argv, i, "-emit", spec))
-				parseEmit(spec, opt.emits);
 			else if(cli::value(kTool, argc, argv, i, "-target", opt.targetSpec) ||
 							cli::value(kTool, argc, argv, i, "-fpasses", opt.passSpec) ||
 							cli::value(kTool, argc, argv, i, "-fmachine-passes", opt.machineSpec))
@@ -214,45 +175,15 @@ namespace detail {
 			else
 				cli::die(kTool, "unexpected extra argument '" + arg + "'");
 		}
-		if(opt.emits.empty() && !opt.preprocessOnly)
-			opt.emits.push_back(Emit::X86); // compile by default
 		return opt;
 	}
 
-	// dump the pp token stream the parser sees, with file, line, column, kind and spelling of each token
-	I32 emitTokens(const TokenStream& ts, std::ostream& os) {
-		for(const Token& tok : ts.toks) {
-			const String& file = ts.files[tok.file];
-			os << file << ":" << tok.line << ":" << tok.col << "\t" << tokKindName(tok.kind);
-			if(tok.kind == TokKind::Error) {
-				os << "\t" << ts.error() << "\n";
-				return 1;
-			}
-			if(tok.kind == TokKind::Eof) {
-				os << "\n";
-				return 0;
-			}
-			os << "\t'" << ts.text(tok) << "'\n";
-		}
-		return 0;
-	}
-
 	TransUnit* parse(TokenStream& ts, Arena& arena) {
-		ts.reset();
 		Parser parser(ts, arena, TargetLayout::forTriple(targetTriple()));
 		TransUnit* unit = parser.parseUnit();
 		if(!unit)
 			std::cerr << parser.error() << "\n";
 		return unit;
-	}
-
-	I32 emitAstText(TokenStream& ts, std::ostream& os) {
-		Arena arena;
-		TransUnit* unit = parse(ts, arena);
-		if(!unit)
-			return 1;
-		dumpAst(*unit, os);
-		return 0;
 	}
 
 	I32 emitViaModule(const Options& opt, TokenStream& ts, std::ostream& os) {
@@ -291,17 +222,6 @@ namespace detail {
 		if(opt.timePasses)
 			pm.printTimingReport(std::cerr);
 		return 0;
-	}
-
-	I32 emitOne(const Options& opt, TokenStream& ts, Emit kind) {
-		std::ofstream file;
-		if(!cli::openOutput(kTool, pathFor(opt, kind), file, kind == Emit::X86))
-			return 1;
-		if(kind == Emit::Tok)
-			return emitTokens(ts, file);
-		if(kind == Emit::Ast)
-			return emitAstText(ts, file);
-		return emitViaModule(opt, ts, file);
 	}
 
 	I32 run(I32 argc, C8** argv) {
@@ -343,10 +263,10 @@ namespace detail {
 			return 0;
 		}
 
-		for(Emit kind : opt.emits)
-			if(I32 rc = emitOne(opt, ts, kind))
-				return rc;
-		return 0;
+		std::ofstream file;
+		if(!cli::openOutput(kTool, opt.output, file, true))
+			return 1;
+		return emitViaModule(opt, ts, file);
 	}
 } // namespace detail
 
