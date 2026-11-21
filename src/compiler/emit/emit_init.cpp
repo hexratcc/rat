@@ -65,7 +65,7 @@ namespace rat::cc {
 	// highest outer index + 1, from a dry run of the real walk
 	U32 Emitter::initArrayCount(CType elem, const Expr* init) {
 		DryRunDiag dryRun(diag);
-		ExtentSink sink;
+		InitSink sink;
 		U32 extent = 0;
 		U32 pos = 0;
 		B32 ok;
@@ -138,8 +138,7 @@ namespace rat::cc {
 				el = wrapNested(des.next, el);
 			}
 			B32 braced = el->kind == ExprKind::InitList || el->kind == ExprKind::CompoundLit;
-			B32 charString = isArrayType(elem) && elemIsChar && el->kind == ExprKind::StrLit;
-			if((isStruct(elem) || isArrayType(elem)) && !braced && !charString) {
+			if((isStruct(elem) || isArrayType(elem)) && !braced) {
 				U32 first = i;
 				if(!initFlatObject(sink, off, elem, {els, i, &init->designators}))
 					return false;
@@ -151,10 +150,7 @@ namespace rat::cc {
 			}
 			const Expr* peeled = peelAggregateCompound(el);
 			if(isArrayType(elem)) {
-				if(charString) {
-					if(!sink.charArray(off, arrayElem(elem), elem.array->count, el))
-						return false;
-				} else if(!initArrayInit(sink, off, arrayElem(elem), elem.array->count, peeled))
+				if(!initArrayInit(sink, off, arrayElem(elem), elem.array->count, peeled))
 					return false;
 			} else if(isStruct(elem)) {
 				if(!initStructInit(sink, off, elem.strukt, peeled))
@@ -223,8 +219,12 @@ namespace rat::cc {
 		return sink.scalar(off, f.type, els[0]);
 	}
 
-	B32 Emitter::initStructInit(
-			InitSink& sink, U32 base, const StructType* st, const Expr* init, U32* flexExtent) {
+	B32 Emitter::initStructInit(InitSink& sink,
+															U32 base,
+															const StructType* st,
+															const Expr* init,
+															U32 flexCount,
+															U32* flexExtent) {
 		if(init->kind != ExprKind::InitList)
 			return diag.fail("expected a brace initializer for struct '" + st->tag + "'");
 		if(st->isUnion)
@@ -264,7 +264,7 @@ namespace rat::cc {
 			B32 isArray = detail::arrayParts(f.type, elem, fcount);
 			U32* fieldExtent = nullptr;
 			if(isArray && fcount == 0 && cur == fields.size() - 1) {
-				fcount = data.flexCount;
+				fcount = flexCount;
 				fieldExtent = flexExtent;
 			}
 			// the rest of the designator applies to a nested brace list

@@ -20,10 +20,6 @@ namespace rat::cc {
 			return {};
 		if(p.type.func && p.type.ptr == 1)
 			return p;
-		if(!isPointer(p.type)) {
-			diag.offset = e->offset;
-			return diag.fail("indirection requires a pointer operand");
-		}
 		return loadObject(fn, p.node, pointee(p.type));
 	}
 
@@ -157,7 +153,7 @@ namespace rat::cc {
 				break;
 			}
 			if(fn.blockFinished() && !detail::isLabeledStmt(child) && !containsLabel(child)) {
-				if(child->kind == StmtKind::Decl && !declareDead(fn, child))
+				if(child->kind == StmtKind::Decl && !emitDecls(fn, child, false))
 					return {};
 				continue;
 			}
@@ -173,31 +169,17 @@ namespace rat::cc {
 	Emitter::Value Emitter::emitExpr(Function& fn, const Expr* e) {
 		diag.offset = e->offset;
 		switch(e->kind) {
-		case ExprKind::IntLit: {
-			CType t;
-			t.bits = e->intLit.bits;
-			t.mods = e->intLit.mods;
-			return {fn.constInt(irType(t), e->intLit.value), t};
-		}
+		case ExprKind::IntLit:
+			return {fn.constInt(irType(e->type), e->intLit.value), e->type};
 		case ExprKind::FloatLit: {
-			CType t;
-			t.base = CType::Base::Float;
-			t.bits = e->floatLit.bits;
-			Node* lit = floatLit(fn, t, e->floatLit.value);
-			if(e->floatLit.imaginary) {
-				CType ct = t;
-				ct.set(CType::Complex);
-				ct.strukt = complexLayout(ct.bits);
-				return makeComplex(fn, ct, fn.constFloat(irType(t), 0.0), lit);
-			}
-			return {lit, t};
+			if(!e->floatLit.imaginary)
+				return {floatLit(fn, e->type, e->floatLit.value), e->type};
+			CType elem = complexElem(e->type);
+			Node* im = floatLit(fn, elem, e->floatLit.value);
+			return makeComplex(fn, e->type, fn.constFloat(irType(elem), 0.0), im);
 		}
-		case ExprKind::StrLit: {
-			CType elemPtr;
-			elemPtr.bits = e->str.isWide ? e->str.charSize * 8 : 8;
-			elemPtr.ptr = 1;
-			return {fn.global(internString(e)), elemPtr};
-		}
+		case ExprKind::StrLit:
+			return {fn.global(internString(e)), decay(e->type)};
 		case ExprKind::Ident:
 			return emitIdent(fn, e);
 		case ExprKind::Call:

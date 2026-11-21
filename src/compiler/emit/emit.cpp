@@ -206,33 +206,23 @@ namespace rat::cc {
 
 	B32 Emitter::emitMemberLValue(Function& fn, const Expr* e, LValue& out) {
 		Node* baseAddr;
-		CType structType;
 		if(e->member.arrow) {
 			Value p = emitExpr(fn, e->member.base);
 			if(!p.node)
 				return false;
-			if(!isPointer(p.type) || !isStruct(pointee(p.type)))
-				return diag.fail("'->' requires a pointer to struct or union");
-			structType = pointee(p.type);
 			baseAddr = p.node;
 		} else {
 			LValue base;
 			if(!emitLValue(fn, e->member.base, base))
 				return false;
-			if(base.isVar() || !isStruct(base.type))
-				return diag.fail("'.' requires a struct or union value");
-			structType = base.type;
 			baseAddr = base.addr;
 		}
-		const String& memberName = *e->member.name;
-		const Field* f = structType.strukt->find(memberName);
-		if(!f)
-			return diag.fail("no member named '" + memberName + "' in '" + typeName(structType) + "'");
+		CType structType;
+		const Field* f = nullptr;
+		memberField(e, structType, f); // the parser found it, see memberType
 		out.kind = LValue::Kind::Addr;
 		out.addr = offsetPtr(fn, baseAddr, f->offset);
-		out.type = f->type;
-		if(isTopVolatile(structType))
-			setTopVolatile(out.type);
+		out.type = e->type;
 		out.isBitfield = f->isBitfield();
 		out.bitWidth = f->bitWidth;
 		out.bitOffset = f->bitOffset;
@@ -276,10 +266,6 @@ namespace rat::cc {
 			Value p = emitExpr(fn, e->unary.operand);
 			if(!p.node)
 				return false;
-			if(!isPointer(p.type)) {
-				diag.offset = e->offset;
-				return diag.fail("indirection requires a pointer operand");
-			}
 			out.kind = LValue::Kind::Addr;
 			out.addr = p.node;
 			out.type = pointee(p.type);
@@ -531,7 +517,7 @@ namespace rat::cc {
 		attrs.linkage = def->isStatic ? Linkage::Internal : Linkage::External;
 		attrs.abi = std::move(abi);
 
-		func.reset();
+		func = {};
 		func.returnType = def->type->ret;
 		if(sretReturn)
 			func.sretSlot = fn->param(0);

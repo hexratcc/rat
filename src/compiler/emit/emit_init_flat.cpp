@@ -79,7 +79,7 @@ namespace rat::cc {
 	// a string fills an integer array whose element is one string unit wide
 	B32 Emitter::checkStringElem(CType elem, U32 charSize) {
 		if(!isInteger(elem) || elem.bits != charSize * 8)
-			return failStringNeedsCharArray();
+			return diag.fail("string initializer requires a 'char' array");
 		return true;
 	}
 
@@ -213,10 +213,10 @@ namespace rat::cc {
 
 	B32 Emitter::ImageSink::structCopy(U32, CType, const Expr*) { return emit.failNonConstInit(); }
 
-	B32 Emitter::ExtentSink::scalar(U32, CType, const Expr*) { return true; }
-	B32 Emitter::ExtentSink::bitfield(U32, CType, U32, U32, const Expr*) { return true; }
-	B32 Emitter::ExtentSink::charArray(U32, CType, U32, const Expr*) { return true; }
-	B32 Emitter::ExtentSink::structCopy(U32, CType, const Expr*) { return true; }
+	B32 Emitter::InitSink::scalar(U32, CType, const Expr*) { return true; }
+	B32 Emitter::InitSink::bitfield(U32, CType, U32, U32, const Expr*) { return true; }
+	B32 Emitter::InitSink::charArray(U32, CType, U32, const Expr*) { return true; }
+	B32 Emitter::InitSink::structCopy(U32, CType, const Expr*) { return true; }
 
 	const StructType* Emitter::anonGroupType(const StructType* st, U32 firstIdx) {
 		StructType* g = arena.make<StructType>();
@@ -242,12 +242,9 @@ namespace rat::cc {
 		if(!init)
 			return 0;
 		DryRunDiag dryRun(diag);
-		ExtentSink sink;
+		InitSink sink;
 		U32 extent = 0;
-		U32 savedFlexCount = data.flexCount;
-		data.flexCount = UINT32_MAX;
-		initStructInit(sink, 0, st, init, &extent);
-		data.flexCount = savedFlexCount;
+		initStructInit(sink, 0, st, init, UINT32_MAX, &extent);
 		return extent;
 	}
 } // namespace rat::cc

@@ -244,8 +244,7 @@ namespace rat::cc {
 		Node* r = fn.bswap(convert(fn, a.node, a.type, wt));
 		if(bits == 16)
 			r = fn.lshr(r, fn.constInt(irType(wt), 16));
-		CType rt = ctUnsigned(bits);
-		out = {convert(fn, r, wt, rt), rt};
+		out = {convert(fn, r, wt, e->type), e->type};
 		return true;
 	}
 

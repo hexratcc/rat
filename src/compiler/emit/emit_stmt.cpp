@@ -79,13 +79,16 @@ namespace rat::cc {
 	}
 
 	// the body under frame, frame comes back with what break set
+	// a switch body that falls out reaches the exit too
 	B32 Emitter::emitLoopBody(Function& fn, const Stmt* body, LoopFrame& frame, Block* next) {
 		func.loops.push_back(frame);
 		B32 ok = emitStmt(fn, body);
 		frame = func.loops.back();
 		func.loops.pop_back();
-		if(ok && !fn.blockFinished())
+		if(ok && !fn.blockFinished()) {
 			fn.jmp(next);
+			frame.exitReachable |= next == frame.breakBlock;
+		}
 		return ok;
 	}
 
@@ -211,20 +214,12 @@ namespace rat::cc {
 		if(inLoop || !emitCaseTable(fn, cs))
 			emitCaseTree(fn, cs, 0, (U32)cs.values.size());
 		func.switches.push_back(std::move(blocks));
-		func.loops.push_back({exitB, nullptr, false, true, func.sp});
-		B32 ok = emitStmt(fn, body);
-		LoopFrame frame = func.loops.back();
-		func.loops.pop_back();
+		// without a default the dispatch jumps to exit
+		LoopFrame frame{exitB, nullptr, !defaultStmt, true, func.sp};
+		B32 ok = emitLoopBody(fn, body, frame, exitB);
 		func.switches.pop_back();
 		if(!ok)
 			return false;
-
-		if(!fn.blockFinished()) {
-			fn.jmp(exitB);
-			frame.exitReachable = true;
-		}
-		if(!defaultStmt)
-			frame.exitReachable = true;
 
 		fn.seal(exitB);
 		if(frame.exitReachable)
@@ -334,7 +329,7 @@ namespace rat::cc {
 			B32 unreachable = fn.blockFinished() && !detail::isLabeledStmt(child);
 			B32 inSwitch = !func.switches.empty();
 			if(unreachable && !containsLabel(child) && !(inSwitch && containsSwitchCase(child))) {
-				if(child->kind == StmtKind::Decl && !declareDead(fn, child))
+				if(child->kind == StmtKind::Decl && !emitDecls(fn, child, false))
 					return false;
 				continue;
 			}
@@ -371,15 +366,8 @@ namespace rat::cc {
 		switch(s->kind) {
 		case StmtKind::Compound:
 			return emitCompound(fn, s);
-		case StmtKind::Decl: {
-			B32 live = true;
-			for(const Declarator& d : s->decls) {
-				if(!emitOneDecl(fn, d, live))
-					return false;
-				debugLocal(fn, d);
-			}
-			return true;
-		}
+		case StmtKind::Decl:
+			return emitDecls(fn, s, true);
 		case StmtKind::If:
 			return emitIf(fn, s);
 		case StmtKind::While:

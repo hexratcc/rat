@@ -149,10 +149,7 @@ namespace rat::cc {
 		if(sinit) {
 			init.assign(total, 0);
 			ImageSink sink(*this, init);
-			data.flexCount = flex;
-			B32 ok = initStructInit(sink, 0, st, sinit);
-			data.flexCount = 0;
-			if(!ok)
+			if(!initStructInit(sink, 0, st, sinit, flex))
 				return false;
 		}
 		defineGlobal(d, sym, byteArrayType(total), std::move(init));

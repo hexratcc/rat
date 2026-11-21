@@ -71,16 +71,9 @@ namespace rat::cc {
 			return evalAddrConst(e->cast.operand, sym, addend);
 		case ExprKind::Ident: {
 			Symbol found = lookupSymbol(*e->ident.name);
-			if(found.local) {
-				if(!found.local->staticSymbol || !isArrayType(found.type))
-					return false;
-				sym = *found.local->staticSymbol;
-				return true;
-			}
 			if(found.kind != Symbol::Kind::Function && !isArrayType(found.type))
 				return false;
-			sym = *e->ident.name;
-			return true;
+			return addrConstOf(e, sym, addend);
 		}
 		case ExprKind::Member: {
 			CType st;

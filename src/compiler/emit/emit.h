@@ -128,13 +128,13 @@ namespace rat::cc {
 			Emitter& emit;
 		};
 
-		// initializer sinks
+		// initializer sinks, the base takes every element and writes nothing, the dry runs use it
 		struct InitSink {
 			virtual ~InitSink() = default;
-			virtual B32 scalar(U32 off, CType dt, const Expr* e) = 0;
-			virtual B32 bitfield(U32 off, CType dt, U32 width, U32 bitOff, const Expr* e) = 0;
-			virtual B32 charArray(U32 base, CType elem, U32 count, const Expr* e) = 0;
-			virtual B32 structCopy(U32 off, CType ty, const Expr* e) = 0;
+			virtual B32 scalar(U32 off, CType dt, const Expr* e);
+			virtual B32 bitfield(U32 off, CType dt, U32 width, U32 bitOff, const Expr* e);
+			virtual B32 charArray(U32 base, CType elem, U32 count, const Expr* e);
+			virtual B32 structCopy(U32 off, CType ty, const Expr* e);
 		};
 		struct ImageSink final : InitSink {
 			ImageSink(Emitter& e, List<U8>& image)
@@ -160,13 +160,6 @@ namespace rat::cc {
 			Emitter& emit;
 			Function& fn;
 			Node* slot;
-		};
-		// dry run sink, see initArrayCount
-		struct ExtentSink final : InitSink {
-			B32 scalar(U32 off, CType dt, const Expr* e) override;
-			B32 bitfield(U32 off, CType dt, U32 width, U32 bitOff, const Expr* e) override;
-			B32 charArray(U32 base, CType elem, U32 count, const Expr* e) override;
-			B32 structCopy(U32 off, CType ty, const Expr* e) override;
 		};
 		struct FlatList {
 			const List<Expr*>& els;
@@ -236,9 +229,6 @@ namespace rat::cc {
 		Failed failNonConstInit() {
 			return diag.fail("initializer element is not a constant expression");
 		}
-		Failed failStringNeedsCharArray() {
-			return diag.fail("string initializer requires a 'char' array");
-		}
 
 		// statements
 		B32 emitStmt(Function& fn, const Stmt* stmt);
@@ -281,7 +271,7 @@ namespace rat::cc {
 		B32 emitVlaDecl(Function& fn, const Declarator& d);
 		B32 declareStatic(Function& fn, const Declarator& d);
 		B32 declareExtern(Function& fn, const Declarator& d);
-		B32 declareDead(Function& fn, const Stmt* stmt);
+		B32 emitDecls(Function& fn, const Stmt* stmt, B32 live);
 		void zeroSlot(Function& fn, Node* slot, U32 size);
 
 		// expressions
@@ -404,10 +394,12 @@ namespace rat::cc {
 		B32 unwrapScalarInit(const Expr*& e, B32& skip);
 		B32 initListIsFlat(const Expr* init);
 		U32 initArrayCount(CType elem, const Expr* init);
+		// flexCount bounds a flexible array member, flexExtent takes the length it reaches
 		B32 initStructInit(InitSink& sink,
 											 U32 base,
 											 const StructType* st,
 											 const Expr* init,
+											 U32 flexCount = 0,
 											 U32* flexExtent = nullptr);
 		B32 initUnionInit(InitSink& sink, U32 base, const StructType* st, const Expr* init);
 		B32 initArrayInit(

@@ -1,20 +1,6 @@
 #include "emit/emit_state.h"
 
 namespace rat::cc {
-	void FunctionState::reset() {
-		returnType = {};
-		sretSlot = nullptr;
-		sp = nullptr;
-		sawAlloca = false;
-		addrTaken.clear();
-		restrictVars.clear();
-		labels.clear();
-		loops.clear();
-		switches.clear();
-		scopes.clear();
-		vlaDims.clear();
-	}
-
 	Failed Diagnostics::fail(const String& m) {
 		if(failed)
 			return {};

@@ -46,11 +46,14 @@ namespace rat::cc {
 		return true;
 	}
 
-	B32 Emitter::declareDead(Function& fn, const Stmt* s) {
-		B32 live = false;
-		for(const Declarator& d : s->decls)
+	// a dead declaration still binds its names, without initializing or describing them
+	B32 Emitter::emitDecls(Function& fn, const Stmt* s, B32 live) {
+		for(const Declarator& d : s->decls) {
 			if(!emitOneDecl(fn, d, live))
 				return false;
+			if(live)
+				debugLocal(fn, d);
+		}
 		return true;
 	}
 

@@ -82,17 +82,16 @@ namespace rat::cc {
 		B32 isInc = op == ExprOp::PreInc || op == ExprOp::PostInc;
 		B32 isPre = op == ExprOp::PreInc || op == ExprOp::PreDec;
 		if(isComplexType(type)) {
-			CType ct = type;
-			Value oldVal = {lv.addr, ct};
+			Value oldVal = {lv.addr, type};
 			Node* re = complexReal(fn, oldVal);
 			Node* im = complexImag(fn, oldVal);
-			Node* one = fn.constFloat(irType(complexElem(ct)), 1.0);
+			Node* one = fn.constFloat(irType(complexElem(type)), 1.0);
 			Node* newRe = fn.binary(isInc ? Opcode::FAdd : Opcode::FSub, re, one);
-			Value updated = makeComplex(fn, ct, newRe, im);
-			storeComplex(fn, lv.addr, ct, updated);
+			Value updated = makeComplex(fn, type, newRe, im);
+			storeComplex(fn, lv.addr, type, updated);
 			if(isPre)
-				return {lv.addr, ct};
-			return makeComplex(fn, ct, re, im);
+				return {lv.addr, type};
+			return makeComplex(fn, type, re, im);
 		}
 		Node* old = loadLValue(fn, lv);
 		Node* updated;
@@ -128,18 +127,13 @@ namespace rat::cc {
 
 	Emitter::Value Emitter::assignComplex(Function& fn, const Expr* e, const LValue& lv, Value rhs) {
 		CType ct = lv.type;
-		Value stored;
-		if(e->binary.op == ExprOp::Assign) {
-			stored = {rhs.node, rhs.type};
-		} else {
+		Value stored = rhs;
+		if(e->binary.op != ExprOp::Assign) {
 			ExprOp base;
 			B32 isCompound = compoundBaseOp(e->binary.op, base);
 			if(!isCompound || base > ExprOp::Div) // complex takes Add..Div only
 				return diag.fail("invalid compound assignment to a complex operand");
-			CType opType = usualArithmetic(ct, rhs.type);
-			Value cur = toComplex(fn, {lv.addr, ct}, opType);
-			Value rc = toComplex(fn, rhs, opType);
-			stored = complexBinary(fn, base, cur, rc, opType);
+			stored = emitComplexBinary(fn, base, {lv.addr, ct}, rhs);
 			if(!stored.node)
 				return {};
 		}

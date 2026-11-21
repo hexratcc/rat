@@ -102,6 +102,8 @@ namespace rat::cc {
 	// a volatile struct has volatile members
 	CType Parser::memberType(const Expr* e) {
 		CType base = valueType(e->member.base->type);
+		if(e->member.arrow && !isPointer(base))
+			return fail(peek(), "'->' requires a pointer to struct or union");
 		CType st = e->member.arrow ? pointee(base) : base;
 		if(!isStruct(st))
 			return fail(peek(), "member reference base type is not a struct or union");

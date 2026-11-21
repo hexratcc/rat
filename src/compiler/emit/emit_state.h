@@ -57,8 +57,6 @@ namespace rat::cc {
 	};
 
 	struct FunctionState {
-		void reset();
-
 		CType returnType;
 		Node* sretSlot = nullptr;
 		Node* sp = nullptr;
@@ -140,7 +138,6 @@ namespace rat::cc {
 		void setReloc(U32 off, const String& sym, I64 add);
 
 		List<Reloc> relocs;
-		U32 flexCount = 0;
 		U32 nameCounter = 0;
 		U32 staticCounter = 0;
 		Map<String, String> stringPool; // string-literal bytes -> interned symbol
