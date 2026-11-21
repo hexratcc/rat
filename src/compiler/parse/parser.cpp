@@ -17,10 +17,7 @@ namespace rat::cc {
 			vaList.ptr = 1;
 		} else {
 			// SysV __builtin_va_list decays to a pointer to a 24-byte state record
-			ArrayType* vl = arena.make<ArrayType>();
-			vl->elem = ctUnsigned(8);
-			vl->count = lay.ptrBytes * 4;
-			vaList.array = vl;
+			vaList.array = arena.make<ArrayType>(ArrayType{ctUnsigned(8), lay.ptrBytes * 4});
 		}
 		idents.set("va_list", {Ident::Kind::Typedef, vaList});
 		idents.set("__builtin_va_list", {Ident::Kind::Typedef, vaList});
@@ -68,8 +65,6 @@ namespace rat::cc {
 
 	Expr* Parser::makeInt(const Token& tok, I64 value, U32 bits, U8 mods) {
 		Expr* e = makeExpr(ExprKind::IntLit, tok.offset);
-		if(mods & CType::LongLong) // 'long long' subsumes 'long'
-			mods |= CType::Long;
 		e->intLit = {value, bits, mods};
 		return typed(e);
 	}
@@ -118,12 +113,6 @@ namespace rat::cc {
 		}
 	}
 
-	void Parser::declareParams(const FuncType* ft) {
-		for(const Param& p : ft->params)
-			if(p.name)
-				declare(*p.name, p.type);
-	}
-
 	// the type a typedef name stands for, null for any other name
 	const CType* Parser::typedefType(const String& name) {
 		const Ident* id = idents.get(name);
@@ -151,9 +140,9 @@ namespace rat::cc {
 		FuncDef* fn = arena.make<FuncDef>();
 		fn->name = *r.name;
 		fn->type = arena.make<FuncType>(*r.type.func);
-		fn->isExternInline = ds.isExtern && ds.isInline;
-		fn->isStatic = ds.isStatic;
-		fn->isNoInline = ds.isNoInline;
+		fn->isExternInline = ds.has(TokKind::KwExtern) && ds.has(TokKind::KwInline);
+		fn->isStatic = ds.has(TokKind::KwStatic);
+		fn->isNoInline = ds.has(TokKind::KwNoinline);
 		fn->align = r.align;
 		fn->offset = start.offset;
 		return fn;
@@ -196,7 +185,9 @@ namespace rat::cc {
 	// [old-style-decls] compound
 	B32 Parser::parseFunctionDef(FuncDef* fn, B32 oldStyle) {
 		idents.push(); // the parameters, an old-style declaration may name an earlier one
-		declareParams(fn->type);
+		for(const Param& p : fn->type->params)
+			if(p.name)
+				declare(*p.name, p.type);
 		if((oldStyle && !parseOldStyleDecls(fn)) || !checkParamNames(fn))
 			return false;
 		curFuncName = fn->name;
@@ -233,8 +224,8 @@ namespace rat::cc {
 	B32 Parser::parseObjectDeclarator(
 			const DeclResult& r, const Token& start, const DeclSpecs& ds, Stmt* s, B32 fileScope) {
 		Declarator d;
-		d.isExtern = ds.isExtern;
-		d.isStatic = ds.isStatic;
+		d.isExtern = ds.has(TokKind::KwExtern);
+		d.isStatic = ds.has(TokKind::KwStatic);
 		bindDeclarator(d, r);
 		B32 noInline = false;
 		if(!parseDeclAttributes(d.aliasOf, noInline, d.align))

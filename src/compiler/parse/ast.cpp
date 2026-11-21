@@ -10,7 +10,7 @@ namespace rat::cc {
 		if(st.complete)
 			return &st;
 		U32 elemBytes = (bits + 7) / 8;
-		CType elem = {bits, 0, 0, 0, 0, CType::Base::Float};
+		CType elem = ctFloat(bits);
 		st.size = 2 * elemBytes;
 		st.align = elemBytes;
 		st.complete = true;
@@ -19,35 +19,33 @@ namespace rat::cc {
 		return &st;
 	}
 
+	// a real floating type, or the _Complex type over it
+	CType ctFloat(U32 bits, B32 isComplex) {
+		CType t = {bits, 0, 0, 0, 0, CType::Base::Float};
+		if(isComplex) {
+			t.set(CType::Complex);
+			t.strukt = complexLayout(bits);
+		}
+		return t;
+	}
+
 	// arr with count as its outer bound
 	CType sizedArray(Arena& arena, CType arr, U64 count) {
 		if(arr.array->count == count && !isVlaType(arr))
 			return arr;
-		ArrayType* sized = arena.make<ArrayType>();
-		sized->elem = arr.array->elem;
-		sized->count = count;
-		arr.array = sized;
+		arr.array = arena.make<ArrayType>(ArrayType{arr.array->elem, count});
 		return arr;
 	}
 
 	CType promote(CType t) {
 		if(t.isVoid())
 			return t;
-		if(t.bitPrec) {
-			if(t.bitPrec < 32 || (t.bitPrec == 32 && !t.isUnsigned()))
-				return CType{};
-			if(t.bitPrec == 32)
-				return ctUnsigned(32);
-			return t;
-		}
-		if(t.bits < 32)
+		if(detail::intPrec(t) < 32 || (t.bitPrec == 32 && !t.isUnsigned()))
 			return CType{};
+		if(t.bitPrec == 32)
+			return ctUnsigned(32);
 		return t;
 	}
-
-	namespace detail {
-		U32 intPrec(CType t) { return t.bitPrec ? t.bitPrec : t.bits; }
-	} // namespace detail
 
 	CType defaultArgPromote(CType t) {
 		if(isFloating(t) && t.bits < 64) {
@@ -61,31 +59,22 @@ namespace rat::cc {
 		if(isComplexType(a) || isComplexType(b)) {
 			CType ra = isComplexType(a) ? complexElem(a) : a;
 			CType rb = isComplexType(b) ? complexElem(b) : b;
-			CType r = usualArithmetic(ra, rb);
-			r.set(CType::Complex);
-			r.base = CType::Base::Float;
-			r.strukt = complexLayout(r.bits);
-			return r;
+			return ctFloat(usualArithmetic(ra, rb).bits, true);
 		}
 		if(isFloating(a) || isFloating(b)) {
 			U32 aBits = isFloating(a) ? a.bits : 0;
 			U32 bBits = isFloating(b) ? b.bits : 0;
-			return {std::max(aBits, bBits), 0, 0, 0, 0, CType::Base::Float};
+			return ctFloat(std::max(aBits, bBits));
 		}
 		a = promote(a);
 		b = promote(b);
-		if(a.isUnsigned() == b.isUnsigned()) {
-			U32 pa = detail::intPrec(a);
-			U32 pb = detail::intPrec(b);
-			if(pa != pb)
-				return pa > pb ? a : b;
-			return a.longRank() >= b.longRank() ? a : b; // keep the higher rank
-		}
-		CType u = a.isUnsigned() ? a : b;
-		CType s = a.isUnsigned() ? b : a;
-		if(detail::intPrec(u) >= detail::intPrec(s))
-			return u;
-		return s;
+		U32 pa = detail::intPrec(a);
+		U32 pb = detail::intPrec(b);
+		if(pa != pb)
+			return pa > pb ? a : b;
+		if(a.isUnsigned() != b.isUnsigned())
+			return a.isUnsigned() ? a : b;
+		return a.longRank() >= b.longRank() ? a : b; // keep the higher rank
 	}
 
 	// t as an rvalue, an array decays to a pointer to its element and a function to a pointer
@@ -136,6 +125,8 @@ namespace rat::cc {
 	}
 
 	namespace detail {
+		U32 intPrec(CType t) { return t.bitPrec ? t.bitPrec : t.bits; }
+
 		B32 funcTypesCompatible(const FuncType* a, const FuncType* b) {
 			if(a->isVarArgs != b->isVarArgs || a->params.size() != b->params.size())
 				return false;
@@ -226,16 +217,11 @@ namespace rat::cc {
 		}
 
 		const C8* intName(U32 bits) {
-			switch(bits) {
-			case 8:
+			if(bits == 8)
 				return "char";
-			case 16:
+			if(bits == 16)
 				return "short";
-			case 32:
-				return "int";
-			default:
-				return "long";
-			}
+			return bits == 32 ? "int" : "long";
 		}
 
 		String funcTypeName(CType t) {

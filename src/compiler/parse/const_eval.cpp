@@ -148,14 +148,13 @@ namespace rat::cc {
 	// a scalar condition, integer, pointer or floating
 	B32 ConstEval::evalTruth(const Expr* e, B32& out) const {
 		I64 v;
-		if(evalInt(e, v)) {
-			out = v != 0;
-			return true;
-		}
 		F80 f;
-		if(!evalFloat(e, f))
+		if(evalInt(e, v))
+			out = v != 0;
+		else if(evalFloat(e, f))
+			out = f != 0;
+		else
 			return false;
-		out = f != 0;
 		return true;
 	}
 
@@ -219,17 +218,13 @@ namespace rat::cc {
 
 	// the side the lhs decides is not evaluated
 	B32 ConstEval::evalLogical(const Expr* e, I64& out) const {
-		B32 lhs;
-		if(!evalTruth(e->binary.lhs, lhs))
+		B32 truth;
+		if(!evalTruth(e->binary.lhs, truth))
 			return false;
-		if(lhs != (e->binary.op == ExprOp::LogAnd)) { // 0 && x or 1 || x
-			out = lhs;
-			return true;
-		}
-		B32 rhs;
-		if(!evalTruth(e->binary.rhs, rhs))
+		B32 decided = truth != (e->binary.op == ExprOp::LogAnd); // 0 && x or 1 || x
+		if(!decided && !evalTruth(e->binary.rhs, truth))
 			return false;
-		out = rhs;
+		out = truth;
 		return true;
 	}
 
@@ -278,6 +273,9 @@ namespace rat::cc {
 	B32 ConstEval::evalArith(ExprOp op, I64 a, I64 b, B32 isUnsigned, I64& out) const {
 		U64 ua = (U64)a;
 		U64 ub = (U64)b;
+		B32 divisionTraps = !b || (!isUnsigned && a == INT64_MIN && b == -1);
+		if((op == ExprOp::Div || op == ExprOp::Rem) && divisionTraps)
+			return false; // by zero or INT64_MIN / -1, not a constant
 		switch(op) {
 			// clang-format off
 		case ExprOp::Add:    out = (I64)(ua + ub);           return true;
@@ -292,36 +290,27 @@ namespace rat::cc {
 		case ExprOp::Ge:     out = isUnsigned ? ua >= ub : a >= b; return true;
 		case ExprOp::Eq:     out = a == b;                   return true;
 		case ExprOp::Ne:     out = a != b;                   return true;
+		case ExprOp::Div:    out = isUnsigned ? (I64)(ua / ub) : a / b; return true;
+		case ExprOp::Rem:    out = isUnsigned ? (I64)(ua % ub) : a % b; return true;
 		// clang-format on
-		case ExprOp::Div:
-		case ExprOp::Rem:
-			return evalDivision(op, a, b, isUnsigned, out);
 		default:
 			return false;
 		}
 	}
 
-	// by zero is not a constant, nor INT64_MIN / -1 which traps
-	B32 ConstEval::evalDivision(ExprOp op, I64 a, I64 b, B32 isUnsigned, I64& out) const {
-		if(!b || (!isUnsigned && a == INT64_MIN && b == -1))
-			return false;
-		B32 isDiv = op == ExprOp::Div;
-		if(isUnsigned && isDiv)
-			out = (I64)((U64)a / (U64)b);
-		else if(isUnsigned)
-			out = (I64)((U64)a % (U64)b);
-		else if(isDiv)
-			out = a / b;
-		else
-			out = a % b;
-		return true;
-	}
-
-	// a pointer is an unsigned address
+	// a pointer is an unsigned address, a _Bool keeps the truth value, not the low bit
 	I64 ConstEval::wrapTo(I64 v, CType t) const {
-		if(isPointer(t))
-			return wrapInt(v, lay.ptrBytes * 8, true);
-		return wrapInt(v, t.bits, t.isUnsigned());
+		U32 bits = isPointer(t) ? lay.ptrBytes * 8 : t.bits;
+		if(bits == 1)
+			return v != 0;
+		if(bits >= 64)
+			return v;
+		U64 mask = ((U64)1 << bits) - 1;
+		U64 low = (U64)v & mask;
+		B32 isSigned = !isPointer(t) && !t.isUnsigned();
+		if(isSigned && (low & ((U64)1 << (bits - 1))))
+			low |= ~mask; // sign-extend
+		return (I64)low;
 	}
 
 	// gcc's type classes for __builtin_classify_type

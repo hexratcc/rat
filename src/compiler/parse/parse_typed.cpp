@@ -8,11 +8,9 @@ namespace rat::cc {
 		CType elem;
 		elem.bits = e->str.charSize * 8;
 		elem.set(CType::PlainChar, !e->str.isWide);
-		ArrayType* at = arena.make<ArrayType>();
-		at->elem = elem;
-		at->count = e->str.bytes->size() / e->str.charSize + 1;
+		U64 units = e->str.bytes->size() / e->str.charSize + 1;
 		CType t;
-		t.array = at;
+		t.array = arena.make<ArrayType>(ArrayType{elem, units});
 		return t;
 	}
 
@@ -44,19 +42,17 @@ namespace rat::cc {
 		}
 		const String& name = *e->call.callee;
 		B32 integerArg = e->args.size() == 1 && isInteger(valueType(e->args[0]->type));
-		B32 handledAsBuiltin = !detail::isAbsName(name) || integerArg; // see emitAbsBuiltin
-		if(handledAsBuiltin && builtinReturnType(name, lay.longBits, out))
-			return out;
 		const Ident* id = idents.get(name);
-		if(!id || id->kind != Ident::Kind::Object) {
-			builtinReturnType(name, lay.longBits, out);
+		B32 declared = id && id->kind == Ident::Kind::Object;
+		// see emitAbsBuiltin
+		B32 handledAsBuiltin = !declared || !detail::isAbsName(name) || integerArg;
+		if((handledAsBuiltin && builtinReturnType(name, lay.longBits, out)) || !declared)
 			return out;
-		}
 		CType t = valueType(id->type);
 		return isFuncPtr(t) ? t.func->ret : out;
 	}
 
-	B32 Parser::unaryType(Expr* e) {
+	CType Parser::unaryType(const Expr* e) {
 		CType t = e->unary.operand->type;
 		CType v = valueType(t);
 		switch(e->unary.op) {
@@ -64,28 +60,20 @@ namespace rat::cc {
 		case ExprOp::PreDec:
 		case ExprOp::PostInc:
 		case ExprOp::PostDec:
-			e->type = rvalueType(t);
-			return true;
+			return rvalueType(t);
 		case ExprOp::Addr:
-			e->type = pointerTo(t);
-			return true;
+			return pointerTo(t);
 		case ExprOp::Deref:
 			if(!isPointer(v))
 				return fail(peek(), "indirection requires a pointer operand");
-			e->type = pointee(v); // a function pointer gives the function
-			return true;
+			return pointee(v); // a function pointer gives the function
 		case ExprOp::Not:
-			e->type = ctInt();
-			return true;
+			return ctInt();
 		case ExprOp::Real:
 		case ExprOp::Imag:
-			e->type = isComplexType(v) ? complexElem(v) : v;
-			return true;
-		default: {
-			CType r = rvalueType(t);
-			e->type = isComplexType(r) ? r : promote(r);
-			return true;
-		}
+			return isComplexType(v) ? complexElem(v) : v;
+		default:
+			return promote(rvalueType(t)); // a floating or complex operand keeps its type
 		}
 	}
 
@@ -112,7 +100,7 @@ namespace rat::cc {
 	}
 
 	// a volatile struct has volatile members
-	B32 Parser::memberType(Expr* e) {
+	CType Parser::memberType(const Expr* e) {
 		CType base = valueType(e->member.base->type);
 		CType st = e->member.arrow ? pointee(base) : base;
 		if(!isStruct(st))
@@ -121,66 +109,54 @@ namespace rat::cc {
 		const Field* f = st.strukt->find(name);
 		if(!f)
 			return fail(peek(), "no member named '" + name + "' in '" + typeName(st) + "'");
-		e->type = f->type;
+		CType type = f->type;
 		if(isTopVolatile(st))
-			setTopVolatile(e->type);
-		return true;
+			setTopVolatile(type);
+		return type;
 	}
 
-	// sets e->type from its children, which are typed already
-	// null after a diagnostic
-	Expr* Parser::typed(Expr* e) {
+	// the type of e from its children, which are typed already
+	CType Parser::typeOf(const Expr* e) {
 		switch(e->kind) {
 		case ExprKind::IntLit:
-			e->type.bits = e->intLit.bits;
-			e->type.mods = e->intLit.mods;
-			break;
+			return {e->intLit.bits, 0, 0, 0, 0, CType::Base::Int, e->intLit.mods};
 		case ExprKind::FloatLit:
-			e->type = {e->floatLit.bits, 0, 0, 0, 0, CType::Base::Float};
-			if(e->floatLit.imaginary) {
-				e->type.set(CType::Complex);
-				e->type.strukt = complexLayout(e->type.bits);
-			}
-			break;
+			return ctFloat(e->floatLit.bits, e->floatLit.imaginary);
 		case ExprKind::StrLit:
-			e->type = strType(e);
-			break;
+			return strType(e);
 		case ExprKind::Call:
-			e->type = callType(e);
-			break;
+			return callType(e);
 		case ExprKind::Cast:
-			e->type = e->cast.type;
-			break;
+			return e->cast.type;
 		case ExprKind::Sizeof:
 		case ExprKind::AlignOf:
-			e->type = sizeType(lay);
-			break;
+			return sizeType(lay);
 		case ExprKind::Unary:
-			return unaryType(e) ? e : nullptr;
+			return unaryType(e);
 		case ExprKind::Binary:
-			e->type = binaryType(e);
-			break;
+			return binaryType(e);
 		case ExprKind::Ternary:
-			e->type = ternaryType(e->ternary.whenTrue, e->ternary.whenFalse);
-			break;
+			return ternaryType(e->ternary.whenTrue, e->ternary.whenFalse);
 		case ExprKind::Comma:
-			e->type = rvalueType(e->comma.rhs->type);
-			break;
+			return rvalueType(e->comma.rhs->type);
 		case ExprKind::Member:
-			return memberType(e) ? e : nullptr;
+			return memberType(e);
 		case ExprKind::CompoundLit:
-			e->type = e->compound.type;
-			break;
+			return e->compound.type;
 		case ExprKind::VaArg:
-			e->type = e->vaArg.type;
-			break;
+			return e->vaArg.type;
 		case ExprKind::StmtExpr:
-			e->type = stmtExprType(e);
-			break;
+			return stmtExprType(e);
 		case ExprKind::Ident:
 		case ExprKind::InitList:
 			break; // an ident is typed from its declaration, see parsePrimaryName
 		}
-		return e;
+		return e->type;
+	}
+
+	// sets e->type, null after a diagnostic
+	Expr* Parser::typed(Expr* e) {
+		e->type = typeOf(e);
+		return failed ? nullptr : e;
 	}
 } // namespace rat::cc

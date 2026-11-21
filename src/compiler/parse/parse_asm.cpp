@@ -109,15 +109,15 @@ namespace rat::cc {
 		}
 		if(section == 0)
 			blk->isVolatile = true;
-		if(!expect(TokKind::RParen, "')' closing 'asm'"))
+		if(!expect(TokKind::RParen, "')' closing 'asm'") ||
+			 !expect(TokKind::Semicolon, "';' after an 'asm' statement"))
 			return nullptr;
-		expect(TokKind::Semicolon, "';' after an 'asm' statement");
 		Stmt* s = makeStmt(StmtKind::Asm, kw.offset);
 		s->asmBlock = blk;
 		return s;
 	}
 
-	// [ alias ( string-literal... ) | asm ( string-literal... ) | noinline | alignas ]...
+	// [ alias ( string-literal... ) | asm | noinline | alignas ]...
 	// the markers the preprocessor leaves behind, in any order. An asm label is rejected
 	B32 Parser::parseDeclAttributes(const String*& aliasOut, B32& noInlineOut, U32& alignOut) {
 		for(;;) {
@@ -126,12 +126,7 @@ namespace rat::cc {
 					 !parseAsmTemplate(aliasOut) || !expect(TokKind::RParen))
 					return false;
 			} else if(check(TokKind::KwAsm)) {
-				Token kw = advance();
-				const String* label = nullptr;
-				if(!expect(TokKind::LParen, "'(' after 'asm'") || !parseAsmTemplate(label) ||
-					 !expect(TokKind::RParen))
-					return false;
-				return fail(kw, "asm labels on declarations are not supported");
+				return fail(peek(), "asm labels on declarations are not supported");
 			} else if(accept(TokKind::KwNoinline)) {
 				noInlineOut = true;
 			} else if(check(TokKind::KwAlignas)) {

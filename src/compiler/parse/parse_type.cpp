@@ -85,46 +85,18 @@ namespace rat::cc {
 		return true;
 	}
 
-	// records one qualifier or storage-class keyword
-	void Parser::applyQualStorage(DeclSpecs& seen, TokKind kind) {
-		if(detail::tokSyntax(kind).spec & detail::TokSyntax::Storage)
-			++seen.storageCount;
-		switch(kind) {
-		case TokKind::KwStatic:
-			seen.isStatic = true;
-			break;
-		case TokKind::KwExtern:
-			seen.isExtern = true;
-			break;
-		case TokKind::KwInline:
-			seen.isInline = true;
-			break;
-		case TokKind::KwConst:
-			seen.isConst = true;
-			break;
-		case TokKind::KwVolatile:
-			seen.isVolatile = true;
-			break;
-		case TokKind::KwNoinline:
-			seen.isNoInline = true;
-			break;
-		default:
-			break;
-		}
-	}
-
 	// [ noinline | alignas ]...
 	// then publishes the specs to the caller
 	B32 Parser::finishTypeSpec(DeclSpecs seen, CType& out) {
 		while(check(TokKind::KwAlignas) || check(TokKind::KwNoinline)) {
 			if(accept(TokKind::KwNoinline))
-				seen.isNoInline = true;
+				++seen.count[(U32)TokKind::KwNoinline];
 			else if(!parseAlignasSpec(seen.align))
 				return false;
 		}
-		if(seen.isConst)
+		if(seen.has(TokKind::KwConst))
 			setTopConst(out);
-		if(seen.isVolatile)
+		if(seen.has(TokKind::KwVolatile))
 			setTopVolatile(out);
 		specs = seen;
 		return true;
@@ -140,12 +112,15 @@ namespace rat::cc {
 			}
 			if(!detail::isQualOrStorage(peek().kind))
 				return true;
-			applyQualStorage(seen, advance().kind);
+			TokKind kind = advance().kind;
+			++seen.count[(U32)kind];
+			if(detail::tokSyntax(kind).spec & detail::TokSyntax::Storage)
+				++seen.storageCount;
 		}
 	}
 
 	// type-keyword [ type-keyword | qualifier | storage | alignas ]...
-	B32 Parser::parseTypeKeywords(DeclSpecs& seen, TypeWords& w) {
+	B32 Parser::parseTypeKeywords(DeclSpecs& seen) {
 		for(;;) {
 			if(!parseQualStorage(seen))
 				return false;
@@ -153,37 +128,34 @@ namespace rat::cc {
 			if(!(detail::tokSyntax(k).spec & detail::TokSyntax::TypeWord))
 				return true;
 			advance();
-			++w.count[(U32)k];
-			++w.total;
+			++seen.count[(U32)k];
+			++seen.typeWordCount;
 		}
 	}
 
-	CType Parser::basicType(const TypeWords& w) {
-		B32 isFloat = w.of(TokKind::KwFloat) != 0;
-		B32 isComplex = w.of(TokKind::KwComplex) || w.of(TokKind::KwImaginary);
-		B32 isUnsigned = w.of(TokKind::KwUnsigned) != 0;
-		U32 longCount = w.of(TokKind::KwLong);
+	CType Parser::basicType(const DeclSpecs& seen) {
+		B32 isFloat = seen.of(TokKind::KwFloat) != 0;
+		B32 isComplex = seen.of(TokKind::KwComplex) || seen.of(TokKind::KwImaginary);
+		B32 isUnsigned = seen.of(TokKind::KwUnsigned) != 0;
+		U32 longCount = seen.of(TokKind::KwLong);
 		CType t;
-		if(w.of(TokKind::KwVoid)) {
+		if(seen.of(TokKind::KwVoid)) {
 			t.base = CType::Base::Void;
-		} else if(isFloat || w.of(TokKind::KwDouble) || isComplex) {
-			t.base = CType::Base::Float;
-			t.bits = 64;
+		} else if(isFloat || seen.of(TokKind::KwDouble) || isComplex) {
+			U32 bits = 64;
 			if(isFloat)
-				t.bits = 32;
-			else if(w.of(TokKind::KwDouble) && longCount >= 1)
-				t.bits = 128;
-			t.set(CType::Complex, isComplex);
-			if(isComplex)
-				t.strukt = complexLayout(t.bits);
-		} else if(w.of(TokKind::KwBool)) {
+				bits = 32;
+			else if(seen.of(TokKind::KwDouble) && longCount >= 1)
+				bits = 128;
+			t = ctFloat(bits, isComplex);
+		} else if(seen.of(TokKind::KwBool)) {
 			t = ctUnsigned(1);
 		} else {
 			t.set(CType::Unsigned, isUnsigned);
-			if(w.of(TokKind::KwChar)) {
+			if(seen.of(TokKind::KwChar)) {
 				t.bits = 8;
-				t.set(CType::PlainChar, !isUnsigned && !w.of(TokKind::KwSigned));
-			} else if(w.of(TokKind::KwShort))
+				t.set(CType::PlainChar, !isUnsigned && !seen.of(TokKind::KwSigned));
+			} else if(seen.of(TokKind::KwShort))
 				t.bits = 16;
 			else if(longCount >= 2) {
 				t.bits = 64;
@@ -203,7 +175,6 @@ namespace rat::cc {
 	//          | type-keyword [ type-keyword | qualifier | storage | alignas ]...
 	B32 Parser::parseTypeSpec(CType& out) {
 		DeclSpecs seen;
-		specs = DeclSpecs{};
 		if(!parseQualStorage(seen))
 			return false;
 		if(seen.storageCount > 1)
@@ -221,12 +192,11 @@ namespace rat::cc {
 				return finishTypeSpec(seen, out);
 			}
 		}
-		TypeWords w;
-		if(!parseTypeKeywords(seen, w) || w.total == 0)
+		if(!parseTypeKeywords(seen) || seen.typeWordCount == 0)
 			return false;
 		if(seen.storageCount > 1)
 			return fail(peek(), "more than one storage-class specifier");
-		out = basicType(w);
+		out = basicType(seen);
 		return finishTypeSpec(seen, out);
 	}
 } // namespace rat::cc

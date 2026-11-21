@@ -33,7 +33,6 @@ namespace rat::cc {
 		B32 evalPointerOp(ExprOp op, I64 a, CType at, I64 b, CType bt, I64& out) const;
 		B32 evalShift(ExprOp op, I64 a, I64 b, CType rt, I64& out) const;
 		B32 evalArith(ExprOp op, I64 a, I64 b, B32 isUnsigned, I64& out) const;
-		B32 evalDivision(ExprOp op, I64 a, I64 b, B32 isUnsigned, I64& out) const;
 		I64 wrapTo(I64 v, CType t) const;
 	};
 

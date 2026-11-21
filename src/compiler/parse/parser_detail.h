@@ -5,9 +5,6 @@
 #include "parse/ast.h"
 
 namespace rat::cc::detail {
-	constexpr I64 kIntMin = -2147483648LL;
-	constexpr I64 kIntMax = 2147483647LL;
-	constexpr I64 kUintMax = 4294967295LL;
 	constexpr ExprOp kNoOp = (ExprOp)0xFF; // no operator
 
 	// what one token kind means to the parser, see kTokSyntax

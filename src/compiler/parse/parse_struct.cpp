@@ -243,11 +243,11 @@ namespace rat::cc {
 				if(!init || !evalIntConst(init, value))
 					return false;
 			}
-			if(value < detail::kIntMin || value > detail::kUintMax)
+			if(value < INT32_MIN || value > UINT32_MAX)
 				return fail(name, "enumerator value is not representable as int or unsigned int");
 			if(value < 0)
 				anyNegative = true;
-			if(value > detail::kIntMax)
+			if(value > INT32_MAX)
 				anyAboveInt = true;
 			idents.set(lex.text(name), {Ident::Kind::EnumConst, ctInt(), value});
 			e.enumerators.push_back({lex.text(name), value});

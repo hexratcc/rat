@@ -82,24 +82,16 @@ namespace rat::cc {
 		pushScope();
 
 		Stmt* init = nullptr;
-		if(startsType(peek()) || check(TokKind::KwTypedef)) {
-			init = parseDeclaration(nullptr);
+		if(!accept(TokKind::Semicolon)) {
+			B32 isDeclaration = startsType(peek()) || check(TokKind::KwTypedef);
+			init = isDeclaration ? parseDeclaration(nullptr) : parseExprStatement();
 			if(!init)
 				return nullptr;
-		} else if(!accept(TokKind::Semicolon)) {
-			Token at = peek();
-			Expr* e = parseExpression();
-			if(!e || !expect(TokKind::Semicolon))
-				return nullptr;
-			init = makeStmt(StmtKind::Expr, at.offset, e);
 		}
 
 		Expr* cond = nullptr;
-		if(!parseOptionalExpr(TokKind::Semicolon, cond))
-			return nullptr;
-
 		Expr* post = nullptr;
-		if(!parseOptionalExpr(TokKind::RParen, post))
+		if(!parseOptionalExpr(TokKind::Semicolon, cond) || !parseOptionalExpr(TokKind::RParen, post))
 			return nullptr;
 
 		Stmt* body = parseStatement();

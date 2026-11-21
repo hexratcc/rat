@@ -120,67 +120,38 @@ namespace rat::cc {
 		return true;
 	}
 
-	// the type follows C11 6.4.4.1
+	// the first type of C11 6.4.4.1 that holds v
+	// the candidates are signed and unsigned pairs, an l or ll suffix starts at a later pair
 	U8 Parser::intLiteralMods(U64 v, B32 dec, B32 isUnsigned, U32 lCount, U32& bits) const {
-		B32 fitsI32 = v <= 0x7fffffffULL;
-		B32 fitsU32 = v <= 0xffffffffULL;
-		B32 fitsI64 = v <= 0x7fffffffffffffffULL;
-		B32 isLong = lCount >= 1;
-		B32 isLongLong = lCount >= 2;
-		U64 longMax = lay.longBits >= 64 ? 0x7fffffffffffffffULL : 0x7fffffffULL;
-		U64 ulongMax = lay.longBits >= 64 ? 0xffffffffffffffffULL : 0xffffffffULL;
-		B32 fitsLong = v <= longMax;
-		B32 fitsULong = v <= ulongMax;
-		if(isUnsigned) {
-			if(!isLongLong && !fitsULong)
-				isLongLong = true;
-			else if(!isLong && !fitsU32)
-				isLong = true;
-		} else if(isLongLong) {
-			if(!fitsI64)
-				isUnsigned = true;
-		} else if(isLong) {
-			if(!fitsLong && dec)
-				isLongLong = true;
-			else if(!fitsLong && fitsULong)
-				isUnsigned = true;
-			else if(!fitsI64)
-				isLongLong = true;
-		} else if(dec) {
-			if(!fitsI32 && fitsLong)
-				isLong = true;
-			else if(!fitsI32)
-				isLongLong = true;
-		} else {
-			// hex/octal: int, unsigned int, long, unsigned long, long long, unsigned long long
-			if(fitsI32) {
-				// int
-			} else if(fitsU32) {
-				isUnsigned = true;
-			} else if(fitsLong) {
-				isLong = true;
-			} else if(fitsULong) {
-				isLong = true;
-				isUnsigned = true;
-			} else if(fitsI64) {
-				isLongLong = true;
-			} else {
-				isLongLong = true;
-				isUnsigned = true;
+		constexpr U8 kLongLong = CType::Long | CType::LongLong;
+		struct Candidate {
+			U32 bits;
+			U8 mods;
+		};
+		const Candidate kCandidates[] = {
+				{32, 0},
+				{32, CType::Unsigned},
+				{lay.longBits, CType::Long},
+				{lay.longBits, CType::Long | CType::Unsigned},
+				{64, kLongLong},
+				{64, kLongLong | CType::Unsigned},
+		};
+		U32 firstPair = std::min(lCount, 2u);
+		for(U32 i = firstPair * 2; i < std::size(kCandidates); ++i) {
+			const Candidate& c = kCandidates[i];
+			B32 isUnsignedType = (c.mods & CType::Unsigned) != 0;
+			if(isUnsigned && !isUnsignedType)
+				continue; // a u suffix never gives a signed type
+			if(dec && !isUnsigned && isUnsignedType)
+				continue; // a decimal without u never gives an unsigned type
+			U32 valueBits = isUnsignedType ? c.bits : c.bits - 1;
+			if(v <= UINT64_MAX >> (64 - valueBits)) {
+				bits = c.bits;
+				return c.mods;
 			}
 		}
-
-		bits = isLong ? lay.longBits : 32;
-		if(isLongLong)
-			bits = 64;
-		U8 mods = 0;
-		if(isUnsigned)
-			mods |= CType::Unsigned;
-		if(isLong)
-			mods |= CType::Long;
-		if(isLongLong)
-			mods |= CType::LongLong;
-		return mods;
+		bits = 64; // a decimal no signed type holds
+		return lCount >= 2 ? kLongLong | CType::Unsigned : kLongLong;
 	}
 
 	// after \ : ucn | simple-escape | ? | x hex-digit... | octal-digit [octal-digit [octal-digit]]

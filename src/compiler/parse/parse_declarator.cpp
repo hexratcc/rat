@@ -39,13 +39,9 @@ namespace rat::cc {
 
 	// a function parameter decays to a pointer, an array to a pointer to its element
 	void Parser::adjustParamType(CType& t, const Expr** vlaBound) {
-		if(t.func != nullptr && t.ptr == 0) {
-			t.ptr = 1;
-		} else if(t.array != nullptr && t.ptr == 0) {
-			if(vlaBound && isVlaType(t))
-				*vlaBound = t.array->countExpr;
-			t = decay(t);
-		}
+		if(vlaBound && isVlaType(t))
+			*vlaBound = t.array->countExpr;
+		t = valueType(t);
 	}
 
 	// name [, name]... )
@@ -141,12 +137,9 @@ namespace rat::cc {
 				b.ptr += op.pointers.ptr;
 				break;
 			case DeclOp::Kind::Array: {
-				ArrayType* at = arena.make<ArrayType>();
-				at->elem = b;
-				at->count = op.count;
-				at->countExpr = op.bound;
+				const ArrayType* arrayType = arena.make<ArrayType>(ArrayType{b, op.count, op.bound});
 				b = CType{};
-				b.array = at;
+				b.array = arrayType;
 				break;
 			}
 			case DeclOp::Kind::Func:

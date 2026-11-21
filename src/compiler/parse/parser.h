@@ -24,27 +24,23 @@ namespace rat::cc {
 		Failed fail(const Token& at, const String& msg);
 
 		// type specifiers
+		// the keywords of one type-spec, counted by kind
 		struct DeclSpecs {
-			B32 isStatic = false;
-			B32 isExtern = false;
-			B32 isInline = false;
-			B32 isNoInline = false;
-			B32 isConst = false;
-			B32 isVolatile = false;
+			// queries
+			U32 of(TokKind k) const { return count[(U32)k]; }
+			B32 has(TokKind k) const { return of(k) != 0; }
+
+			// state
+			U8 count[(U32)TokKind::KwAlignas + 1] = {};
+			U32 typeWordCount = 0;
 			U32 storageCount = 0;
 			U32 align = 0; // raised by alignas
 		};
 		B32 startsType(const Token& tok);
-		struct TypeWords {
-			U8 count[(U32)TokKind::KwAlignas + 1] = {};
-			U32 total = 0;
-			U32 of(TokKind k) const { return count[(U32)k]; }
-		};
 		B32 parseTypeSpec(CType& out);
 		B32 parseQualStorage(DeclSpecs& seen);
-		B32 parseTypeKeywords(DeclSpecs& seen, TypeWords& w);
-		CType basicType(const TypeWords& w);
-		void applyQualStorage(DeclSpecs& seen, TokKind kind);
+		B32 parseTypeKeywords(DeclSpecs& seen);
+		CType basicType(const DeclSpecs& seen);
 		B32 finishTypeSpec(DeclSpecs seen, CType& out);
 		B32 parseAlignasSpec(U32& align);
 		B32 acceptTrailingAlignas(U32& align);
@@ -117,7 +113,6 @@ namespace rat::cc {
 		B32 checkObjectComplete(const Declarator& d);
 		void declare(const String& name, CType type);
 		void declareObject(Declarator& d, B32 hasInit);
-		void declareParams(const FuncType* ft);
 		void keepParamEnumerators(const FuncType* ft);
 		const CType* typedefType(const String& name);
 		B32 parseStaticAssert();
@@ -190,10 +185,11 @@ namespace rat::cc {
 
 		// expression types, see parse_typed.cpp
 		Expr* typed(Expr* e);
-		B32 unaryType(Expr* e);
+		CType typeOf(const Expr* e);
+		CType unaryType(const Expr* e);
 		CType binaryType(const Expr* e);
 		CType callType(const Expr* e);
-		B32 memberType(Expr* e);
+		CType memberType(const Expr* e);
 		CType strType(const Expr* e);
 		CType stmtExprType(const Expr* e);
 

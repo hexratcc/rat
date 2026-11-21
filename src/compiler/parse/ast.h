@@ -222,16 +222,13 @@ namespace rat::cc {
 		const Expr* countExpr = nullptr; // bound as written, a VLA bound when count is 0
 	};
 
+	constexpr B32 isArrayType(CType t) { return t.array != nullptr && t.ptr == 0; }
 	inline B32 isVlaType(CType t) {
-		if(t.ptr != 0 || t.array == nullptr)
-			return false;
-		return t.array->count == 0 && t.array->countExpr != nullptr;
+		return isArrayType(t) && t.array->count == 0 && t.array->countExpr != nullptr;
 	}
 	// [] with no bound, the initializer gives the length
 	inline B32 isUnsizedArray(CType t) {
-		if(t.ptr != 0 || t.array == nullptr)
-			return false;
-		return t.array->count == 0 && !t.array->countExpr;
+		return isArrayType(t) && t.array->count == 0 && !t.array->countExpr;
 	}
 	inline B32 hasVlaDim(CType t) {
 		for(CType c = t; c.ptr == 0 && c.array != nullptr; c = c.array->elem)
@@ -263,10 +260,10 @@ namespace rat::cc {
 	};
 
 	const StructType* complexLayout(U32 bits);
+	CType ctFloat(U32 bits, B32 isComplex = false);
 	CType sizedArray(Arena& arena, CType arr, U64 count);
 
 	constexpr B32 isFuncPtr(CType t) { return t.func != nullptr && t.ptr > 0; }
-	constexpr B32 isArrayType(CType t) { return t.array != nullptr && t.ptr == 0; }
 	constexpr CType arrayElem(CType t) { return t.array->elem; }
 	// the array of t without its typedef name and qualifiers
 	constexpr CType plainArray(CType t) {
@@ -294,19 +291,6 @@ namespace rat::cc {
 		if(isTopVolatile(t))
 			setTopVolatile(elem);
 		return pointerTo(elem);
-	}
-
-	// v wrapped to a bits wide integer, _Bool keeps the truth value, not the low bit
-	constexpr I64 wrapInt(I64 v, U32 bits, B32 isUnsigned) {
-		if(bits == 1)
-			return v != 0;
-		if(bits >= 64)
-			return v;
-		U64 mask = ((U64)1 << bits) - 1;
-		U64 low = (U64)v & mask;
-		if(!isUnsigned && (low & ((U64)1 << (bits - 1))))
-			low |= ~mask; // sign-extend
-		return (I64)low;
 	}
 
 	constexpr U64 typeSize(CType t, U32 pointerBytes) {

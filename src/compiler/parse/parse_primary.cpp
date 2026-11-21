@@ -89,9 +89,7 @@ namespace rat::cc {
 		Expr* control = parseAssignment();
 		if(!control)
 			return nullptr;
-		CType controlType = valueType(control->type);
-		clearTopConst(controlType);
-		clearTopVolatile(controlType);
+		CType controlType = rvalueType(control->type);
 		Expr* selected = nullptr;
 		Expr* fallback = nullptr;
 		while(accept(TokKind::Comma))
@@ -114,8 +112,6 @@ namespace rat::cc {
 		U32 unitBytes = 1;
 		for(const Token& t : parts) {
 			const String& h = lex.text(t);
-			if(h.empty())
-				continue;
 			if(h[0] == 'L')
 				unitBytes = lay.wcharBytes;
 			else if(h[0] == 'U')
@@ -137,15 +133,14 @@ namespace rat::cc {
 	Expr* Parser::parsePrimaryFloat() {
 		Token lit = advance();
 		String text = lex.text(lit);
-		B32 isFloat = false;
-		B32 isLongDouble = false;
+		U32 bits = 64;
 		B32 isImaginary = false;
 		while(!text.empty()) {
 			C8 c = text.back();
 			if(c == 'f' || c == 'F')
-				isFloat = true;
+				bits = 32;
 			else if(c == 'l' || c == 'L')
-				isLongDouble = true;
+				bits = 128;
 			else if(c == 'i' || c == 'I' || c == 'j' || c == 'J')
 				isImaginary = true;
 			else
@@ -157,11 +152,6 @@ namespace rat::cc {
 		if(end == text.c_str() || *end != '\0')
 			return fail(lit, "invalid floating constant '" + text + "'");
 		Expr* e = makeExpr(ExprKind::FloatLit, lit.offset);
-		U32 bits = 64;
-		if(isFloat)
-			bits = 32;
-		else if(isLongDouble)
-			bits = 128;
 		e->floatLit = {value, bits, isImaginary};
 		return typed(e);
 	}
@@ -180,7 +170,7 @@ namespace rat::cc {
 		if(name == "__builtin_offsetof")
 			return parseBuiltinOffsetof(tok);
 		const Ident* id = idents.get(name);
-		if(id && id->kind == Ident::Kind::EnumConst && id->value > detail::kIntMax)
+		if(id && id->kind == Ident::Kind::EnumConst && id->value > INT32_MAX)
 			return makeInt(tok, id->value, 32, CType::Unsigned); // as gcc
 		if(id && id->kind == Ident::Kind::EnumConst)
 			return makeInt(tok, id->value, 32);
