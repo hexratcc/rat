@@ -136,7 +136,7 @@ namespace rat::cc {
 			CType base;
 			if(!parseTypeSpec(base))
 				return fail(peek(), "expected member type");
-			U32 baseAlign = specAlign;
+			U32 baseAlign = specs.align;
 			if(isStruct(base) && accept(TokKind::Semicolon)) {
 				spliceAnonMember(st, base.strukt, isUnion, l);
 				continue;

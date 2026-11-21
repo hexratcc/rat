@@ -119,7 +119,7 @@ namespace rat::cc {
 		while(check(TokKind::KwAlignas) || check(TokKind::KwNoinline)) {
 			if(accept(TokKind::KwNoinline))
 				seen.isNoInline = true;
-			else if(!parseAlignasSpec(specAlign))
+			else if(!parseAlignasSpec(seen.align))
 				return false;
 		}
 		if(seen.isConst)
@@ -134,7 +134,7 @@ namespace rat::cc {
 	B32 Parser::parseQualStorage(DeclSpecs& seen) {
 		for(;;) {
 			if(check(TokKind::KwAlignas)) {
-				if(!parseAlignasSpec(specAlign))
+				if(!parseAlignasSpec(seen.align))
 					return false;
 				continue;
 			}
@@ -204,7 +204,6 @@ namespace rat::cc {
 	B32 Parser::parseTypeSpec(CType& out) {
 		DeclSpecs seen;
 		specs = DeclSpecs{};
-		specAlign = 0;
 		if(!parseQualStorage(seen))
 			return false;
 		if(seen.storageCount > 1)

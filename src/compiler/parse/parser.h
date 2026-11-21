@@ -32,6 +32,7 @@ namespace rat::cc {
 			B32 isConst = false;
 			B32 isVolatile = false;
 			U32 storageCount = 0;
+			U32 align = 0; // raised by alignas
 		};
 		B32 startsType(const Token& tok);
 		struct TypeWords {
@@ -235,8 +236,7 @@ namespace rat::cc {
 		B32 failed = false;
 		String errMsg;
 		String curFuncName;
-		DeclSpecs specs; // storage of the last parsed type spec
-		U32 specAlign = 0;
+		DeclSpecs specs; // storage and alignment of the last parsed type spec
 
 		// scopes
 		U32 scopeDepth = 0;

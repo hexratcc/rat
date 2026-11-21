@@ -259,11 +259,10 @@ namespace rat::cc {
 	// objects go to s, functions to the unit or, in a block, to blockProtos and s
 	B32 Parser::parseDeclarators(CType base, const Token& start, Stmt* s, TransUnit* unit) {
 		DeclSpecs ds = specs;
-		U32 align = specAlign;
 		for(;;) {
 			DeclResult r;
 			r.allowOldStyle = true;
-			r.align = align;
+			r.align = ds.align;
 			if(!parseDeclarator(base, r))
 				return false;
 			if(!r.name)
