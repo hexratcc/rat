@@ -83,7 +83,7 @@ namespace rat::cc {
 			if(isAggregate(v.type) && !isComplexType(v.type))
 				return diag.fail("wrong type argument to unary exclamation mark");
 			if(isComplexType(v.type))
-				return {fromBool(fn, fn.eq(toBool(fn, v), fn.constInt(i32, 1))), ctInt()};
+				return {fromBool(fn, fn.eq(toBool(fn, v), fn.constBool(false))), ctInt()};
 			if(isFloating(v.type)) {
 				Node* zero = fn.constFloat(irType(v.type), 0.0);
 				return {fromBool(fn, fn.compare(Opcode::FEq, v.node, zero)), ctInt()};
@@ -193,12 +193,6 @@ namespace rat::cc {
 				return {v.node, castTy};
 			if(!isAggregate(castTy) && isAggregate(v.type) && !isComplexType(v.type))
 				return diag.fail("cannot cast a struct or union to a scalar type");
-			if(isPointer(v.type) && !isPointer(castTy) && !isFloating(castTy) && !castTy.isVoid()) {
-				if(castTy.bits == 1)
-					return {fn.ne(v.node, fn.constInt(mod.getPtr(), 0)), castTy};
-				if(castTy.bits < 64)
-					return {fn.trunc(v.node, irType(castTy)), castTy};
-			}
 			return {convert(fn, v.node, v.type, castTy), castTy};
 		}
 		case ExprKind::Sizeof:

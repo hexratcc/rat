@@ -38,7 +38,7 @@ namespace rat::cc {
 	}
 
 	CType promote(CType t) {
-		if(t.isVoid())
+		if(t.isVoid() || isPointer(t))
 			return t;
 		if(detail::intPrec(t) < 32 || (t.bitPrec == 32 && !t.isUnsigned()))
 			return CType{};

@@ -144,7 +144,9 @@ namespace rat::cc {
 			Opcode ext = zeroExtend ? Opcode::ZExt : Opcode::SExt;
 			return fn.convert(ext, n, mod.getPtr());
 		}
-		if(isPointer(from) || isPointer(to))
+		if(isPointer(from) && isInteger(to))
+			from.bits = lay.ptrBytes * 8; // then truncates or tests like an integer of pointer width
+		else if(isPointer(from) || isPointer(to))
 			return n;
 		B32 fromF = isFloating(from), toF = isFloating(to);
 		if(fromF || toF) {

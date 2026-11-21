@@ -291,6 +291,7 @@ namespace rat::cc {
 		Value assignComplex(Function& fn, const Expr* e, const LValue& lv, Value rhs);
 		Value emitIncDec(Function& fn, const Expr* expr);
 		Value emitBinary(Function& fn, const Expr* expr);
+		Value emitArithOp(Function& fn, ExprOp op, Value lhs, Value rhs);
 		Value emitComplexBinary(Function& fn, ExprOp op, Value lhs, Value rhs);
 		Value emitArithValue(Function& fn, ExprOp op, Value lhs, Value rhs, CType lt, CType rt);
 		Value emitLogicalBinary(Function& fn, const Expr* expr);

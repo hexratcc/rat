@@ -164,23 +164,14 @@ namespace rat::cc {
 		Node* stored = nullptr;
 		if(op == ExprOp::Assign) {
 			stored = convert(fn, rhs.node, rhs.type, targetType);
-		} else if(isPointer(targetType) && (op == ExprOp::AddAssign || op == ExprOp::SubAssign)) {
-			ExprOp arith = op == ExprOp::AddAssign ? ExprOp::Add : ExprOp::Sub;
-			Value res = emitPtrArith(fn, arith, {loadLValue(fn, lv), targetType}, rhs);
-			if(!res.node)
-				return {};
-			stored = res.node;
 		} else {
 			ExprOp base;
 			if(!compoundBaseOp(op, base))
 				return diag.fail("unsupported assignment operator");
-			CType ct = usualArithmetic(targetType, rhs.type);
-			Node* l = convert(fn, loadLValue(fn, lv), targetType, ct);
-			Node* r = convert(fn, rhs.node, rhs.type, ct);
-			Node* res = emitArith(fn, base, l, r, ct);
-			if(!res)
+			Value res = emitArithOp(fn, base, {loadLValue(fn, lv), targetType}, rhs);
+			if(!res.node)
 				return {};
-			stored = convert(fn, res, ct, targetType);
+			stored = convert(fn, res.node, res.type, targetType);
 		}
 		storeLValue(fn, lv, stored);
 		return {stored, targetType};
@@ -287,6 +278,11 @@ namespace rat::cc {
 		Value rhs = emitExpr(fn, e->binary.rhs);
 		if(!rhs.node)
 			return {};
+		return emitArithOp(fn, op, lhs, rhs);
+	}
+
+	// op on two values, also the operation of a compound assignment
+	Emitter::Value Emitter::emitArithOp(Function& fn, ExprOp op, Value lhs, Value rhs) {
 		if(isComplexType(lhs.type) || isComplexType(rhs.type))
 			return emitComplexBinary(fn, op, lhs, rhs);
 		if(isIntegerOnlyOp(op) && (!isInteger(lhs.type) || !isInteger(rhs.type)))

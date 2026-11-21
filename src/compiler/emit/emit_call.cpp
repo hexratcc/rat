@@ -50,11 +50,11 @@ namespace rat::cc {
 			Value a = emitExpr(fn, e->args[i]);
 			if(!a.node)
 				return false;
-			CType pt;
+			CType pt = a.type;
 			if(i < n)
 				pt = c.ft->params[i].type;
 			else
-				pt = defaultArgPromote(a.type);
+				pt = defaultArgPromote(pt);
 			if(isAggregate(pt)) {
 				Node* src = a.node;
 				if(isComplexType(pt))
