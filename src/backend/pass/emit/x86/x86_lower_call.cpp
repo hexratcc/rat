@@ -355,13 +355,29 @@ namespace rat {
 		return locs;
 	}
 
-	void X86LowerPass::emitPrologue() {
+	U32 X86LowerPass::emitPrologue() {
 		X86ArgAssigner as(*conv);
 		List<X86ArgAssigner::Loc> locs = paramLocs(as);
 		if(conv->x87ByRef && isX87Ty(fn->getReturnType()))
 			st(slot(fl->sretSlot), conv->gpArgs[0]); // stash it for the return sequence
 		for(U32 i = 0; i < fn->getParamCount(); ++i)
 			lowerParam(i, locs[i]);
+		U32 paramsEnd = (U32)mb->insts.size();
+		extendParams(locs);
+		return paramsEnd;
+	}
+
+	void X86LowerPass::extendParams(const List<X86ArgAssigner::Loc>& locs) {
+		for(U32 i = 0; i < fn->getParamCount(); ++i) {
+			ProjNode* p = fn->getStart()->projection(StartNode::paramProjIndex(i));
+			Type* t = fn->getParamType(i);
+			if(!p || locs[i].reg < 0 || !t->isInt())
+				continue;
+			if(t->isInt(1))
+				maskBits(vregFor(p), 8);
+			else
+				signExtBits(vregFor(p), intBits(t));
+		}
 	}
 
 	// a by-value aggregate is the address of its incoming copy

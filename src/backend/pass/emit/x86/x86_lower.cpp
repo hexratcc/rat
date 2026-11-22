@@ -492,7 +492,7 @@ namespace rat {
 			block.preds.reserve(sched->predCount(b));
 			mb = &block;
 			if(i == 0) {
-				emitPrologue();
+				plan.paramsEnd = emitPrologue();
 				plan.prologueEnd = (U32)block.insts.size();
 			}
 			for(Node* n : sched->nodes(b)) {

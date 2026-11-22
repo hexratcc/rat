@@ -37,13 +37,18 @@ namespace rat {
 		const Node* v = bd.value;
 		if(!v || isa<PhiNode>(v) || isa<ConstantNode>(v)) // constants may sit in another function
 			return 0;
+		if(isParam(v))
+			return b == sched->rpo()[0] ? plan.paramsEnd : 0;
 		const ProjNode* vp = dyn_cast<ProjNode>(v);
-		if(vp && isa<StartNode>(vp->getProducer())) // params are copied in by the prologue
-			return b == sched->rpo()[0] ? plan.prologueEnd : 0;
 		U32 pos = endIn(v, b, plan);
 		if(vp)
 			pos = std::max(pos, endIn(vp->getProducer(), b, plan));
 		return pos;
+	}
+
+	B32 X86LowerPass::isParam(const Node* v) {
+		const ProjNode* vp = dyn_cast<ProjNode>(v);
+		return vp && isa<StartNode>(vp->getProducer());
 	}
 
 	// a vreg, an integer constant or nothing
@@ -73,6 +78,11 @@ namespace rat {
 			if(pos > src) // the old value is gone, the new one not there yet
 				out->addDbg(mb->dbgBefore(src), bd.inst, MachineOperand::none());
 			out->addDbg(mb->dbgBefore(pos), bd.inst, bindingLoc(bd.value));
+			// a param extension writes its register and ends the var, bind it again past it
+			if(b == sched->rpo()[0] && isParam(bd.value) && pos < plan.prologueEnd) {
+				out->addDbg(mb->dbgBefore(plan.prologueEnd), bd.inst, bindingLoc(bd.value));
+				plan.cursor[bd.inst] = plan.prologueEnd;
+			}
 		}
 		for(U32 k = plan.first[b]; k < plan.first[b + 1]; ++k)
 			plan.cursor[body.bindings[plan.order[k]].inst] = 0;

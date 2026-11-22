@@ -210,7 +210,8 @@ namespace rat {
 		VReg x87PartAddr(VReg base, U32 index);
 		void emitAsm(AsmNode* a);
 		B32 emitMathIntrinsic(CallNode* c);
-		void emitPrologue();
+		U32 emitPrologue();
+		void extendParams(const List<X86ArgAssigner::Loc>& locs);
 		List<X86ArgAssigner::Loc> paramLocs(X86ArgAssigner& as);
 		void lowerParam(U32 index, X86ArgAssigner::Loc l);
 		void x87Param(ProjNode* p, X86ArgAssigner::Loc l);
@@ -228,12 +229,14 @@ namespace rat {
 			List<U32> order;	 // binding indexes
 			List<U32> nodeEnd; // node id -> insts index past its code
 			List<U32> cursor;	 // var inst -> least position left in the block
+			U32 paramsEnd = 0; // past the param copies, their extensions follow
 			U32 prologueEnd = 0;
 		};
 		void planBindings(BindingPlan& plan) const;
 		U32 endIn(const Node* n, I32 b, const BindingPlan& plan) const;
 		U32 sourcePos(const DebugBinding& bd, I32 b, const BindingPlan& plan) const;
 		U32 valuePos(const DebugBinding& bd, I32 b, const BindingPlan& plan) const;
+		static B32 isParam(const Node* v);
 		MachineOperand bindingLoc(const Node* value) const;
 		void placeBindings(I32 b, BindingPlan& plan);
 	private:
