@@ -1,0 +1,54 @@
+@name slp: every other i32 of two 8-byte windows stays scalar, as only full vectors shuffle two windows
+@passes slp
+
+@input
+func t(ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v20
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "d" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v9 = add : ptr v5, v6
+	v10 = add : ptr v5, v7
+	v11 = add : ptr v5, v8
+	v12 = add : ptr v4, v6
+	v13 = load : i32 v2, v3, v5
+	v14 = load : i32 v2, v3, v9
+	v15 = load : i32 v2, v3, v10
+	v16 = load : i32 v2, v3, v11
+	v17 = add : i32 v13, v14
+	v18 = add : i32 v15, v16
+	v19 = store : mem v2, v3, v4, v17
+	v21 = store : mem v2, v19, v12, v18
+	v20 = return : ctrl v2, v21
+}
+
+@expect
+func t(ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v21
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "d" of v0
+  v5 = proj : ptr  #3 "a" of v0
+  v6 = const : i64  4
+  v7 = const : i64  8
+  v8 = const : i64  12
+  v9 = add : ptr v5, v6
+  v10 = add : ptr v5, v7
+  v11 = add : ptr v5, v8
+  v12 = add : ptr v4, v6
+  v13 = load : i32 v2, v3, v5
+  v14 = load : i32 v2, v3, v9
+  v15 = load : i32 v2, v3, v10
+  v16 = load : i32 v2, v3, v11
+  v17 = add : i32 v13, v14
+  v18 = add : i32 v15, v16
+  v19 = store : mem v2, v3, v4, v17
+  v20 = store : mem v2, v19, v12, v18
+  v21 = return : ctrl v2, v20
+}

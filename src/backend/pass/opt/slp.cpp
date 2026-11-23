@@ -310,7 +310,7 @@ namespace rat {
 	Node* SlpPass::wideLoad(const Lanes& lanes) {
 		LoadNode* lane0 = dyn_cast<LoadNode>(lanes[0]);
 		U16 sel = 0;
-		Lanes ordered; // the window in address order
+		Lanes ordered; // the windows in address order
 		if(!lane0 || !loadSlots(lanes, lane0, sel, ordered))
 			return nullptr;
 		Type* scalarType = lane0->getType();
@@ -320,6 +320,8 @@ namespace rat {
 		B32 permuted = !std::equal(lanes.begin(), lanes.end(), ordered.begin());
 		if(size < 4 && (oneAddress || permuted))
 			return nullptr; // x86 splats and shuffles only dword and qword lanes
+		if(ordered.size() > lanes.size() && size * lanes.size() != kVecBytes)
+			return nullptr; // two windows shuffle by one shufps
 		Node* control = lane0->getControl();
 		Node* state = lane0->getMemory();
 		// a new load, so the scheduler puts it next to its use
@@ -330,12 +332,16 @@ namespace rat {
 		}
 		// of the window start
 		Node* pointer = cast<LoadNode>(ordered[0])->getPointer();
-		if(forwardStalls(state, pointer, size * lanes.size()))
+		if(forwardStalls(state, pointer, size * ordered.size()))
 			return nullptr;
-		// a shuffle of the wide load of the window, which passes the same checks
+		// a shuffle of the wide loads of the windows, which pass the same checks
 		if(permuted) {
+			Lanes high;
+			high.assign(ordered.begin() + lanes.size(), ordered.end());
+			ordered.erase(ordered.begin() + lanes.size(), ordered.end());
 			Node* wide = wideLoad(ordered);
-			Node* shuffle = fn->create<ShuffleNode>(type, wide, wide, sel);
+			Node* other = high.empty() ? wide : wideLoad(high);
+			Node* shuffle = fn->create<ShuffleNode>(type, wide, other, sel);
 			return addVector(lanes, shuffle, 1);
 		}
 		// one per address, type, state and control in a stretch
@@ -351,18 +357,20 @@ namespace rat {
 	}
 
 	B32 SlpPass::loadSlots(const Lanes& lanes, LoadNode* lane0, U16& sel, Lanes& ordered) {
-		U32 count = lanes.size(), frame = 2 * count - 1, start = count - 1;
+		U32 count = lanes.size(), frame = 4 * count - 1, start = 2 * count - 1, top = 0;
 		U32 slots[kMaxLanes]; // the element of each lane
 		// by elementOf, lanes win over other loads of their bytes
-		Node* loads[2 * kMaxLanes - 1] = {};
+		Node* loads[4 * kMaxLanes - 1] = {};
 		for(U32 k = 0; k < count; ++k) {
 			slots[k] = elementOf(lanes[k], lane0, count);
 			if(slots[k] >= frame)
 				return false;
 			start = std::min(start, slots[k]);
+			top = std::max(top, slots[k]);
 			loads[slots[k]] = lanes[k];
 		}
-		U32 holes = (U32)std::count(loads + start, loads + start + count, nullptr);
+		U32 width = top - start < count ? count : 2 * count; // one window or two
+		U32 holes = (U32)std::count(loads + start, loads + start + width, nullptr);
 		B32 oneAddress = holes == count - 1;
 		if(holes && !oneAddress)
 			for(Node* user : lane0->getMemory()->getUsers()) {
@@ -371,20 +379,24 @@ namespace rat {
 					loads[at] = user;
 			}
 		for(; !oneAddress; --start) {
-			if(!std::count(loads + start, loads + start + count, nullptr))
+			if(!std::count(loads + start, loads + start + width, nullptr))
 				break;
 			if(!start)
 				return false; // no full window
 		}
-		ordered.assign(loads + start, loads + start + count);
-		for(U32 k = 0; k < count; ++k)
+		ordered.assign(loads + start, loads + start + width);
+		// of two windows, the low lanes read the first and the high lanes the second, so one shufps
+		B32 split = true;
+		for(U32 k = 0; k < count; ++k) {
 			sel |= (U16)((slots[k] - start) << (ShuffleNode::kSourceBits * k));
-		// no lane above the window
-		return *std::max_element(slots, slots + count) - start < count;
+			split &= width == count || (slots[k] - start >= count) == (2 * k >= count);
+		}
+		// no lane above the windows
+		return top - start < width && split;
 	}
 
 	U32 SlpPass::elementOf(Node* n, LoadNode* lane0, U32 count) {
-		U32 frame = 2 * count - 1;
+		U32 frame = 4 * count - 1;
 		LoadNode* load = dyn_cast<LoadNode>(n);
 		if(!load)
 			return frame;
@@ -398,7 +410,7 @@ namespace rat {
 		if(!sameState || load->getControl() != lane0->getControl())
 			return frame;
 		U32 size = lane0->getType()->byteSize(ptrBytes);
-		U64 above = (U64)(addr.offset - addr0.offset) + (count - 1) * size;
+		U64 above = (U64)(addr.offset - addr0.offset) + (2 * count - 1) * size;
 		if(above % size || above / size >= frame)
 			return frame;
 		return (U32)(above / size);

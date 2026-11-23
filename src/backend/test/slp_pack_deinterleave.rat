@@ -1,0 +1,65 @@
+@name slp: lanes at every other element of two blocks pack as a shuffle of two wide loads
+@passes slp
+
+@input
+func t(ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "d" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v9 = const : i64  16
+	v10 = const : i64  20
+	v11 = const : i64  24
+	v12 = const : i64  28
+	v13 = add : ptr v5, v6
+	v14 = add : ptr v5, v7
+	v15 = add : ptr v5, v8
+	v16 = add : ptr v5, v9
+	v17 = add : ptr v5, v10
+	v18 = add : ptr v5, v11
+	v19 = add : ptr v5, v12
+	v20 = add : ptr v4, v6
+	v21 = add : ptr v4, v7
+	v22 = add : ptr v4, v8
+	v23 = load : f32 v2, v3, v5
+	v24 = load : f32 v2, v3, v13
+	v25 = load : f32 v2, v3, v14
+	v26 = load : f32 v2, v3, v15
+	v27 = load : f32 v2, v3, v16
+	v28 = load : f32 v2, v3, v17
+	v29 = load : f32 v2, v3, v18
+	v30 = load : f32 v2, v3, v19
+	v31 = fsub : f32 v23, v24
+	v32 = fsub : f32 v25, v26
+	v33 = fsub : f32 v27, v28
+	v34 = fsub : f32 v29, v30
+	v35 = store : mem v2, v3, v4, v31
+	v36 = store : mem v2, v35, v20, v32
+	v37 = store : mem v2, v36, v21, v33
+	v38 = store : mem v2, v37, v22, v34
+	v40 = return : ctrl v2, v38
+}
+
+@expect
+func t(ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v39
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "d" of v0
+  v5 = proj : ptr  #3 "a" of v0
+  v9 = const : i64  16
+  v16 = add : ptr v5, v9
+  v35 = store : mem v2, v3, v4, v44
+  v39 = return : ctrl v2, v35
+  v40 = load : <4 x f32> v2, v3, v5
+  v41 = load : <4 x f32> v2, v3, v16
+  v42 = shuffle : <4 x f32>  #25632 v40, v41
+  v43 = shuffle : <4 x f32>  #30001 v40, v41
+  v44 = fsub : <4 x f32> v42, v43
+}
