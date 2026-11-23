@@ -462,7 +462,9 @@ namespace rat {
 				alt = lane->getOpcode();
 		B32 shift = isShiftOpcode(op);
 		B32 binary = isBinaryOpcode(op) && isBinaryOpcode(alt);
-		B32 blendable = binary && !shift && !isShiftOpcode(alt);
+		// a float blend computes both ops on every lane and so raises their flags, only addsubps does not
+		B32 cleanBlend = !lane0->getType()->isFloat() || addSubOrder(lanes);
+		B32 blendable = binary && !shift && !isShiftOpcode(alt) && cleanBlend;
 		B32 fits = budget && (alt == op || blendable);
 		for(Node* lane : lanes) {
 			B32 sameOp = lane->getOpcode() == op || lane->getOpcode() == alt;
@@ -471,6 +473,8 @@ namespace rat {
 			fits = fits && (!shift || lane->getInput(1) == lane0->getInput(1));
 		}
 		if(!fits)
+			return nullptr;
+		if(!flagSafe(lanes))
 			return nullptr;
 		// SSE zeroes the lanes of a shift past the width
 		const ConstantNode* amount = nullptr;
@@ -501,6 +505,20 @@ namespace rat {
 			return addVector(lanes, node, 1 + variableAmount);
 		}
 		return blend(lanes, node, createArith(*fn, alt, type, inputs));
+	}
+
+	// a 2-lane f32 vector has zero or stale upper lanes, so float math on it can raise flags the
+	// scalar code does not. A sign flip and the converts that read or write the low lanes are safe
+	B32 SlpPass::flagSafe(const Lanes& lanes) {
+		Node* lane0 = lanes[0];
+		Opcode op = lane0->getOpcode();
+		if(op == Opcode::FNeg || op == Opcode::FPExt || op == Opcode::FPTrunc)
+			return true;
+		U32 count = (U32)lanes.size();
+		for(const Type* t : {lane0->getType(), lane0->getInput(0)->getType()})
+			if(t->isFloat() && count * t->byteSize(ptrBytes) < kVecBytes)
+				return false;
+		return true;
 	}
 
 	// input k of lane, swapped when a commutative lane has lane0's input 0 as its input 1
@@ -537,16 +555,22 @@ namespace rat {
 	// lane i from other when it has other's opcode
 	Node* SlpPass::blend(const Lanes& lanes, Node* node, Node* other) {
 		U16 sel = 0;
-		B32 addSub = true; // the lanes subtract and add in turn, one addsubps
 		for(U32 i = 0; i < lanes.size(); ++i) {
 			Opcode laneOp = lanes[i]->getOpcode();
 			U32 source = i + lanes.size() * (laneOp == other->getOpcode());
 			sel |= (U16)(source << (ShuffleNode::kSourceBits * i));
-			addSub &= laneOp == (i % 2 ? Opcode::FAdd : Opcode::FSub);
 		}
 		Node* shuffle = fn->create<ShuffleNode>(node->getType(), node, other, sel);
 		// addsubps, else two ops and a blend
-		return addVector(lanes, shuffle, addSub ? 1 : 3);
+		return addVector(lanes, shuffle, addSubOrder(lanes) ? 1 : 3);
+	}
+
+	// the lanes subtract and add in turn, one addsubps
+	B32 SlpPass::addSubOrder(const Lanes& lanes) {
+		for(U32 i = 0; i < lanes.size(); ++i)
+			if(lanes[i]->getOpcode() != (i % 2 ? Opcode::FAdd : Opcode::FSub))
+				return false;
+		return true;
 	}
 
 	// a rule in kLaneRules fits the opcode and types of lane

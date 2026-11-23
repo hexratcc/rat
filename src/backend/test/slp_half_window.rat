@@ -21,16 +21,16 @@ func t(ptr restrict, ptr restrict, ptr restrict) -> void {
 	v15 = add : ptr v5, v9
 	v16 = add : ptr v6, v7
 	v18 = add : ptr v6, v9
-	v20 = load : f32 v2, v3, v5
-	v21 = load : f32 v2, v3, v13
-	v22 = load : f32 v2, v3, v14
-	v23 = load : f32 v2, v3, v15
-	v24 = load : f32 v2, v3, v6
-	v25 = load : f32 v2, v3, v16
-	v27 = load : f32 v2, v3, v18
-	v28 = fmul : f32 v20, v24
-	v29 = fmul : f32 v21, v25
-	v31 = fmul : f32 v23, v27
+	v20 = load : i32 v2, v3, v5
+	v21 = load : i32 v2, v3, v13
+	v22 = load : i32 v2, v3, v14
+	v23 = load : i32 v2, v3, v15
+	v24 = load : i32 v2, v3, v6
+	v25 = load : i32 v2, v3, v16
+	v27 = load : i32 v2, v3, v18
+	v28 = mul : i32 v20, v24
+	v29 = mul : i32 v21, v25
+	v31 = mul : i32 v23, v27
 	v32 = store : mem v2, v3, v4, v28
 	v33 = store : mem v2, v32, v10, v29
 	v34 = store : mem v2, v33, v11, v22
@@ -38,31 +38,32 @@ func t(ptr restrict, ptr restrict, ptr restrict) -> void {
 	v40 = return : ctrl v2, v35
 }
 
+
 @expect
 func t(ptr restrict, ptr restrict, ptr restrict) -> void {
-  v0 = start : (ctrl, mem, ptr, ptr, ptr)
-  v1 = stop : ctrl v32
-  v2 = proj : ctrl  #0 "ctrl" of v0
-  v3 = proj : mem  #1 "mem" of v0
-  v4 = proj : ptr  #2 "c" of v0
-  v5 = proj : ptr  #3 "a" of v0
-  v6 = proj : ptr  #4 "b" of v0
-  v8 = const : i64  8
-  v9 = const : i64  12
-  v11 = add : ptr v4, v8
-  v12 = add : ptr v4, v9
-  v14 = add : ptr v5, v8
-  v15 = add : ptr v5, v9
-  v17 = add : ptr v6, v9
-  v20 = load : f32 v2, v3, v14
-  v21 = load : f32 v2, v3, v15
-  v24 = load : f32 v2, v3, v17
-  v27 = fmul : f32 v21, v24
-  v28 = store : mem v2, v3, v4, v36
-  v30 = store : mem v2, v28, v11, v20
-  v31 = store : mem v2, v30, v12, v27
-  v32 = return : ctrl v2, v31
-  v34 = load : <2 x f32> v2, v3, v5
-  v35 = load : <2 x f32> v2, v3, v6
-  v36 = fmul : <2 x f32> v34, v35
+	v0 = start : (ctrl, mem, ptr, ptr, ptr)
+	v1 = stop : ctrl v32
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "c" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = proj : ptr  #4 "b" of v0
+	v8 = const : i64  8
+	v9 = const : i64  12
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v4, v9
+	v14 = add : ptr v5, v8
+	v15 = add : ptr v5, v9
+	v17 = add : ptr v6, v9
+	v20 = load : i32 v2, v3, v14
+	v21 = load : i32 v2, v3, v15
+	v24 = load : i32 v2, v3, v17
+	v27 = mul : i32 v21, v24
+	v28 = store : mem v2, v3, v4, v36
+	v30 = store : mem v2, v28, v11, v20
+	v31 = store : mem v2, v30, v12, v27
+	v32 = return : ctrl v2, v31
+	v34 = load : <2 x i32> v2, v3, v5
+	v35 = load : <2 x i32> v2, v3, v6
+	v36 = mul : <2 x i32> v34, v35
 }

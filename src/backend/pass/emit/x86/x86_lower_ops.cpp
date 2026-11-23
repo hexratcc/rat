@@ -62,7 +62,10 @@ namespace rat {
 		BinaryNode* add = dyn_cast<BinaryNode>(parity[1]);
 		if(!sub || !add || sub->getOpcode() != Opcode::FSub || add->getOpcode() != Opcode::FAdd)
 			return nullptr;
-		if(sub->getLHS() != add->getLHS() || sub->getRHS() != add->getRHS())
+		B32 sameOrder = sub->getLHS() == add->getLHS() && sub->getRHS() == add->getRHS();
+		// fadd commutes, so gvn may keep it with swapped operands
+		B32 swapped = sub->getLHS() == add->getRHS() && sub->getRHS() == add->getLHS();
+		if(!sameOrder && !swapped)
 			return nullptr;
 		return sub;
 	}

@@ -1,0 +1,82 @@
+@name slp: lanes that multiply and divide in turn stay scalar, a blend would compute both ops on every lane and raise their flags
+@passes slp verify
+
+@input
+func m(ptr restrict, ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr, ptr)
+	v1 = stop : ctrl v60
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "o" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = proj : ptr  #4 "b" of v0
+	v10 = const : i64  4
+	v11 = const : i64  8
+	v12 = const : i64  12
+	v13 = add : ptr v4, v10
+	v14 = add : ptr v4, v11
+	v15 = add : ptr v4, v12
+	v16 = add : ptr v5, v10
+	v17 = add : ptr v5, v11
+	v18 = add : ptr v5, v12
+	v19 = add : ptr v6, v10
+	v20 = add : ptr v6, v11
+	v21 = add : ptr v6, v12
+	v30 = load : f32 v2, v3, v5
+	v31 = load : f32 v2, v3, v16
+	v32 = load : f32 v2, v3, v17
+	v33 = load : f32 v2, v3, v18
+	v34 = load : f32 v2, v3, v6
+	v35 = load : f32 v2, v3, v19
+	v36 = load : f32 v2, v3, v20
+	v37 = load : f32 v2, v3, v21
+	v40 = fmul : f32 v30, v34
+	v41 = fdiv : f32 v31, v35
+	v42 = fmul : f32 v32, v36
+	v43 = fdiv : f32 v33, v37
+	v50 = store : mem v2, v3, v4, v40
+	v51 = store : mem v2, v50, v13, v41
+	v52 = store : mem v2, v51, v14, v42
+	v53 = store : mem v2, v52, v15, v43
+	v60 = return : ctrl v2, v53
+}
+
+@expect
+func m(ptr restrict, ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr, ptr)
+	v1 = stop : ctrl v35
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "o" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = proj : ptr  #4 "b" of v0
+	v7 = const : i64  4
+	v8 = const : i64  8
+	v9 = const : i64  12
+	v10 = add : ptr v4, v7
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v4, v9
+	v13 = add : ptr v5, v7
+	v14 = add : ptr v5, v8
+	v15 = add : ptr v5, v9
+	v16 = add : ptr v6, v7
+	v17 = add : ptr v6, v8
+	v18 = add : ptr v6, v9
+	v19 = load : f32 v2, v3, v5
+	v20 = load : f32 v2, v3, v13
+	v21 = load : f32 v2, v3, v14
+	v22 = load : f32 v2, v3, v15
+	v23 = load : f32 v2, v3, v6
+	v24 = load : f32 v2, v3, v16
+	v25 = load : f32 v2, v3, v17
+	v26 = load : f32 v2, v3, v18
+	v27 = fmul : f32 v19, v23
+	v28 = fdiv : f32 v20, v24
+	v29 = fmul : f32 v21, v25
+	v30 = fdiv : f32 v22, v26
+	v31 = store : mem v2, v3, v4, v27
+	v32 = store : mem v2, v31, v10, v28
+	v33 = store : mem v2, v32, v11, v29
+	v34 = store : mem v2, v33, v12, v30
+	v35 = return : ctrl v2, v34
+}
