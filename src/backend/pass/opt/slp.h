@@ -72,6 +72,9 @@ namespace rat {
 		B32 forwardStalls(Node* state, Node* pointer, U32 bytes);
 		B32 callWrites(Node* state, U32 object);
 		Node* vectorOp(const Lanes& lanes);
+		Node* matchedInput(Node* lane, Node* lane0, U32 k);
+		B32 alike(Node* a, Node* b);
+		Node* negOrNot(Opcode op, Type* type, Node* operand);
 		Node* blend(const Lanes& lanes, Node* node, Node* other);
 		static B32 hasRule(const Node* lane);
 		Type* laneType(const Node* lane);

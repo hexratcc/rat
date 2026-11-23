@@ -1,0 +1,67 @@
+@name slp: i32 neg lanes pack as a subtract from zero, i64 not lanes as an xor with all ones
+@passes slp
+
+@input
+func t(ptr restrict, ptr restrict, ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "d" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = proj : ptr  #4 "e" of v0
+	v7 = proj : ptr  #5 "b" of v0
+	v8 = const : i64  4
+	v9 = const : i64  8
+	v10 = const : i64  12
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v4, v9
+	v13 = add : ptr v4, v10
+	v14 = add : ptr v5, v8
+	v15 = add : ptr v5, v9
+	v16 = add : ptr v5, v10
+	v17 = add : ptr v6, v9
+	v18 = add : ptr v7, v9
+	v20 = load : i32 v2, v3, v5
+	v21 = load : i32 v2, v3, v14
+	v22 = load : i32 v2, v3, v15
+	v23 = load : i32 v2, v3, v16
+	v24 = neg : i32 v20
+	v25 = neg : i32 v21
+	v26 = neg : i32 v22
+	v27 = neg : i32 v23
+	v28 = load : i64 v2, v3, v7
+	v29 = load : i64 v2, v3, v18
+	v30 = not : i64 v28
+	v31 = not : i64 v29
+	v32 = store : mem v2, v3, v4, v24
+	v33 = store : mem v2, v32, v11, v25
+	v34 = store : mem v2, v33, v12, v26
+	v35 = store : mem v2, v34, v13, v27
+	v36 = store : mem v2, v35, v6, v30
+	v37 = store : mem v2, v36, v17, v31
+	v40 = return : ctrl v2, v37
+}
+
+@expect
+func t(ptr restrict, ptr restrict, ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, ptr, ptr)
+  v1 = stop : ctrl v37
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "d" of v0
+  v5 = proj : ptr  #3 "a" of v0
+  v6 = proj : ptr  #4 "e" of v0
+  v7 = proj : ptr  #5 "b" of v0
+  v31 = store : mem v2, v3, v4, v41
+  v35 = store : mem v2, v31, v6, v45
+  v37 = return : ctrl v2, v35
+  v38 = load : <4 x i32> v2, v3, v5
+  v39 = const : i32  0
+  v40 = pack : <4 x i32> v39, v39, v39, v39
+  v41 = sub : <4 x i32> v40, v38
+  v42 = load : <2 x i64> v2, v3, v7
+  v43 = const : i64  -1
+  v44 = pack : <2 x i64> v43, v43
+  v45 = xor : <2 x i64> v42, v44
+}

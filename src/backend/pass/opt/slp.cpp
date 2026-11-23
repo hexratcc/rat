@@ -42,6 +42,7 @@ namespace rat {
 			{Opcode::AShr,    Opcode::AShr,    kInt32,      0},          // psrad, no i64 sar
 			{Opcode::FAdd,    Opcode::FDiv,    kFloat,      0},
 			{Opcode::FNeg,    Opcode::FNeg,    kFloat,      0},
+			{Opcode::Neg,     Opcode::Not,     kInt32Int64, 0},          // psub from 0, pxor with -1
 			{Opcode::Eq,      Opcode::Ne,      kInt32Int64, 0},          // pcmpeqd/q
 			{Opcode::Slt,     Opcode::Ule,     kInt32,      0},          // pcmpgtd, pminud
 			{Opcode::FEq,     Opcode::FGe,     kFloat,      0},          // cmpps/pd
@@ -473,19 +474,52 @@ namespace rat {
 		for(U32 k = 0; k < operandCount; ++k) {
 			Lanes operands; // input k of each lane
 			for(Node* lane : lanes)
-				operands.push_back(lane->getInput(k));
+				operands.push_back(alt == op ? matchedInput(lane, lane0, k) : lane->getInput(k));
 			inputs[k] = vectorize(operands);
 			if(!inputs[k])
 				return nullptr;
 			if(op == Opcode::Select && inputs[0]->getType() != type)
 				return nullptr; // blendv needs a mask of the lane type
 		}
+		if(op == Opcode::Neg || op == Opcode::Not)
+			return addVector(lanes, negOrNot(op, type, inputs[0]), 2);
 		Node* node = createArith(*fn, op, type, inputs);
 		if(alt == op) {
 			I32 variableAmount = shift && !amount; // a variable amount moves to xmm
 			return addVector(lanes, node, 1 + variableAmount);
 		}
 		return blend(lanes, node, createArith(*fn, alt, type, inputs));
+	}
+
+	// input k of lane, swapped when a commutative lane has lane0's input 0 as its input 1
+	Node* SlpPass::matchedInput(Node* lane, Node* lane0, U32 k) {
+		if(!lane->isCommutative())
+			return lane->getInput(k);
+		Node* first = lane0->getInput(0);
+		B32 swap = !alike(lane->getInput(0), first) && alike(lane->getInput(1), first);
+		return lane->getInput(k ^ swap);
+	}
+
+	// the same node, or the same opcode and for loads the same group
+	B32 SlpPass::alike(Node* a, Node* b) {
+		if(a == b)
+			return true;
+		if(a->getOpcode() != b->getOpcode())
+			return false;
+		if(!isa<LoadNode>(a))
+			return true;
+		U32 group = addrs.get(cast<LoadNode>(a)->getPointer()).group;
+		return group && group == addrs.get(cast<LoadNode>(b)->getPointer()).group;
+	}
+
+	// x86 has no packed neg or not, so 0 - x and x ^ -1
+	Node* SlpPass::negOrNot(Opcode op, Type* type, Node* operand) {
+		Node* constant = fn->constInt(type->getVecElement(), op == Opcode::Not ? -1 : 0);
+		List<Node*> constants(type->getVecLanes(), constant);
+		Node* pack = fn->create<PackNode>(type, constants);
+		if(op == Opcode::Neg)
+			return fn->binary(Opcode::Sub, pack, operand);
+		return fn->binary(Opcode::Xor, operand, pack);
 	}
 
 	// lane i from other when it has other's opcode
