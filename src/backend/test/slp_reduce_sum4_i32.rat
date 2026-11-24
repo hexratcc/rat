@@ -1,0 +1,41 @@
+@name slp: a four-term i32 sum is one wide load and a shuffle fold, one scalar op saved
+@passes slp
+
+@input
+func sum(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v99
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v13 = add : ptr v4, v6
+	v14 = add : ptr v4, v7
+	v15 = add : ptr v4, v8
+	v30 = load : i32 v2, v3, v4
+	v31 = load : i32 v2, v3, v13
+	v32 = load : i32 v2, v3, v14
+	v33 = load : i32 v2, v3, v15
+	v60 = add : i32 v30, v31
+	v61 = add : i32 v60, v32
+	v62 = add : i32 v61, v33
+	v99 = return : ctrl v2, v3, v62
+}
+
+@expect
+func sum(ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v18
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v18 = return : ctrl v2, v3, v24
+	v19 = load : <4 x i32> v2, v3, v4
+	v20 = shuffle : <4 x i32>  #4146 v19, v19
+	v21 = add : <4 x i32> v19, v20
+	v22 = shuffle : <4 x i32>  #8961 v21, v21
+	v23 = add : <4 x i32> v21, v22
+	v24 = extract : i32  #0 v23
+}

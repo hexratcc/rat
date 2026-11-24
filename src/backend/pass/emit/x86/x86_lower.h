@@ -180,6 +180,7 @@ namespace rat {
 		void emitBitScan(UnaryNode* n, B32 reverse);
 		void emitPopcnt(UnaryNode* n);
 		void emitFNeg(UnaryNode* n);
+		void emitFSqrtAbs(UnaryNode* n);
 		void emitUnary(UnaryNode* n);
 		U8 emitCmp(CompareNode* n);
 		void emitCompare(CompareNode* n);

@@ -38,6 +38,8 @@ namespace rat {
 				{"popcnt", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"bswap", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"fneg", 0, 0, 0, -1, 1, 1, OpClass::Unary},
+				{"fsqrt", 0, 0, 0, -1, 1, 1, OpClass::Unary},
+				{"fabs", 0, 0, 0, -1, 1, 1, OpClass::Unary},
 				{"eq", 0, 0, 1, -1, 2, 2, OpClass::Compare},
 				{"ne", 0, 0, 1, -1, 2, 2, OpClass::Compare},
 				{"slt", 0, 0, 0, -1, 2, 2, OpClass::Compare},

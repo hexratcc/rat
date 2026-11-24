@@ -432,9 +432,10 @@ namespace rat {
 	void VerifyPass::FunctionVerifier::checkUnary(const Node* n) {
 		auto* u = cast<UnaryNode>(n);
 		const Type* t = n->getType();
-		if(n->getOpcode() == Opcode::FNeg) {
+		if(n->getOpcode() >= Opcode::FNeg) { // fneg, fsqrt, fabs
 			B32 floatLanes = t->isVec() && t->getVecElement()->isFloat();
-			require(t->isFloat() || floatLanes, n, "fneg operates on a non-float type");
+			if(!t->isFloat() && !floatLanes)
+				err(n, String(n->getMnemonic()) + " operates on a non-float type");
 		} else if(!t->isInt()) {
 			err(n, "unary operates on a non-integer type");
 		}

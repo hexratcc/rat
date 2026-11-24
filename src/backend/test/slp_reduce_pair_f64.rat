@@ -1,0 +1,41 @@
+@name slp: a float add of two packable f64 terms is lane 0 plus lane 1 of one 2-lane vector
+@passes slp
+
+@input
+func f(ptr, ptr) -> f64 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v33
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "b" of v0
+	v6 = const : i64  8
+	v11 = load : f64 v2, v3, v4
+	v17 = load : f64 v2, v3, v5
+	v18 = fmul : f64 v11, v17
+	v23 = add : ptr v4, v6
+	v24 = load : f64 v2, v3, v23
+	v29 = add : ptr v5, v6
+	v30 = load : f64 v2, v3, v29
+	v31 = fmul : f64 v24, v30
+	v32 = fadd : f64 v18, v31
+	v33 = return : ctrl v2, v3, v32
+}
+
+
+@expect
+func f(ptr, ptr) -> f64 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v16
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "b" of v0
+	v16 = return : ctrl v2, v3, v22
+	v17 = load : <2 x f64> v2, v3, v4
+	v18 = load : <2 x f64> v2, v3, v5
+	v19 = fmul : <2 x f64> v17, v18
+	v20 = shuffle : <2 x f64>  #1 v19, v19
+	v21 = fadd : <2 x f64> v19, v20
+	v22 = extract : f64  #0 v21
+}

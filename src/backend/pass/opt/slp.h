@@ -28,6 +28,8 @@ namespace rat {
 		static constexpr U32 kMaxHops = 16;	 // stores walked above a wide load
 		static constexpr U32 kMaxTerms = 64; // terms of one reduction
 		static constexpr I32 kMinProfit = 2; // scalar ops a pack must save
+		// scalar ops a reduction must save when no call follows its loads
+		static constexpr I32 kMinReduceProfit = 1;
 
 		using Lanes = SmallList<Node*, kMaxLanes>;
 		using Terms = SmallList<Node*, 16>;
@@ -61,6 +63,7 @@ namespace rat {
 		void packReduction(Node* root);
 		static void flatten(Node* root, Terms& terms, Terms& steps);
 		Node* foldLanes(Opcode op, const List<Node*>& termVectors, Type* scalarType);
+		B32 loadsBeforeCall();
 
 		// vectors
 		List<Node*> tryPack(const List<Lanes>& tuples, Set<const Node*> dead, I32 gain);
@@ -95,6 +98,7 @@ namespace rat {
 		Map<const Node*, List<U32>> vectorsOf;
 		U32 packStart = 0; // first vector of the pack under work
 		U32 budget = 0;		 // op tuples left to try
+		I32 packGain = 0;	 // of the last tryPack, before the kMinProfit check
 		U32 packedWindows = 0;
 		U32 packedReductions = 0;
 	};

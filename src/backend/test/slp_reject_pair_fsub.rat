@@ -1,0 +1,45 @@
+@name slp: a float sub of two f64 terms stays scalar, lane 1 of its fold would subtract left from right, which can overflow under a directed rounding mode
+@passes slp
+
+@input
+func f(ptr, ptr) -> f64 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v33
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "b" of v0
+	v6 = const : i64  8
+	v11 = load : f64 v2, v3, v4
+	v17 = load : f64 v2, v3, v5
+	v18 = fmul : f64 v11, v17
+	v23 = add : ptr v4, v6
+	v24 = load : f64 v2, v3, v23
+	v29 = add : ptr v5, v6
+	v30 = load : f64 v2, v3, v29
+	v31 = fmul : f64 v24, v30
+	v32 = fsub : f64 v18, v31
+	v33 = return : ctrl v2, v3, v32
+}
+
+
+@expect
+func f(ptr, ptr) -> f64 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v16
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "b" of v0
+	v6 = const : i64  8
+	v7 = load : f64 v2, v3, v4
+	v8 = load : f64 v2, v3, v5
+	v9 = fmul : f64 v7, v8
+	v10 = add : ptr v4, v6
+	v11 = load : f64 v2, v3, v10
+	v12 = add : ptr v5, v6
+	v13 = load : f64 v2, v3, v12
+	v14 = fmul : f64 v11, v13
+	v15 = fsub : f64 v9, v14
+	v16 = return : ctrl v2, v3, v15
+}

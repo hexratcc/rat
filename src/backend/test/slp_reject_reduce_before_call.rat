@@ -1,0 +1,60 @@
+@name slp: a sum of loads a store then a call follow needs the store window profit, its vectors may spill around the call
+@passes slp
+
+@input
+func f(ptr, ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "b" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v9 = const : i32  0
+	v12 = add : ptr v4, v6
+	v13 = add : ptr v4, v7
+	v14 = add : ptr v4, v8
+	v20 = load : i32 v2, v3, v4
+	v21 = load : i32 v2, v3, v12
+	v22 = load : i32 v2, v3, v13
+	v23 = load : i32 v2, v3, v14
+	v30 = add : i32 v20, v21
+	v31 = add : i32 v30, v22
+	v32 = add : i32 v31, v23
+	v33 = store : mem v2, v3, v5, v9
+	v37 = call : (ctrl, mem)  "g" v2, v33
+	v38 = proj : ctrl  #0 "ctrl" of v37
+	v39 = proj : mem  #1 "mem" of v37
+	v40 = return : ctrl v38, v39, v32
+}
+
+@expect
+func f(ptr, ptr) -> i32 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "b" of v0
+	v6 = const : i64  4
+	v7 = const : i64  8
+	v8 = const : i64  12
+	v9 = const : i32  0
+	v12 = add : ptr v4, v6
+	v13 = add : ptr v4, v7
+	v14 = add : ptr v4, v8
+	v20 = load : i32 v2, v3, v4
+	v21 = load : i32 v2, v3, v12
+	v22 = load : i32 v2, v3, v13
+	v23 = load : i32 v2, v3, v14
+	v30 = add : i32 v20, v21
+	v31 = add : i32 v30, v22
+	v32 = add : i32 v31, v23
+	v33 = store : mem v2, v3, v5, v9
+	v37 = call : (ctrl, mem)  "g" v2, v33
+	v38 = proj : ctrl  #0 "ctrl" of v37
+	v39 = proj : mem  #1 "mem" of v37
+	v40 = return : ctrl v38, v39, v32
+}

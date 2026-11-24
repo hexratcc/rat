@@ -202,12 +202,8 @@ namespace rat {
 		if((in.imm2 & 1) == 0)
 			return a->pshufd(xmmOf(in.defs[0]), src, laneSel(lane, esz));
 		Reg d = gpOf(in.defs[0]);
-		if(lane == 0) {
-			a->movGpXmm(d, src, esz == 8);
-			if(esz != 8)
-				a->movsxd32(d, d); // sign-extend the zero-extended dword
-			return;
-		}
+		if(lane == 0)
+			return a->movGpXmm(d, src, esz == 8); // lowering sign-extends
 		// staged through the 16-byte scratch slot
 		a->storeXmm(src, {RBP, fl->vecScratch}, 16);
 		a->loadExt(d, {RBP, fl->vecScratch + (I32)(lane * esz)}, esz, true);

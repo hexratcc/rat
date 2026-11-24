@@ -405,12 +405,19 @@ namespace rat {
 		U32 esz = et->byteSize(ptrBytes);
 		B32 isInt = !et->isFloat();
 		VReg v = sseValue(n->getVector());
+		VReg d = vregFor(n);
+		// float lane 0 is the low bits of the vector, a copy the allocator can coalesce
+		if(!isInt && n->getLane() == 0)
+			return mov(vr(d, esz), vr(v, 16), detail::kFp);
 		if(isInt && n->getLane() != 0 && fl->vecScratch == 0)
 			fl->vecScratch = reserve(16); // staged through memory
 		I64 desc = ((I64)esz << 1) | isInt;
 		U32 dw = isInt ? 8 : esz;
-		MachineInstr& m = put(X86Op::VExtract, {vr(vregFor(n), dw)}, {vr(v, 16)}, n->getLane(), desc);
+		MachineInstr& m = put(X86Op::VExtract, {vr(d, dw)}, {vr(v, 16)}, n->getLane(), desc);
 		m.regClass = isInt ? detail::kGp : detail::kFp;
+		// movd zero-extends, the peephole drops this when no user reads the high bits
+		if(isInt && n->getLane() == 0)
+			signExtBits(d, 8 * esz);
 	}
 
 	// the constant lanes of n as 16 pool bytes, zero in the other lanes
@@ -637,6 +644,21 @@ namespace rat {
 		m.clobbers = detail::physBit(detail::xmmPhys(conv->sseVolatileCount - 1));
 	}
 
+	// sqrtps or sqrtpd for a vector, fabs shifts the sign bit out of each lane
+	void X86LowerPass::emitFSqrtAbs(UnaryNode* n) {
+		Type* type = n->getType();
+		U32 w = opWidth(type);
+		U32 lane = type->isVec() ? opWidth(type->getVecElement()) : w;
+		VReg s = sseValue(n->getOperand());
+		VReg d = vregFor(n);
+		if(n->getOpcode() == Opcode::FAbs)
+			put(X86Op::FAbs, {vr(d, w)}, {vr(s, w)}, (I64)lane);
+		else if(type->isVec())
+			vunary(d, s, lane == 8 ? 0x66 : 0, 0x51, 0);
+		else
+			put(X86Op::FSqrt, {vr(d, w)}, {vr(s, w)}, (I64)w);
+	}
+
 	void X86LowerPass::emitUnary(UnaryNode* n) {
 		Opcode uop = n->getOpcode();
 		if(uop == Opcode::Clz || uop == Opcode::Ctz)
@@ -645,6 +667,8 @@ namespace rat {
 			return emitPopcnt(n);
 		if(uop == Opcode::FNeg)
 			return emitFNeg(n);
+		if(uop == Opcode::FSqrt || uop == Opcode::FAbs)
+			return emitFSqrtAbs(n);
 		U32 bits = intBits(n->getType());
 		VReg s = gpValue(n->getOperand());
 		VReg d = vregFor(n);

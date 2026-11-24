@@ -152,6 +152,8 @@ namespace detail {
 				opt.timePasses = true;
 			else if(arg == "-fpass-stats")
 				opt.passStats = true;
+			else if(arg == "-fno-math-errno")
+				; // rat already inlines sqrt without errno
 			else if(arg.rfind("-g", 0) == 0)
 				opt.debugLevel = parseDebugLevel(arg);
 			else if(cli::value(kTool, argc, argv, i, "-target", opt.targetSpec) ||

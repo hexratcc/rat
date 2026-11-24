@@ -207,6 +207,37 @@ namespace rat {
 		return true;
 	}
 
+	// the calls emitMathIntrinsic lowers to one instruction, see x86_lower_call.cpp
+	B32 InlinePass::mathOpcode(const CallNode* call, Opcode& op) {
+		const String& callee = call->getCallee();
+		B32 isSqrt = callee == "sqrt" || callee == "sqrtf";
+		B32 isAbs = callee == "fabs" || callee == "fabsf";
+		B32 oneValue = call->getArgCount() == 1 && call->returnsValue();
+		if((!isSqrt && !isAbs) || call->isIndirect() || !oneValue)
+			return false;
+		U32 width = callee.back() == 'f' ? 32 : 64;
+		Type* type = call->getArg(0)->getType();
+		const Type* valueType = call->getType()->getTupleElement(CallNode::valueProjIndex());
+		if(!type->isFloat() || type->getFloatWidth() != width || valueType != type)
+			return false;
+		op = isSqrt ? Opcode::FSqrt : Opcode::FAbs;
+		return true;
+	}
+
+	// a math call no inlining reaches becomes its pure node, so it leaves the memory chain
+	B32 InlinePass::inlineMathCall(Function& caller, CallNode* call) {
+		Opcode op;
+		if(!mathOpcode(call, op) || graph->lookup(call->getCallee()))
+			return false;
+		Node* value = caller.unary(op, call->getArg(0));
+		value->setLoc(call->getLoc());
+		Node* mem = call->getMemory();
+		if(DebugBody* dbg = caller.getDebug())
+			dbg->retarget(call, lastEffect(mem));
+		replaceCall(caller, call, {call->getControl(), mem, value});
+		return true;
+	}
+
 	void InlinePass::beginModule(Module&, const CallGraph& g) { graph = &g; }
 
 	U32 InlinePass::runOnFunction(Function& caller, const TargetInfo&) {
@@ -226,6 +257,10 @@ namespace rat {
 			if(shouldInline(caller, c, callee) && inlineCallSite(caller, c, *callee))
 				++count;
 		}
+		// a copy of the nodes, as a math call drops its nodes
+		for(Node* n : List<Node*>(caller.begin(), caller.end()))
+			if(CallNode* c = dyn_cast<CallNode>(n))
+				count += inlineMathCall(caller, c);
 		if(count)
 			caller.eliminateDeadNodes();
 		return count;

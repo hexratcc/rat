@@ -1,0 +1,63 @@
+@name slp: f32 fsqrt lanes pack into one sqrtps, f64 fabs lanes into one vector fabs
+@passes slp
+
+@input
+func t(ptr restrict, ptr restrict, ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "d" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = proj : ptr  #4 "e" of v0
+	v7 = proj : ptr  #5 "b" of v0
+	v8 = const : i64  4
+	v9 = const : i64  8
+	v10 = const : i64  12
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v4, v9
+	v13 = add : ptr v4, v10
+	v14 = add : ptr v5, v8
+	v15 = add : ptr v5, v9
+	v16 = add : ptr v5, v10
+	v17 = add : ptr v6, v9
+	v18 = add : ptr v7, v9
+	v20 = load : f32 v2, v3, v5
+	v21 = load : f32 v2, v3, v14
+	v22 = load : f32 v2, v3, v15
+	v23 = load : f32 v2, v3, v16
+	v24 = fsqrt : f32 v20
+	v25 = fsqrt : f32 v21
+	v26 = fsqrt : f32 v22
+	v27 = fsqrt : f32 v23
+	v28 = load : f64 v2, v3, v7
+	v29 = load : f64 v2, v3, v18
+	v30 = fabs : f64 v28
+	v31 = fabs : f64 v29
+	v32 = store : mem v2, v3, v4, v24
+	v33 = store : mem v2, v32, v11, v25
+	v34 = store : mem v2, v33, v12, v26
+	v35 = store : mem v2, v34, v13, v27
+	v36 = store : mem v2, v35, v6, v30
+	v37 = store : mem v2, v36, v17, v31
+	v40 = return : ctrl v2, v37
+}
+
+@expect
+func t(ptr restrict, ptr restrict, ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, ptr, ptr)
+  v1 = stop : ctrl v14
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "d" of v0
+  v5 = proj : ptr  #3 "a" of v0
+  v6 = proj : ptr  #4 "e" of v0
+  v7 = proj : ptr  #5 "b" of v0
+  v8 = load : <4 x f32> v2, v3, v5
+  v9 = fsqrt : <4 x f32> v8
+  v10 = load : <2 x f64> v2, v3, v7
+  v11 = fabs : <2 x f64> v10
+  v12 = store : mem v2, v3, v4, v9
+  v13 = store : mem v2, v12, v6, v11
+  v14 = return : ctrl v2, v13
+}

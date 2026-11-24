@@ -48,6 +48,8 @@ namespace rat {
 		Popcnt,
 		Bswap,
 		FNeg,
+		FSqrt,
+		FAbs,
 
 		// comparisons
 		Eq,
@@ -134,7 +136,7 @@ namespace rat {
 
 	constexpr B32 isBinaryOpcode(Opcode op) { return op >= Opcode::Add && op <= Opcode::FDiv; }
 	constexpr B32 isShiftOpcode(Opcode op) { return op >= Opcode::Shl && op <= Opcode::AShr; }
-	constexpr B32 isUnaryOpcode(Opcode op) { return op >= Opcode::Neg && op <= Opcode::FNeg; }
+	constexpr B32 isUnaryOpcode(Opcode op) { return op >= Opcode::Neg && op <= Opcode::FAbs; }
 	constexpr B32 isCompareOpcode(Opcode op) { return op >= Opcode::Eq && op <= Opcode::FGe; }
 	constexpr B32 isConvertOpcode(Opcode op) { return op >= Opcode::Trunc && op <= Opcode::FPTrunc; }
 	constexpr B32 isArithmeticOpcode(Opcode op) {

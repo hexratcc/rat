@@ -1,6 +1,7 @@
 // function inlining: replace a call to a small, non-recursive function with a
 // clone of the callee's body, splicing the callee's control and memory edges
 // into the caller and merging its returns at the call's continuation
+// a call of sqrt or fabs that the module does not define becomes an fsqrt or fabs node
 //
 // references:
 // - C. Click and M. Paleczny, "A Simple Graph-Based Intermediate
@@ -11,6 +12,7 @@
 #define RAT_PASS_OPT_INLINE_H
 
 #include "core.h"
+#include "ir/opcode.h"
 #include "pass/pass.h"
 
 namespace rat {
@@ -45,6 +47,8 @@ namespace rat {
 		void inlineDebug(Function& caller, CallNode* call, const Function& callee);
 		static Node* lastEffect(Node* mem);
 		B32 inlineCallSite(Function& caller, CallNode* call, Function& callee);
+		static B32 mathOpcode(const CallNode* call, Opcode& op);
+		B32 inlineMathCall(Function& caller, CallNode* call);
 	private:
 		const CallGraph* graph = nullptr; // of the current module run
 

@@ -43,7 +43,7 @@ namespace rat {
 			{Opcode::And,     Opcode::LShr,    kInt32Int64, 0},          // logic, shl, lshr
 			{Opcode::AShr,    Opcode::AShr,    kInt32,      0},          // psrad, no i64 sar
 			{Opcode::FAdd,    Opcode::FDiv,    kFloat,      0},
-			{Opcode::FNeg,    Opcode::FNeg,    kFloat,      0},
+			{Opcode::FNeg,    Opcode::FAbs,    kFloat,      0},          // fneg, sqrtps/pd, fabs
 			{Opcode::Neg,     Opcode::Not,     kInt32Int64, 0},          // psub from 0, pxor with -1
 			{Opcode::Eq,      Opcode::Ne,      kInt32Int64, 0},          // pcmpeqd/q
 			{Opcode::Slt,     Opcode::Ule,     kInt32,      0},          // pcmpgtd, pminud
@@ -181,17 +181,33 @@ namespace rat {
 		Type* type = root->getType();
 		if(!root->hasUsers())
 			return; // a dead node is no root
-		if(!root->isCommutative())
-			return;
-		if(!(typeBits(type) & detail::kInt32Int64) || !hasRule(root))
+		B32 intRoot = root->isCommutative() && (typeBits(type) & detail::kInt32Int64);
+		// no fsub or fdiv, lane 1 of their fold computes right op left. That can raise a flag the scalar
+		// code does not, fdiv always and fsub under a directed rounding mode
+		B32 floatRoot = op == Opcode::FAdd || op == Opcode::FMul;
+		if(!(intRoot || floatRoot) || !hasRule(root))
 			return;
 		for(Node* u : root->getUsers())
 			if(u->getOpcode() == op && u->getType() == type)
 				return;
+		Node* left = root->getInput(0);
+		Node* right = root->getInput(1);
+		// a float root is one pair, and only a pair of one vector op pays for the fold
+		if(!intRoot && (left->getOpcode() != right->getOpcode() || !hasRule(left)))
+			return;
+		Terms steps = {root};
 		Terms terms;
-		Terms steps;
-		flatten(root, terms, steps);
+		if(intRoot)
+			flatten(root, terms, steps);
+		else
+			terms = {left, right};
 		U32 laneCount = kVecBytes / type->byteSize(ptrBytes);
+		// a float root is one 2-lane tuple, lane 0 op lane 1 is the exact scalar op
+		if(floatRoot)
+			laneCount = 2;
+		// the fold of a 2-lane f32 tuple would compute on the stale upper lanes too, see flagSafe
+		if(floatRoot && laneCount * type->byteSize(ptrBytes) < kVecBytes)
+			return;
 		U32 vectorCount = (U32)terms.size() / laneCount;
 		// most roots have fewer terms than lanes, they return before the vector reset
 		if(!vectorCount)
@@ -200,13 +216,22 @@ namespace rat {
 		for(U32 i = 0; i < vectorCount * laneCount; ++i)
 			tuples[i / laneCount].push_back(terms[i]);
 		// scalar steps removed minus vector ops added. The fold is a shuffle and an op per round, then the extract
+		// tryPack wants kMinProfit, so the gain is offset to the profit of a reduction
+		constexpr I32 kOffset = kMinProfit - kMinReduceProfit;
 		I32 removed = (I32)(vectorCount * (laneCount - 1));
-		I32 gain = removed - 2 * (I32)(laneCount / 2) - 1;
+		I32 gain = removed - 2 * (I32)(laneCount / 2) - 1 + kOffset;
 		vectors.clear();
 		vectorsOf = Map<const Node*, List<U32>>();
 		List<Node*> termVectors = tryPack(tuples, Set<const Node*>(steps.begin(), steps.end()), gain);
 		if(termVectors.empty())
 			return;
+		// the vectors may spill around a call. Then an int reduction needs kMinProfit as before,
+		// a float one stays scalar
+		B32 paysAcrossCall = intRoot && packGain - kOffset >= kMinProfit;
+		if(!paysAcrossCall && loadsBeforeCall()) {
+			rollback(packStart);
+			return;
+		}
 		Node* result = foldLanes(op, termVectors, type);
 		for(U32 i = vectorCount * laneCount; i < terms.size(); ++i)
 			result = fn->binary(op, result, terms[i]);
@@ -252,6 +277,31 @@ namespace rat {
 		return fn->create<ExtractNode>(scalarType, folded, 0);
 	}
 
+	// a call follows a wide load of the pack, maybe behind stores and merges. The fold may sort after
+	// the call, then the vectors spill around it, as the SysV ABI saves no xmm register
+	B32 SlpPass::loadsBeforeCall() {
+		List<Node*> states;
+		for(U32 i = packStart; i < vectors.size(); ++i)
+			if(LoadNode* load = dyn_cast<LoadNode>(vectors[i].node))
+				states.push_back(load->getMemory());
+		Set<const Node*> seen;
+		while(!states.empty()) {
+			Node* state = states.back();
+			states.pop_back();
+			if(!seen.insert(state).second)
+				continue;
+			if(seen.size() > kMaxHops)
+				return true; // unproven, so as if a call
+			for(Node* user : state->getUsers()) {
+				if(isa<CallNode>(user) || isa<AsmNode>(user))
+					return true; // the walk does not pass an asm, so as if a call
+				if(isa<StoreNode>(user) || isa<PhiNode>(user))
+					states.push_back(user);
+			}
+		}
+		return false;
+	}
+
 	List<Node*> SlpPass::tryPack(const List<Lanes>& tuples, Set<const Node*> dead, I32 gain) {
 		packStart = (U32)vectors.size();
 		budget = kMaxOps * (U32)tuples.size();
@@ -264,6 +314,7 @@ namespace rat {
 				gain += markDead(n, dead);
 			gain -= vectors[i].cost;
 		}
+		packGain = gain;
 		B32 allPacked = !std::count(roots.begin(), roots.end(), nullptr);
 		if(gain >= kMinProfit && allPacked)
 			return roots;
@@ -520,11 +571,11 @@ namespace rat {
 	}
 
 	// a 2-lane f32 vector has zero or stale upper lanes, so float math on it can raise flags the
-	// scalar code does not. A sign flip and the converts that read or write the low lanes are safe
+	// scalar code does not. Sign ops and the converts that read or write the low lanes are safe
 	B32 SlpPass::flagSafe(const Lanes& lanes) {
 		Node* lane0 = lanes[0];
 		Opcode op = lane0->getOpcode();
-		if(op == Opcode::FNeg || op == Opcode::FPExt || op == Opcode::FPTrunc)
+		if(op == Opcode::FNeg || op == Opcode::FAbs || op == Opcode::FPExt || op == Opcode::FPTrunc)
 			return true;
 		U32 count = (U32)lanes.size();
 		for(const Type* t : {lane0->getType(), lane0->getInput(0)->getType()})
