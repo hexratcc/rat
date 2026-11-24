@@ -1,0 +1,103 @@
+@name slp: sixteen i8 copies pack into one <16 x i8> load and store
+@passes loadcanon slp
+
+@input
+func t(ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v198
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v16 = load : i8 v2, v3, v5
+  v17 = store : mem v2, v3, v4, v16
+  v22 = add : ptr v4, v204
+  v27 = add : ptr v5, v204
+  v28 = load : i8 v2, v17, v27
+  v29 = store : mem v2, v17, v22, v28
+  v34 = add : ptr v4, v208
+  v39 = add : ptr v5, v208
+  v40 = load : i8 v2, v29, v39
+  v41 = store : mem v2, v29, v34, v40
+  v46 = add : ptr v4, v212
+  v51 = add : ptr v5, v212
+  v52 = load : i8 v2, v41, v51
+  v53 = store : mem v2, v41, v46, v52
+  v58 = add : ptr v4, v216
+  v63 = add : ptr v5, v216
+  v64 = load : i8 v2, v53, v63
+  v65 = store : mem v2, v53, v58, v64
+  v70 = add : ptr v4, v220
+  v75 = add : ptr v5, v220
+  v76 = load : i8 v2, v65, v75
+  v77 = store : mem v2, v65, v70, v76
+  v82 = add : ptr v4, v224
+  v87 = add : ptr v5, v224
+  v88 = load : i8 v2, v77, v87
+  v89 = store : mem v2, v77, v82, v88
+  v94 = add : ptr v4, v228
+  v99 = add : ptr v5, v228
+  v100 = load : i8 v2, v89, v99
+  v101 = store : mem v2, v89, v94, v100
+  v106 = add : ptr v4, v232
+  v111 = add : ptr v5, v232
+  v112 = load : i8 v2, v101, v111
+  v113 = store : mem v2, v101, v106, v112
+  v118 = add : ptr v4, v236
+  v123 = add : ptr v5, v236
+  v124 = load : i8 v2, v113, v123
+  v125 = store : mem v2, v113, v118, v124
+  v130 = add : ptr v4, v240
+  v135 = add : ptr v5, v240
+  v136 = load : i8 v2, v125, v135
+  v137 = store : mem v2, v125, v130, v136
+  v142 = add : ptr v4, v244
+  v147 = add : ptr v5, v244
+  v148 = load : i8 v2, v137, v147
+  v149 = store : mem v2, v137, v142, v148
+  v154 = add : ptr v4, v248
+  v159 = add : ptr v5, v248
+  v160 = load : i8 v2, v149, v159
+  v161 = store : mem v2, v149, v154, v160
+  v166 = add : ptr v4, v252
+  v171 = add : ptr v5, v252
+  v172 = load : i8 v2, v161, v171
+  v173 = store : mem v2, v161, v166, v172
+  v178 = add : ptr v4, v256
+  v183 = add : ptr v5, v256
+  v184 = load : i8 v2, v173, v183
+  v185 = store : mem v2, v173, v178, v184
+  v190 = add : ptr v4, v260
+  v195 = add : ptr v5, v260
+  v196 = load : i8 v2, v185, v195
+  v197 = store : mem v2, v185, v190, v196
+  v198 = return : ctrl v2, v197
+  v204 = const : i64  1
+  v208 = const : i64  2
+  v212 = const : i64  3
+  v216 = const : i64  4
+  v220 = const : i64  5
+  v224 = const : i64  6
+  v228 = const : i64  7
+  v232 = const : i64  8
+  v236 = const : i64  9
+  v240 = const : i64  10
+  v244 = const : i64  11
+  v248 = const : i64  12
+  v252 = const : i64  13
+  v256 = const : i64  14
+  v260 = const : i64  15
+}
+
+@expect
+func t(ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v83
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v7 = store : mem v2, v3, v4, v84
+  v83 = return : ctrl v2, v7
+  v84 = load : <16 x i8> v2, v3, v5
+}

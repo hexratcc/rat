@@ -1,0 +1,50 @@
+@name slp: trunc lanes of i32 loads pack as a trunc of one <4 x i32> load
+@passes loadcanon slp
+
+@input
+func t(ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v58
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v16 = load : i32 v2, v3, v5
+  v17 = trunc : i16 v16
+  v18 = store : mem v2, v3, v4, v17
+  v23 = add : ptr v4, v64
+  v28 = add : ptr v5, v66
+  v29 = load : i32 v2, v18, v28
+  v30 = trunc : i16 v29
+  v31 = store : mem v2, v18, v23, v30
+  v36 = add : ptr v4, v66
+  v41 = add : ptr v5, v70
+  v42 = load : i32 v2, v31, v41
+  v43 = trunc : i16 v42
+  v44 = store : mem v2, v31, v36, v43
+  v49 = add : ptr v4, v72
+  v54 = add : ptr v5, v74
+  v55 = load : i32 v2, v44, v54
+  v56 = trunc : i16 v55
+  v57 = store : mem v2, v44, v49, v56
+  v58 = return : ctrl v2, v57
+  v64 = const : i64  2
+  v66 = const : i64  4
+  v70 = const : i64  8
+  v72 = const : i64  6
+  v74 = const : i64  12
+}
+
+@expect
+func t(ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v29
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v8 = store : mem v2, v3, v4, v31
+  v29 = return : ctrl v2, v8
+  v30 = load : <4 x i32> v2, v3, v5
+  v31 = trunc : <4 x i16> v30
+}

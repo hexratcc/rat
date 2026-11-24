@@ -298,16 +298,18 @@ namespace rat {
 		if(et->isInt()) {
 			pfx = 0x66;
 			switch(op) {
-			case Opcode::Add: opc = esz == 4 ? 0xfe : 0xd4; break; // paddd / paddq
-			case Opcode::Sub: opc = esz == 4 ? 0xfa : 0xfb; break; // psubd / psubq
+			case Opcode::Add: opc = detail::kVecAddOpc[countTrailingZeros64(esz)]; break;
+			case Opcode::Sub: opc = detail::kVecSubOpc[countTrailingZeros64(esz)]; break;
 			case Opcode::And: opc = 0xdb; break; // pand
 			case Opcode::Or: opc = 0xeb; break;  // por
 			case Opcode::Xor: opc = 0xef; break; // pxor
-			case Opcode::Mul: // pmulld, i32 lanes only
-				if(esz != 4)
+			case Opcode::Mul: // pmullw, pmulld
+				if(esz == 1)
+					return emitByteMul(n);
+				if(esz > 4)
 					return;
-				opc = 0x40;
-				esc38 = true;
+				opc = esz == 2 ? 0xd5 : 0x40;
+				esc38 = esz == 4;
 				break;
 			default: return;
 			}
@@ -327,23 +329,66 @@ namespace rat {
 	void X86LowerPass::emitVecShift(BinaryNode* n) {
 		U32 bits = opWidth(n->getType()->getVecElement()) * 8;
 		U32 idx = (U32)n->getOpcode() - (U32)Opcode::Shl;
-		U8 ext = detail::kVecShiftExt[idx];
+		I64 cnt = 0;
+		B32 constant = immOf(n->getRHS(), cnt);
+		if(bits == 8) // a constant amount, see verify
+			return emitByteShift(n, cnt);
 		U8 opc = detail::kVecShiftOpc[idx];
 		if(bits == 64)
 			++opc;
+		if(bits == 16)
+			--opc;
 		VReg s = sseValue(n->getLHS());
 		VReg d = vregFor(n);
-		I64 cnt = 0;
-		if(immOf(n->getRHS(), cnt)) {
-			I64 extAndCnt = ((I64)ext << 8) | (U8)cnt;
+		if(constant) {
 			movaps(d, s, 16);
-			put(X86Op::VShiftImm, {vr(d, 16)}, {vr(d, 16)}, (I64)bits, extAndCnt);
+			vshiftImm(d, bits, idx, cnt);
 			return;
 		}
 		VReg c = fresh(detail::kFp);
 		VReg countReg = gpValue(n->getRHS());
 		put(X86Op::VPackReg, {vr(c, 16)}, {vr(countReg)}, 4, 1);
 		varith(d, s, c, 0x66, opc, false);
+	}
+
+	// SSE has no byte shift, so a word shift, then a mask clears the bits from the next byte.
+	// ashr is lshr, then (x ^ m) - m with m the shifted sign bit
+	void X86LowerPass::emitByteShift(BinaryNode* n, I64 cnt) {
+		Opcode op = n->getOpcode();
+		B32 left = op == Opcode::Shl;
+		U8 kept = left ? (U8)(0xff << cnt) : (U8)(0xff >> cnt);
+		VReg d = vregFor(n);
+		VReg mask = fresh(detail::kFp);
+		movaps(d, sseValue(n->getLHS()), 16);
+		vshiftImm(d, 16, left ? 0 : 1, cnt); // psllw, psrlw
+		ldf(mask, 16, vecPoolSym(List<U8>(16, kept)));
+		varith(d, d, mask, 0x66, 0xdb, false); // pand
+		if(op != Opcode::AShr)
+			return;
+		VReg sign = fresh(detail::kFp);
+		ldf(sign, 16, vecPoolSym(List<U8>(16, (U8)(0x80 >> cnt))));
+		varith(d, d, sign, 0x66, 0xef, false); // pxor
+		varith(d, d, sign, 0x66, 0xf8, false); // psubb
+	}
+
+	// SSE has no byte multiply, so the even and the odd bytes multiply as words.
+	// The low byte of a product depends only on the low bytes
+	void X86LowerPass::emitByteMul(BinaryNode* n) {
+		VReg lhs = sseValue(n->getLHS());
+		VReg rhs = sseValue(n->getRHS());
+		VReg d = vregFor(n);
+		VReg odd = fresh(detail::kFp);
+		VReg rhsOdd = fresh(detail::kFp);
+		varith(d, lhs, rhs, 0x66, 0xd5, false); // pmullw, the even bytes
+		vshiftImm(d, 16, 0, 8);
+		vshiftImm(d, 16, 1, 8); // clears the odd bytes
+		movaps(odd, lhs, 16);
+		vshiftImm(odd, 16, 1, 8);
+		movaps(rhsOdd, rhs, 16);
+		vshiftImm(rhsOdd, 16, 1, 8);
+		varith(odd, odd, rhsOdd, 0x66, 0xd5, false); // the odd bytes
+		vshiftImm(odd, 16, 0, 8);
+		varith(d, d, odd, 0x66, 0xeb, false); // por
 	}
 
 	void X86LowerPass::emitSplat(SplatNode* n) {
@@ -816,6 +861,8 @@ namespace rat {
 				pfx = 0x66;
 				opc = 0xe6;
 			}
+		} else if(op == Opcode::Trunc) {
+			return emitVecTrunc(n);
 		} else if(op == Opcode::FPTrunc) {
 			pfx = 0x66;
 		} else if(op == Opcode::SExt || op == Opcode::ZExt) {
@@ -824,6 +871,19 @@ namespace rat {
 			opc = pmovOpc(sw, dw, op == Opcode::ZExt);
 		}
 		vunary(vregFor(n), sseValue(src), pfx, opc, esc);
+	}
+
+	// pshufb picks the low bytes of each lane
+	void X86LowerPass::emitVecTrunc(ConvertNode* n) {
+		Node* src = n->getOperand();
+		U32 sw = opWidth(src->getType()->getVecElement());
+		U32 dw = opWidth(n->getType()->getVecElement());
+		List<U8> picks(16, 0x80); // bit 7 zeroes a byte
+		for(U32 i = 0; i < n->getType()->getVecLanes() * dw; ++i)
+			picks[i] = (U8)(i / dw * sw + i % dw);
+		VReg mask = fresh(detail::kFp);
+		ldf(mask, 16, vecPoolSym(picks));
+		varith(vregFor(n), sseValue(src), mask, 0x66, 0x00, true);
 	}
 
 	U8 X86LowerPass::pmovOpc(U32 sw, U32 dw, B32 zext) {

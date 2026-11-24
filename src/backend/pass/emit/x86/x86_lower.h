@@ -122,6 +122,7 @@ namespace rat {
 		void varithImm(VReg d, VReg a, VReg b, U8 pfx, U8 opc, U8 esc, U8 imm8);
 		void vmerge(VReg d, VReg s, U8 pfx, U8 opc, U8 esc, I32 imm8);
 		void vunary(VReg d, VReg s, U8 pfx, U8 opc, U8 esc);
+		void vshiftImm(VReg d, U32 laneBits, U32 idx, I64 cnt);
 		void vblend(VReg d, VReg f, VReg t, VReg mask, U32 esz);
 		// x87
 		void fldSlot(Slot d, Slot s);
@@ -156,6 +157,8 @@ namespace rat {
 		void emitFloatBinary(BinaryNode* n);
 		void emitVecBinary(BinaryNode* n);
 		void emitVecShift(BinaryNode* n);
+		void emitByteShift(BinaryNode* n, I64 cnt);
+		void emitByteMul(BinaryNode* n);
 		void emitSplat(SplatNode* n);
 		void emitExtract(ExtractNode* n);
 		List<U8> constLanes(PackNode* n, U32 esz);
@@ -183,6 +186,7 @@ namespace rat {
 		static I64 cvtDesc(U8 pfx, U8 opc, B32 w);
 		void emitConvert(ConvertNode* n);
 		void emitVecConvert(ConvertNode* n);
+		void emitVecTrunc(ConvertNode* n);
 		static U8 pmovOpc(U32 sw, U32 dw, B32 zext);
 		void emitIntResize(ConvertNode* n, Node* src);
 		void emitIntToFP(ConvertNode* n, Node* src);

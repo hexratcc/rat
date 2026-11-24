@@ -1,0 +1,70 @@
+@name slp: trunc lanes of an i32 add of sign-extended i16 loads pack as an add on <4 x i16>
+@passes loadcanon slp
+
+@input
+func t(ptr restrict, ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, ptr)
+  v1 = stop : ctrl v95
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v6 = proj : ptr  #4 "arg2" of v0
+  v17 = load : i16 v2, v3, v5
+  v23 = load : i16 v2, v3, v6
+  v24 = sext : i32 v17
+  v25 = sext : i32 v23
+  v26 = add : i32  nsw v24, v25
+  v27 = trunc : i16 v26
+  v28 = store : mem v2, v3, v4, v27
+  v33 = add : ptr v4, v103
+  v38 = add : ptr v5, v103
+  v39 = load : i16 v2, v28, v38
+  v44 = add : ptr v6, v103
+  v45 = load : i16 v2, v28, v44
+  v46 = sext : i32 v39
+  v47 = sext : i32 v45
+  v48 = add : i32  nsw v46, v47
+  v49 = trunc : i16 v48
+  v50 = store : mem v2, v28, v33, v49
+  v55 = add : ptr v4, v109
+  v60 = add : ptr v5, v109
+  v61 = load : i16 v2, v50, v60
+  v66 = add : ptr v6, v109
+  v67 = load : i16 v2, v50, v66
+  v68 = sext : i32 v61
+  v69 = sext : i32 v67
+  v70 = add : i32  nsw v68, v69
+  v71 = trunc : i16 v70
+  v72 = store : mem v2, v50, v55, v71
+  v77 = add : ptr v4, v115
+  v82 = add : ptr v5, v115
+  v83 = load : i16 v2, v72, v82
+  v88 = add : ptr v6, v115
+  v89 = load : i16 v2, v72, v88
+  v90 = sext : i32 v83
+  v91 = sext : i32 v89
+  v92 = add : i32  nsw v90, v91
+  v93 = trunc : i16 v92
+  v94 = store : mem v2, v72, v77, v93
+  v95 = return : ctrl v2, v94
+  v103 = const : i64  2
+  v109 = const : i64  4
+  v115 = const : i64  6
+}
+
+@expect
+func t(ptr restrict, ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr, ptr)
+  v1 = stop : ctrl v47
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v6 = proj : ptr  #4 "arg2" of v0
+  v13 = store : mem v2, v3, v4, v50
+  v47 = return : ctrl v2, v13
+  v48 = load : <4 x i16> v2, v3, v5
+  v49 = load : <4 x i16> v2, v3, v6
+  v50 = add : <4 x i16> v48, v49
+}

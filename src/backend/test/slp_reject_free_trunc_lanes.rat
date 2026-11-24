@@ -1,0 +1,74 @@
+@name slp: a scalar trunc is free, so i16 lanes of i32 adds stay scalar as the i32 adds would
+@passes slp
+
+@input
+func t(ptr, i32, i32, i32, i32) -> void {
+	v0 = start : (ctrl, mem, ptr, i32, i32, i32, i32)
+	v1 = stop : ctrl v45
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "d" of v0
+	v5 = proj : i32  #3 "a" of v0
+	v6 = proj : i32  #4 "b" of v0
+	v7 = proj : i32  #5 "c" of v0
+	v8 = proj : i32  #6 "e" of v0
+	v14 = const : i32  1
+	v15 = add : i32 v5, v14
+	v16 = trunc : i16 v15
+	v17 = store : mem v2, v3, v4, v16
+	v22 = add : ptr v4, v49
+	v23 = const : i32  2
+	v24 = add : i32 v6, v23
+	v25 = trunc : i16 v24
+	v26 = store : mem v2, v17, v22, v25
+	v31 = add : ptr v4, v51
+	v32 = const : i32  3
+	v33 = add : i32 v7, v32
+	v34 = trunc : i16 v33
+	v35 = store : mem v2, v26, v31, v34
+	v40 = add : ptr v4, v53
+	v41 = const : i32  4
+	v42 = add : i32 v8, v41
+	v43 = trunc : i16 v42
+	v44 = store : mem v2, v35, v40, v43
+	v45 = return : ctrl v2, v44
+	v49 = const : i64  2
+	v51 = const : i64  4
+	v53 = const : i64  6
+}
+
+@expect
+func t(ptr, i32, i32, i32, i32) -> void {
+  v0 = start : (ctrl, mem, ptr, i32, i32, i32, i32)
+  v1 = stop : ctrl v31
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "d" of v0
+  v5 = proj : i32  #3 "a" of v0
+  v6 = proj : i32  #4 "b" of v0
+  v7 = proj : i32  #5 "c" of v0
+  v8 = proj : i32  #6 "e" of v0
+  v9 = const : i32  1
+  v10 = add : i32 v5, v9
+  v11 = trunc : i16 v10
+  v12 = store : mem v2, v3, v4, v11
+  v13 = const : i32  2
+  v14 = add : i32 v6, v13
+  v15 = trunc : i16 v14
+  v16 = const : i32  3
+  v17 = add : i32 v7, v16
+  v18 = trunc : i16 v17
+  v19 = const : i32  4
+  v20 = add : i32 v8, v19
+  v21 = trunc : i16 v20
+  v22 = const : i64  2
+  v23 = const : i64  4
+  v24 = const : i64  6
+  v25 = add : ptr v4, v22
+  v26 = store : mem v2, v12, v25, v15
+  v27 = add : ptr v4, v23
+  v28 = store : mem v2, v26, v27, v18
+  v29 = add : ptr v4, v24
+  v30 = store : mem v2, v28, v29, v21
+  v31 = return : ctrl v2, v30
+}

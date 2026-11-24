@@ -22,7 +22,9 @@ namespace rat {
 			kInt32Int64 = kInt32 | kInt64,
 			kIntUpTo32 = kInt8 | kInt16 | kInt32,
 			kFloat = kFloat32 | kFloat64,
-			kElem = kInt32Int64 | kFloat | kPtr, // what a stored or gathered lane can be
+			kElem = kInt32Int64 | kFloat | kPtr, // what a gathered lane can be
+			kNarrow = kInt8 | kInt16,
+			kStored = kElem | kNarrow, // what a stored lane can be
 		};
 
 		constexpr U32 kValueInput = 3; // of a store
@@ -47,6 +49,7 @@ namespace rat {
 			{Opcode::Slt,     Opcode::Ule,     kInt32,      0},          // pcmpgtd, pminud
 			{Opcode::FEq,     Opcode::FGe,     kFloat,      0},          // cmpps/pd
 			{Opcode::SExt,    Opcode::ZExt,    kInt32Int64, kIntUpTo32}, // pmovsx/zx
+			{Opcode::Trunc,   Opcode::Trunc,   kNarrow,     kInt32},     // pshufb
 			{Opcode::SIToFP,  Opcode::SIToFP,  kFloat,      kInt32},     // cvtdq2ps/pd
 			{Opcode::FPToSI,  Opcode::FPToSI,  kInt32,      kFloat},     // cvttps2dq/pd2dq
 			{Opcode::FPExt,   Opcode::FPExt,   kFloat64,    kFloat32},   // cvtps2pd
@@ -126,7 +129,7 @@ namespace rat {
 		for(U32 first = 0; first < stretch.size();) {
 			const StoreAccess& low = stretch[first];
 			Type* type = low.store->getValue()->getType();
-			B32 elem = typeBits(type) & detail::kElem;
+			B32 elem = typeBits(type) & detail::kStored;
 			U32 maxCount = elem ? kVecBytes / low.size : 1;
 			maxCount = std::min(maxCount, (U32)stretch.size() - first);
 			U32 count = 1;
@@ -136,8 +139,10 @@ namespace rat {
 				if(addr.group != low.addr.group || addr.offset != nextOffset)
 					break;
 			}
-			// an odd count rounds down to even, so a lone store tries nothing
-			U32 packedCount = packWindow(stretch.data() + first, count & ~1u);
+			// a vector has a power of two lanes, so the count rounds down to one
+			while(count & (count - 1))
+				count &= count - 1; // clears the lowest set bit
+			U32 packedCount = packWindow(stretch.data() + first, count);
 			first += std::max(packedCount, 1u);
 		}
 		stretch.clear();
@@ -150,8 +155,8 @@ namespace rat {
 	}
 
 	U32 SlpPass::packWindow(const StoreAccess* window, U32 count) {
-		if(!count)
-			return 0;
+		if(count < 2)
+			return 0; // a lone store tries nothing
 		Lanes values;
 		Set<const Node*> stores;
 		for(U32 k = 0; k < count; ++k) {
@@ -160,7 +165,7 @@ namespace rat {
 		}
 		List<Node*> roots = tryPack({values}, std::move(stores), (I32)count - 1);
 		if(roots.empty())
-			return packWindow(window, count - 2);
+			return packWindow(window, count / 2);
 		window[0].store->setInput(detail::kValueInput, roots[0]);
 		for(U32 k = 1; k < count; ++k) {
 			StoreNode* st = window[k].store;
@@ -301,6 +306,9 @@ namespace rat {
 		if(Node* load = wideLoad(lanes))
 			return load;
 		U32 vectorsBefore = (U32)vectors.size();
+		if(Node* narrow = demote(lanes))
+			return narrow;
+		rollback(vectorsBefore);
 		if(Node* op = vectorOp(lanes))
 			return op;
 		rollback(vectorsBefore); // the operand vectors of a failed op
@@ -388,7 +396,9 @@ namespace rat {
 		// of two windows, the low lanes read the first and the high lanes the second, so one shufps
 		B32 split = true;
 		for(U32 k = 0; k < count; ++k) {
-			sel |= (U16)((slots[k] - start) << (ShuffleNode::kSourceBits * k));
+			// wider lanes are narrow and never shuffle, see wideLoad
+			if(k < ShuffleNode::kMaxLanes)
+				sel |= (U16)((slots[k] - start) << (ShuffleNode::kSourceBits * k));
 			split &= width == count || (slots[k] - start >= count) == (2 * k >= count);
 		}
 		// no lane above the windows
@@ -502,7 +512,9 @@ namespace rat {
 		Node* node = createArith(*fn, op, type, inputs);
 		if(alt == op) {
 			I32 variableAmount = shift && !amount; // a variable amount moves to xmm
-			return addVector(lanes, node, 1 + variableAmount);
+			// pshufb loads its mask, and a scalar trunc is free so its dead lanes save nothing
+			I32 truncCost = (op == Opcode::Trunc) * (1 + (I32)lanes.size());
+			return addVector(lanes, node, 1 + variableAmount + truncCost);
 		}
 		return blend(lanes, node, createArith(*fn, alt, type, inputs));
 	}
@@ -519,6 +531,86 @@ namespace rat {
 			if(t->isFloat() && count * t->byteSize(ptrBytes) < kVecBytes)
 				return false;
 		return true;
+	}
+
+	// trunc lanes of one wide op on extended narrow values are that op on the narrow lanes,
+	// as the low bits of add, sub, mul, logic and shl depend only on the low bits of the operands
+	Node* SlpPass::demote(const Lanes& lanes) {
+		Node* lane0 = lanes[0];
+		Type* narrowType = lane0->getType();
+		B32 narrow = typeBits(narrowType) & detail::kNarrow;
+		if(lane0->getOpcode() != Opcode::Trunc || !narrow || !budget)
+			return nullptr;
+		Node* wide0 = lane0->getInput(0);
+		Opcode op = wide0->getOpcode();
+		B32 shift = isShiftOpcode(op);
+		B32 arith = op >= Opcode::Add && op <= Opcode::Mul;
+		B32 logicOrShl = op >= Opcode::And && op <= Opcode::Shl;
+		if(!arith && !logicOrShl && !shift)
+			return nullptr;
+		// SSE shifts every lane by one amount, here below the narrow width
+		const ConstantNode* amount = dyn_cast<ConstantNode>(wide0->getInput(1));
+		if(shift && (!amount || (U64)amount->getValue() >= narrowType->getIntWidth()))
+			return nullptr;
+		// a right shift of a sext is an ashr of the narrow lanes, of a zext an lshr
+		B32 rightShift = shift && op != Opcode::Shl;
+		Opcode ext = wide0->getInput(0)->getOpcode();
+		if(rightShift && ext != Opcode::SExt && ext != Opcode::ZExt)
+			return nullptr;
+		for(Node* lane : lanes)
+			if(!truncsLike(lane, wide0))
+				return nullptr;
+		--budget;
+		Node* inputs[2] = {nullptr, shift ? wide0->getInput(1) : nullptr};
+		for(U32 k = 0; k < 2 - shift; ++k) {
+			Lanes operands; // input k of each wide op, narrow
+			for(Node* lane : lanes)
+				operands.push_back(narrowOperand(lane->getInput(0)->getInput(k), narrowType));
+			if(std::count(operands.begin(), operands.end(), nullptr))
+				return nullptr;
+			inputs[k] = vectorize(operands);
+			if(!inputs[k])
+				return nullptr;
+		}
+		Opcode narrowOp = op;
+		if(rightShift)
+			narrowOp = ext == Opcode::SExt ? Opcode::AShr : Opcode::LShr;
+		Type* type = fn->types().getVec(narrowType, lanes.size());
+		Node* node = createArith(*fn, narrowOp, type, inputs);
+		// SSE has no byte shift or multiply, see emitByteShift and emitByteMul
+		I32 cost = 1;
+		if(narrowType->isInt(8) && shift)
+			cost = narrowOp == Opcode::AShr ? 6 : 3;
+		if(narrowType->isInt(8) && op == Opcode::Mul)
+			cost = 8;
+		return addVector(lanes, node, cost);
+	}
+
+	// lane truncs an op like wide0 that only the trunc uses, so the op dies with it
+	B32 SlpPass::truncsLike(const Node* lane, const Node* wide0) {
+		if(lane->getOpcode() != Opcode::Trunc)
+			return false;
+		const Node* wide = lane->getInput(0);
+		Opcode op = wide0->getOpcode();
+		if(wide->getOpcode() != op || wide->getType() != wide0->getType())
+			return false;
+		B32 shift = isShiftOpcode(op);
+		if(shift && wide->getInput(1) != wide0->getInput(1))
+			return false;
+		B32 rightShift = shift && op != Opcode::Shl;
+		if(rightShift && wide->getInput(0)->getOpcode() != wide0->getInput(0)->getOpcode())
+			return false;
+		return wide->getUsers().size() == 1;
+	}
+
+	// the narrow value whose extension is wide, a constant truncated, null for others
+	Node* SlpPass::narrowOperand(Node* wide, Type* narrowType) {
+		if(const ConstantNode* c = dyn_cast<ConstantNode>(wide))
+			return fn->constInt(narrowType, signExtend(c->getValue(), narrowType->getIntWidth()));
+		B32 extended = wide->getOpcode() == Opcode::SExt || wide->getOpcode() == Opcode::ZExt;
+		if(!extended || wide->getInput(0)->getType() != narrowType)
+			return nullptr;
+		return wide->getInput(0);
 	}
 
 	// input k of lane, swapped when a commutative lane has lane0's input 0 as its input 1
@@ -597,12 +689,6 @@ namespace rat {
 
 	Node* SlpPass::gather(const Lanes& lanes) {
 		Node* lane0 = lanes[0];
-		if(!(typeBits(lane0->getType()) & detail::kElem))
-			return nullptr;
-		Type* type = fn->types().getVec(lane0->getType(), lanes.size());
-		U32 copies = (U32)std::count(lanes.begin(), lanes.end(), lane0);
-		if(!isa<ConstantNode>(lane0) && copies == lanes.size())
-			return addVector(lanes, fn->create<SplatNode>(type, lane0), 1);
 		I32 variables = 0;
 		B32 poolLoad = isa<ConstantNode>(lane0);
 		for(Node* n : lanes) {
@@ -610,6 +696,15 @@ namespace rat {
 			variables += !c;
 			poolLoad |= c && c->getValue() != 0;
 		}
+		// x86 inserts and splats only dword and qword lanes, narrow lanes come from the pool
+		U8 bits = typeBits(lane0->getType());
+		B32 narrowConstants = (bits & detail::kNarrow) && !variables;
+		if(!(bits & detail::kElem) && !narrowConstants)
+			return nullptr;
+		Type* type = fn->types().getVec(lane0->getType(), lanes.size());
+		U32 copies = (U32)std::count(lanes.begin(), lanes.end(), lane0);
+		if(!isa<ConstantNode>(lane0) && copies == lanes.size())
+			return addVector(lanes, fn->create<SplatNode>(type, lane0), 1);
 		List<Node*> scalars(lanes.begin(), lanes.end());
 		Node* pack = fn->create<PackNode>(type, scalars);
 		return addVector(lanes, pack, variables + poolLoad);

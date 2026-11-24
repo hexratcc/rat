@@ -154,6 +154,12 @@ namespace rat {
 		put(X86Op::VUnary, {vr(d, 16)}, {vr(s, 16)}, vecDesc(pfx, opc, esc));
 	}
 
+	// d shifted in place, idx 0 1 2 for shl lshr ashr
+	void X86LowerPass::vshiftImm(VReg d, U32 laneBits, U32 idx, I64 cnt) {
+		I64 extAndCnt = ((I64)detail::kVecShiftExt[idx] << 8) | (U8)cnt;
+		put(X86Op::VShiftImm, {vr(d, 16)}, {vr(d, 16)}, (I64)laneBits, extAndCnt);
+	}
+
 	// d = mask ? t : f per lane, blendvps/blendvpd read the mask from xmm0
 	void X86LowerPass::vblend(VReg d, VReg f, VReg t, VReg mask, U32 esz) {
 		U8 opc = 0x14; // blendvps

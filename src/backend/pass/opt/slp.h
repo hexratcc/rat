@@ -21,7 +21,7 @@ namespace rat {
 
 	struct SlpPass : FunctionPass {
 		static constexpr U32 kVecBytes = 16; // SSE
-		static constexpr U32 kMaxLanes = 4;
+		static constexpr U32 kMaxLanes = 16;
 		// stores of a stretch, compared pairwise
 		static constexpr U32 kMaxStretch = 64;
 		static constexpr U32 kMaxOps = 64;	 // op tuples tried per seed tuple
@@ -73,6 +73,9 @@ namespace rat {
 		B32 callWrites(Node* state, U32 object);
 		Node* vectorOp(const Lanes& lanes);
 		B32 flagSafe(const Lanes& lanes);
+		Node* demote(const Lanes& lanes);
+		static B32 truncsLike(const Node* lane, const Node* wide0);
+		Node* narrowOperand(Node* wide, Type* narrowType);
 		Node* matchedInput(Node* lane, Node* lane0, U32 k);
 		B32 alike(Node* a, Node* b);
 		Node* negOrNot(Opcode op, Type* type, Node* operand);

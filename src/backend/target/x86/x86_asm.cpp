@@ -425,7 +425,10 @@ namespace rat {
 		op0fRR(wide, 0x7e, xmm, dst);
 	}
 	void Asm::sseShiftImm(U32 laneBits, U8 ext, U32 reg, U8 cnt) {
-		ssePacked(0x66, laneBits == 64 ? 0x73 : 0x72, ext, reg, 0);
+		U8 group = laneBits == 16 ? 0x71 : 0x72; // the word and dword shifts
+		if(laneBits == 64)
+			group = 0x73;
+		ssePacked(0x66, group, ext, reg, 0);
 		b(cnt);
 	}
 	void Asm::cvtRR(U8 pfx, U8 opc, B32 w, U32 dst, U32 src) {

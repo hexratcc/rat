@@ -1,0 +1,86 @@
+@name slp: twelve i8 constant stores pack as an <8 x i8> and a <4 x i8> window from the pool, as a vector has a power of two lanes
+@passes loadcanon slp
+
+@input
+func t(ptr) -> void {
+  v0 = start : (ctrl, mem, ptr)
+  v1 = stop : ctrl v107
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v13 = store : mem v2, v3, v4, v111
+  v18 = add : ptr v4, v113
+  v22 = store : mem v2, v13, v18, v115
+  v27 = add : ptr v4, v117
+  v31 = store : mem v2, v22, v27, v119
+  v36 = add : ptr v4, v121
+  v40 = store : mem v2, v31, v36, v123
+  v45 = add : ptr v4, v125
+  v49 = store : mem v2, v40, v45, v127
+  v54 = add : ptr v4, v129
+  v58 = store : mem v2, v49, v54, v131
+  v63 = add : ptr v4, v133
+  v66 = store : mem v2, v58, v63, v134
+  v71 = add : ptr v4, v136
+  v74 = store : mem v2, v66, v71, v137
+  v79 = add : ptr v4, v139
+  v82 = store : mem v2, v74, v79, v140
+  v87 = add : ptr v4, v142
+  v90 = store : mem v2, v82, v87, v143
+  v95 = add : ptr v4, v145
+  v98 = store : mem v2, v90, v95, v146
+  v103 = add : ptr v4, v148
+  v106 = store : mem v2, v98, v103, v149
+  v107 = return : ctrl v2, v106
+  v111 = const : i8  -60
+  v113 = const : i64  1
+  v115 = const : i8  -49
+  v117 = const : i64  2
+  v119 = const : i8  -38
+  v121 = const : i64  3
+  v123 = const : i8  -27
+  v125 = const : i64  4
+  v127 = const : i8  -16
+  v129 = const : i64  5
+  v131 = const : i8  -5
+  v133 = const : i64  6
+  v134 = const : i8  6
+  v136 = const : i64  7
+  v137 = const : i8  17
+  v139 = const : i64  8
+  v140 = const : i8  28
+  v142 = const : i64  9
+  v143 = const : i8  39
+  v145 = const : i64  10
+  v146 = const : i8  50
+  v148 = const : i64  11
+  v149 = const : i8  61
+}
+
+@expect
+func t(ptr) -> void {
+  v0 = start : (ctrl, mem, ptr)
+  v1 = stop : ctrl v51
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = const : i8  -60
+  v7 = const : i8  -49
+  v9 = const : i8  -38
+  v11 = const : i8  -27
+  v13 = const : i8  -16
+  v15 = const : i8  -5
+  v17 = const : i8  6
+  v19 = const : i8  17
+  v20 = const : i64  8
+  v21 = const : i8  28
+  v23 = const : i8  39
+  v25 = const : i8  50
+  v27 = const : i8  61
+  v28 = store : mem v2, v3, v4, v52
+  v43 = add : ptr v4, v20
+  v44 = store : mem v2, v28, v43, v53
+  v51 = return : ctrl v2, v44
+  v52 = pack : <8 x i8> v5, v7, v9, v11, v13, v15, v17, v19
+  v53 = pack : <4 x i8> v21, v23, v25, v27
+}

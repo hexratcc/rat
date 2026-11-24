@@ -1,0 +1,58 @@
+@name slp: an lshr of a sext keeps the sign in the low bits, so it packs as an ashr on <4 x i16>
+@passes loadcanon slp
+
+@input
+func t(ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v70
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v16 = load : i16 v2, v3, v5
+  v17 = sext : i32 v16
+  v18 = const : i32  3
+  v19 = lshr : i32 v17, v18
+  v20 = trunc : i16 v19
+  v21 = store : mem v2, v3, v4, v20
+  v26 = add : ptr v4, v76
+  v31 = add : ptr v5, v76
+  v32 = load : i16 v2, v21, v31
+  v33 = sext : i32 v32
+  v35 = lshr : i32 v33, v18
+  v36 = trunc : i16 v35
+  v37 = store : mem v2, v21, v26, v36
+  v42 = add : ptr v4, v80
+  v47 = add : ptr v5, v80
+  v48 = load : i16 v2, v37, v47
+  v49 = sext : i32 v48
+  v51 = lshr : i32 v49, v18
+  v52 = trunc : i16 v51
+  v53 = store : mem v2, v37, v42, v52
+  v58 = add : ptr v4, v84
+  v63 = add : ptr v5, v84
+  v64 = load : i16 v2, v53, v63
+  v65 = sext : i32 v64
+  v67 = lshr : i32 v65, v18
+  v68 = trunc : i16 v67
+  v69 = store : mem v2, v53, v58, v68
+  v70 = return : ctrl v2, v69
+  v76 = const : i64  2
+  v80 = const : i64  4
+  v84 = const : i64  6
+}
+
+@expect
+func t(ptr restrict, ptr restrict) -> void {
+  v0 = start : (ctrl, mem, ptr, ptr)
+  v1 = stop : ctrl v36
+  v2 = proj : ctrl  #0 "ctrl" of v0
+  v3 = proj : mem  #1 "mem" of v0
+  v4 = proj : ptr  #2 "arg0" of v0
+  v5 = proj : ptr  #3 "arg1" of v0
+  v8 = const : i32  3
+  v11 = store : mem v2, v3, v4, v38
+  v36 = return : ctrl v2, v11
+  v37 = load : <4 x i16> v2, v3, v5
+  v38 = ashr : <4 x i16> v37, v8
+}

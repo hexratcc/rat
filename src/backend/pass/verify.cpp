@@ -412,15 +412,18 @@ namespace rat {
 		}
 		if(lt->isVec() && !hasVectorLowering(op, lt->getVecElement()))
 			err(n, "binary opcode has no vector lowering");
+		B32 byteLanes = lt->isVec() && lt->getVecElement()->isInt(8);
+		if(byteLanes && shift && !isa<ConstantNode>(n->getInput(1)))
+			err(n, "byte lanes shift only by a constant");
 	}
 
 	// only the SSE4.1-lowerable subset may appear at vector types
 	B32 VerifyPass::FunctionVerifier::hasVectorLowering(Opcode op, const Type* et) {
 		if(!et->isInt())
 			return op == Opcode::FAdd || op == Opcode::FSub || op == Opcode::FMul || op == Opcode::FDiv;
-		// Mul and AShr lower only at 32-bit lanes
+		// Mul and AShr lower at 8, 16 and 32-bit lanes, see emitByteMul and emitByteShift
 		if(op == Opcode::Mul || op == Opcode::AShr)
-			return et->getIntWidth() == 32;
+			return et->getIntWidth() <= 32;
 		B32 bitwise = op == Opcode::And || op == Opcode::Or || op == Opcode::Xor;
 		B32 shift = op == Opcode::Shl || op == Opcode::LShr;
 		return bitwise || shift || op == Opcode::Add || op == Opcode::Sub;
