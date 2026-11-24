@@ -1,0 +1,46 @@
+@name slp: a chain of int min selects is a reduction, folded by pminsd
+@passes slp verify
+
+@input
+func r(ptr restrict) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = const : i64  4
+	v6 = const : i64  8
+	v7 = const : i64  12
+	v8 = add : ptr v4, v5
+	v9 = add : ptr v4, v6
+	v10 = add : ptr v4, v7
+	v11 = load : i32 v2, v3, v4
+	v12 = load : i32 v2, v3, v8
+	v13 = load : i32 v2, v3, v9
+	v14 = load : i32 v2, v3, v10
+	v20 = slt : i1 v12, v11
+	v21 = select : i32 v20, v12, v11
+	v22 = slt : i1 v13, v21
+	v23 = select : i32 v22, v13, v21
+	v24 = slt : i1 v14, v23
+	v25 = select : i32 v24, v14, v23
+	v40 = return : ctrl v2, v3, v25
+}
+
+@expect
+func r(ptr restrict) -> i32 {
+	v0 = start : (ctrl, mem, ptr)
+	v1 = stop : ctrl v21
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v21 = return : ctrl v2, v3, v29
+	v22 = load : <4 x i32> v2, v3, v4
+	v23 = shuffle : <4 x i32>  #4146 v22, v22
+	v24 = slt : <4 x i32> v22, v23
+	v25 = select : <4 x i32> v24, v22, v23
+	v26 = shuffle : <4 x i32>  #8961 v25, v25
+	v27 = slt : <4 x i32> v25, v26
+	v28 = select : <4 x i32> v27, v25, v26
+	v29 = extract : i32  #0 v28
+}

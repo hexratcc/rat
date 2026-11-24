@@ -714,6 +714,11 @@ namespace rat {
 		if(n->getType()->isVec())
 			return emitVecSelect(n);
 		Node* cond = n->getCondition();
+		// a scalar float select is a min or max, see checkSelect in verify.cpp
+		if(n->getType()->isFloat()) {
+			emitMinMax(n, cast<CompareNode>(cond));
+			return;
+		}
 		VReg d = vregFor(n);
 		// materialize both arms before the compare
 		VReg f = gpValue(n->getFalse());
@@ -770,26 +775,44 @@ namespace rat {
 		return m;
 	}
 
-	B32 X86LowerPass::emitVecMinMax(SelectNode* n, CompareNode* c) {
+	// a select of its compare's operands as one min or max op, scalar float or vector
+	B32 X86LowerPass::emitMinMax(SelectNode* n, CompareNode* c) {
 		Opcode op = c->getOpcode();
 		B32 isSigned = op == Opcode::Slt || op == Opcode::Sle;
 		B32 isUnsigned = op == Opcode::Ult || op == Opcode::Ule;
-		B32 min = n->getTrue() == c->getLHS() && n->getFalse() == c->getRHS();
-		B32 max = n->getTrue() == c->getRHS() && n->getFalse() == c->getLHS();
-		if(opWidth(n->getType()->getVecElement()) != 4 || !(isSigned || isUnsigned) || !(min || max))
+		if(!armsAreOperands(c, n->getTrue(), n->getFalse()))
+			return false;
+		// picking the rhs of a less-than is a max, of a greater-than a min
+		B32 picksRhs = !picksCompareLhs(n);
+		if(isFloatOrderOpcode(op)) {
+			emitFMinMax(n, picksRhs == (op == Opcode::FLt));
+			return true;
+		}
+		if(!(isSigned || isUnsigned) || opWidth(n->getType()->getVecElement()) != 4)
 			return false;
 		U8 opc = 0x39; // pminsd, pminud 0x3b, pmaxsd 0x3d, pmaxud 0x3f
 		if(isUnsigned)
 			opc += 2;
-		if(max)
+		if(picksRhs)
 			opc += 4;
 		varith(vregFor(n), sseValue(c->getLHS()), sseValue(c->getRHS()), 0x66, opc, true);
 		return true;
 	}
 
+	// minps t, f picks t when t < f, else f, also for NaN and signed zero. maxps likewise for t > f
+	void X86LowerPass::emitFMinMax(SelectNode* n, B32 max) {
+		Type* type = n->getType();
+		Type* et = type->isVec() ? type->getVecElement() : type;
+		U8 pfx = detail::kFpPfx[type->isVec()][opWidth(et) == 8];
+		I64 desc = vecDesc(pfx, max ? 0x5f : 0x5d, 0);
+		VReg t = sseValue(n->getTrue());
+		VReg f = sseValue(n->getFalse());
+		farith(X86Op::VArith, vregFor(n), t, f, opWidth(type), desc);
+	}
+
 	void X86LowerPass::emitVecSelect(SelectNode* n) {
 		CompareNode* c = cast<CompareNode>(n->getCondition());
-		if(emitVecMinMax(n, c))
+		if(emitMinMax(n, c))
 			return;
 		B32 invert = false;
 		VReg m = vecMask(c, invert);

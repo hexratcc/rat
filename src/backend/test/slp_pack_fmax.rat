@@ -1,0 +1,63 @@
+@name slp: float max lanes pack as a vector compare and select
+@passes slp verify
+
+@input
+func m(ptr restrict, ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr, ptr)
+	v1 = stop : ctrl v60
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "o" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = proj : ptr  #4 "b" of v0
+	v10 = const : i64  4
+	v11 = const : i64  8
+	v12 = const : i64  12
+	v13 = add : ptr v4, v10
+	v14 = add : ptr v4, v11
+	v15 = add : ptr v4, v12
+	v16 = add : ptr v5, v10
+	v17 = add : ptr v5, v11
+	v18 = add : ptr v5, v12
+	v19 = add : ptr v6, v10
+	v20 = add : ptr v6, v11
+	v21 = add : ptr v6, v12
+	v30 = load : f32 v2, v3, v5
+	v31 = load : f32 v2, v3, v16
+	v32 = load : f32 v2, v3, v17
+	v33 = load : f32 v2, v3, v18
+	v34 = load : f32 v2, v3, v6
+	v35 = load : f32 v2, v3, v19
+	v36 = load : f32 v2, v3, v20
+	v37 = load : f32 v2, v3, v21
+	v40 = fgt : i1 v30, v34
+	v41 = fgt : i1 v31, v35
+	v42 = fgt : i1 v32, v36
+	v43 = fgt : i1 v33, v37
+	v44 = select : f32 v40, v30, v34
+	v45 = select : f32 v41, v31, v35
+	v46 = select : f32 v42, v32, v36
+	v47 = select : f32 v43, v33, v37
+	v50 = store : mem v2, v3, v4, v44
+	v51 = store : mem v2, v50, v13, v45
+	v52 = store : mem v2, v51, v14, v46
+	v53 = store : mem v2, v52, v15, v47
+	v60 = return : ctrl v2, v53
+}
+
+@expect
+func m(ptr restrict, ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr, ptr)
+	v1 = stop : ctrl v39
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "o" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = proj : ptr  #4 "b" of v0
+	v35 = store : mem v2, v3, v4, v43
+	v39 = return : ctrl v2, v35
+	v40 = load : <4 x f32> v2, v3, v5
+	v41 = load : <4 x f32> v2, v3, v6
+	v42 = fgt : <4 x i32> v40, v41
+	v43 = select : <4 x f32> v42, v40, v41
+}

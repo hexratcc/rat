@@ -459,6 +459,17 @@ namespace rat {
 	Node* cloneShell(Function& into, const Node* n);
 	// a Binary, Unary, Compare, Convert or Select node of op on its inputs, null for other ops
 	Node* createArith(Function& fn, Opcode op, Type* type, Node* const* inputs);
+	// the arms are the two operands of compare in either order, then a select of them is a min or max
+	B32 armsAreOperands(const Node* compare, const Node* trueValue, const Node* falseValue);
+	// a select of the smaller or larger operand of an f32 or f64 flt or fgt, one minss or maxss
+	B32 floatMinMax(const Type* type,
+									const Node* compare,
+									const Node* trueValue,
+									const Node* falseValue);
+	// the select picks the lhs of its compare when the compare holds
+	B32 picksCompareLhs(const Node* select);
+	// user lists def among its inputs
+	B32 listsAsInput(const Node* user, const Node* def);
 } // namespace rat
 
 #endif

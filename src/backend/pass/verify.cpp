@@ -42,13 +42,6 @@ namespace rat {
 	B32 VerifyPass::FunctionVerifier::isCtrl(const Node* n) { return n && n->getType()->isControl(); }
 	B32 VerifyPass::FunctionVerifier::isBool(const Type* t) { return t->isInt(1); }
 
-	B32 VerifyPass::FunctionVerifier::listsAsInput(const Node* user, const Node* def) {
-		for(U32 i = 0, e = user->getInputCount(); i < e; ++i)
-			if(user->getInput(i) == def)
-				return true;
-		return false;
-	}
-
 	B32 VerifyPass::FunctionVerifier::checkArity(const Node* n) {
 		const OpcodeInfo& info = getOpcodeInfo(n->getOpcode());
 		U32 count = n->getInputCount();
@@ -317,8 +310,17 @@ namespace rat {
 		const Type* t = n->getType();
 		const Node* cond = s->getCondition();
 		if(t->isVec()) {
-			if(cond->getType() != t || !isCompareOpcode(cond->getOpcode()))
-				err(n, "vector Select condition must be a compare with the Select's type");
+			// a lane mask as wide as the lanes, see vectorOp in slp.cpp
+			U32 ptrBytes = TargetInfo::kPointerSizeInBits / 8;
+			const Type* mask = cond->getType();
+			B32 sameLanes = mask->isVec() && mask->getVecLanes() == t->getVecLanes();
+			B32 sameBytes = mask->byteSize(ptrBytes) == t->byteSize(ptrBytes);
+			if(!isCompareOpcode(cond->getOpcode()) || !sameLanes || !sameBytes)
+				err(n, "vector Select condition must be a compare as wide as the Select");
+		} else if(t->isFloat()) {
+			// x86 lowers only a min or max, see emitFMinMax
+			if(!floatMinMax(t, cond, s->getTrue(), s->getFalse()))
+				err(n, "float Select must be a min or max of an f32 or f64 flt or fgt");
 		} else if(!t->isInt() && !t->isPtr()) {
 			err(n, "Select type must be an integer or pointer");
 		} else if(!isBool(cond->getType())) {

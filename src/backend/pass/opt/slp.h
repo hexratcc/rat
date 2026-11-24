@@ -62,7 +62,11 @@ namespace rat {
 		// reductions
 		void packReduction(Node* root);
 		static void flatten(Node* root, Terms& terms, Terms& steps);
-		Node* foldLanes(Opcode op, const List<Node*>& termVectors, Type* scalarType);
+		Node* foldLanes(Node* root, const List<Node*>& termVectors, Type* scalarType);
+		Node* combine(Node* root, Node* a, Node* b);
+		static B32 isMinMax(const Node* n);
+		static B32 sameStep(const Node* n, const Node* root);
+		static B32 feedsOneStep(const Node* n);
 		B32 loadsBeforeCall();
 
 		// vectors

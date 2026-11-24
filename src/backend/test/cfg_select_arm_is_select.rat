@@ -1,0 +1,42 @@
+@name simplifycfg: an arm the predicate reads is computed anyway, so a chain of min diamonds becomes selects
+@passes simplifycfg verify
+
+@input
+func min3(i32, i32, i32) -> i32 {
+	v0 = start : (ctrl, mem, i32, i32, i32)
+	v1 = stop : ctrl v25
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "a" of v0
+	v5 = proj : i32  #3 "b" of v0
+	v6 = proj : i32  #4 "c" of v0
+	v8 = slt : i1 v5, v4
+	v9 = if : (ctrl, ctrl) v2, v8
+	v10 = proj : ctrl  #0 "then" of v9
+	v11 = proj : ctrl  #1 "else" of v9
+	v12 = region : ctrl v10, v11
+	v13 = phi : i32 v12, v5, v4
+	v18 = slt : i1 v6, v13
+	v19 = if : (ctrl, ctrl) v12, v18
+	v20 = proj : ctrl  #0 "then" of v19
+	v21 = proj : ctrl  #1 "else" of v19
+	v22 = region : ctrl v20, v21
+	v23 = phi : i32 v22, v6, v13
+	v25 = return : ctrl v22, v3, v23
+}
+
+@expect
+func min3(i32, i32, i32) -> i32 {
+	v0 = start : (ctrl, mem, i32, i32, i32)
+	v1 = stop : ctrl v19
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : i32  #2 "a" of v0
+	v5 = proj : i32  #3 "b" of v0
+	v6 = proj : i32  #4 "c" of v0
+	v7 = slt : i1 v5, v4
+	v13 = slt : i1 v6, v20
+	v19 = return : ctrl v2, v3, v21
+	v20 = select : i32 v7, v5, v4
+	v21 = select : i32 v13, v6, v20
+}

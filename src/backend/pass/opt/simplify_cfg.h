@@ -18,6 +18,7 @@
 namespace rat {
 	struct IfNode;
 	struct Node;
+	struct PhiNode;
 	struct RegionNode;
 
 	struct SimplifyCFGPass : FunctionPass {
@@ -42,6 +43,9 @@ namespace rat {
 		// if-conversion
 		static B32 freeValue(Node* v);
 		static B32 cheapOp(Opcode op);
+		static IfNode* diamondIf(RegionNode* r);
+		static Node* nextStepPredicate(Node* u, RegionNode* r);
+		static B32 packableUses(PhiNode* phi, RegionNode* r);
 		B32 walkCone(Node* root);
 		B32 coneMayTrap(Node* v, Node* pred);
 		static I32 speculationCost(Node* v, Node* phi, U32 depth);

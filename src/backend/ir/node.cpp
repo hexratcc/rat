@@ -449,4 +449,30 @@ namespace rat {
 		return nullptr;
 	}
 
+	B32 armsAreOperands(const Node* compare, const Node* trueValue, const Node* falseValue) {
+		const Node* l = compare->getInput(0);
+		const Node* r = compare->getInput(1);
+		return (trueValue == l && falseValue == r) || (trueValue == r && falseValue == l);
+	}
+
+	B32 floatMinMax(const Type* type,
+									const Node* compare,
+									const Node* trueValue,
+									const Node* falseValue) {
+		B32 orders = isFloatOrderOpcode(compare->getOpcode());
+		B32 sse = type->isFloat() && type->getFloatWidth() <= 64;
+		return sse && orders && armsAreOperands(compare, trueValue, falseValue);
+	}
+
+	B32 picksCompareLhs(const Node* select) {
+		return select->getInput(1) == select->getInput(0)->getInput(0);
+	}
+
+	B32 listsAsInput(const Node* user, const Node* def) {
+		for(U32 i = 0, e = user->getInputCount(); i < e; ++i)
+			if(user->getInput(i) == def)
+				return true;
+		return false;
+	}
+
 } // namespace rat

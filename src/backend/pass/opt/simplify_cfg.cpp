@@ -92,6 +92,54 @@ namespace rat {
 		}
 	}
 
+	// the if whose two arms r merges, null for other regions
+	IfNode* SimplifyCFGPass::diamondIf(RegionNode* r) {
+		if(r->isLoopHeader() || r->getPredecessorCount() != 2)
+			return nullptr;
+		ProjNode* a = dyn_cast<ProjNode>(r->getPredecessor(0));
+		ProjNode* b = dyn_cast<ProjNode>(r->getPredecessor(1));
+		IfNode* iff = a ? dyn_cast<IfNode>(a->getProducer()) : nullptr;
+		if(!iff || !b || b->getProducer() != iff)
+			return nullptr;
+		return iff;
+	}
+
+	// the predicate of u when u is the phi of the next float min or max of a chain from r, null else.
+	// Its diamond follows r right away and pins the select there. Chains convert in source order, so
+	// the next step is still a diamond
+	Node* SimplifyCFGPass::nextStepPredicate(Node* u, RegionNode* r) {
+		PhiNode* phi = dyn_cast<PhiNode>(u);
+		if(!phi || phi->getValueCount() != 2)
+			return nullptr;
+		IfNode* iff = diamondIf(phi->getRegion());
+		if(!iff || iff->getControl() != r)
+			return nullptr;
+		Node* pred = iff->getPredicate();
+		B32 minMax = floatMinMax(phi->getType(), pred, phi->getValue(0), phi->getValue(1));
+		return minMax ? pred : nullptr;
+	}
+
+	// slp packs a float min or max only as a value stored at the merge, or as a chain step. Both pin the
+	// select at the merge. Elsewhere minsd and maxsd may sink below calls, see shade in c-ray, and a
+	// returned one may do so in a caller after inlining
+	B32 SimplifyCFGPass::packableUses(PhiNode* phi, RegionNode* r) {
+		List<Node*> nextSteps, stepPredicates;
+		for(Node* u : phi->getUsers())
+			if(Node* pred = nextStepPredicate(u, r)) {
+				nextSteps.push_back(u);
+				stepPredicates.push_back(pred);
+			}
+		for(Node* u : phi->getUsers()) {
+			B32 atMerge = u->getControlInput() == r;
+			B32 stored = isa<StoreNode>(u) && cast<StoreNode>(u)->getValue() == phi && atMerge;
+			B32 nextStep = std::count(nextSteps.begin(), nextSteps.end(), u);
+			B32 stepPredicate = std::count(stepPredicates.begin(), stepPredicates.end(), u);
+			if(!stored && !nextStep && !stepPredicate)
+				return false;
+		}
+		return true;
+	}
+
 	B32 SimplifyCFGPass::walkCone(Node* root) {
 		B32 trap = false;
 		stack.clear();
@@ -138,15 +186,11 @@ namespace rat {
 
 	// try to rewrite one empty-armed diamond as selects
 	B32 SimplifyCFGPass::regionToSelect(Function& fn, RegionNode* r) {
-		if(r->isLoopHeader() || r->getPredecessorCount() != 2)
+		IfNode* iff = diamondIf(r);
+		if(!iff)
 			return false;
-		ProjNode* a = dyn_cast<ProjNode>(r->getPredecessor(0));
-		ProjNode* b = dyn_cast<ProjNode>(r->getPredecessor(1));
-		if(!a || !b)
-			return false;
-		IfNode* iff = dyn_cast<IfNode>(a->getProducer());
-		if(!iff || iff != dyn_cast<IfNode>(b->getProducer()))
-			return false;
+		ProjNode* a = cast<ProjNode>(r->getPredecessor(0));
+		ProjNode* b = cast<ProjNode>(r->getPredecessor(1));
 		// nothing may be anchored to the projections
 		if(a->getUsers().size() != 1 || b->getUsers().size() != 1 || a->getIndex() == b->getIndex())
 			return false;
@@ -164,10 +208,13 @@ namespace rat {
 			Node* fv = phi->getValue(1 - thenSlot);
 			if(tv == fv)
 				continue; // degenerate
-			I32 c0 = speculationCost(tv, phi, kSpeculationDepth);
-			I32 c1 = speculationCost(fv, phi, kSpeculationDepth);
+			// an arm the predicate reads is computed before the branch anyway
+			I32 c0 = listsAsInput(pred, tv) ? 0 : speculationCost(tv, phi, kSpeculationDepth);
+			I32 c1 = listsAsInput(pred, fv) ? 0 : speculationCost(fv, phi, kSpeculationDepth);
 			Type* t = phi->getType();
-			if(!t || !(t->isInt() || t->isPtr()) || c0 < 0 || c1 < 0)
+			B32 minMax = floatMinMax(t, pred, tv, fv) && packableUses(phi, r);
+			B32 typed = t->isInt() || t->isPtr() || minMax;
+			if(!typed || c0 < 0 || c1 < 0)
 				return false;
 			if(coneMayTrap(tv, pred) || coneMayTrap(fv, pred))
 				return false;

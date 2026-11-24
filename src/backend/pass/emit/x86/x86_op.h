@@ -43,6 +43,8 @@ namespace rat {
 		constexpr I64 kVecImm8 = (I64)1 << 24;
 		// FEq..FGe -> cmpps/cmppd predicate, gt and ge are lt and le with swapped operands
 		constexpr U8 kVecFpPred[] = {0, 4, 1, 2, 1, 2};
+		// the prefix of a float op by packed and double, F3 ss, F2 sd, none ps, 66 pd
+		constexpr U8 kFpPfx[2][2] = {{0xf3, 0xf2}, {0, 0x66}};
 		// log2 of the lane bytes -> paddb, paddw, paddd, paddq
 		constexpr U8 kVecAddOpc[] = {0xfc, 0xfd, 0xfe, 0xd4};
 		// log2 of the lane bytes -> psubb, psubw, psubd, psubq

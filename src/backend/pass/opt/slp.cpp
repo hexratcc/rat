@@ -54,7 +54,7 @@ namespace rat {
 			{Opcode::FPToSI,  Opcode::FPToSI,  kInt32,      kFloat},     // cvttps2dq/pd2dq
 			{Opcode::FPExt,   Opcode::FPExt,   kFloat64,    kFloat32},   // cvtps2pd
 			{Opcode::FPTrunc, Opcode::FPTrunc, kFloat32,    kFloat64},   // cvtpd2ps
-			{Opcode::Select,  Opcode::Select,  kInt32Int64, 0},          // blendv
+			{Opcode::Select,  Opcode::Select,  kInt32Int64 | kFloat, 0}, // blendv, pminsd, minps
 		};
 		// clang-format on
 	} // namespace detail
@@ -181,21 +181,28 @@ namespace rat {
 		Type* type = root->getType();
 		if(!root->hasUsers())
 			return; // a dead node is no root
-		B32 intRoot = root->isCommutative() && (typeBits(type) & detail::kInt32Int64);
+		// a min or max reassociates like a commutative op
+		B32 minMax = isMinMax(root) && hasRule(root->getInput(0));
+		B32 commutes = root->isCommutative() || minMax;
+		U8 bits = typeBits(type);
+		B32 intRoot = commutes && (bits & detail::kInt32Int64);
 		// no fsub or fdiv, lane 1 of their fold computes right op left. That can raise a flag the scalar
 		// code does not, fdiv always and fsub under a directed rounding mode
-		B32 floatRoot = op == Opcode::FAdd || op == Opcode::FMul;
+		B32 floatRoot = op == Opcode::FAdd || op == Opcode::FMul || (minMax && (bits & detail::kFloat));
 		if(!(intRoot || floatRoot) || !hasRule(root))
 			return;
 		for(Node* u : root->getUsers())
-			if(u->getOpcode() == op && u->getType() == type)
+			if(sameStep(u, root))
 				return;
-		Node* left = root->getInput(0);
-		Node* right = root->getInput(1);
+		U32 arm = minMax; // input 0 of a select is its condition
+		Node* left = root->getInput(arm);
+		Node* right = root->getInput(arm + 1);
 		// a float root is one pair, and only a pair of one vector op pays for the fold
 		if(!intRoot && (left->getOpcode() != right->getOpcode() || !hasRule(left)))
 			return;
 		Terms steps = {root};
+		if(minMax)
+			steps.push_back(root->getInput(0)); // the compare dies with its select
 		Terms terms;
 		if(intRoot)
 			flatten(root, terms, steps);
@@ -232,39 +239,44 @@ namespace rat {
 			rollback(packStart);
 			return;
 		}
-		Node* result = foldLanes(op, termVectors, type);
+		Node* result = foldLanes(root, termVectors, type);
 		for(U32 i = vectorCount * laneCount; i < terms.size(); ++i)
-			result = fn->binary(op, result, terms[i]);
+			result = combine(root, result, terms[i]);
 		root->replaceAllUsesWith(result);
 		++packedReductions;
 	}
 
 	void SlpPass::flatten(Node* root, Terms& terms, Terms& steps) {
-		Opcode op = root->getOpcode();
-		Type* type = root->getType();
 		Terms todo = {root};
 		while(!todo.empty()) {
 			Node* n = todo.back();
 			todo.pop_back();
-			B32 sameOp = n->getOpcode() == op && n->getType() == type;
-			B32 isStep = sameOp && (n == root || n->getUsers().size() == 1);
+			B32 isStep = sameStep(n, root) && (n == root || feedsOneStep(n));
 			// a step adds two terms
 			B32 room = terms.size() + todo.size() + 2 <= kMaxTerms;
 			if(isStep && room) {
 				steps.push_back(n);
-				todo.push_back(n->getInput(0));
-				todo.push_back(n->getInput(1));
+				U32 arm = isa<SelectNode>(n); // input 0 of a min or max is its compare, which dies with it
+				Node* first = n->getInput(arm);
+				Node* second = n->getInput(arm + 1);
+				// a min or max chain runs through the false arm, so the swap keeps source order
+				if(arm) {
+					steps.push_back(n->getInput(0));
+					std::swap(first, second);
+				}
+				todo.push_back(first);
+				todo.push_back(second);
 			} else
 				terms.push_back(n);
 		}
 		std::reverse(terms.begin(), terms.end());
 	}
 
-	// the vectors combined by op, then their lanes folded by shuffles into lane 0
-	Node* SlpPass::foldLanes(Opcode op, const List<Node*>& termVectors, Type* scalarType) {
+	// the vectors combined like root, then their lanes folded by shuffles into lane 0
+	Node* SlpPass::foldLanes(Node* root, const List<Node*>& termVectors, Type* scalarType) {
 		Node* folded = termVectors[0];
 		for(U32 i = 1; i < termVectors.size(); ++i)
-			folded = fn->binary(op, folded, termVectors[i]);
+			folded = combine(root, folded, termVectors[i]);
 		Type* vecType = folded->getType();
 		// kFoldSel[lanes / 4] holds the shuffle of each round, nibble i is the source of lane i
 		constexpr U16 kFoldSel[2][2] = {{0x01}, {0x1032, 0x2301}};
@@ -272,9 +284,59 @@ namespace rat {
 			if(!sel) // 0 pads the 2-lane row
 				continue;
 			Node* shuffle = fn->create<ShuffleNode>(vecType, folded, folded, sel);
-			folded = fn->binary(op, folded, shuffle);
+			folded = combine(root, folded, shuffle);
 		}
 		return fn->create<ExtractNode>(scalarType, folded, 0);
+	}
+
+	// a op b like root, for a min or max a compare and a select
+	Node* SlpPass::combine(Node* root, Node* a, Node* b) {
+		if(!isa<SelectNode>(root))
+			return fn->binary(root->getOpcode(), a, b);
+		Node* compare = root->getInput(0);
+		Type* type = a->getType();
+		Type* maskType = compare->getType();
+		if(type->isVec())
+			maskType = fn->types().getVec(laneType(compare), type->getVecLanes());
+		Node* operands[2] = {a, b};
+		if(!picksCompareLhs(root))
+			std::swap(operands[0], operands[1]);
+		Node* inputs[3] = {createArith(*fn, compare->getOpcode(), maskType, operands), a, b};
+		return createArith(*fn, Opcode::Select, type, inputs);
+	}
+
+	// a select of the smaller or larger operand of its compare, which only it uses
+	B32 SlpPass::isMinMax(const Node* n) {
+		if(n->getOpcode() != Opcode::Select)
+			return false;
+		const Node* compare = n->getInput(0);
+		Opcode op = compare->getOpcode();
+		B32 orders = isFloatOrderOpcode(op) || (op >= Opcode::Slt && op <= Opcode::Ule);
+		return orders && compare->getUsers().size() == 1 &&
+					 armsAreOperands(compare, n->getInput(1), n->getInput(2));
+	}
+
+	// n is a step of root's chain, the same op, for a min or max also the same compare and order
+	B32 SlpPass::sameStep(const Node* n, const Node* root) {
+		if(n->getOpcode() != root->getOpcode() || n->getType() != root->getType())
+			return false;
+		if(!isa<SelectNode>(root))
+			return true;
+		if(!isMinMax(n))
+			return false;
+		B32 sameCompare = n->getInput(0)->getOpcode() == root->getInput(0)->getOpcode();
+		return sameCompare && picksCompareLhs(n) == picksCompareLhs(root);
+	}
+
+	// n feeds one step only, a min or max step also by its compare
+	B32 SlpPass::feedsOneStep(const Node* n) {
+		NodeSpan users = n->getUsers();
+		if(users.size() != 2)
+			return users.size() == 1;
+		Node* a = users[0];
+		Node* b = users[1];
+		return (isa<SelectNode>(a) && a->getInput(0) == b) ||
+					 (isa<SelectNode>(b) && b->getInput(0) == a);
 	}
 
 	// a call follows a wide load of the pack, maybe behind stores and merges. The fold may sort after
@@ -555,8 +617,9 @@ namespace rat {
 			inputs[k] = vectorize(operands);
 			if(!inputs[k])
 				return nullptr;
-			if(op == Opcode::Select && inputs[0]->getType() != type)
-				return nullptr; // blendv needs a mask of the lane type
+			if(op == Opcode::Select &&
+				 inputs[0]->getType()->byteSize(ptrBytes) != type->byteSize(ptrBytes))
+				return nullptr; // blendv needs a mask as wide as the lanes
 		}
 		if(op == Opcode::Neg || op == Opcode::Not)
 			return addVector(lanes, negOrNot(op, type, inputs[0]), 2);

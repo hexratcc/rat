@@ -1,0 +1,43 @@
+@name slp: a float max select of two packable f64 terms is a select of lane 0 and lane 1 of one 2-lane vector
+@passes slp verify
+
+@input
+func f(ptr, ptr) -> f64 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v33
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "b" of v0
+	v6 = const : i64  8
+	v11 = load : f64 v2, v3, v4
+	v17 = load : f64 v2, v3, v5
+	v18 = fmul : f64 v11, v17
+	v23 = add : ptr v4, v6
+	v24 = load : f64 v2, v3, v23
+	v29 = add : ptr v5, v6
+	v30 = load : f64 v2, v3, v29
+	v31 = fmul : f64 v24, v30
+	v40 = fgt : i1 v18, v31
+	v32 = select : f64 v40, v18, v31
+	v33 = return : ctrl v2, v3, v32
+}
+
+
+@expect
+func f(ptr, ptr) -> f64 {
+	v0 = start : (ctrl, mem, ptr, ptr)
+	v1 = stop : ctrl v17
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "a" of v0
+	v5 = proj : ptr  #3 "b" of v0
+	v17 = return : ctrl v2, v3, v24
+	v18 = load : <2 x f64> v2, v3, v4
+	v19 = load : <2 x f64> v2, v3, v5
+	v20 = fmul : <2 x f64> v18, v19
+	v21 = shuffle : <2 x f64>  #1 v20, v20
+	v22 = fgt : <2 x i64> v20, v21
+	v23 = select : <2 x f64> v22, v20, v21
+	v24 = extract : f64  #0 v23
+}
