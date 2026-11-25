@@ -98,6 +98,8 @@ namespace rat::cc {
 		if(isFloating(type)) {
 			Node* delta = fn.constFloat(irType(type), 1.0);
 			updated = fn.binary(isInc ? Opcode::FAdd : Opcode::FSub, old, delta);
+		} else if(isInteger(type) && type.bits == 1 && isInc) {
+			updated = fn.constBool(true); // _Bool ++ sets 1, -- as sub i1 gives !b
 		} else {
 			Node* delta;
 			if(isPointer(type))
