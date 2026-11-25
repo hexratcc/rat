@@ -1,4 +1,4 @@
-@name slp: a chain of int min selects is a reduction, folded by pminsd
+@name slp: a chain of int min selects is a reduction folded with pminsd
 @passes slp verify
 
 @input

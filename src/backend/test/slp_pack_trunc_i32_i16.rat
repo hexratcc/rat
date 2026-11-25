@@ -1,4 +1,4 @@
-@name slp: trunc lanes of i32 loads pack as a trunc of one <4 x i32> load
+@name slp: a trunc of i32 loads packs as a trunc of one <4 x i32> load
 @passes loadcanon slp
 
 @input

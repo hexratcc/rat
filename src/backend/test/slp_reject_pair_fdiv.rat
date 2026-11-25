@@ -1,4 +1,4 @@
-@name slp: a float div of two packable terms stays scalar, lane 1 would divide right by left
+@name slp: an fdiv of two packable terms stays scalar, lane 1 would compute right / left
 @passes slp
 
 @input

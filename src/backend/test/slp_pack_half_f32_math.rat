@@ -1,4 +1,4 @@
-@name slp: 2-lane f32 multiplies pack, x86 repeats the lanes in the upper half so the packed op raises only the flags of its lanes
+@name slp: 2-lane f32 multiplies pack, the upper lanes repeat the pair so no extra flags
 @passes slp verify
 
 @input

@@ -1,4 +1,4 @@
-@name slp: i32 neg lanes pack as a subtract from zero, i64 not lanes as an xor with all ones
+@name slp: i32 neg packs as 0 - x, i64 not as x ^ -1
 @passes slp
 
 @input

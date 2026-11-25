@@ -1,4 +1,4 @@
-@name slp: lanes that multiply and divide in turn stay scalar, a blend would compute both ops on every lane and raise their flags
+@name slp: alternating fmul and fdiv lanes stay scalar, a blend would raise the flags of both ops
 @passes slp verify
 
 @input

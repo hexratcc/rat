@@ -1,4 +1,4 @@
-@name slp: f32 fsqrt lanes pack into one sqrtps, f64 fabs lanes into one vector fabs
+@name slp: f32 fsqrt lanes pack as sqrtps, f64 fabs lanes as one vector fabs
 @passes slp
 
 @input

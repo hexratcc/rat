@@ -1,4 +1,4 @@
-@name slp: an lshr of a sext keeps the sign in the low bits, so it packs as an ashr on <4 x i16>
+@name slp: an lshr of a sext packs as an ashr on <4 x i16>, the shifted in bits are sign bits
 @passes loadcanon slp
 
 @input

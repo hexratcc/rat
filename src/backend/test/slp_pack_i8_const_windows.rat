@@ -1,4 +1,4 @@
-@name slp: twelve i8 constant stores pack as an <8 x i8> and a <4 x i8> window from the pool, as a vector has a power of two lanes
+@name slp: twelve i8 constant stores pack as <8 x i8> and <4 x i8>, lane counts are powers of two
 @passes loadcanon slp
 
 @input

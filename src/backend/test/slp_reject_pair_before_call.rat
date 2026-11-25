@@ -1,4 +1,4 @@
-@name slp: a float pair whose loads a call follows stays scalar, its vectors may spill around the call
+@name slp: an f32 fadd pair stays scalar when a call follows its loads, the vectors would spill
 @passes slp
 
 @input
@@ -18,7 +18,7 @@ func f(ptr, ptr) -> f32 {
 	v29 = add : ptr v5, v6
 	v30 = load : f32 v2, v3, v29
 	v31 = fmul : f32 v24, v30
-	v32 = fsub : f32 v18, v31
+	v32 = fadd : f32 v18, v31
 	v37 = call : (ctrl, mem)  "g" v2, v3
 	v38 = proj : ctrl  #0 "ctrl" of v37
 	v39 = proj : mem  #1 "mem" of v37
@@ -42,7 +42,7 @@ func f(ptr, ptr) -> f32 {
 	v29 = add : ptr v5, v6
 	v30 = load : f32 v2, v3, v29
 	v31 = fmul : f32 v24, v30
-	v32 = fsub : f32 v18, v31
+	v32 = fadd : f32 v18, v31
 	v37 = call : (ctrl, mem)  "g" v2, v3
 	v38 = proj : ctrl  #0 "ctrl" of v37
 	v39 = proj : mem  #1 "mem" of v37

@@ -1,6 +1,6 @@
 // expect: 0
-// byte and word lanes pack. SSE has no byte shift or multiply, so these are word ops and masks
-// (see emitByteShift and emitByteMul). Every byte value meets the hard cases, 0x80 and carries
+// Byte and word lanes pack. SSE has no byte shift or multiply, see emitByteShift and emitByteMul.
+// Every byte value is tried, so 0x80 and carries are covered
 #define L4(e, k) e(k) e(k + 1) e(k + 2) e(k + 3)
 #define L16(e) L4(e, 0) L4(e, 4) L4(e, 8) L4(e, 12)
 typedef signed char s8;

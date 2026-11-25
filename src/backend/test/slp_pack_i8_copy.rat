@@ -1,4 +1,4 @@
-@name slp: sixteen i8 copies pack into one <16 x i8> load and store
+@name slp: sixteen i8 copies pack as one <16 x i8> load and store
 @passes loadcanon slp
 
 @input

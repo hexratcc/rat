@@ -1,4 +1,4 @@
-@name slp: a four-term i32 sum is one wide load and a shuffle fold, one scalar op saved
+@name slp: a four-term i32 sum is one wide load and a shuffle fold, saving one op
 @passes slp
 
 @input

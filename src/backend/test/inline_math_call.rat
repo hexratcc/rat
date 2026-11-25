@@ -1,4 +1,4 @@
-@name inline: a sqrtf call the module does not define becomes fsqrt, a module fabs is still inlined, a sqrt of an f32 stays a call
+@name inline: an undefined sqrtf becomes fsqrt, a defined fabs inlines, sqrt of an f32 stays a call
 @passes inline
 
 @input

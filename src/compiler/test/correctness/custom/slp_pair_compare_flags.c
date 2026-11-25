@@ -1,6 +1,6 @@
 // expect: 0
-// an int select by a float order compare on 2 f32 lanes stays scalar. cmpltps signals on a quiet NaN,
-// the scalar ucomiss does not
+// An int select by a 2-lane f32 order compare stays scalar.
+// cmpltps signals on a quiet NaN, our ucomiss does not
 int feclearexcept(int excepts);
 int fetestexcept(int excepts);
 #define FE_ALL_EXCEPT 0x3d

@@ -32,15 +32,11 @@ namespace rat {
 		return 8;
 	}
 
-	// a <2 x f32> holds its lanes again in lanes 2 and 3, so packed float math on all four lanes raises
-	// only the flags of the scalar ops. Every producer keeps that unless readsLowLanes, see repeatLowHalf
 	B32 X86LowerPass::repeatsLanes(const Type* t) {
 		return t && t->isVec() && t->getVecLanes() == 2 && t->getVecElement()->isFloat() &&
 					 t->getVecElement()->getFloatWidth() == 32;
 	}
 
-	// every user reads lanes 0 and 1 only, a store, an extract, a cvtps2pd or a shuffle (see shuffleDwords),
-	// so lanes 2 and 3 need no copy
 	B32 X86LowerPass::readsLowLanes(const Node* n) {
 		for(Node* u : n->getUsers()) {
 			B32 stored = isa<StoreNode>(u) && cast<StoreNode>(u)->getValue() == n;
@@ -51,8 +47,6 @@ namespace rat {
 		return true;
 	}
 
-	// a scalar fabs or fneg of a load that only stores read, done on the int bits as clang does, so the
-	// float never enters an xmm
 	B32 X86LowerPass::gpSignOp(const Node* n) {
 		Opcode op = n->getOpcode();
 		const Type* t = n->getType();

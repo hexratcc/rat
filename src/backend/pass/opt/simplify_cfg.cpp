@@ -104,9 +104,6 @@ namespace rat {
 		return iff;
 	}
 
-	// the predicate of u when u is the phi of the next float min or max of a chain from r, null else.
-	// Its diamond follows r right away and pins the select there. Chains convert in source order, so
-	// the next step is still a diamond
 	Node* SimplifyCFGPass::nextStepPredicate(Node* u, RegionNode* r) {
 		PhiNode* phi = dyn_cast<PhiNode>(u);
 		if(!phi || phi->getValueCount() != 2)
@@ -119,9 +116,6 @@ namespace rat {
 		return minMax ? pred : nullptr;
 	}
 
-	// slp packs a float min or max only as a value stored at the merge, or as a chain step. Both pin the
-	// select at the merge. Elsewhere minsd and maxsd may sink below calls, see shade in c-ray, and a
-	// returned one may do so in a caller after inlining
 	B32 SimplifyCFGPass::packableUses(PhiNode* phi, RegionNode* r) {
 		List<Node*> nextSteps, stepPredicates;
 		for(Node* u : phi->getUsers())

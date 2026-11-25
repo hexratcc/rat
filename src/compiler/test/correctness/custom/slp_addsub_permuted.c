@@ -1,5 +1,5 @@
 // expect: 0
-// add and sub lanes out of addsubps order pack as a shuffle of addsubps, so each lane keeps its own op.
+// add and sub lanes out of addsubps order pack as addsubps and a shuffle, each lane keeps its op.
 // Both ops on every lane would compute inf - inf on the add lanes and raise invalid
 int feclearexcept(int excepts);
 int fetestexcept(int excepts);

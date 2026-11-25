@@ -1,4 +1,4 @@
-@name slp: lanes at every other element of two blocks pack as a shuffle of two wide loads
+@name slp: every other element of two blocks packs as a shuffle of two wide loads
 @passes slp
 
 @input

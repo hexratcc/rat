@@ -1,4 +1,4 @@
-@name slp: every other i32 of two 8-byte windows stays scalar, as only full vectors shuffle two windows
+@name slp: every other i32 of two 8-byte windows stays scalar, only full vectors shuffle two windows
 @passes slp
 
 @input

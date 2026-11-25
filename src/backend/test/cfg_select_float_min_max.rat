@@ -1,4 +1,4 @@
-@name simplifycfg: a float min or max diamond becomes a select when stored at its merge or chained, a returned one, a >= one, one an fmul reads and one a call separates stay
+@name simplifycfg: a float min or max diamond is a select only if stored or chained, no call between
 @passes simplifycfg verify
 
 @input

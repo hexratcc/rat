@@ -1,4 +1,4 @@
-@name slp: lanes with swapped commutative operands pack once each lane matches lane 0
+@name slp: commutative lanes with swapped operands pack once matched to lane 0
 @passes slp
 
 @input

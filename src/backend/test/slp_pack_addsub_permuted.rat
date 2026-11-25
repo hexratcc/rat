@@ -1,4 +1,4 @@
-@name slp: add and sub lanes out of addsubps order pack as a shuffle of addsubps of the reordered lanes
+@name slp: add and sub lanes out of addsubps order pack as addsubps and a shuffle
 @passes slp
 
 @input

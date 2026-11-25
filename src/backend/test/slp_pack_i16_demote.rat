@@ -1,4 +1,4 @@
-@name slp: trunc lanes of an i32 add of sign-extended i16 loads pack as an add on <4 x i16>
+@name slp: a trunc of an i32 add of sext i16 loads packs as an add on <4 x i16>
 @passes loadcanon slp
 
 @input

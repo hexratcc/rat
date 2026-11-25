@@ -356,8 +356,6 @@ namespace rat {
 		varith(d, s, c, 0x66, opc, false);
 	}
 
-	// SSE has no byte shift, so a word shift, then a mask clears the bits from the next byte.
-	// ashr is lshr, then (x ^ m) - m with m the shifted sign bit
 	void X86LowerPass::emitByteShift(BinaryNode* n, I64 cnt) {
 		Opcode op = n->getOpcode();
 		B32 left = op == Opcode::Shl;
@@ -376,8 +374,6 @@ namespace rat {
 		varith(d, d, sign, 0x66, 0xf8, false); // psubb
 	}
 
-	// SSE has no byte multiply, so the even and the odd bytes multiply as words.
-	// The low byte of a product depends only on the low bytes
 	void X86LowerPass::emitByteMul(BinaryNode* n) {
 		VReg lhs = sseValue(n->getLHS());
 		VReg rhs = sseValue(n->getRHS());

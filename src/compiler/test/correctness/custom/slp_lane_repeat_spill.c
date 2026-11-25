@@ -1,6 +1,6 @@
 // expect: 0
-// the repeated lanes of a 2-lane f32 vector survive a spill around a call. A reload of the low 8 bytes
-// zeroes lanes 2 and 3, then divps divides by -0 and raises divbyzero, and mulps raises invalid on inf * 0
+// The repeated upper lanes of a 2-lane f32 vector survive a spill around a call. An 8-byte
+// reload would zero them, then divps divides by -0 and mulps computes inf * 0
 int feclearexcept(int excepts);
 int fetestexcept(int excepts);
 float fabsf(float x);

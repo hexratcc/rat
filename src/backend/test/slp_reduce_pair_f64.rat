@@ -1,4 +1,4 @@
-@name slp: a float add of two packable f64 terms is lane 0 plus lane 1 of one 2-lane vector
+@name slp: an f64 add of two packable terms is lane 0 plus lane 1 of one vector
 @passes slp
 
 @input

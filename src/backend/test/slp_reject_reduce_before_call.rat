@@ -1,4 +1,4 @@
-@name slp: a sum of loads a store then a call follow needs the store window profit, its vectors may spill around the call
+@name slp: an i32 sum with a store and a call after its loads stays scalar below kMinProfit
 @passes slp
 
 @input

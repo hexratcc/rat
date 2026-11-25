@@ -1,6 +1,6 @@
 // expect: 0
-// a 2-lane f32 divide packs into divps. x86 repeats the lanes in lanes 2 and 3, so they divide a/b again.
-// Zero upper lanes would divide 0 by 0 and raise invalid
+// A 2-lane f32 divide packs into divps. Lanes 2 and 3 repeat a / b.
+// Zero upper lanes would compute 0 / 0 and raise invalid
 // rat has no fenv.h, these come from libm
 int feclearexcept(int excepts);
 int fetestexcept(int excepts);

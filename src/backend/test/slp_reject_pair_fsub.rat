@@ -1,4 +1,4 @@
-@name slp: a float sub of two f64 terms stays scalar, lane 1 of its fold would subtract left from right, which can overflow under a directed rounding mode
+@name slp: an f64 fsub pair stays scalar, lane 1 right - left can overflow under directed rounding
 @passes slp
 
 @input

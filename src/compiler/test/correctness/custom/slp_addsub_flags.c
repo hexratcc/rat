@@ -1,6 +1,6 @@
 // expect: 0
-// a sub/add blend lowers to addsubps even when gvn keeps the add with swapped operands.
-// A subps and addps blend would compute inf - inf on the add lanes and raise invalid.
+// sub/add lanes lower to addsubps even when gvn swaps the operands of the add.
+// subps plus addps would compute inf - inf on the add lanes and raise invalid
 // rat has no fenv.h, these come from libm
 int feclearexcept(int excepts);
 int fetestexcept(int excepts);

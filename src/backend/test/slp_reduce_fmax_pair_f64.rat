@@ -1,4 +1,4 @@
-@name slp: a float max select of two packable f64 terms is a select of lane 0 and lane 1 of one 2-lane vector
+@name slp: an f64 max of two packable terms is a select of lane 0 and lane 1 of one vector
 @passes slp verify
 
 @input

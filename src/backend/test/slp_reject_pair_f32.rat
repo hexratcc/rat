@@ -1,4 +1,4 @@
-@name slp: a float op of two f32 terms stays scalar, the 2-lane fold would also compute on the stale upper lanes
+@name slp: an f32 fsub of two products stays scalar, fsub does not commute, see slp_reject_pair_fsub
 @passes slp
 
 @input

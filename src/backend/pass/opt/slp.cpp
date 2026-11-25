@@ -10,7 +10,7 @@
 
 namespace rat {
 	namespace detail {
-		// type bits of a scalar
+		// One bit per scalar type, so a rule can name a set of types
 		enum TypeBit : U8 {
 			kInt8 = 1,
 			kInt16 = 2,
@@ -20,62 +20,48 @@ namespace rat {
 			kFloat64 = 32,
 			kPtr = 64,
 			kInt32Int64 = kInt32 | kInt64,
-			kIntUpTo32 = kInt8 | kInt16 | kInt32,
 			kFloat = kFloat32 | kFloat64,
-			kElem = kInt32Int64 | kFloat | kPtr, // what a gathered lane can be
 			kNarrow = kInt8 | kInt16,
-			kStored = kElem | kNarrow, // what a stored lane can be
 		};
 
 		constexpr U32 kValueInput = 3; // of a store
 
+		// Lane types SSE packs for a range of opcodes, see hasRule
 		struct LaneRule {
 			Opcode first;
-			Opcode last;
-			U8 laneTypes;	 // of a lane, of its operands for a compare
-			U8 inputTypes; // of input 0 of a convert, 0 for no check
+			Opcode last;	 // inclusive, in Opcode order
+			U8 laneTypes;	 // 0 for any, compares are i1 so they check inputTypes
+			U8 inputTypes; // of input 0, 0 for any
 		};
 
 		// clang-format off
 		constexpr LaneRule kLaneRules[] = {
 			{Opcode::Add,     Opcode::Sub,     kInt32Int64, 0},
-			{Opcode::Mul,     Opcode::Mul,     kInt32,      0},          // pmulld, i32 only
-			{Opcode::And,     Opcode::LShr,    kInt32Int64, 0},          // logic, shl, lshr
-			{Opcode::AShr,    Opcode::AShr,    kInt32,      0},          // psrad, no i64 sar
+			{Opcode::Mul,     Opcode::Mul,     kInt32,      0},                // pmulld, i32 only
+			{Opcode::And,     Opcode::LShr,    kInt32Int64, 0},                // logic, shl, lshr
+			{Opcode::AShr,    Opcode::AShr,    kInt32,      0},                // psrad, no i64 sar
 			{Opcode::FAdd,    Opcode::FDiv,    kFloat,      0},
-			{Opcode::FNeg,    Opcode::FAbs,    kFloat,      0},          // fneg, sqrtps/pd, fabs
-			{Opcode::Neg,     Opcode::Not,     kInt32Int64, 0},          // psub from 0, pxor with -1
-			{Opcode::Eq,      Opcode::Ne,      kInt32Int64, 0},          // pcmpeqd/q
-			{Opcode::Slt,     Opcode::Ule,     kInt32,      0},          // pcmpgtd, pminud
-			{Opcode::FEq,     Opcode::FGe,     kFloat,      0},          // cmpps/pd
-			{Opcode::SExt,    Opcode::ZExt,    kInt32Int64, kIntUpTo32}, // pmovsx/zx
-			{Opcode::Trunc,   Opcode::Trunc,   kNarrow,     kInt32},     // pshufb
-			{Opcode::SIToFP,  Opcode::SIToFP,  kFloat,      kInt32},     // cvtdq2ps/pd
-			{Opcode::FPToSI,  Opcode::FPToSI,  kInt32,      kFloat},     // cvttps2dq/pd2dq
-			{Opcode::FPExt,   Opcode::FPExt,   kFloat64,    kFloat32},   // cvtps2pd
-			{Opcode::FPTrunc, Opcode::FPTrunc, kFloat32,    kFloat64},   // cvtpd2ps
-			{Opcode::Select,  Opcode::Select,  kInt32Int64 | kFloat, 0}, // blendv, pminsd, minps
+			{Opcode::FNeg,    Opcode::FAbs,    kFloat,      0},                // fneg, sqrtps/pd, fabs
+			{Opcode::Neg,     Opcode::Not,     kInt32Int64, 0},                // psub from 0, pxor of -1
+			{Opcode::Eq,      Opcode::Ne,      0,           kInt32Int64},      // pcmpeqd/q
+			{Opcode::Slt,     Opcode::Ule,     0,           kInt32},           // pcmpgtd, pminud
+			{Opcode::FEq,     Opcode::FGe,     0,           kFloat},           // cmpps/pd
+			{Opcode::SExt,    Opcode::ZExt,    kInt32Int64, kNarrow | kInt32}, // pmovsx/zx
+			{Opcode::Trunc,   Opcode::Trunc,   kNarrow,     kInt32},           // pshufb
+			{Opcode::SIToFP,  Opcode::SIToFP,  kFloat,      kInt32},           // cvtdq2ps/pd
+			{Opcode::FPToSI,  Opcode::FPToSI,  kInt32,      kFloat},           // cvttps2dq/pd2dq
+			{Opcode::FPExt,   Opcode::FPExt,   kFloat64,    kFloat32},         // cvtps2pd
+			{Opcode::FPTrunc, Opcode::FPTrunc, kFloat32,    kFloat64},         // cvtpd2ps
+			{Opcode::Select,  Opcode::Select,  kInt32Int64 | kFloat, 0},       // blendv, pminsd, minps
 		};
 		// clang-format on
 	} // namespace detail
 
-	U8 SlpPass::typeBits(const Type* t) {
-		using namespace detail;
-		if(t->isPtr())
-			return kPtr;
-		if(t->isFloat()) {
-			U32 width = t->getFloatWidth();
-			return (width == 32) * kFloat32 | (width == 64) * kFloat64;
-		}
-		U8 narrow = t->isInt(8) * kInt8 | t->isInt(16) * kInt16;
-		return narrow | t->isInt(32) * kInt32 | t->isInt(64) * kInt64;
-	}
-
 	void SlpPass::printStats(const Module&, std::ostream& os) const {
-		os << "slp: windows " << packedWindows;
-		os << " reductions " << packedReductions << "\n";
+		os << "slp: windows " << packedWindows << " reductions " << packedReductions << "\n";
 	}
 
+	// Store windows chain by chain, then reductions. Returns the number of packs
 	U32 SlpPass::runOnFunction(Function& function, const TargetInfo& target) {
 		fn = &function;
 		ptrBytes = target.getPointerSizeInBytes();
@@ -83,211 +69,192 @@ namespace rat {
 		addrs = std::move(handoff.addrs);
 		storedObjects.clear();
 		for(const List<StoreNode*>& chain : handoff.chains)
-			for(StoreNode* st : chain)
-				storedObjects.insert(addrs.get(st->getPointer()).object);
-		U32 before = packedWindows + packedReductions;
+			for(StoreNode* store : chain)
+				storedObjects.insert(addrs.get(store->getPointer()).object);
+		U32 packsBefore = packedWindows + packedReductions;
 		List<B32> packed; // per chain
 		for(const List<StoreNode*>& chain : handoff.chains)
 			packed.push_back(packChain(chain));
-		// a chain that packs nothing gets its loads back, else they could load long before their use
+		// Unpacked chains get their loads back, hoisted loads would sit far from their use
 		LoadCanonPass::unhoistLoads(handoff.hoists, packed);
 		function.eliminateDeadNodes();
-		// a copy of the nodes, as a pack adds nodes
-		for(Node* n : List<Node*>(function.begin(), function.end()))
-			packReduction(n);
-		// the replaced scalars and the vectors of rejected packs
+		// Walk a copy, packing adds nodes
+		for(Node* node : List<Node*>(function.begin(), function.end()))
+			packReduction(node);
+		// Drop replaced scalars and rejected vectors
 		function.eliminateDeadNodes();
-		return packedWindows + packedReductions - before;
+		return packedWindows + packedReductions - packsBefore;
 	}
 
-	// cut the chain into stretches
+	// A stretch is a run of disjoint stores nothing reads in between, so they can reorder.
+	// True if any window packed
 	B32 SlpPass::packChain(const List<StoreNode*>& chain) {
 		U32 windowsBefore = packedWindows;
 		List<StoreAccess> stretch;
-		for(StoreNode* st : chain) {
-			U32 size = st->getValue()->getType()->byteSize(ptrBytes);
-			Addr addr = addrs.get(st->getPointer());
-			StoreAccess access{st, addr, size};
-			StoreNode* prev = stretch.empty() ? nullptr : stretch.back().store;
-			B32 prevUnread = !prev || prev->getUsers().size() == 1;
+		for(StoreNode* store : chain) {
+			U32 size = store->getValue()->getType()->byteSize(ptrBytes);
+			Addr addr = addrs.get(store->getPointer());
+			B32 prevUnread = stretch.empty() || stretch.back().store->getUsers().size() == 1;
 			B32 joins = prevUnread && stretch.size() < kMaxStretch;
 			for(const StoreAccess& member : stretch)
 				joins = joins && disjoint(addr, size, member.addr, member.size);
 			if(!joins)
 				packStretch(stretch);
-			stretch.push_back(access); // AddrCache gives every store a group
+			stretch.push_back({store, addr, size}); // AddrCache gives every store a group
 		}
 		packStretch(stretch);
 		return packedWindows != windowsBefore;
 	}
 
-	// pack the windows of the stretch in address order, then empty it
+	// Packs windows in address order and empties the stretch
 	void SlpPass::packStretch(List<StoreAccess>& stretch) {
-		vectors.clear(); // the packs of a stretch share vectors
-		vectorsOf = Map<const Node*, List<U32>>();
+		vectors.clear(); // packs of one stretch share vectors
 		std::sort(stretch.begin(), stretch.end(), byAddress);
-		for(U32 first = 0; first < stretch.size();) {
-			const StoreAccess& low = stretch[first];
-			Type* type = low.store->getValue()->getType();
-			B32 elem = typeBits(type) & detail::kStored;
-			U32 maxCount = elem ? kVecBytes / low.size : 1;
-			maxCount = std::min(maxCount, (U32)stretch.size() - first);
+		for(U32 start = 0; start < stretch.size();) {
+			const StoreAccess& first = stretch[start];
+			B32 scalar = typeBits(first.store->getValue()->getType()) != 0;
+			U32 maxCount = scalar ? kVecBytes / first.size : 1;
 			U32 count = 1;
-			for(; count < maxCount; ++count) {
-				const Addr& addr = stretch[first + count].addr;
-				I64 nextOffset = low.addr.offset + count * low.size;
-				if(addr.group != low.addr.group || addr.offset != nextOffset)
+			for(; count < maxCount && start + count < stretch.size(); ++count) {
+				const Addr& addr = stretch[start + count].addr;
+				if(addr.group != first.addr.group || addr.offset != first.addr.offset + count * first.size)
 					break;
 			}
-			// a vector has a power of two lanes, so the count rounds down to one
-			while(count & (count - 1))
-				count &= count - 1; // clears the lowest set bit
-			U32 packedCount = packWindow(stretch.data() + first, count);
-			first += std::max(packedCount, 1u);
+			// Round down, lane counts are powers of two
+			count = 1u << (63 - countLeadingZeros64(count));
+			while(count > 1 && !packWindow(stretch.data() + start, count))
+				count /= 2; // retry with the first half
+			start += count;
 		}
 		stretch.clear();
 	}
 
 	B32 SlpPass::byAddress(const StoreAccess& a, const StoreAccess& b) {
-		if(a.addr.group != b.addr.group)
-			return a.addr.group < b.addr.group;
-		return a.addr.offset < b.addr.offset;
+		return std::pair(a.addr.group, a.addr.offset) < std::pair(b.addr.group, b.addr.offset);
 	}
 
-	U32 SlpPass::packWindow(const StoreAccess* window, U32 count) {
-		if(count < 2)
-			return 0; // a lone store tries nothing
+	// Merge the window into one vector store
+	B32 SlpPass::packWindow(const StoreAccess* window, U32 count) {
 		Lanes values;
 		Set<const Node*> stores;
-		for(U32 k = 0; k < count; ++k) {
-			values.push_back(window[k].store->getValue());
-			stores.insert(window[k].store);
+		for(U32 i = 0; i < count; ++i) {
+			values.push_back(window[i].store->getValue());
+			stores.insert(window[i].store);
 		}
-		List<Node*> roots = tryPack({values}, std::move(stores), (I32)count - 1);
+		I32 gain = (I32)count - 1; // stores saved
+		List<Node*> roots = tryPack({values}, std::move(stores), gain, kMinProfit);
 		if(roots.empty())
-			return packWindow(window, count / 2);
+			return false;
 		window[0].store->setInput(detail::kValueInput, roots[0]);
-		for(U32 k = 1; k < count; ++k) {
-			StoreNode* st = window[k].store;
-			st->replaceAllUsesWith(st->getMemory());
-			st->clearInputs(); // a store with no control is dead
+		for(U32 i = 1; i < count; ++i) {
+			StoreNode* store = window[i].store;
+			store->replaceAllUsesWith(store->getMemory());
+			store->clearInputs(); // a store with no control is dead
 		}
 		++packedWindows;
-		return count;
+		return true;
 	}
 
+	// Pack the chain that ends at root, then fold the lanes
 	void SlpPass::packReduction(Node* root) {
-		Opcode op = root->getOpcode();
-		Type* type = root->getType();
-		if(!root->hasUsers())
-			return; // a dead node is no root
-		// a min or max reassociates like a commutative op
+		// min and max reassociate too
 		B32 minMax = isMinMax(root) && hasRule(root->getInput(0));
-		B32 commutes = root->isCommutative() || minMax;
-		U8 bits = typeBits(type);
-		B32 intRoot = commutes && (bits & detail::kInt32Int64);
-		// no fsub or fdiv, lane 1 of their fold computes right op left. That can raise a flag the scalar
-		// code does not, fdiv always and fsub under a directed rounding mode
-		B32 floatRoot = op == Opcode::FAdd || op == Opcode::FMul || (minMax && (bits & detail::kFloat));
-		if(!(intRoot || floatRoot) || !hasRule(root))
+		B32 reassociates = root->isCommutative() || minMax;
+		// Roots are i32, i64, f32 or f64, so i1 compares drop out. fsub and fdiv do not commute,
+		// folding them would raise flags the scalar code does not, fsub under directed rounding
+		U8 bits = typeBits(root->getType()) & (detail::kInt32Int64 | detail::kFloat);
+		B32 floatRoot = bits & detail::kFloat;
+		// Only a live last step is a root
+		if(!reassociates || !bits || !hasRule(root) || !root->hasUsers())
 			return;
-		for(Node* u : root->getUsers())
-			if(sameStep(u, root))
+		for(Node* user : root->getUsers())
+			if(sameStep(user, root))
 				return;
-		U32 arm = minMax; // input 0 of a select is its condition
-		Node* left = root->getInput(arm);
-		Node* right = root->getInput(arm + 1);
-		// a float root is one pair, and only a pair of one vector op pays for the fold
-		if(!intRoot && (left->getOpcode() != right->getOpcode() || !hasRule(left)))
-			return;
-		Terms steps = {root};
+		Terms steps = {root}; // die with the pack
 		if(minMax)
 			steps.push_back(root->getInput(0)); // the compare dies with its select
-		Terms terms;
-		if(intRoot)
-			flatten(root, terms, steps);
-		else
-			terms = {left, right};
-		U32 laneCount = kVecBytes / type->byteSize(ptrBytes);
-		// a float root is one 2-lane tuple, lane 0 op lane 1 is the exact scalar op. x86 repeats a
-		// 2-lane f32 vector in its upper lanes, so these raise only the flags of the pair, see repeatsLanes
-		if(floatRoot)
-			laneCount = 2;
-		U32 vectorCount = (U32)terms.size() / laneCount;
-		// most roots have fewer terms than lanes, they return before the vector reset
+		// A float root packs just its two operands, lane 0 op lane 1 is the scalar op exactly.
+		// A 2-lane f32 repeats in the upper lanes, so no extra flags, see repeatsLanes
+		U32 firstInput = minMax ? 1 : 0; // input 0 of a select is its condition
+		Terms terms = {root->getInput(firstInput), root->getInput(firstInput + 1)};
+		if(!floatRoot)
+			terms = flatten(root, steps); // an int root packs its whole chain
+		else if(terms[0]->getOpcode() != terms[1]->getOpcode() || !hasRule(terms[0]))
+			return; // both terms must be the same packable op
+		U32 laneCount = floatRoot ? 2 : kVecBytes / root->getType()->byteSize(ptrBytes);
+		U32 vectorCount = terms.size() / laneCount;
+		// Most roots stop here, before we allocate
 		if(!vectorCount)
 			return;
 		List<Lanes> tuples(vectorCount);
 		for(U32 i = 0; i < vectorCount * laneCount; ++i)
 			tuples[i / laneCount].push_back(terms[i]);
-		// scalar steps removed minus vector ops added. The fold is a shuffle and an op per round, then the extract
-		// tryPack wants kMinProfit, so the gain is offset to the profit of a reduction
-		constexpr I32 kOffset = kMinProfit - kMinReduceProfit;
-		I32 removed = (I32)(vectorCount * (laneCount - 1));
-		I32 gain = removed - 2 * (I32)(laneCount / 2) - 1 + kOffset;
+		// Scalar steps saved minus vector ops, a shuffle and op per fold round, and the extract
+		I32 gain = (I32)(vectorCount * (laneCount - 1)) - 2 * (I32)(laneCount / 2) - 1;
 		vectors.clear();
-		vectorsOf = Map<const Node*, List<U32>>();
-		List<Node*> termVectors = tryPack(tuples, Set<const Node*>(steps.begin(), steps.end()), gain);
+		Set<const Node*> dead(steps.begin(), steps.end());
+		List<Node*> termVectors = tryPack(tuples, std::move(dead), gain, kMinReduceProfit);
 		if(termVectors.empty())
 			return;
-		// the vectors may spill around a call. Then an int reduction needs kMinProfit as before,
-		// a float one stays scalar
-		B32 paysAcrossCall = intRoot && packGain - kOffset >= kMinProfit;
+		// Vectors spill around a call, then only an int reduction saving kMinProfit pays
+		B32 paysAcrossCall = !floatRoot && gain >= kMinProfit;
 		if(!paysAcrossCall && loadsBeforeCall()) {
 			rollback(packStart);
 			return;
 		}
-		Node* result = foldLanes(root, termVectors, type);
-		for(U32 i = vectorCount * laneCount; i < terms.size(); ++i)
-			result = combine(root, result, terms[i]);
-		root->replaceAllUsesWith(result);
+		root->replaceAllUsesWith(foldLanes(root, termVectors, terms));
 		++packedReductions;
 	}
 
-	void SlpPass::flatten(Node* root, Terms& terms, Terms& steps) {
-		Terms todo = {root};
+	// Terms of the chain in source order. Inner steps and their compares go to steps
+	SlpPass::Terms SlpPass::flatten(Node* root, Terms& steps) {
+		B32 minMax = isa<SelectNode>(root);
+		// An inner step feeds only the next step, a min or max step also the next compare.
+		// Counting users is enough, a compare takes the arms of its select, see isMinMax
+		U32 stepUsers = minMax ? 2 : 1;
+		// min and max chains run through the false arm, it counts as the left operand
+		U32 leftInput = minMax ? 2 : 0;
+		Terms terms;
+		Terms todo = {root->getInput(leftInput), root->getInput(1)};
 		while(!todo.empty()) {
-			Node* n = todo.back();
+			Node* node = todo.back();
 			todo.pop_back();
-			B32 isStep = sameStep(n, root) && (n == root || feedsOneStep(n));
-			// a step adds two terms
-			B32 room = terms.size() + todo.size() + 2 <= kMaxTerms;
+			B32 isStep = sameStep(node, root) && node->getUsers().size() == stepUsers;
+			B32 room = terms.size() + todo.size() + 2 <= kMaxTerms; // a step adds two terms
 			if(isStep && room) {
-				steps.push_back(n);
-				U32 arm = isa<SelectNode>(n); // input 0 of a min or max is its compare, which dies with it
-				Node* first = n->getInput(arm);
-				Node* second = n->getInput(arm + 1);
-				// a min or max chain runs through the false arm, so the swap keeps source order
-				if(arm) {
-					steps.push_back(n->getInput(0));
-					std::swap(first, second);
-				}
-				todo.push_back(first);
-				todo.push_back(second);
+				steps.push_back(node);
+				if(minMax)
+					steps.push_back(node->getInput(0)); // its compare dies with it
+				todo.push_back(node->getInput(leftInput));
+				todo.push_back(node->getInput(1));
 			} else
-				terms.push_back(n);
+				terms.push_back(node);
 		}
 		std::reverse(terms.begin(), terms.end());
+		return terms;
 	}
 
-	// the vectors combined like root, then their lanes folded by shuffles into lane 0
-	Node* SlpPass::foldLanes(Node* root, const List<Node*>& termVectors, Type* scalarType) {
+	// Combine the vectors, fold them into lane 0, then combine in the leftover scalar terms
+	Node* SlpPass::foldLanes(Node* root, const List<Node*>& termVectors, const Terms& terms) {
 		Node* folded = termVectors[0];
 		for(U32 i = 1; i < termVectors.size(); ++i)
 			folded = combine(root, folded, termVectors[i]);
-		Type* vecType = folded->getType();
-		// kFoldSel[lanes / 4] holds the shuffle of each round, nibble i is the source of lane i
-		constexpr U16 kFoldSel[2][2] = {{0x01}, {0x1032, 0x2301}};
-		for(U16 sel : kFoldSel[vecType->getVecLanes() / 4]) {
-			if(!sel) // 0 pads the 2-lane row
-				continue;
-			Node* shuffle = fn->create<ShuffleNode>(vecType, folded, folded, sel);
+		U32 laneCount = folded->getType()->getVecLanes();
+		// Each round combines lane i with lane i ^ half, lane 0 ends up with all of them
+		for(U32 half = laneCount / 2; half; half /= 2) {
+			U16 sel = 0; // nibble i is the source of lane i
+			for(U32 i = 0; i < laneCount; ++i)
+				sel |= (U16)((i ^ half) << (ShuffleNode::kSourceBits * i));
+			Node* shuffle = fn->create<ShuffleNode>(folded->getType(), folded, folded, sel);
 			folded = combine(root, folded, shuffle);
 		}
-		return fn->create<ExtractNode>(scalarType, folded, 0);
+		Node* result = fn->create<ExtractNode>(root->getType(), folded, 0);
+		for(U32 i = (U32)termVectors.size() * laneCount; i < terms.size(); ++i)
+			result = combine(root, result, terms[i]);
+		return result;
 	}
 
-	// a op b like root, for a min or max a compare and a select
+	// a op b like root, a compare and select for min and max
 	Node* SlpPass::combine(Node* root, Node* a, Node* b) {
 		if(!isa<SelectNode>(root))
 			return fn->binary(root->getOpcode(), a, b);
@@ -296,319 +263,274 @@ namespace rat {
 		Type* maskType = compare->getType();
 		if(type->isVec())
 			maskType = fn->types().getVec(laneType(compare), type->getVecLanes());
-		Node* operands[2] = {a, b};
+		Node* inputs[2] = {a, b};
 		if(!picksCompareLhs(root))
-			std::swap(operands[0], operands[1]);
-		Node* inputs[3] = {createArith(*fn, compare->getOpcode(), maskType, operands), a, b};
-		return createArith(*fn, Opcode::Select, type, inputs);
+			std::swap(inputs[0], inputs[1]);
+		Node* mask = createArith(*fn, compare->getOpcode(), maskType, inputs);
+		return fn->create<SelectNode>(type, mask, a, b);
 	}
 
-	// a select of the smaller or larger operand of its compare, which only it uses
-	B32 SlpPass::isMinMax(const Node* n) {
-		if(n->getOpcode() != Opcode::Select)
+	// Selects the smaller or larger operand of a compare only it uses
+	B32 SlpPass::isMinMax(const Node* node) {
+		if(!isa<SelectNode>(node))
 			return false;
-		const Node* compare = n->getInput(0);
+		const Node* compare = node->getInput(0);
 		Opcode op = compare->getOpcode();
-		B32 orders = isFloatOrderOpcode(op) || (op >= Opcode::Slt && op <= Opcode::Ule);
+		B32 orders = isFloatOrderOpcode(op) || (op >= Opcode::Slt && op <= Opcode::Ule); // int orders
 		return orders && compare->getUsers().size() == 1 &&
-					 armsAreOperands(compare, n->getInput(1), n->getInput(2));
+					 armsAreOperands(compare, node->getInput(1), node->getInput(2));
 	}
 
-	// n is a step of root's chain, the same op, for a min or max also the same compare and order
-	B32 SlpPass::sameStep(const Node* n, const Node* root) {
-		if(n->getOpcode() != root->getOpcode() || n->getType() != root->getType())
+	// Same op as root, for min and max also the same compare and direction
+	B32 SlpPass::sameStep(const Node* node, const Node* root) {
+		if(node->getOpcode() != root->getOpcode() || node->getType() != root->getType())
 			return false;
 		if(!isa<SelectNode>(root))
 			return true;
-		if(!isMinMax(n))
-			return false;
-		B32 sameCompare = n->getInput(0)->getOpcode() == root->getInput(0)->getOpcode();
-		return sameCompare && picksCompareLhs(n) == picksCompareLhs(root);
+		B32 sameCompare = node->getInput(0)->getOpcode() == root->getInput(0)->getOpcode();
+		return isMinMax(node) && sameCompare && picksCompareLhs(node) == picksCompareLhs(root);
 	}
 
-	// n feeds one step only, a min or max step also by its compare
-	B32 SlpPass::feedsOneStep(const Node* n) {
-		NodeSpan users = n->getUsers();
-		if(users.size() != 2)
-			return users.size() == 1;
-		Node* a = users[0];
-		Node* b = users[1];
-		return (isa<SelectNode>(a) && a->getInput(0) == b) ||
-					 (isa<SelectNode>(b) && b->getInput(0) == a);
-	}
-
-	// a call follows a wide load of the pack, maybe behind stores and merges. The fold may sort after
-	// the call, then the vectors spill around it, as the SysV ABI saves no xmm register
+	// A call follows a wide load of the pack. The fold may land after it, and SysV saves no xmm
+	// register, so the vectors spill
 	B32 SlpPass::loadsBeforeCall() {
+		// Load states, then the stores and phis after them, each once
 		List<Node*> states;
-		for(U32 i = packStart; i < vectors.size(); ++i)
-			if(LoadNode* load = dyn_cast<LoadNode>(vectors[i].node))
+		for(const Vector& vec : vectors) {
+			LoadNode* load = dyn_cast<LoadNode>(vec.node);
+			if(load && !std::count(states.begin(), states.end(), load->getMemory()))
 				states.push_back(load->getMemory());
-		Set<const Node*> seen;
-		while(!states.empty()) {
-			Node* state = states.back();
-			states.pop_back();
-			if(!seen.insert(state).second)
-				continue;
-			if(seen.size() > kMaxHops)
-				return true; // unproven, so as if a call
-			for(Node* user : state->getUsers()) {
+		}
+		for(U32 i = 0; i < states.size() && i < kMaxHops; ++i)
+			for(Node* user : states[i]->getUsers()) {
 				if(isa<CallNode>(user) || isa<AsmNode>(user))
-					return true; // the walk does not pass an asm, so as if a call
-				if(isa<StoreNode>(user) || isa<PhiNode>(user))
+					return true; // treat asm as a call
+				B32 walks = isa<StoreNode>(user) || isa<PhiNode>(user);
+				if(walks && !std::count(states.begin(), states.end(), user))
 					states.push_back(user);
 			}
-		}
-		return false;
+		return states.size() > kMaxHops; // too far, assume a call
 	}
 
-	List<Node*> SlpPass::tryPack(const List<Lanes>& tuples, Set<const Node*> dead, I32 gain) {
+	// One vector per tuple, empty if a tuple fails or gain stays below minProfit. gain comes in
+	// as the ops saved outside the vectors and leaves as the pack total
+	List<Node*>
+	SlpPass::tryPack(const List<Lanes>& tuples, Set<const Node*> dead, I32& gain, I32 minProfit) {
 		packStart = (U32)vectors.size();
 		budget = kMaxOps * (U32)tuples.size();
 		List<Node*> roots;
 		for(const Lanes& tuple : tuples)
 			roots.push_back(vectorize(tuple));
-		// users before their operands
+		// Newest first, so users die before their operands
 		for(U32 i = (U32)vectors.size(); i-- > packStart;) {
-			for(Node* n : vectors[i].lanes)
-				gain += markDead(n, dead);
+			for(Node* lane : vectors[i].lanes)
+				gain += markDead(lane, dead);
 			gain -= vectors[i].cost;
 		}
-		packGain = gain;
-		B32 allPacked = !std::count(roots.begin(), roots.end(), nullptr);
-		if(gain >= kMinProfit && allPacked)
+		if(gain >= minProfit && !std::count(roots.begin(), roots.end(), nullptr))
 			return roots;
 		rollback(packStart);
 		return {};
 	}
 
-	B32 SlpPass::markDead(Node* n, Set<const Node*>& dead) {
-		if(n->getUsers().size() > kMaxOps)
+	// lane dies when every user dies, or it is a load and the user stores it
+	B32 SlpPass::markDead(Node* lane, Set<const Node*>& dead) {
+		if(lane->getUsers().size() > kMaxUsers)
 			return false;
-		for(U32 i = 0; i < n->getUsers().size(); ++i) {
-			Node* u = n->getUsers()[i];
-			B32 valueSlot = n->getUserSlot(i) == detail::kValueInput;
-			B32 copy = isa<LoadNode>(n) && isa<StoreNode>(u) && valueSlot;
-			if(!copy && !dead.count(u))
+		for(U32 i = 0; i < lane->getUsers().size(); ++i) {
+			Node* user = lane->getUsers()[i];
+			B32 storesIt = isa<StoreNode>(user) && lane->getUserSlot(i) == detail::kValueInput;
+			if(!dead.count(user) && !(isa<LoadNode>(lane) && storesIt))
 				return false;
 		}
-		return dead.insert(n).second; // counted once
+		return dead.insert(lane).second; // counted once
 	}
 
-	// the vector whose lane i is lanes[i], null when the lanes cannot be one vector
+	// The vector of the lanes, null if they do not pack
 	Node* SlpPass::vectorize(const Lanes& lanes) {
-		const List<U32>& sameLane0 = vectorsOf[lanes[0]];
-		for(U32 k = (U32)sameLane0.size(); k-- > 0;) { // the newest first
-			const Vector& vec = vectors[sameLane0[k]];
-			const Lanes& known = vec.lanes;
-			if(!std::equal(lanes.begin(), lanes.end(), known.begin(), known.end()))
+		for(U32 i = (U32)vectors.size(); i-- > 0;) { // newest first
+			const Vector& vec = vectors[i];
+			if(!std::equal(lanes.begin(), lanes.end(), vec.lanes.begin(), vec.lanes.end()))
 				continue;
-			if(sameLane0[k] >= packStart)
+			if(i >= packStart)
 				return vec.node;
-			// an earlier pack's vector joins this pack once, so its lanes count as dead here too
+			// Borrow an earlier pack's vector once, so its lanes count as dead here too
 			return addVector(lanes, vec.node, 0);
 		}
 		U32 bytes = lanes.size() * laneType(lanes[0])->byteSize(ptrBytes);
 		if(bytes > kVecBytes || bytes < 4)
-			return nullptr;
+			return nullptr; // x86 vectors are 4, 8 or 16 bytes, see opWidth
 		for(Node* lane : lanes)
 			if(lane->getType() != lanes[0]->getType())
 				return nullptr;
 		if(Node* load = wideLoad(lanes))
 			return load;
-		U32 vectorsBefore = (U32)vectors.size();
+		U32 vectorsBefore = (U32)vectors.size(); // a failed try drops its operand vectors
 		if(Node* narrow = demote(lanes))
 			return narrow;
 		rollback(vectorsBefore);
 		if(Node* op = vectorOp(lanes))
 			return op;
-		rollback(vectorsBefore); // the operand vectors of a failed op
+		rollback(vectorsBefore);
 		return gather(lanes);
 	}
 
+	// A wide load, a splat of one load, or a shuffle of one or two wide loads
 	Node* SlpPass::wideLoad(const Lanes& lanes) {
 		LoadNode* lane0 = dyn_cast<LoadNode>(lanes[0]);
 		U16 sel = 0;
-		Lanes ordered; // the windows in address order
-		if(!lane0 || !loadSlots(lanes, lane0, sel, ordered))
+		Lanes low;	// first window, empty for a splat
+		Lanes high; // second window, may be empty
+		if(!lane0 || !loadWindows(lanes, lane0, sel, low, high))
 			return nullptr;
 		Type* scalarType = lane0->getType();
 		U32 size = scalarType->byteSize(ptrBytes);
 		Type* type = fn->types().getVec(scalarType, lanes.size());
-		B32 oneAddress = sel == 0; // every lane at element 0
-		B32 permuted = !std::equal(lanes.begin(), lanes.end(), ordered.begin());
-		if(size < 4 && (oneAddress || permuted))
+		B32 inOrder = std::equal(lanes.begin(), lanes.end(), low.begin(), low.end());
+		if(size < 4 && !inOrder)
 			return nullptr; // x86 splats and shuffles only dword and qword lanes
-		if(ordered.size() > lanes.size() && size * lanes.size() != kVecBytes)
-			return nullptr; // two windows shuffle by one shufps
-		Node* control = lane0->getControl();
-		Node* state = lane0->getMemory();
-		// a new load, so the scheduler puts it next to its use
-		if(oneAddress) {
-			Node* pointer = lane0->getPointer();
-			Node* one = fn->create<LoadNode>(scalarType, control, state, pointer);
+		if(!high.empty() && size * lanes.size() != kVecBytes)
+			return nullptr; // two windows shuffle by one shufps, only for a full vector
+		// A new load, so the scheduler can put it next to its use
+		if(low.empty()) {
+			Node* state = lane0->getMemory();
+			Node* one = fn->create<LoadNode>(scalarType, lane0->getControl(), state, lane0->getPointer());
 			return addVector(lanes, fn->create<SplatNode>(type, one), 1);
 		}
-		// of the window start
-		Node* pointer = cast<LoadNode>(ordered[0])->getPointer();
-		if(forwardStalls(state, pointer, size * ordered.size()))
+		if(forwardStalls(cast<LoadNode>(low[0]), size * (low.size() + high.size())))
 			return nullptr;
-		// a shuffle of the wide loads of the windows, which pass the same checks
-		if(permuted) {
-			Lanes high;
-			high.assign(ordered.begin() + lanes.size(), ordered.end());
-			ordered.erase(ordered.begin() + lanes.size(), ordered.end());
-			Node* wide = wideLoad(ordered);
-			Node* other = high.empty() ? wide : wideLoad(high);
-			Node* shuffle = fn->create<ShuffleNode>(type, wide, other, sel);
-			return addVector(lanes, shuffle, 1);
-		}
-		// one per address, type, state and control in a stretch
-		for(U32 i : vectorsOf[pointer]) {
-			LoadNode* load = dyn_cast<LoadNode>(vectors[i].node);
-			if(!load || load->getPointer() != pointer || load->getType() != type)
-				continue;
-			if(load->getMemory() == state && load->getControl() == control)
-				return addVector(lanes, load, 0); // so its lanes count as dead
-		}
-		Node* wide = fn->create<LoadNode>(type, control, state, pointer);
-		return addVector(lanes, wide, 1);
+		Node* lowLoad = windowLoad(low, type);
+		if(inOrder)
+			return lowLoad;
+		Node* highLoad = high.empty() ? lowLoad : windowLoad(high, type);
+		return addVector(lanes, fn->create<ShuffleNode>(type, lowLoad, highLoad, sel), 1);
 	}
 
-	B32 SlpPass::loadSlots(const Lanes& lanes, LoadNode* lane0, U16& sel, Lanes& ordered) {
-		U32 count = lanes.size(), frame = 4 * count - 1, start = 2 * count - 1, top = 0;
-		U32 slots[kMaxLanes]; // the element of each lane
-		// by elementOf, lanes win over other loads of their bytes
-		Node* loads[4 * kMaxLanes - 1] = {};
-		for(U32 k = 0; k < count; ++k) {
-			slots[k] = elementOf(lanes[k], lane0, count);
-			if(slots[k] >= frame)
-				return false;
-			start = std::min(start, slots[k]);
-			top = std::max(top, slots[k]);
-			loads[slots[k]] = lanes[k];
+	// Wide load of a window, one per address, type, state and control in vectors
+	Node* SlpPass::windowLoad(const Lanes& window, Type* type) {
+		LoadNode* first = cast<LoadNode>(window[0]);
+		Node* control = first->getControl();
+		Node* state = first->getMemory();
+		for(const Vector& vec : vectors) {
+			LoadNode* load = dyn_cast<LoadNode>(vec.node);
+			B32 sameState = load && load->getMemory() == state && load->getControl() == control;
+			if(sameState && load->getPointer() == first->getPointer() && load->getType() == type)
+				return addVector(window, load, 0); // so its lanes count as dead
 		}
-		U32 width = top - start < count ? count : 2 * count; // one window or two
-		U32 holes = (U32)std::count(loads + start, loads + start + width, nullptr);
-		B32 oneAddress = holes == count - 1;
-		if(holes && !oneAddress)
+		return addVector(window, fn->create<LoadNode>(type, control, state, first->getPointer()), 1);
+	}
+
+	// Find the load windows that hold the lanes, sel shuffles them into lane order
+	B32 SlpPass::loadWindows(const Lanes& lanes, LoadNode* lane0, U16& sel, Lanes& low, Lanes& high) {
+		U32 laneCount = lanes.size();
+		U32 frameSize = 4 * laneCount - 1;	 // fits any two windows around lane0
+		U32 slots[kMaxLanes] = {};					 // per lane
+		Node* frame[4 * kMaxLanes - 1] = {}; // lanes win over other loads of the same bytes
+		for(U32 i = 0; i < laneCount; ++i) {
+			slots[i] = slotOf(lanes[i], lane0, frameSize);
+			if(slots[i] >= frameSize)
+				return false;
+			frame[slots[i]] = lanes[i];
+		}
+		U32 start = *std::min_element(slots, slots + laneCount);
+		U32 top = *std::max_element(slots, slots + laneCount);
+		if(top == start) // one address, a splat
+			return true;
+		U32 width = top - start < laneCount ? laneCount : 2 * laneCount; // one window or two
+		// Fill holes with other loads of the state, then slide down to the first full window
+		if(std::count(frame + start, frame + start + width, nullptr))
 			for(Node* user : lane0->getMemory()->getUsers()) {
-				U32 at = elementOf(user, lane0, count);
-				if(at < frame && !loads[at] && user->hasUsers())
-					loads[at] = user;
+				U32 slot = slotOf(user, lane0, frameSize);
+				if(slot < frameSize && !frame[slot] && user->hasUsers())
+					frame[slot] = user;
 			}
-		for(; !oneAddress; --start) {
-			if(!std::count(loads + start, loads + start + width, nullptr))
-				break;
+		for(; std::count(frame + start, frame + start + width, nullptr); --start)
 			if(!start)
 				return false; // no full window
+		for(U32 i = 0; i < laneCount; ++i) {
+			U32 source = slots[i] - start; // element in the windows
+			// With two windows, low lanes read the first and high lanes the second, so one shufps
+			if(width != laneCount && (source >= laneCount) != (2 * i >= laneCount))
+				return false;
+			// More than four lanes are narrow and never shuffle, see wideLoad
+			if(i < ShuffleNode::kMaxLanes)
+				sel |= (U16)(source << (ShuffleNode::kSourceBits * i));
 		}
-		ordered.assign(loads + start, loads + start + width);
-		// of two windows, the low lanes read the first and the high lanes the second, so one shufps
-		B32 split = true;
-		for(U32 k = 0; k < count; ++k) {
-			// wider lanes are narrow and never shuffle, see wideLoad
-			if(k < ShuffleNode::kMaxLanes)
-				sel |= (U16)((slots[k] - start) << (ShuffleNode::kSourceBits * k));
-			split &= width == count || (slots[k] - start >= count) == (2 * k >= count);
-		}
-		// no lane above the windows
-		return top - start < width && split;
+		low.assign(frame + start, frame + start + laneCount);
+		high.assign(frame + start + laneCount, frame + start + width);
+		return top - start < width; // no lane above the windows
 	}
 
-	U32 SlpPass::elementOf(Node* n, LoadNode* lane0, U32 count) {
-		U32 frame = 4 * count - 1;
-		LoadNode* load = dyn_cast<LoadNode>(n);
+	// Frame slot of node with lane0 in the middle, frameSize if no matching load or out of range
+	U32 SlpPass::slotOf(Node* node, LoadNode* lane0, U32 frameSize) {
+		LoadNode* load = dyn_cast<LoadNode>(node);
 		if(!load)
-			return frame;
+			return frameSize;
 		Addr addr = addrs.get(load->getPointer());
 		Addr addr0 = addrs.get(lane0->getPointer());
-		if(!addr.group || addr.group != addr0.group)
-			return frame;
-		if(load->isVolatile() || load->getType() != lane0->getType())
-			return frame;
-		B32 sameState = load->getMemory() == lane0->getMemory();
-		if(!sameState || load->getControl() != lane0->getControl())
-			return frame;
-		U32 size = lane0->getType()->byteSize(ptrBytes);
-		U64 above = (U64)(addr.offset - addr0.offset) + (2 * count - 1) * size;
-		if(above % size || above / size >= frame)
-			return frame;
-		return (U32)(above / size);
+		B32 sameAccess = !load->isVolatile() && load->getType() == lane0->getType() &&
+										 load->getMemory() == lane0->getMemory() &&
+										 load->getControl() == lane0->getControl() && addr.group == addr0.group;
+		I64 size = lane0->getType()->byteSize(ptrBytes);
+		I64 distance = addr.offset - addr0.offset;
+		I64 slot = distance / size + frameSize / 2;
+		if(!sameAccess || distance % size != 0 || slot < 0 || slot >= frameSize)
+			return frameSize;
+		return (U32)slot;
 	}
 
-	B32 SlpPass::forwardStalls(Node* state, Node* pointer, U32 bytes) {
-		Addr loaded = addrs.get(pointer);
+	// Store forwarding fails if a store above covers only part of the load, or a call writes it
+	B32 SlpPass::forwardStalls(LoadNode* first, U32 bytes) {
+		Node* state = first->getMemory();
+		Addr loaded = addrs.get(first->getPointer());
 		for(U32 hops = 0; hops < kMaxHops; ++hops) {
-			PhiNode* phi = dyn_cast<PhiNode>(state);
-			if(phi && phi->getRegion()->isLoopHeader()) {
+			if(PhiNode* phi = dyn_cast<PhiNode>(state); phi && phi->getRegion()->isLoopHeader()) {
 				state = phi->getValue(0); // the first iteration reads the entry state
 				continue;
 			}
-			StoreNode* st = dyn_cast<StoreNode>(state);
-			if(!st)
+			StoreNode* store = dyn_cast<StoreNode>(state);
+			if(!store)
 				return callWrites(state, loaded.object);
-			Addr addr = addrs.get(st->getPointer());
-			U32 size = st->getValue()->getType()->byteSize(ptrBytes);
-			B32 startsBelow = addr.offset <= loaded.offset;
-			B32 endsAbove = addr.offset + size >= loaded.offset + bytes;
-			B32 holdsAll = startsBelow && endsAbove;
-			// an unproven overlap with another group is no stall
+			Addr addr = addrs.get(store->getPointer());
+			U32 size = store->getValue()->getType()->byteSize(ptrBytes);
+			B32 holdsAll = addr.offset <= loaded.offset && addr.offset + size >= loaded.offset + bytes;
+			// Overlap with another group is unproven, assume no stall
 			if(!disjoint(loaded, bytes, addr, size))
 				return addr.group == loaded.group && !holdsAll;
-			state = st->getMemory();
+			state = store->getMemory();
 		}
 		return false;
 	}
 
+	// state is a call that gets a pointer to object, and no chain store writes object. Likely an
+	// out parameter, filled with stores of unknown width
 	B32 SlpPass::callWrites(Node* state, U32 object) {
 		ProjNode* proj = dyn_cast<ProjNode>(state);
 		CallNode* call = proj ? dyn_cast<CallNode>(proj->getProducer()) : nullptr;
 		if(!call || !object || storedObjects.count(object))
 			return false;
-		for(U32 i = 0; i < call->getArgCount(); ++i) {
-			Node* arg = call->getArg(i);
-			if(arg->getType()->isPtr() && addrs.get(arg).object == object)
+		for(U32 i = 0; i < call->getArgCount(); ++i)
+			if(call->getArg(i)->getType()->isPtr() && addrs.get(call->getArg(i)).object == object)
 				return true;
-		}
 		return false;
 	}
 
+	// One op on the operand vectors, or a blend of two ops for mixed lanes
 	Node* SlpPass::vectorOp(const Lanes& lanes) {
 		Node* lane0 = lanes[0];
 		Opcode op = lane0->getOpcode();
-		Opcode alt = op; // the other opcode of a blend
+		Opcode alt = op; // the other op of a blend
 		for(Node* lane : lanes)
 			if(lane->getOpcode() != op)
 				alt = lane->getOpcode();
-		// mixed fadd and fsub lanes, half of each, reorder to one addsubps and shuffle back
-		Lanes subsEven;
-		if(alt != op && addSubLanes(lanes, subsEven))
-			return addSubShuffled(lanes, subsEven);
-		B32 shift = isShiftOpcode(op);
-		B32 binary = isBinaryOpcode(op) && isBinaryOpcode(alt);
-		// a float blend computes both ops on every lane and so raises their flags, only addsubps does not
-		B32 cleanBlend = !lane0->getType()->isFloat() || addSubOrder(lanes);
-		B32 blendable = binary && !shift && !isShiftOpcode(alt) && cleanBlend;
-		B32 fits = budget && (alt == op || blendable);
-		for(Node* lane : lanes) {
-			B32 sameOp = lane->getOpcode() == op || lane->getOpcode() == alt;
-			fits = fits && sameOp && hasRule(lane);
-			// SSE shifts every lane by one amount
-			fits = fits && (!shift || lane->getInput(1) == lane0->getInput(1));
-		}
-		if(!fits)
-			return nullptr;
-		if(!quietCompare(lanes))
-			return nullptr;
-		// SSE zeroes the lanes of a shift past the width
-		const ConstantNode* amount = nullptr;
-		if(shift)
-			amount = dyn_cast<ConstantNode>(lane0->getInput(1));
-		if(amount && (U64)amount->getValue() >= lane0->getType()->getIntWidth())
+		// A float blend raises the flags of both ops on every lane, addsubps does not
+		if(alt != op && lane0->getType()->isFloat() && !addSubOrder(lanes))
+			return addSubShuffled(lanes);
+		if(!budget || !opFits(lanes, alt))
 			return nullptr;
 		--budget;
-		// a shift amount stays scalar
+		B32 shift = isShiftOpcode(op);
+		// The shift amount stays scalar
 		Node* inputs[3] = {nullptr, shift ? lane0->getInput(1) : nullptr};
 		U32 operandCount = shift ? 1 : (U32)getOpcodeInfo(op).minInputs;
 		Type* type = fn->types().getVec(laneType(lane0), lanes.size());
@@ -626,17 +548,46 @@ namespace rat {
 		if(op == Opcode::Neg || op == Opcode::Not)
 			return addVector(lanes, negOrNot(op, type, inputs[0]), 2);
 		Node* node = createArith(*fn, op, type, inputs);
-		if(alt == op) {
-			I32 variableAmount = shift && !amount; // a variable amount moves to xmm
-			// pshufb loads its mask, and a scalar trunc is free so its dead lanes save nothing
-			I32 truncCost = (op == Opcode::Trunc) * (1 + (I32)lanes.size());
-			return addVector(lanes, node, 1 + variableAmount + truncCost);
-		}
-		return blend(lanes, node, createArith(*fn, alt, type, inputs));
+		if(alt != op)
+			return blend(lanes, node, createArith(*fn, alt, type, inputs));
+		I32 cost = 1;
+		if(shift && !isa<ConstantNode>(inputs[1]))
+			++cost; // a variable amount moves to xmm
+		// pshufb loads a mask. Scalar truncs are free, so their dead lanes save nothing
+		if(op == Opcode::Trunc)
+			cost += 1 + (I32)lanes.size();
+		return addVector(lanes, node, cost);
 	}
 
-	// trunc lanes of one wide op on extended narrow values are that op on the narrow lanes,
-	// as the low bits of add, sub, mul, logic and shl depend only on the low bits of the operands
+	// The lanes fit the SSE op of lane 0, or its blend with alt
+	B32 SlpPass::opFits(const Lanes& lanes, Opcode alt) {
+		Node* lane0 = lanes[0];
+		Opcode op = lane0->getOpcode();
+		B32 shift = isShiftOpcode(op);
+		B32 blendable = isBinaryOpcode(op) && isBinaryOpcode(alt) && !shift && !isShiftOpcode(alt);
+		// SSE zeroes lanes shifted past the width
+		const ConstantNode* amount = shift ? dyn_cast<ConstantNode>(lane0->getInput(1)) : nullptr;
+		B32 pastWidth = amount && (U64)amount->getValue() >= lane0->getType()->getIntWidth();
+		if((alt != op && !blendable) || pastWidth)
+			return false;
+		B32 floatOrder = op >= Opcode::FLt && op <= Opcode::FGe;
+		// cmpltps signals on a quiet NaN, our ucomiss does not. Full width compares pack anyway,
+		// narrower ones only for a min or max user, which lowers to minps
+		B32 signalingOrder =
+				floatOrder && lanes.size() * lane0->getInput(0)->getType()->byteSize(ptrBytes) < kVecBytes;
+		for(Node* lane : lanes) {
+			B32 sameOp = lane->getOpcode() == op || lane->getOpcode() == alt;
+			B32 quiet =
+					!signalingOrder || (lane->getUsers().size() == 1 && isMinMax(lane->getUsers()[0]));
+			// SSE shifts every lane by one amount
+			if(!sameOp || !hasRule(lane) || !quiet || (shift && lane->getInput(1) != lane0->getInput(1)))
+				return false;
+		}
+		return true;
+	}
+
+	// trunc(op(ext a, ext b)) is op(a, b) on narrow lanes, the low bits of add, sub, mul, logic
+	// and shl only depend on the low bits of their inputs
 	Node* SlpPass::demote(const Lanes& lanes) {
 		Node* lane0 = lanes[0];
 		Type* narrowType = lane0->getType();
@@ -644,28 +595,20 @@ namespace rat {
 		if(lane0->getOpcode() != Opcode::Trunc || !narrow || !budget)
 			return nullptr;
 		Node* wide0 = lane0->getInput(0);
-		Opcode op = wide0->getOpcode();
-		B32 shift = isShiftOpcode(op);
-		B32 arith = op >= Opcode::Add && op <= Opcode::Mul;
-		B32 logicOrShl = op >= Opcode::And && op <= Opcode::Shl;
-		if(!arith && !logicOrShl && !shift)
-			return nullptr;
-		// SSE shifts every lane by one amount, here below the narrow width
-		const ConstantNode* amount = dyn_cast<ConstantNode>(wide0->getInput(1));
-		if(shift && (!amount || (U64)amount->getValue() >= narrowType->getIntWidth()))
-			return nullptr;
-		// a right shift of a sext is an ashr of the narrow lanes, of a zext an lshr
-		B32 rightShift = shift && op != Opcode::Shl;
-		Opcode ext = wide0->getInput(0)->getOpcode();
-		if(rightShift && ext != Opcode::SExt && ext != Opcode::ZExt)
-			return nullptr;
 		for(Node* lane : lanes)
-			if(!truncsLike(lane, wide0))
+			if(!demotable(lane, wide0))
 				return nullptr;
 		--budget;
+		Opcode op = wide0->getOpcode();
+		B32 shift = isShiftOpcode(op);
+		// A right shift of a sext is an ashr on the narrow lanes, of a zext an lshr
+		Opcode narrowOp = op;
+		if(shift && op != Opcode::Shl)
+			narrowOp = wide0->getInput(0)->getOpcode() == Opcode::SExt ? Opcode::AShr : Opcode::LShr;
 		Node* inputs[2] = {nullptr, shift ? wide0->getInput(1) : nullptr};
-		for(U32 k = 0; k < 2 - shift; ++k) {
-			Lanes operands; // input k of each wide op, narrow
+		U32 operandCount = shift ? 1 : 2;
+		for(U32 k = 0; k < operandCount; ++k) {
+			Lanes operands; // input k of each wide op, narrowed
 			for(Node* lane : lanes)
 				operands.push_back(narrowOperand(lane->getInput(0)->getInput(k), narrowType));
 			if(std::count(operands.begin(), operands.end(), nullptr))
@@ -674,9 +617,6 @@ namespace rat {
 			if(!inputs[k])
 				return nullptr;
 		}
-		Opcode narrowOp = op;
-		if(rightShift)
-			narrowOp = ext == Opcode::SExt ? Opcode::AShr : Opcode::LShr;
 		Type* type = fn->types().getVec(narrowType, lanes.size());
 		Node* node = createArith(*fn, narrowOp, type, inputs);
 		// SSE has no byte shift or multiply, see emitByteShift and emitByteMul
@@ -688,70 +628,73 @@ namespace rat {
 		return addVector(lanes, node, cost);
 	}
 
-	// lane truncs an op like wide0 that only the trunc uses, so the op dies with it
-	B32 SlpPass::truncsLike(const Node* lane, const Node* wide0) {
+	// lane truncs an op like wide0 that only the trunc uses, so the op dies too
+	B32 SlpPass::demotable(const Node* lane, const Node* wide0) {
 		if(lane->getOpcode() != Opcode::Trunc)
 			return false;
 		const Node* wide = lane->getInput(0);
-		Opcode op = wide0->getOpcode();
-		if(wide->getOpcode() != op || wide->getType() != wide0->getType())
+		Opcode op = wide->getOpcode();
+		B32 narrowable =
+				(op >= Opcode::Add && op <= Opcode::Mul) || (op >= Opcode::And && op <= Opcode::AShr);
+		B32 sameOp = op == wide0->getOpcode() && wide->getType() == wide0->getType();
+		if(!narrowable || !sameOp || wide->getUsers().size() != 1)
 			return false;
-		B32 shift = isShiftOpcode(op);
-		if(shift && wide->getInput(1) != wide0->getInput(1))
+		if(!isShiftOpcode(op))
+			return true;
+		// One amount for all lanes, a constant below the narrow width, see emitByteShift
+		const ConstantNode* amount = dyn_cast<ConstantNode>(wide->getInput(1));
+		B32 belowWidth = amount && (U64)amount->getValue() < lane->getType()->getIntWidth();
+		if(wide->getInput(1) != wide0->getInput(1) || !belowWidth)
 			return false;
-		B32 rightShift = shift && op != Opcode::Shl;
-		if(rightShift && wide->getInput(0)->getOpcode() != wide0->getInput(0)->getOpcode())
-			return false;
-		return wide->getUsers().size() == 1;
+		// A right shift needs the same sext or zext as wide0
+		Opcode ext = wide->getInput(0)->getOpcode();
+		B32 extended = ext == Opcode::SExt || ext == Opcode::ZExt;
+		return op == Opcode::Shl || (extended && ext == wide0->getInput(0)->getOpcode());
 	}
 
-	// the narrow value whose extension is wide, a constant truncated, null for others
+	// The narrow value that wide extends, or a constant cut to the narrow type
 	Node* SlpPass::narrowOperand(Node* wide, Type* narrowType) {
-		if(const ConstantNode* c = dyn_cast<ConstantNode>(wide))
-			return fn->constInt(narrowType, signExtend(c->getValue(), narrowType->getIntWidth()));
+		if(const ConstantNode* constant = dyn_cast<ConstantNode>(wide))
+			return fn->constInt(narrowType, signExtend(constant->getValue(), narrowType->getIntWidth()));
 		B32 extended = wide->getOpcode() == Opcode::SExt || wide->getOpcode() == Opcode::ZExt;
 		if(!extended || wide->getInput(0)->getType() != narrowType)
 			return nullptr;
 		return wide->getInput(0);
 	}
 
-	// input k of lane, swapped when a commutative lane has lane0's input 0 as its input 1
+	// Input k of lane, swapped if a commutative lane has lane0's input 0 on the other side
 	Node* SlpPass::matchedInput(Node* lane, Node* lane0, U32 k) {
-		if(!lane->isCommutative())
-			return lane->getInput(k);
-		Node* first = lane0->getInput(0);
-		B32 swap = !alike(lane->getInput(0), first) && alike(lane->getInput(1), first);
-		return lane->getInput(k ^ swap);
+		Node* input0 = lane0->getInput(0);
+		B32 swap = lane->isCommutative() && !alike(lane->getInput(0), input0) &&
+							 alike(lane->getInput(1), input0);
+		return lane->getInput(swap ? 1 - k : k);
 	}
 
-	// the same node, or the same opcode and for loads the same group
+	// Same node, or same opcode, and loads also need the same group
 	B32 SlpPass::alike(Node* a, Node* b) {
-		if(a == b)
-			return true;
 		if(a->getOpcode() != b->getOpcode())
 			return false;
-		if(!isa<LoadNode>(a))
+		if(a == b || !isa<LoadNode>(a))
 			return true;
 		U32 group = addrs.get(cast<LoadNode>(a)->getPointer()).group;
-		return group && group == addrs.get(cast<LoadNode>(b)->getPointer()).group;
+		return group == addrs.get(cast<LoadNode>(b)->getPointer()).group;
 	}
 
 	// x86 has no packed neg or not, so 0 - x and x ^ -1
 	Node* SlpPass::negOrNot(Opcode op, Type* type, Node* operand) {
 		Node* constant = fn->constInt(type->getVecElement(), op == Opcode::Not ? -1 : 0);
-		List<Node*> constants(type->getVecLanes(), constant);
-		Node* pack = fn->create<PackNode>(type, constants);
+		Node* pack = fn->create<PackNode>(type, List<Node*>(type->getVecLanes(), constant));
 		if(op == Opcode::Neg)
 			return fn->binary(Opcode::Sub, pack, operand);
 		return fn->binary(Opcode::Xor, operand, pack);
 	}
 
-	// lane i from other when it has other's opcode
+	// Shuffle of node and other, lane i comes from other if it has other's op
 	Node* SlpPass::blend(const Lanes& lanes, Node* node, Node* other) {
 		U16 sel = 0;
 		for(U32 i = 0; i < lanes.size(); ++i) {
-			Opcode laneOp = lanes[i]->getOpcode();
-			U32 source = i + lanes.size() * (laneOp == other->getOpcode());
+			B32 fromOther = lanes[i]->getOpcode() == other->getOpcode();
+			U32 source = fromOther ? lanes.size() + i : i;
 			sel |= (U16)(source << (ShuffleNode::kSourceBits * i));
 		}
 		Node* shuffle = fn->create<ShuffleNode>(node->getType(), node, other, sel);
@@ -759,51 +702,24 @@ namespace rat {
 		return addVector(lanes, shuffle, addSubOrder(lanes) ? 1 : 3);
 	}
 
-	// cmpltps and cmpleps signal on a quiet NaN, the scalar ucomiss does not. The 4-lane form is older, a
-	// 2-lane f32 order compare stays scalar unless a min or max select uses it, which lowers to minps
-	B32 SlpPass::quietCompare(const Lanes& lanes) {
-		Node* lane0 = lanes[0];
-		Opcode op = lane0->getOpcode();
-		U32 operandBytes = lane0->getInput(0)->getType()->byteSize(ptrBytes);
-		if(op < Opcode::FLt || op > Opcode::FGe || lanes.size() * operandBytes >= kVecBytes)
-			return true;
-		for(Node* lane : lanes)
-			if(lane->getUsers().size() != 1 || !isMinMax(lane->getUsers()[0]))
-				return false;
-		return true;
-	}
-
-	// half of the float lanes subtract and half add, then subsEven holds them in addsubps order, the subs
-	// on the even slots. False also for lanes already in that order
-	B32 SlpPass::addSubLanes(const Lanes& lanes, Lanes& subsEven) {
-		U32 count = (U32)lanes.size();
-		if(!lanes[0]->getType()->isFloat() || count > ShuffleNode::kMaxLanes || addSubOrder(lanes))
-			return false;
-		Lanes subs, adds;
+	// Mixed fadd and fsub lanes go into addsubps order, then shuffle back. Exact, every lane keeps
+	// its own op. Needs as many fadds as fsubs
+	Node* SlpPass::addSubShuffled(const Lanes& lanes) {
+		if(!budget || lanes.size() > ShuffleNode::kMaxLanes)
+			return nullptr; // more lanes than one selector holds
+		Lanes subsEven = lanes;
+		U32 nextAdd = 1;
+		U32 nextSub = 0;
 		for(Node* lane : lanes) {
 			Opcode laneOp = lane->getOpcode();
-			if(laneOp != Opcode::FSub && laneOp != Opcode::FAdd)
-				return false;
-			if(laneOp == Opcode::FSub)
-				subs.push_back(lane);
-			else
-				adds.push_back(lane);
+			U32& slot = laneOp == Opcode::FSub ? nextSub : nextAdd;
+			if((laneOp != Opcode::FAdd && laneOp != Opcode::FSub) || slot >= lanes.size())
+				return nullptr;
+			subsEven[slot] = lane;
+			slot += 2;
 		}
-		if(subs.size() != adds.size())
-			return false;
-		for(U32 i = 0; i < subs.size(); ++i) {
-			subsEven.push_back(subs[i]);
-			subsEven.push_back(adds[i]);
-		}
-		return true;
-	}
-
-	// the lanes as a shuffle of the addsubps of subsEven, exact as each lane keeps its own op
-	Node* SlpPass::addSubShuffled(const Lanes& lanes, const Lanes& subsEven) {
-		if(!budget)
-			return nullptr;
 		--budget;
-		// vectorOp, not vectorize, so a failed addsubps is no gather inside a shuffle
+		// vectorOp, not vectorize, a failed addsubps must not turn into a gather
 		Node* inner = vectorOp(subsEven);
 		if(!inner)
 			return nullptr;
@@ -812,11 +728,10 @@ namespace rat {
 			U32 source = (U32)(std::find(subsEven.begin(), subsEven.end(), lanes[i]) - subsEven.begin());
 			sel |= (U16)(source << (ShuffleNode::kSourceBits * i));
 		}
-		Node* shuffle = fn->create<ShuffleNode>(inner->getType(), inner, inner, sel);
-		return addVector(lanes, shuffle, 1);
+		return addVector(lanes, fn->create<ShuffleNode>(inner->getType(), inner, inner, sel), 1);
 	}
 
-	// the lanes subtract and add in turn, one addsubps
+	// sub, add, sub, add, like addsubps
 	B32 SlpPass::addSubOrder(const Lanes& lanes) {
 		for(U32 i = 0; i < lanes.size(); ++i)
 			if(lanes[i]->getOpcode() != (i % 2 ? Opcode::FAdd : Opcode::FSub))
@@ -824,69 +739,66 @@ namespace rat {
 		return true;
 	}
 
-	// a rule in kLaneRules fits the opcode and types of lane
+	// 0 for i1 and non-scalar types
+	U8 SlpPass::typeBits(const Type* type) {
+		using namespace detail;
+		if(type->isPtr())
+			return kPtr;
+		if(type->isFloat())
+			return (type->getFloatWidth() == 32) * kFloat32 | (type->getFloatWidth() == 64) * kFloat64;
+		return type->isInt(8) * kInt8 | type->isInt(16) * kInt16 | type->isInt(32) * kInt32 |
+					 type->isInt(64) * kInt64;
+	}
+
+	// Some kLaneRules row covers the opcode and types of lane
 	B32 SlpPass::hasRule(const Node* lane) {
 		Opcode op = lane->getOpcode();
-		const Node* typed = isCompareOpcode(op) ? lane->getInput(0) : lane;
-		U8 laneBits = typeBits(typed->getType());
-		for(const detail::LaneRule& rule : detail::kLaneRules) {
-			if(op < rule.first || op > rule.last || !(laneBits & rule.laneTypes))
-				continue;
-			U8 inputBits = typeBits(lane->getInput(0)->getType());
-			return !rule.inputTypes || (inputBits & rule.inputTypes);
-		}
+		U8 laneBits = typeBits(lane->getType());
+		for(const detail::LaneRule& rule : detail::kLaneRules)
+			if(op >= rule.first && op <= rule.last && (!rule.laneTypes || (laneBits & rule.laneTypes)))
+				return !rule.inputTypes || (typeBits(lane->getInput(0)->getType()) & rule.inputTypes);
 		return false;
 	}
 
-	// a compare lane is a mask as wide as its operands
+	// A compare lane is a mask as wide as its operands
 	Type* SlpPass::laneType(const Node* lane) {
 		if(!isCompareOpcode(lane->getOpcode()))
 			return lane->getType();
-		U32 bytes = lane->getInput(0)->getType()->byteSize(ptrBytes);
-		return fn->types().getInt(8 * bytes);
+		return fn->types().getInt(8 * lane->getInput(0)->getType()->byteSize(ptrBytes));
 	}
 
+	// Splat or pack the lanes. A pack costs an op per variable and maybe a pool load, see emitPack
 	Node* SlpPass::gather(const Lanes& lanes) {
 		Node* lane0 = lanes[0];
 		I32 variables = 0;
 		B32 poolLoad = isa<ConstantNode>(lane0);
-		for(Node* n : lanes) {
-			const ConstantNode* c = dyn_cast<ConstantNode>(n);
-			variables += !c;
-			poolLoad |= c && c->getValue() != 0;
+		for(Node* lane : lanes) {
+			const ConstantNode* constant = dyn_cast<ConstantNode>(lane);
+			variables += !constant;
+			poolLoad |= constant && constant->getValue() != 0;
 		}
-		// x86 inserts and splats only dword and qword lanes, narrow lanes come from the pool
+		// Scalars only. x86 inserts only dwords and qwords, so narrow lanes must be constants
 		U8 bits = typeBits(lane0->getType());
-		B32 narrowConstants = (bits & detail::kNarrow) && !variables;
-		if(!(bits & detail::kElem) && !narrowConstants)
+		if(!bits || (variables && (bits & detail::kNarrow)))
 			return nullptr;
 		Type* type = fn->types().getVec(lane0->getType(), lanes.size());
-		U32 copies = (U32)std::count(lanes.begin(), lanes.end(), lane0);
-		if(!isa<ConstantNode>(lane0) && copies == lanes.size())
+		// The same variable in every lane
+		if(variables && (U32)std::count(lanes.begin(), lanes.end(), lane0) == lanes.size())
 			return addVector(lanes, fn->create<SplatNode>(type, lane0), 1);
-		List<Node*> scalars(lanes.begin(), lanes.end());
-		Node* pack = fn->create<PackNode>(type, scalars);
+		Node* pack = fn->create<PackNode>(type, List<Node*>(lanes.begin(), lanes.end()));
 		return addVector(lanes, pack, variables + poolLoad);
 	}
 
+	// cost counts against the pack gain
 	Node* SlpPass::addVector(const Lanes& lanes, Node* node, I32 cost) {
-		U32 index = (U32)vectors.size();
-		vectorsOf[lanes[0]].push_back(index);
-		// a wide load is also found by its pointer
-		if(LoadNode* load = dyn_cast<LoadNode>(node))
-			vectorsOf[load->getPointer()].push_back(index);
 		vectors.push_back({lanes, node, cost});
 		return node;
 	}
 
+	// Drop vectors from keep on. Nodes with a cost are ours, they lose their inputs so they die
 	void SlpPass::rollback(U32 keep) {
-		for(U32 i = (U32)vectors.size(); i-- > keep;) {
-			vectorsOf[vectors[i].lanes[0]].pop_back();
-			if(LoadNode* load = dyn_cast<LoadNode>(vectors[i].node))
-				vectorsOf[load->getPointer()].pop_back();
-			if(vectors[i].cost)
-				vectors[i].node->clearInputs();
-		}
-		vectors.resize(keep);
+		for(; vectors.size() > keep; vectors.pop_back())
+			if(vectors.back().cost)
+				vectors.back().node->clearInputs();
 	}
 } // namespace rat

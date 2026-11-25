@@ -1,4 +1,4 @@
-@name slp: a scalar trunc is free, so i16 lanes of i32 adds stay scalar as the i32 adds would
+@name slp: truncs of i32 adds stay scalar, a scalar trunc is free and the adds alone do not pay
 @passes slp
 
 @input

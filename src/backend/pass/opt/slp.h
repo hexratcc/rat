@@ -22,74 +22,71 @@ namespace rat {
 	struct SlpPass : FunctionPass {
 		static constexpr U32 kVecBytes = 16; // SSE
 		static constexpr U32 kMaxLanes = 16;
-		// stores of a stretch, compared pairwise
-		static constexpr U32 kMaxStretch = 64;
-		static constexpr U32 kMaxOps = 64;	 // op tuples tried per seed tuple
-		static constexpr U32 kMaxHops = 16;	 // stores walked above a wide load
-		static constexpr U32 kMaxTerms = 64; // terms of one reduction
-		static constexpr I32 kMinProfit = 2; // scalar ops a pack must save
-		// scalar ops a reduction must save when no call follows its loads
-		static constexpr I32 kMinReduceProfit = 1;
+		static constexpr U32 kMaxStretch = 64;		 // stores per stretch, compared pairwise
+		static constexpr U32 kMaxOps = 64;				 // op tuples tried per seed
+		static constexpr U32 kMaxUsers = 64;			 // users markDead looks at
+		static constexpr U32 kMaxHops = 16;				 // states forwardStalls and loadsBeforeCall walk
+		static constexpr U32 kMaxTerms = 64;			 // terms per reduction
+		static constexpr I32 kMinProfit = 2;			 // scalar ops a pack must save
+		static constexpr I32 kMinReduceProfit = 1; // of a reduction with no call after its loads
 
 		using Lanes = SmallList<Node*, kMaxLanes>;
 		using Terms = SmallList<Node*, 16>;
 
-		void printStats(const Module& module, std::ostream& os) const override;
-		U32 runOnFunction(Function& function, const TargetInfo& target) override;
-	private:
+		// A store of a stretch with its address and size
 		struct StoreAccess {
 			StoreNode* store = nullptr;
 			Addr addr;
 			U32 size = 0;
 		};
 
-		// a vector node and the scalar lanes it replaces
+		// A vector node and the scalar lanes it replaces
 		struct Vector {
 			Lanes lanes;
 			Node* node = nullptr;
-			I32 cost = 0;
+			I32 cost = 0; // 0 when borrowed from an earlier vector, or free like a zero pack
 		};
-
-		// the type bit of a scalar type, 0 for others
-		static U8 typeBits(const Type* t);
-
+	public:
+		void printStats(const Module& module, std::ostream& os) const override;
+		U32 runOnFunction(Function& function, const TargetInfo& target) override;
+	private:
 		// stores
 		B32 packChain(const List<StoreNode*>& chain);
 		void packStretch(List<StoreAccess>& stretch);
 		static B32 byAddress(const StoreAccess& a, const StoreAccess& b);
-		U32 packWindow(const StoreAccess* window, U32 count);
+		B32 packWindow(const StoreAccess* window, U32 count);
 
 		// reductions
 		void packReduction(Node* root);
-		static void flatten(Node* root, Terms& terms, Terms& steps);
-		Node* foldLanes(Node* root, const List<Node*>& termVectors, Type* scalarType);
+		static Terms flatten(Node* root, Terms& steps);
+		Node* foldLanes(Node* root, const List<Node*>& termVectors, const Terms& terms);
 		Node* combine(Node* root, Node* a, Node* b);
-		static B32 isMinMax(const Node* n);
-		static B32 sameStep(const Node* n, const Node* root);
-		static B32 feedsOneStep(const Node* n);
+		static B32 isMinMax(const Node* node);
+		static B32 sameStep(const Node* node, const Node* root);
 		B32 loadsBeforeCall();
 
 		// vectors
-		List<Node*> tryPack(const List<Lanes>& tuples, Set<const Node*> dead, I32 gain);
-		static B32 markDead(Node* n, Set<const Node*>& dead);
+		List<Node*> tryPack(const List<Lanes>& tuples, Set<const Node*> dead, I32& gain, I32 minProfit);
+		static B32 markDead(Node* lane, Set<const Node*>& dead);
 		Node* vectorize(const Lanes& lanes);
 		Node* wideLoad(const Lanes& lanes);
-		B32 loadSlots(const Lanes& lanes, LoadNode* lane0, U16& sel, Lanes& ordered);
-		U32 elementOf(Node* n, LoadNode* lane0, U32 count);
-		B32 forwardStalls(Node* state, Node* pointer, U32 bytes);
+		Node* windowLoad(const Lanes& window, Type* type);
+		B32 loadWindows(const Lanes& lanes, LoadNode* lane0, U16& sel, Lanes& low, Lanes& high);
+		U32 slotOf(Node* node, LoadNode* lane0, U32 frameSize);
+		B32 forwardStalls(LoadNode* first, U32 bytes);
 		B32 callWrites(Node* state, U32 object);
 		Node* vectorOp(const Lanes& lanes);
+		B32 opFits(const Lanes& lanes, Opcode alt);
 		Node* demote(const Lanes& lanes);
-		static B32 truncsLike(const Node* lane, const Node* wide0);
+		static B32 demotable(const Node* lane, const Node* wide0);
 		Node* narrowOperand(Node* wide, Type* narrowType);
 		Node* matchedInput(Node* lane, Node* lane0, U32 k);
 		B32 alike(Node* a, Node* b);
 		Node* negOrNot(Opcode op, Type* type, Node* operand);
 		Node* blend(const Lanes& lanes, Node* node, Node* other);
+		Node* addSubShuffled(const Lanes& lanes);
 		static B32 addSubOrder(const Lanes& lanes);
-		B32 quietCompare(const Lanes& lanes);
-		B32 addSubLanes(const Lanes& lanes, Lanes& subsEven);
-		Node* addSubShuffled(const Lanes& lanes, const Lanes& subsEven);
+		static U8 typeBits(const Type* type);
 		static B32 hasRule(const Node* lane);
 		Type* laneType(const Node* lane);
 		Node* gather(const Lanes& lanes);
@@ -98,14 +95,12 @@ namespace rat {
 	private:
 		Function* fn = nullptr;
 		U32 ptrBytes = 8;
-		AddrCache addrs;
-		Set<U32> storedObjects;
-		List<Vector> vectors;
-		Map<const Node*, List<U32>> vectorsOf;
-		U32 packStart = 0; // first vector of the pack under work
-		U32 budget = 0;		 // op tuples left to try
-		I32 packGain = 0;	 // of the last tryPack, before the kMinProfit check
-		U32 packedWindows = 0;
+		AddrCache addrs;				// from loadcanon
+		Set<U32> storedObjects; // objects the chains store to, see callWrites
+		List<Vector> vectors;		// of the current stretch or reduction
+		U32 packStart = 0;			// first vector of the current pack
+		U32 budget = 0;					// op tuples left to try
+		U32 packedWindows = 0;	// stats, see printStats
 		U32 packedReductions = 0;
 	};
 } // namespace rat

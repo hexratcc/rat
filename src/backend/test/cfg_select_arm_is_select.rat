@@ -1,4 +1,4 @@
-@name simplifycfg: an arm the predicate reads is computed anyway, so a chain of min diamonds becomes selects
+@name simplifycfg: an arm the branch reads is free to speculate, so min diamonds become selects
 @passes simplifycfg verify
 
 @input

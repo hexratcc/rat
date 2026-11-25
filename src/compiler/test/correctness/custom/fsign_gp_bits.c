@@ -1,5 +1,5 @@
 // expect: 0
-// a fabs or fneg from memory to memory works on the int bits, NaN payloads and signed zero must survive
+// Memory to memory fabs and fneg work on the int bits, so NaN payloads and -0 survive
 float fabsf(float x);
 double fabs(double x);
 typedef unsigned int u32;
