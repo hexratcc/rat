@@ -187,7 +187,7 @@ namespace rat::cc {
 			I64 v;
 			if(!folder.evalInt(c->expr, v))
 				return diag.fail("case label is not an integer constant expression");
-			U64 key = (U64)v ^ bias;
+			U64 key = (U64)folder.wrapTo(v, ct) ^ bias; // a label converts to the promoted type
 			for(const auto& [seenKey, block] : keyed)
 				if(seenKey == key)
 					return diag.fail("duplicate case value in switch");
@@ -232,9 +232,10 @@ namespace rat::cc {
 		if(n < 6)
 			return false;
 		I64 minV = cs.values[0];
-		U64 span = (U64)cs.values[n - 1] - (U64)minV + 1;
-		if(span > 512 || span > 4ull * n)
+		U64 range = (U64)cs.values[n - 1] - (U64)minV; // a full 64 bit span wraps to 0
+		if(range >= 512 || range >= 4ull * n)
 			return false;
+		U64 span = range + 1;
 		Type* selTy = irType(cs.ct);
 		Type* i64t = mod.getInt(64);
 		Node* idx = fn.binary(Opcode::Sub, cs.val, fn.constInt(selTy, minV));
