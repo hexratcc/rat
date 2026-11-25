@@ -79,7 +79,6 @@ namespace rat {
 		B32 forwardStalls(Node* state, Node* pointer, U32 bytes);
 		B32 callWrites(Node* state, U32 object);
 		Node* vectorOp(const Lanes& lanes);
-		B32 flagSafe(const Lanes& lanes);
 		Node* demote(const Lanes& lanes);
 		static B32 truncsLike(const Node* lane, const Node* wide0);
 		Node* narrowOperand(Node* wide, Type* narrowType);
@@ -88,6 +87,9 @@ namespace rat {
 		Node* negOrNot(Opcode op, Type* type, Node* operand);
 		Node* blend(const Lanes& lanes, Node* node, Node* other);
 		static B32 addSubOrder(const Lanes& lanes);
+		B32 quietCompare(const Lanes& lanes);
+		B32 addSubLanes(const Lanes& lanes, Lanes& subsEven);
+		Node* addSubShuffled(const Lanes& lanes, const Lanes& subsEven);
 		static B32 hasRule(const Node* lane);
 		Type* laneType(const Node* lane);
 		Node* gather(const Lanes& lanes);

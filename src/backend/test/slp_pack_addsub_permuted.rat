@@ -1,0 +1,63 @@
+@name slp: add and sub lanes out of addsubps order pack as a shuffle of addsubps of the reordered lanes
+@passes slp
+
+@input
+func t(ptr restrict, ptr restrict, ptr restrict) -> void {
+	v0 = start : (ctrl, mem, ptr, ptr, ptr)
+	v1 = stop : ctrl v40
+	v2 = proj : ctrl  #0 "ctrl" of v0
+	v3 = proj : mem  #1 "mem" of v0
+	v4 = proj : ptr  #2 "c" of v0
+	v5 = proj : ptr  #3 "a" of v0
+	v6 = proj : ptr  #4 "b" of v0
+	v7 = const : i64  4
+	v8 = const : i64  8
+	v9 = const : i64  12
+	v10 = add : ptr v4, v7
+	v11 = add : ptr v4, v8
+	v12 = add : ptr v4, v9
+	v13 = add : ptr v5, v7
+	v14 = add : ptr v5, v8
+	v15 = add : ptr v5, v9
+	v16 = add : ptr v6, v7
+	v17 = add : ptr v6, v8
+	v18 = add : ptr v6, v9
+	v20 = load : f32 v2, v3, v5
+	v21 = load : f32 v2, v3, v13
+	v22 = load : f32 v2, v3, v14
+	v23 = load : f32 v2, v3, v15
+	v24 = load : f32 v2, v3, v6
+	v25 = load : f32 v2, v3, v16
+	v26 = load : f32 v2, v3, v17
+	v27 = load : f32 v2, v3, v18
+	v28 = fadd : f32 v20, v24
+	v29 = fsub : f32 v21, v25
+	v30 = fadd : f32 v22, v26
+	v31 = fsub : f32 v23, v27
+	v32 = store : mem v2, v3, v4, v28
+	v33 = store : mem v2, v32, v10, v29
+	v34 = store : mem v2, v33, v11, v30
+	v35 = store : mem v2, v34, v12, v31
+	v40 = return : ctrl v2, v35
+}
+
+@expect
+func t(ptr restrict, ptr restrict, ptr restrict) -> void {
+v0 = start : (ctrl, mem, ptr, ptr, ptr)
+v1 = stop : ctrl v16
+v2 = proj : ctrl  #0 "ctrl" of v0
+v3 = proj : mem  #1 "mem" of v0
+v4 = proj : ptr  #2 "c" of v0
+v5 = proj : ptr  #3 "a" of v0
+v6 = proj : ptr  #4 "b" of v0
+v7 = load : <4 x f32> v2, v3, v5
+v8 = shuffle : <4 x f32>  #8961 v7, v7
+v9 = load : <4 x f32> v2, v3, v6
+v10 = shuffle : <4 x f32>  #8961 v9, v9
+v11 = fsub : <4 x f32> v8, v10
+v12 = fadd : <4 x f32> v8, v10
+v13 = shuffle : <4 x f32>  #29264 v11, v12
+v14 = shuffle : <4 x f32>  #8961 v13, v13
+v15 = store : mem v2, v3, v4, v14
+v16 = return : ctrl v2, v15
+}

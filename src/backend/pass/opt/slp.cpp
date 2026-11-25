@@ -209,12 +209,10 @@ namespace rat {
 		else
 			terms = {left, right};
 		U32 laneCount = kVecBytes / type->byteSize(ptrBytes);
-		// a float root is one 2-lane tuple, lane 0 op lane 1 is the exact scalar op
+		// a float root is one 2-lane tuple, lane 0 op lane 1 is the exact scalar op. x86 repeats a
+		// 2-lane f32 vector in its upper lanes, so these raise only the flags of the pair, see repeatsLanes
 		if(floatRoot)
 			laneCount = 2;
-		// the fold of a 2-lane f32 tuple would compute on the stale upper lanes too, see flagSafe
-		if(floatRoot && laneCount * type->byteSize(ptrBytes) < kVecBytes)
-			return;
 		U32 vectorCount = (U32)terms.size() / laneCount;
 		// most roots have fewer terms than lanes, they return before the vector reset
 		if(!vectorCount)
@@ -583,6 +581,10 @@ namespace rat {
 		for(Node* lane : lanes)
 			if(lane->getOpcode() != op)
 				alt = lane->getOpcode();
+		// mixed fadd and fsub lanes, half of each, reorder to one addsubps and shuffle back
+		Lanes subsEven;
+		if(alt != op && addSubLanes(lanes, subsEven))
+			return addSubShuffled(lanes, subsEven);
 		B32 shift = isShiftOpcode(op);
 		B32 binary = isBinaryOpcode(op) && isBinaryOpcode(alt);
 		// a float blend computes both ops on every lane and so raises their flags, only addsubps does not
@@ -597,7 +599,7 @@ namespace rat {
 		}
 		if(!fits)
 			return nullptr;
-		if(!flagSafe(lanes))
+		if(!quietCompare(lanes))
 			return nullptr;
 		// SSE zeroes the lanes of a shift past the width
 		const ConstantNode* amount = nullptr;
@@ -631,20 +633,6 @@ namespace rat {
 			return addVector(lanes, node, 1 + variableAmount + truncCost);
 		}
 		return blend(lanes, node, createArith(*fn, alt, type, inputs));
-	}
-
-	// a 2-lane f32 vector has zero or stale upper lanes, so float math on it can raise flags the
-	// scalar code does not. Sign ops and the converts that read or write the low lanes are safe
-	B32 SlpPass::flagSafe(const Lanes& lanes) {
-		Node* lane0 = lanes[0];
-		Opcode op = lane0->getOpcode();
-		if(op == Opcode::FNeg || op == Opcode::FAbs || op == Opcode::FPExt || op == Opcode::FPTrunc)
-			return true;
-		U32 count = (U32)lanes.size();
-		for(const Type* t : {lane0->getType(), lane0->getInput(0)->getType()})
-			if(t->isFloat() && count * t->byteSize(ptrBytes) < kVecBytes)
-				return false;
-		return true;
 	}
 
 	// trunc lanes of one wide op on extended narrow values are that op on the narrow lanes,
@@ -769,6 +757,63 @@ namespace rat {
 		Node* shuffle = fn->create<ShuffleNode>(node->getType(), node, other, sel);
 		// addsubps, else two ops and a blend
 		return addVector(lanes, shuffle, addSubOrder(lanes) ? 1 : 3);
+	}
+
+	// cmpltps and cmpleps signal on a quiet NaN, the scalar ucomiss does not. The 4-lane form is older, a
+	// 2-lane f32 order compare stays scalar unless a min or max select uses it, which lowers to minps
+	B32 SlpPass::quietCompare(const Lanes& lanes) {
+		Node* lane0 = lanes[0];
+		Opcode op = lane0->getOpcode();
+		U32 operandBytes = lane0->getInput(0)->getType()->byteSize(ptrBytes);
+		if(op < Opcode::FLt || op > Opcode::FGe || lanes.size() * operandBytes >= kVecBytes)
+			return true;
+		for(Node* lane : lanes)
+			if(lane->getUsers().size() != 1 || !isMinMax(lane->getUsers()[0]))
+				return false;
+		return true;
+	}
+
+	// half of the float lanes subtract and half add, then subsEven holds them in addsubps order, the subs
+	// on the even slots. False also for lanes already in that order
+	B32 SlpPass::addSubLanes(const Lanes& lanes, Lanes& subsEven) {
+		U32 count = (U32)lanes.size();
+		if(!lanes[0]->getType()->isFloat() || count > ShuffleNode::kMaxLanes || addSubOrder(lanes))
+			return false;
+		Lanes subs, adds;
+		for(Node* lane : lanes) {
+			Opcode laneOp = lane->getOpcode();
+			if(laneOp != Opcode::FSub && laneOp != Opcode::FAdd)
+				return false;
+			if(laneOp == Opcode::FSub)
+				subs.push_back(lane);
+			else
+				adds.push_back(lane);
+		}
+		if(subs.size() != adds.size())
+			return false;
+		for(U32 i = 0; i < subs.size(); ++i) {
+			subsEven.push_back(subs[i]);
+			subsEven.push_back(adds[i]);
+		}
+		return true;
+	}
+
+	// the lanes as a shuffle of the addsubps of subsEven, exact as each lane keeps its own op
+	Node* SlpPass::addSubShuffled(const Lanes& lanes, const Lanes& subsEven) {
+		if(!budget)
+			return nullptr;
+		--budget;
+		// vectorOp, not vectorize, so a failed addsubps is no gather inside a shuffle
+		Node* inner = vectorOp(subsEven);
+		if(!inner)
+			return nullptr;
+		U16 sel = 0;
+		for(U32 i = 0; i < lanes.size(); ++i) {
+			U32 source = (U32)(std::find(subsEven.begin(), subsEven.end(), lanes[i]) - subsEven.begin());
+			sel |= (U16)(source << (ShuffleNode::kSourceBits * i));
+		}
+		Node* shuffle = fn->create<ShuffleNode>(inner->getType(), inner, inner, sel);
+		return addVector(lanes, shuffle, 1);
 	}
 
 	// the lanes subtract and add in turn, one addsubps

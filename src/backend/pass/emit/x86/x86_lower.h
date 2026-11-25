@@ -73,6 +73,13 @@ namespace rat {
 		static BinaryNode* addSubOf(const ShuffleNode* n);
 		static B32 addSubOnly(const Node* n);
 		static U32 opWidth(const Type* t);
+		static U32 regWidth(const Type* t);
+		static B32 repeatsLanes(const Type* t);
+		static B32 readsLowLanes(const Node* n);
+		static B32 gpSignOp(const Node* n);
+		static B32 gpSignLoad(const LoadNode* l);
+		void emitGpSign(UnaryNode* n);
+		void repeatLowHalf(VReg d);
 
 		I32 reserve(U32 bytes, U32 align = 8);
 		void needScratch();

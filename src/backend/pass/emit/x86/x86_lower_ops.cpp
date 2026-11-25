@@ -90,7 +90,7 @@ namespace rat {
 			return;
 		}
 		AddrParts a = matchAddr(s->getPointer());
-		if(isSseTy(val->getType()))
+		if(isSseTy(val->getType()) && !gpSignOp(val))
 			return st(a, vr(sseValue(val), w), X86Op::FStore);
 		if(ConstantNode* c = dyn_cast<ConstantNode>(val)) {
 			I64 v = c->getValue();
@@ -118,8 +118,13 @@ namespace rat {
 			return;
 		}
 		AddrParts a = matchAddr(l->getPointer());
-		if(isSseTy(l->getType())) {
+		if(gpSignLoad(l)) {
+			vregOf[l->getId()] = fresh(detail::kGp);
+			ld(vregOf[l->getId()], w, a, false);
+		} else if(isSseTy(l->getType())) {
 			ldf(vregFor(l), w, a);
+			if(repeatsLanes(l->getType()) && !readsLowLanes(l))
+				repeatLowHalf(vregFor(l));
 		} else if(splatOnlyLoad(l)) {
 			vregOf[l->getId()] = fresh(detail::kFp); // movss/movsd, no gp round trip
 			ldf(vregOf[l->getId()], w, a);
@@ -430,6 +435,9 @@ namespace rat {
 			U64 v = (U64)c->getValue();
 			for(U32 b = 0; b < esz; ++b)
 				bytes[i * esz + b] = (U8)(v >> (8 * b));
+			if(repeatsLanes(n->getType()))
+				for(U32 b = 0; b < esz; ++b)
+					bytes[(i + 2) * esz + b] = (U8)(v >> (8 * b));
 		}
 		return bytes;
 	}
@@ -462,6 +470,8 @@ namespace rat {
 		for(U32 i = 0; i < n->getLaneCount(); ++i)
 			if(!isa<ConstantNode>(n->getLane(i)) && (i || fromPool))
 				insertLane(d, n->getLane(i), i, esz, isInt);
+		if(repeatsLanes(n->getType()) && !readsLowLanes(n))
+			repeatLowHalf(d);
 	}
 
 	// without sse4.1 the lanes go through the vec scratch slot
@@ -478,6 +488,8 @@ namespace rat {
 			put(X86Op::VPackLane, {}, {lanes[i]}, (I64)esz, desc).regClass = laneClass;
 		}
 		put(X86Op::VPack, {vr(vregFor(n), 16)}, {}, (I64)esz, isInt);
+		if(repeatsLanes(n->getType()) && !readsLowLanes(n))
+			repeatLowHalf(vregFor(n));
 	}
 
 	void X86LowerPass::packLaneZero(PackNode* n, VReg d, U32 esz, B32 isInt) {
@@ -533,6 +545,10 @@ namespace rat {
 			for(U32 k = 0; k < per; ++k)
 				src[i * per + k] = s / lanes * 4 + s % lanes * per + k;
 		}
+		if(repeatsLanes(vt)) {
+			src[2] = src[0];
+			src[3] = src[1];
+		}
 		sel = 0;
 		mask = 0;
 		inPlace = true;
@@ -572,6 +588,9 @@ namespace rat {
 			varithImm(d, ta, tb, 0x66, 0x0c, 0x3a, mask);
 		}
 	}
+
+	// lanes 2 and 3 of d copy lanes 0 and 1, see repeatsLanes
+	void X86LowerPass::repeatLowHalf(VReg d) { vmerge(d, d, 0, 0x16, 0, -1); } // movlhps
 
 	// a fresh register holding a constant
 	VReg X86LowerPass::gpConst(I64 v) {
@@ -630,12 +649,14 @@ namespace rat {
 	}
 
 	void X86LowerPass::emitFNeg(UnaryNode* n) {
+		if(gpSignOp(n))
+			return emitGpSign(n);
 		if(isX87Ty(n->getType())) {
 			Slot s = x87Value(n->getOperand());
 			put(X86Op::X87Neg, {sl(x87SlotOf(n))}, {sl(s)});
 			return;
 		}
-		U32 w = opWidth(n->getType());
+		U32 w = regWidth(n->getType());
 		U32 lane = n->getType()->isVec() ? opWidth(n->getType()->getVecElement()) : w;
 		VReg s = sseValue(n->getOperand());
 		needScratch();
@@ -644,10 +665,28 @@ namespace rat {
 		m.clobbers = detail::physBit(detail::xmmPhys(conv->sseVolatileCount - 1));
 	}
 
+	// the sign bit cleared or flipped in a gp copy of the loaded bits, see gpSignOp
+	void X86LowerPass::emitGpSign(UnaryNode* n) {
+		U32 w = opWidth(n->getType());
+		U64 sign = 1ull << (8 * w - 1);
+		B32 abs = n->getOpcode() == Opcode::FAbs;
+		VReg d = fresh(detail::kGp);
+		vregOf[n->getId()] = d;
+		mov(d, vregFor(n->getOperand()));
+		X86Op op = abs ? X86Op::And : X86Op::Xor;
+		I64 mask = (I64)(abs ? sign - 1 : sign);
+		if(w == 4)
+			alu(op, d, d, imm(mask)); // as imm32, the store keeps the low 32 bits
+		else
+			alu(op, d, d, gpConst(mask));
+	}
+
 	// sqrtps or sqrtpd for a vector, fabs shifts the sign bit out of each lane
 	void X86LowerPass::emitFSqrtAbs(UnaryNode* n) {
+		if(gpSignOp(n))
+			return emitGpSign(n);
 		Type* type = n->getType();
-		U32 w = opWidth(type);
+		U32 w = regWidth(type);
 		U32 lane = type->isVec() ? opWidth(type->getVecElement()) : w;
 		VReg s = sseValue(n->getOperand());
 		VReg d = vregFor(n);
@@ -807,7 +846,7 @@ namespace rat {
 		I64 desc = vecDesc(pfx, max ? 0x5f : 0x5d, 0);
 		VReg t = sseValue(n->getTrue());
 		VReg f = sseValue(n->getFalse());
-		farith(X86Op::VArith, vregFor(n), t, f, opWidth(type), desc);
+		farith(X86Op::VArith, vregFor(n), t, f, regWidth(type), desc);
 	}
 
 	void X86LowerPass::emitVecSelect(SelectNode* n) {
@@ -816,6 +855,13 @@ namespace rat {
 			return;
 		B32 invert = false;
 		VReg m = vecMask(c, invert);
+		// an int compare of <2 x i32> leaves lanes 2 and 3 of its mask open, a float compare repeats them
+		B32 intMask = !c->getLHS()->getType()->getVecElement()->isFloat();
+		if(repeatsLanes(n->getType()) && intMask) {
+			VReg repeated = fresh(detail::kFp);
+			put(X86Op::VShuf, {vr(repeated, 16)}, {vr(m, 16)}, (I64)0x44);
+			m = repeated;
+		}
 		Node* t = n->getTrue();
 		Node* f = n->getFalse();
 		if(invert)
@@ -895,6 +941,12 @@ namespace rat {
 		Opcode op = n->getOpcode();
 		U8 pfx = 0, opc = 0x5a; // cvtps2pd
 		U8 esc = 0;
+		VReg s = sseValue(src);
+		if(op == Opcode::SIToFP && repeatsLanes(n->getType())) {
+			VReg repeated = fresh(detail::kFp);
+			put(X86Op::VShuf, {vr(repeated, 16)}, {vr(s, 16)}, (I64)0x44); // the int lanes 0 1 0 1
+			s = repeated;
+		}
 		if(op == Opcode::SIToFP) {
 			opc = 0x5b;
 			if(dw == 8) {
@@ -917,7 +969,9 @@ namespace rat {
 			esc = 0x38;
 			opc = pmovOpc(sw, dw, op == Opcode::ZExt);
 		}
-		vunary(vregFor(n), sseValue(src), pfx, opc, esc);
+		vunary(vregFor(n), s, pfx, opc, esc);
+		if(op == Opcode::FPTrunc && repeatsLanes(n->getType()) && !readsLowLanes(n))
+			repeatLowHalf(vregFor(n)); // cvtpd2ps zeroes lanes 2 and 3
 	}
 
 	// pshufb picks the low bytes of each lane

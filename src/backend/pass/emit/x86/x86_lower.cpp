@@ -32,6 +32,50 @@ namespace rat {
 		return 8;
 	}
 
+	// a <2 x f32> holds its lanes again in lanes 2 and 3, so packed float math on all four lanes raises
+	// only the flags of the scalar ops. Every producer keeps that unless readsLowLanes, see repeatLowHalf
+	B32 X86LowerPass::repeatsLanes(const Type* t) {
+		return t && t->isVec() && t->getVecLanes() == 2 && t->getVecElement()->isFloat() &&
+					 t->getVecElement()->getFloatWidth() == 32;
+	}
+
+	// every user reads lanes 0 and 1 only, a store, an extract, a cvtps2pd or a shuffle (see shuffleDwords),
+	// so lanes 2 and 3 need no copy
+	B32 X86LowerPass::readsLowLanes(const Node* n) {
+		for(Node* u : n->getUsers()) {
+			B32 stored = isa<StoreNode>(u) && cast<StoreNode>(u)->getValue() == n;
+			B32 lowOnly = isa<ExtractNode>(u) || isa<ShuffleNode>(u) || u->getOpcode() == Opcode::FPExt;
+			if(!stored && !lowOnly)
+				return false;
+		}
+		return true;
+	}
+
+	// a scalar fabs or fneg of a load that only stores read, done on the int bits as clang does, so the
+	// float never enters an xmm
+	B32 X86LowerPass::gpSignOp(const Node* n) {
+		Opcode op = n->getOpcode();
+		const Type* t = n->getType();
+		if((op != Opcode::FAbs && op != Opcode::FNeg) || !t->isFloat() || isX87Ty(t))
+			return false;
+		const Node* operand = cast<UnaryNode>(n)->getOperand();
+		if(!isa<LoadNode>(operand) || operand->getUsers().size() != 1)
+			return false;
+		for(Node* u : n->getUsers()) {
+			const StoreNode* s = dyn_cast<StoreNode>(u);
+			if(!s || s->getValue() != n || s->getPointer() == n)
+				return false;
+		}
+		return n->hasUsers();
+	}
+
+	B32 X86LowerPass::gpSignLoad(const LoadNode* l) {
+		return l->getUsers().size() == 1 && gpSignOp(l->getUsers()[0]);
+	}
+
+	// a vector moves and spills as the whole xmm, so the repeated lanes of a <2 x f32> survive a reload
+	U32 X86LowerPass::regWidth(const Type* t) { return t && t->isVec() ? 16 : opWidth(t); }
+
 	B32 X86LowerPass::isX87Ty(const Type* t) {
 		return t && t->isFloat() && t->getFloatWidth() == 128;
 	}
@@ -431,11 +475,11 @@ namespace rat {
 				continue;
 			}
 			VReg t = fresh(cls);
-			moveValue(t, classValue(v, cls), cls, opWidth(phi->getType()));
+			moveValue(t, classValue(v, cls), cls, regWidth(phi->getType()));
 			phiMoves.push_back({phi, t});
 		}
 		for(const auto& [phi, t] : phiMoves)
-			moveValue(vregFor(phi), t, classOf(phi->getType()), opWidth(phi->getType()));
+			moveValue(vregFor(phi), t, classOf(phi->getType()), regWidth(phi->getType()));
 		for(const auto& [phi, t] : x87Moves)
 			fldSlot(x87SlotOf(phi), t);
 	}
