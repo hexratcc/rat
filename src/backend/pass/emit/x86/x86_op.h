@@ -147,24 +147,9 @@ namespace rat {
 		Br,					// jnz use[0] to use[1] else use[2], with imm2 set jcc imm to use[0] else use[1]
 		// variadic support
 		VaStart, // init va_list at [use0], imm = gpOffset start, imm2 = fpOffset start
-		VaArg,	 // fetch next vararg into def, use0 = va_list ptr, imm = kind, imm2 = width
 		// misc
 		Ud2,			// undefined instruction
 		Prefetch, // prefetch [use0 + imm], imm2 = hint (0 = nta, 1 = t0, 2 = t1, 3 = t2)
-	};
-
-	enum class VaArgKind : I64 {
-		Int = 0,
-		Sse = 1,
-		X87 = 2,
-		Aggregate = 3
-	};
-
-	// a va_arg aggregate, packed into the VaArg imm2
-	struct VaAggregate {
-		U32 bytes = 0;
-		U32 align = 0;
-		AbiRegs regs;
 	};
 
 	namespace detail {
@@ -185,8 +170,6 @@ namespace rat {
 	const X86OpInfo& x86OpInfo(X86Op op);
 
 	namespace detail {
-		I64 packVaAggregate(const VaAggregate& agg);
-		VaAggregate unpackVaAggregate(I64 desc);
 		String dispText(I64 disp);
 		String operandText(const MachineOperand& operand);
 		String addressText(const MachineInstr& instr, U32 width, U32 indexUse, U32 scaleLog2);

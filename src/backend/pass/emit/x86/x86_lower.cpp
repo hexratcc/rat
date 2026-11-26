@@ -138,7 +138,6 @@ namespace rat {
 		fl->variadic = fn->getAttrs().variadic;
 		if(!fl->variadic)
 			return;
-		needScratch(); // va_arg fetch sequences stash through the scratch slot
 		X86ArgAssigner as(*conv);
 		paramLocs(as);
 		if(conv->vaList == X86VaList::CharPtr) {

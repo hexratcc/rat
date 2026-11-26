@@ -206,10 +206,7 @@ namespace rat::cc {
 			Node* ap = vaListRef(fn, e->vaArg.ap);
 			if(!ap)
 				return {};
-			CType fetched = e->vaArg.type;
-			if(isAggregate(fetched))
-				return emitVaArgAggregate(fn, ap, fetched);
-			return {fn.call("__builtin_va_arg", irType(e->vaArg.type), {ap}), e->vaArg.type};
+			return emitVaArg(fn, ap, e->vaArg.type);
 		}
 		case ExprKind::StmtExpr:
 			return emitStmtExpr(fn, e);

@@ -94,7 +94,6 @@ namespace rat {
 		{"br",           kGp,  kX86Transparent | kX86ReadsFlags},
 		// variadic support
 		{"vastart",      kGp,  0},
-		{"vaarg",        kGp,  0},
 		// misc
 		{"ud2",          kGp,  0},
 		{"prefetch",     kGp,  0},
@@ -184,26 +183,6 @@ namespace rat {
 		B32 immIsOperand(X86Op op) {
 			return op == X86Op::FrameAddr || op == X86Op::VExtract || op == X86Op::VShuf ||
 						 isNormalize(op);
-		}
-
-		// bytes in the low 32 bits, then the alignment up to 16
-		// then the eightbyte count and 2 bits per class
-		I64 packVaAggregate(const VaAggregate& agg) {
-			U64 desc = agg.bytes | (U64)std::min(agg.align, 16u) << 32 | (U64)agg.regs.count << 40;
-			for(U32 k = 0; k < 2; ++k)
-				desc |= (U64)agg.regs.cls[k] << (42 + 2 * k);
-			return (I64)desc;
-		}
-
-		VaAggregate unpackVaAggregate(I64 desc) {
-			U64 bits = (U64)desc;
-			VaAggregate agg;
-			agg.bytes = (U32)bits;
-			agg.align = (U32)(bits >> 32 & 0xff);
-			agg.regs.count = (U8)(bits >> 40 & 3);
-			for(U32 k = 0; k < 2; ++k)
-				agg.regs.cls[k] = (AbiClass)(bits >> (42 + 2 * k) & 3);
-			return agg;
 		}
 
 		// two-address ops repeat the def as use 0

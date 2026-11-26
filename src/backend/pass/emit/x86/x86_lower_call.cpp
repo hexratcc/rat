@@ -72,10 +72,6 @@ namespace rat {
 			VReg ptr = gpValue(c->getArg(0));
 			MachineInstr& m = put(X86Op::VaStart, {}, {vr(ptr)}, (I64)fl->namedGp, (I64)fl->namedFp);
 			m.clobbers = detail::scratchBits();
-		} else if(callee == "__builtin_va_arg") {
-			emitVaArg(c);
-		} else if(callee == "__builtin_va_arg_aggregate") {
-			vaArgAggregate(c);
 		} else if(callee == "__builtin_setjmp") {
 			mov(R11, gpValue(c->getArg(0)));
 			MachineInstr& m = put(X86Op::SetJmp, {ph(RAX)}, {ph(R11)});
@@ -432,56 +428,6 @@ namespace rat {
 
 	VReg X86LowerPass::stackParamAddr(U32 off) {
 		return frameAddr((I64)(conv->stackParamOff + (I32)off));
-	}
-
-	void X86LowerPass::emitVaArg(CallNode* c) {
-		needScratch(); // the fetch sequences stash through the scratch slot
-		if(!c->returnsValue())
-			return;
-		Node* vp = c->projection(CallNode::valueProjIndex());
-		Type* rt = vp ? vp->getType() : c->getType()->getTupleElement(CallNode::valueProjIndex());
-		if(!rt)
-			return;
-		VReg ptr = gpValue(c->getArg(0));
-		VaArgKind kind = VaArgKind::Int;
-		if(isX87Ty(rt))
-			kind = VaArgKind::X87;
-		else if(isSseTy(rt))
-			kind = VaArgKind::Sse;
-		U32 w = opWidth(rt);
-		I64 desc = (I64)w;
-		if(kind == VaArgKind::Int && rt->isInt())
-			desc |= (I64)1 << 32; // sign-extend the fetched value
-		MachineOperand def;
-		if(kind == VaArgKind::X87 && vp)
-			def = MachineOperand::frameSlot(x87SlotOf(vp).s);
-		else if(kind == VaArgKind::X87)
-			def = MachineOperand::frameSlot(reserve(16));
-		else if(vp)
-			def = vr(vregFor(vp), w);
-		else
-			def = vr(fresh(classOf(rt)), w);
-		MachineInstr& m = put(X86Op::VaArg, {def}, {vr(ptr)}, (I64)kind, desc);
-		m.regClass = classOf(rt);
-		m.clobbers = detail::scratchBits();
-	}
-
-	// the register eightbytes go through a frame temp, args 1 and 2 are the size and alignment
-	void X86LowerPass::vaArgAggregate(CallNode* c) {
-		needScratch();
-		VaAggregate agg;
-		agg.bytes = (U32)cast<ConstantNode>(c->getArg(1))->getValue();
-		agg.align = (U32)cast<ConstantNode>(c->getArg(2))->getValue();
-		agg.regs = c->getAbi().ret;
-		Node* vp = c->projection(CallNode::valueProjIndex());
-		MachineOperand def = vr(vp ? vregFor(vp) : fresh(detail::kGp));
-		VReg ptr = gpValue(c->getArg(0));
-		I64 desc = detail::packVaAggregate(agg);
-		MachineInstr& m = put(X86Op::VaArg, {def}, {vr(ptr)}, (I64)VaArgKind::Aggregate, desc);
-		m.regClass = detail::kGp;
-		m.clobbers = detail::scratchBits();
-		if(agg.regs.count && conv->vaList != X86VaList::CharPtr)
-			m.uses.push_back(MachineOperand::frameSlot(reserve(16), 16));
 	}
 
 	void X86LowerPass::emitReturn(ReturnNode* r) {

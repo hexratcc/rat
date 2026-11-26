@@ -313,7 +313,9 @@ namespace rat::cc {
 		const FuncType* implicitFuncType(const String& callee);
 		B32 emitArgs(Function& fn, const Expr* e, const Callee& c, U32 n, CallArgs& args);
 		void pushAggregateArg(Function& fn, Node* src, CType t, CallArgs& args);
-		Value emitVaArgAggregate(Function& fn, Node* ap, CType t);
+		Value emitVaArg(Function& fn, Node* ap, CType t);
+		Node* vaOverflow(Function& fn, Node* overflowAt, U32 step, U32 align);
+		Node* vaRegisters(Function& fn, Node* ap, CType t, const AbiRegs& regs);
 
 		// x86-64 aggregate abi
 		AbiRegs classify(CType t) const;

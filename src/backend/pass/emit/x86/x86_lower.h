@@ -229,8 +229,6 @@ namespace rat {
 		void lowerParam(U32 index, X86ArgAssigner::Loc l);
 		void x87Param(ProjNode* p, X86ArgAssigner::Loc l);
 		VReg stackParamAddr(U32 off);
-		void emitVaArg(CallNode* c);
-		void vaArgAggregate(CallNode* c);
 		void emitNode(Node* n);
 		void emitReturn(ReturnNode* r);
 		void moveValue(VReg dst, VReg src, U32 cls, U32 w);

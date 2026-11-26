@@ -84,15 +84,77 @@ namespace rat::cc {
 		}
 	}
 
-	// the backend fetches the aggregate by size, alignment and eightbyte classes
-	Emitter::Value Emitter::emitVaArgAggregate(Function& fn, Node* ap, CType t) {
-		CallAbi fetch;
-		fetch.ret = argRegs(t);
-		List<Node*> args = {ap, constSize(fn, byteSize(t)), constSize(fn, alignOf(t))};
-		Node* src = fn.call("__builtin_va_arg_aggregate", mod.getPtr(), args, true, fetch);
+	// win64 passes a value not of 1, 2, 4 or 8 bytes by reference
+	// sysv va_list is {u32 gp offset, u32 fp offset, ptr overflow area, ptr register save area}
+	Emitter::Value Emitter::emitVaArg(Function& fn, Node* ap, CType t) {
+		AbiRegs regs = argRegs(t);
+		Node* at = nullptr;
+		if(lay.win64VaList) {
+			at = vaOverflow(fn, ap, 8, 8);
+			if(!regs.count)
+				at = fn.load(mod.getPtr(), at);
+		} else if(regs.count) {
+			at = vaRegisters(fn, ap, t, regs);
+		} else {
+			at = vaOverflow(fn, offsetPtr(fn, ap, 8), (U32)alignUp(byteSize(t), 8), alignOf(t));
+		}
+		if(!isAggregate(t))
+			return {fn.load(irType(t), at), t};
 		Node* tmp = allocBytes(fn, (U32)byteSize(t), alignOf(t));
-		emitMemCopy(fn, tmp, src, (U32)byteSize(t));
+		emitMemCopy(fn, tmp, at, (U32)byteSize(t));
 		return {tmp, t};
+	}
+
+	Node* Emitter::vaOverflow(Function& fn, Node* overflowAt, U32 step, U32 align) {
+		Node* p = fn.load(mod.getPtr(), overflowAt);
+		// a stack argument aligns to 16 at most, see X86ArgAssigner::nextMem
+		if(align > 8)
+			p = fn.and_(fn.add(p, constSize(fn, 15)), constSize(fn, -(U64)16));
+		fn.store(overflowAt, fn.add(p, constSize(fn, step)));
+		return p;
+	}
+
+	// from the register save area when each class has room left, else from the overflow area
+	Node* Emitter::vaRegisters(Function& fn, Node* ap, CType t, const AbiRegs& regs) {
+		constexpr U32 kSaveAreaEnd[] = {rat::abi::kSysV.gpSaveBytes, rat::abi::kSysV.regSaveBytes};
+		constexpr U32 kSaveSlotBytes[] = {8, rat::abi::kSysV.sseSlotBytes};
+		Block* stackB = fn.createBlock("va.stack");
+		Block* endB = fn.createBlock("va.end");
+		Node* offsetAt[2] = {ap, offsetPtr(fn, ap, 4)};
+		Node* offset[2] = {};
+		for(U32 cls = 0; cls < 2; ++cls) {
+			U32 need = regs.countOf(cls ? AbiClass::Sse : AbiClass::Integer);
+			if(!need)
+				continue;
+			offset[cls] = fn.load(i32, offsetAt[cls]);
+			Node* last = fn.constInt(i32, kSaveAreaEnd[cls] - kSaveSlotBytes[cls] * need);
+			Block* roomB = fn.createBlock("va.room");
+			fn.jumpif(fn.compare(Opcode::Ult, last, offset[cls]), stackB);
+			fn.jmp(roomB);
+			fn.enterBlock(roomB);
+		}
+		Function::Var at = fn.newVar("va.at", mod.getPtr());
+		Node* save = fn.load(mod.getPtr(), offsetPtr(fn, ap, 16));
+		// the two eightbytes may sit apart, so they are gathered in a temporary
+		Node* tmp = regs.count > 1 ? allocBytes(fn, 16, 8) : nullptr;
+		Node* slot = nullptr;
+		for(U32 k = 0; k < regs.count; ++k) {
+			U32 cls = regs.cls[k] == AbiClass::Sse;
+			slot = fn.add(save, fn.zext(offset[cls], mod.getInt(64)));
+			offset[cls] = fn.add(offset[cls], fn.constInt(i32, kSaveSlotBytes[cls]));
+			if(tmp)
+				emitMemCopy(fn, offsetPtr(fn, tmp, 8 * k), slot, 8);
+		}
+		fn.set(at, tmp ? tmp : slot);
+		for(U32 cls = 0; cls < 2; ++cls)
+			if(offset[cls])
+				fn.store(offsetAt[cls], offset[cls]);
+		fn.jmp(endB);
+		fn.enterBlock(stackB);
+		fn.set(at, vaOverflow(fn, offsetPtr(fn, ap, 8), (U32)alignUp(byteSize(t), 8), alignOf(t)));
+		fn.jmp(endB);
+		fn.enterBlock(endB);
+		return fn.get(at);
 	}
 
 	Emitter::Value Emitter::emitCall(Function& fn, const Expr* e) {

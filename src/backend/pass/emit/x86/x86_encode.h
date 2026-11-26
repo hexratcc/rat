@@ -110,14 +110,7 @@ namespace rat {
 		void emitX87ToSse(const MachineInstr& in);
 		void emitX87Binary(const MachineInstr& in, U32 idx);
 		void emitX87Cmp(const MachineInstr& in);
-		void vaLoadResult(const MachineInstr& in);
 		void emitVaStart(const MachineInstr& in);
-		void vaFetchOverflow(I32 step, U32 align, I32 ptrDisp = 8);
-		void vaFetch(I32 offDisp, U32 limit, I32 regStep);
-		U32 vaNoRoom(I32 offDisp, U32 limit);
-		void vaCopyEightbyte(I32 offDisp, I32 regStep, I32 disp);
-		void vaFetchAggregate(const MachineInstr& in);
-		void emitVaArg(const MachineInstr& in);
 		void copyByval(const MachineOperand& src, U32 bytes, I32 off);
 		void emitCall(const MachineInstr& in);
 		void emitRet();
