@@ -159,7 +159,17 @@ namespace rat {
 	// the only way to build an indexed Mem, a bare index without indexed would encode wrong
 	Mem indexedMem(Reg base, Reg index, U32 scaleLog2, I32 disp);
 
-	// x86-64 instruction encoder, appends machine bytes to code and reloc records to relocs
+	// an opcode with its mandatory prefix and escape bytes
+	struct Enc {
+		U8 pfx = 0; // 0x66, 0xf2, 0xf3 or none
+		U8 map = 0; // 0x0f, 0x38 for 0f 38, 0x3a for 0f 3a, or none
+		U8 opc = 0;
+		B32 w = 0;	 // REX.W
+		B32 rex = 0; // a bare 0x40 rex too, spl..dil need it as byte operands
+	};
+
+	// x86-64 instruction encoder, appends machine bytes to code and reloc records to relocs.
+	// reg is the modrm reg field, a register or the /digit of the opcode
 	struct Asm {
 		List<U8>& code;
 		List<AsmReloc>& relocs;
@@ -168,165 +178,64 @@ namespace rat {
 		: code(c),
 			relocs(r) {}
 
-		// byte-stream primitives
 		U32 here() const;
 		void b(U8 v);
 		void d32(U32 v);
 		void d64(U64 v);
-		U32 reserve32();
+		void imm(I64 v, U32 bytes);
 		// multi-byte nops up to the next multiple of a
 		void alignNop(U32 a);
 
-		// prefixes and modrm
-		static U8 rexByte(B32 w, U32 r, U32 x, U32 rm);
-		void rex(B32 w, U32 r, U32 x, U32 rm); // omit the prefix when it would be a bare 0x40
-		void rexForce(B32 w, U32 r, U32 x, U32 rm);
-		void modrmReg(U32 reg, U32 rm);
-		// one-byte op with a register modrm
-		void opRR(B32 w, U8 op, U32 reg, U32 rm);
-		// 0x0f escaped op with a register modrm
-		void op0fRR(B32 w, U8 op, U32 reg, U32 rm);
-		void modrmMem(U32 reg, U32 base, I32 disp);
-		// [base + index*(1<<scaleLog2) + disp]
-		void modrmMemSib(U32 reg, U32 base, U32 index, U32 scaleLog2, I32 disp);
-		// narrowest mod field the displacement fits in, and its tail
-		static U32 memMod(U32 base, I32 disp);
-		void memDisp(U32 mod, I32 disp);
-
-		enum MemFlags : U8 {
-			kMemW = 1,				// REX.W
-			kMemRexForce = 2, // emit REX even when it would be a bare 0x40
-			kMemEsc = 4,			// 0x0f two-byte opcode escape
-		};
-
-		// generic reg-mem opcode with optional prefix/escape (flags from MemFlags)
-		void memOp(U8 pfx, U8 flags, U8 opcode, U32 reg, const Mem& mem);
-		void memImmTail(I64 imm, U32 width);
-		static U8 opSizePrefix(U32 width);
-		static U8 memStoreFlags(U32 width, Reg src);
-
-		void movRegImm64(Reg r, U64 imm);
-		void movRR32(Reg dst, Reg src);
-		void movRR(Reg dst, Reg src);
-		void movsxd32(Reg dst, Reg src);
-
-		void storeMem(const Mem& mem, Reg src, U32 width);
-		// mov imm, [mem]
-		void storeMemImm(const Mem& mem, I64 imm, U32 width);
-
-		void load64(Reg dst, Reg base, I32 disp);
-		// REX.W / opcode (and the 0x0f escape) for a width-and-sign extending load
-		static void loadExtForm(U32 width, B32 sign, U8& flags, U8& opcode);
-		void loadExt(Reg dst, const Mem& mem, U32 width, B32 sign);
-
-		void aluRR(U8 op, Reg dst, Reg src);
-		void subRR(Reg d, Reg s);
-		void andRR(Reg d, Reg s);
-		void orRR(Reg d, Reg s);
-		void cmpRR(Reg d, Reg s);
-		void testRR(Reg d, Reg s);
-		void imulRR(Reg d, Reg s);
-
-		void opImm(U8 op8, U8 op32, U32 reg, U32 rm, I32 imm);
-		// group-1 ALU op with an immediate, picking the short imm8 form when it fits
+		void rr(Enc e, U32 reg, U32 rm);
+		void rm(Enc e, U32 reg, const Mem& mem);
+		// [rip + disp32], returns the offset of disp32
+		U32 rip(Enc e, U32 reg);
+		void ripSym(Enc e, U32 reg, const String& sym);
+		// the register in the low opcode bits
+		void opReg(Enc e, U32 r);
+		// the imm8 opcode when imm fits, else the imm32 one
+		void rrImm(U8 op8, U8 op32, U32 reg, U32 rm, I32 imm);
+		// group-1 alu op on a 64-bit register
 		void aluImm(U8 ext, Reg r, I32 imm);
-		void addRegImm32(Reg r, I32 imm);
-		void subRegImm32(Reg r, I32 imm);
-		void cmpRegImm32(Reg r, I32 imm);
-		// dst = src * imm
-		void imulRRI(Reg dst, Reg src, I32 imm);
 
-		// mov r32, imm32
-		void movRegImm32(Reg r, U32 imm);
-		// mov r64, imm32
-		void movRegImmSext32(Reg r, I32 imm);
-		// dst += [base + disp]  (64-bit)
-		void addRegMem(Reg dst, Reg base, I32 disp);
-
-		void negReg(Reg r);
-		void notReg(Reg r);
-		void idivRegW(Reg r, B32 wide);
-		void divRegW(Reg r, B32 wide);
-		void cqoW(B32 wide);
-		void xorSelf(Reg r);
-
-		void shiftCL(U8 ext, Reg r);
-		// C1 /ext ib rotate/shift with explicit operand width (ext 0 = rol, 1 = ror)
-		void rotImm(U8 ext, Reg r, U8 cnt, B32 wide);
-		void shiftImm(U8 ext, Reg r, U8 cnt);
-
-		void setcc(U8 cc, Reg r);
-		void cmovcc(U8 cc, Reg dst, Reg src); // dst = cc ? src : dst
-		void movzxByte(Reg dst, Reg src);
-		void bitScan(B32 reverse, Reg dst, Reg src, B32 wide);
-		void bswap(Reg r, B32 wide);
-		void prefetch(U8 hint, Reg base, I32 disp);
-		void ud2();
-		void repMovsq();
-
-		void leaMem(Reg dst, const Mem& mem);
-		void leaRipSym(Reg dst, const String& sym, I64 addend);
-
-		void pushPop(U8 base, Reg r);
-		void push(Reg r);
-		void pop(Reg r);
-		void ret();
-		void leave();
+		// width-sized moves
+		void movImm64(Reg r, U64 imm);
+		void load(Reg dst, const Mem& mem, U32 width, B32 sign);
+		void store(const Mem& mem, Reg src, U32 width);
+		void storeImm(const Mem& mem, I64 imm, U32 width);
+		void loadXmm(U32 xmm, const Mem& mem, U32 width);
+		void storeXmm(U32 xmm, const Mem& mem, U32 width);
+		static U8 ssePrefixByte(U32 width);
 
 		U32 jmpRel32();
 		U32 jccRel32(U8 cc);
 		void patchRel32(U32 dispAt, U32 target);
 		void callSym(const String& sym);
-		// lea dst, [rip+disp32], returns the disp offset for later patching
-		U32 leaRipDisp(Reg dst);
-
-		// movsxd dst, dword [base + index*4]
-		void movsxdSib4(Reg dst, Reg base, Reg index);
-		void addRR(Reg dst, Reg src);
-		void jmpReg(Reg r);
-		void callReg(Reg r);
-		// or dword [rsp], 0
-		void probeRsp();
-
-		static U8 ssePrefixByte(U32 width);
-		// movss, movsd or movups by width
-		void loadXmm(U32 xmm, const Mem& mem, U32 width);
-		void storeXmm(U32 xmm, const Mem& mem, U32 width);
-		void loadXmmRipSym(U32 xmm, const String& sym, U32 width);
-		// packed SSE op with an explicit mandatory prefix and escape byte 0x38 or 0x3a, 0 = none
-		void ssePacked(U8 pfx, U8 op, U32 dst, U32 src, U8 esc);
-		void movaps(U32 dst, U32 src);
-		void sseArith(U8 op, U32 w, U32 d, U32 s);
-		void ucomis(U32 w, U32 a, U32 bx);
-		void pxor(U32 a, U32 bx);
-		// pcmpeqd a, a builds an all-ones register
-		void pcmpeqd(U32 a, U32 bx);
-		// pshufd dst, src, sel
-		void pshufd(U32 dst, U32 src, U8 sel);
-		// movd/movq xmm, r32/r64
-		void movdXmmGp(U32 xmm, Reg src, B32 wide);
-		// pinsrd, or pinsrq when wide, inserts a gp value into an xmm lane (sse4.1)
-		void pinsr(U32 xmm, Reg gp, U8 lane, B32 wide);
-		// movd/movq r32/r64, xmm (wide selects movq)
-		void movGpXmm(Reg dst, U32 xmm, B32 wide);
-		void sseShiftImm(U32 laneBits, U8 ext, U32 reg, U8 cnt);
-		void cvtRR(U8 pfx, U8 opc, B32 w, U32 dst, U32 src);
-
-		void x87Mem(U8 esc, U8 reg, Reg base, I32 disp);
-		void fldT(Reg base, I32 disp);
-		void fstpT(Reg base, I32 disp);
-		// m32fp when width is 4, else m64fp
-		void fldFloat(Reg base, I32 disp, U32 width);
-		void fstpFloat(Reg base, I32 disp, U32 width);
-		void fildQ(Reg base, I32 disp);
-		void fistpQ(Reg base, I32 disp);
-		void fnstcw(Reg base, I32 disp);
-		void fldcw(Reg base, I32 disp);
-		void fArithP(U8 enc);
-		void fchs();
-		void fucomip();
-		void fstpReg0();
+	private:
+		U32 reserve32();
+		void lead(Enc e, U32 reg, U32 index, U32 base);
+		void modrmMem(U32 reg, const Mem& mem);
 	};
+
+	// common encodings, W marks the 64-bit form
+	namespace enc {
+		constexpr Enc kMovW{0, 0, 0x89, 1}; // mov r/m, r
+		constexpr Enc kLeaW{0, 0, 0x8d, 1};
+		constexpr Enc kMovsxdW{0, 0, 0x63, 1}; // movsxd r, r/m32
+		constexpr Enc kTestW{0, 0, 0x85, 1};
+		constexpr Enc kF7W{0, 0, 0xf7, 1}; // group 3, /2 not /3 neg /6 div /7 idiv
+		constexpr Enc kC1W{0, 0, 0xc1, 1}; // group 2 by imm8, /4 shl /5 shr /7 sar
+		constexpr Enc kPush{0, 0, 0x50};
+		constexpr Enc kPop{0, 0, 0x58};
+		constexpr Enc kMovImm32{0, 0, 0xb8};
+		constexpr Enc kFf{0, 0, 0xff}; // group 5, /2 call /4 jmp
+		constexpr Enc kMovaps{0, 0x0f, 0x28};
+		constexpr Enc kMovdToXmm{0x66, 0x0f, 0x6e, 0, 1};
+		constexpr Enc kMovdFromXmm{0x66, 0x0f, 0x7e};
+		constexpr Enc kPshufd{0x66, 0x0f, 0x70};
+		constexpr Enc kPxor{0x66, 0x0f, 0xef};
+		constexpr Enc kSseShift{0x66, 0x0f, 0x72}; // dword lanes by imm8, 0x73 for qword lanes
+	} // namespace enc
 } // namespace rat
 
 #endif

@@ -91,7 +91,6 @@ namespace rat {
 		void emitFLoad(const MachineInstr& in);
 		void emitFStore(const MachineInstr& in);
 		void emitAlu(const MachineInstr& in, U8 aluOp);
-		void emitShift(const MachineInstr& in, U8 ext);
 		void emitDiv(const MachineInstr& in, B32 isSigned);
 		void emitExtBits(const MachineInstr& in, B32 sign);
 		void emitCmp(const MachineInstr& in);
@@ -101,7 +100,10 @@ namespace rat {
 		void emitCvt(const MachineInstr& in);
 		void emitVSplat(const MachineInstr& in);
 		void emitVExtract(const MachineInstr& in);
-		void emitVPackLane(const MachineInstr& in);
+		void pshufd(U32 d, U32 s, U8 sel);
+		void sseShift(U32 laneBits, U8 ext, U32 x, U8 count);
+		void x87Mem(U8 esc, U8 ext, const Mem& mem);
+		void x87Op(U8 b0, U8 b1);
 		void fldSlot(const MachineOperand& o);
 		void fstpSlot(const MachineOperand& o);
 		void emitX87StoreMem(const MachineInstr& in);
@@ -117,6 +119,8 @@ namespace rat {
 		void emitSwitchJump(const MachineInstr& in);
 		void emitBr(const MachineInstr& in, I32 fallthrough);
 		void emitInst(const MachineInstr& in, I32 fallthrough);
+		void emitSse(const MachineInstr& in);
+		void emitX87(const MachineInstr& in);
 		void prologue();
 		void markCfi(CfiOp::Kind kind, PhysReg reg, I32 value);
 		void markLine(U32 loc);
