@@ -557,7 +557,6 @@ namespace rat {
 		conv = &x86CallConv(target.getTriple().os);
 		regs = target.registers();
 		ptrBytes = target.getPointerSizeInBytes();
-		sse41 = target.hasSse41();
 		Schedule s(f);
 		X86FrameLayout frame;
 		fn = &f;
@@ -576,14 +575,12 @@ namespace rat {
 	namespace detail {
 		void x86Reload(MachineInstr& m, PhysReg dst, I32 slot, U32 cls, U32 width) {
 			m.op = (MachineOpcode)(cls == kFp ? X86Op::FLoad : X86Op::Load);
-			m.regClass = cls;
 			m.defs = {MachineOperand::fixed(dst, width)};
 			m.uses = {MachineOperand::frameSlot(slot, width)};
 		}
 
 		void x86Spill(MachineInstr& m, I32 slot, PhysReg src, U32 cls, U32 width) {
 			m.op = (MachineOpcode)(cls == kFp ? X86Op::FStore : X86Op::Store);
-			m.regClass = cls;
 			m.uses = {MachineOperand::frameSlot(slot, width), MachineOperand::fixed(src, width)};
 		}
 

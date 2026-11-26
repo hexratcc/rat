@@ -96,7 +96,7 @@ namespace rat {
 		void mov(Reg d, VReg s);
 		void mov(VReg d, Reg s);
 		void mov(Reg d, Reg s);
-		void mov(MachineOperand d, MachineOperand s, U32 cls);
+		void mov(MachineOperand d, MachineOperand s);
 		void movaps(VReg d, VReg s, U32 w);
 		void movaps(VReg d, Xmm s);
 		void movaps(Xmm d, VReg s);

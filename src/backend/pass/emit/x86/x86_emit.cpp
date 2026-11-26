@@ -15,12 +15,9 @@ namespace rat {
 	MachineOperand X86LowerPass::sl(Slot s) { return MachineOperand::frameSlot(s.s, s.w); }
 	MachineOperand X86LowerPass::blockRef(I32 b) { return MachineOperand::blockRef(b); }
 
-	using detail::kFp;
-
 	MachineInstr& X86LowerPass::put(X86Op op, OpList defs, Ops uses, I64 imm, I64 imm2) {
 		MachineInstr& m = mb->insts.emplace_back();
 		m.op = (MachineOpcode)op;
-		m.regClass = x86OpInfo(op).cls;
 		m.defs.assign(defs.begin(), defs.end());
 		m.uses = std::move(uses);
 		m.imm = imm;
@@ -40,13 +37,13 @@ namespace rat {
 	void X86LowerPass::mov(VReg d, Reg s) { put(X86Op::Copy, {vr(d)}, {ph(s)}); }
 	void X86LowerPass::mov(Reg d, Reg s) { put(X86Op::Copy, {ph(d)}, {ph(s)}); }
 
-	void X86LowerPass::mov(MachineOperand d, MachineOperand s, U32 cls) {
-		put(X86Op::Copy, {std::move(d)}, {std::move(s)}).regClass = cls;
+	void X86LowerPass::mov(MachineOperand d, MachineOperand s) {
+		put(X86Op::Copy, {std::move(d)}, {std::move(s)});
 	}
 
-	void X86LowerPass::movaps(VReg d, VReg s, U32 w) { mov(vr(d, w), vr(s, w), kFp); }
-	void X86LowerPass::movaps(VReg d, Xmm s) { mov(vr(d, s.w), xm(s), kFp); }
-	void X86LowerPass::movaps(Xmm d, VReg s) { mov(xm(d), vr(s, d.w), kFp); }
+	void X86LowerPass::movaps(VReg d, VReg s, U32 w) { mov(vr(d, w), vr(s, w)); }
+	void X86LowerPass::movaps(VReg d, Xmm s) { mov(vr(d, s.w), xm(s)); }
+	void X86LowerPass::movaps(Xmm d, VReg s) { mov(xm(d), vr(s, d.w)); }
 
 	void X86LowerPass::lea(VReg d, const String& s) {
 		put(X86Op::LoadSym, {vr(d)}, {MachineOperand::symbol(s)});

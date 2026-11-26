@@ -7,7 +7,6 @@ namespace rat {
 	struct MachineInstr;
 	struct MachineFunc;
 	struct X86CallConv;
-	enum Reg : U8;
 
 	using PhysReg = U32;
 	constexpr PhysReg kNoReg = 0;
@@ -35,26 +34,21 @@ namespace rat {
 	};
 
 	struct RegClass {
-		U32 id = 0;
 		List<PhysReg> allocatable;
 		List<PhysReg> calleeSaved;
 		List<PhysReg> scratch;
-		U32 spillBytes = 0;
+		U32 spillBytes = 8;
 	};
 
 	constexpr U32 kMaxRegClasses = 4;
 
 	struct RegisterInfo {
 		List<RegClass> classes;
-		U32 spillSlotBytes = 8;
 	};
 
 	namespace detail {
-		B32 isCalleeSaved(const X86CallConv& conv, Reg r);
 		RegClass gpRegClass(const X86CallConv& conv);
 		RegClass fpRegClass(const X86CallConv& conv);
-		RegClass x87RegClass();
-		RegisterInfo buildX86Registers(OS os);
 	} // namespace detail
 
 	struct RegAllocHooks {
@@ -70,7 +64,6 @@ namespace rat {
 		virtual const TargetTriple& getTriple() const;
 		virtual const RegisterInfo* registers() const { return nullptr; }
 		virtual RegAllocHooks regAllocHooks() const;
-		virtual B32 hasSse41() const { return true; }
 
 		static constexpr U32 kPointerSizeInBits = 64;
 		U32 getPointerSizeInBytes() const { return kPointerSizeInBits / 8; }
@@ -82,18 +75,16 @@ namespace rat {
 		enum : PhysReg {
 			kGpBase = 1,
 			kXmmBase = 17,
-			kStBase = 33,
+			kRegEnd = 33, // past the last register
 		};
 
 		enum : U32 {
 			kGpClass = 0,
 			kFpClass = 1,
-			kX87Class = 2,
+			kX87Class = 2, // its values live in frame slots, no register holds one
 		};
 
-		explicit X86Target(const TargetTriple& t)
-		: triple(t),
-			info(detail::buildX86Registers(t.os)) {}
+		explicit X86Target(const TargetTriple& t);
 
 		const TargetTriple& getTriple() const override { return triple; }
 
@@ -101,8 +92,7 @@ namespace rat {
 
 		RegAllocHooks regAllocHooks() const override;
 
-		// classify a physical register by its encoding range.
-		static B32 isXmm(PhysReg p) { return p >= kXmmBase && p < kStBase; }
+		static B32 isXmm(PhysReg p) { return p >= kXmmBase && p < kRegEnd; }
 	private:
 		TargetTriple triple;
 		RegisterInfo info;

@@ -45,7 +45,7 @@ namespace rat {
 		static MachineOperand symbol(const String& s);
 		static MachineOperand blockRef(I32 b);
 		static MachineOperand none(U32 w = 8);
-		static MachineOperand make(Kind k, U32 w, U32 v);
+		static MachineOperand make(Kind k, U32 w, U32 v, I64 imm = 0);
 
 		B32 isVReg() const { return kind == Kind::VReg; }
 		B32 isPhys() const { return kind == Kind::Phys; }
@@ -68,7 +68,6 @@ namespace rat {
 
 	struct MachineInstr {
 		MachineOpcode op = 0;
-		U8 regClass = 0;			// register class of the def
 		U8 isCall = false;		// applies clobbers and bounds live intervals
 		MachineDefs defs;			// written results
 		MachineOperands uses; // read operands

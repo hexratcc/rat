@@ -212,11 +212,11 @@ namespace rat {
 	MachineOperand X86LowerPass::argToReg(const CallArg& a) {
 		if(a.cls == Kind::Sse) {
 			MachineOperand dst = xm(xmm((U32)a.reg, a.val.width));
-			mov(dst, a.val, detail::kFp);
+			mov(dst, a.val);
 			return dst;
 		}
 		MachineOperand dst = ph(conv->gpArgs[a.reg]);
-		mov(dst, a.val, detail::kGp);
+		mov(dst, a.val);
 		return dst;
 	}
 
@@ -275,7 +275,7 @@ namespace rat {
 			AddrParts at = baseDisp(retSlot, (I32)(8 * k));
 			VReg v = fresh(cls);
 			if(move == ReturnMove::IntoSlot) {
-				mov(vr(v), reg, cls);
+				mov(vr(v), reg);
 				X86Op store = cls == detail::kFp ? X86Op::FStore : X86Op::Store;
 				st(at, vr(v), store);
 				continue;
@@ -284,7 +284,7 @@ namespace rat {
 				ldf(v, 8, at);
 			else
 				ld(v, 8, at, false);
-			mov(reg, vr(v), cls);
+			mov(reg, vr(v));
 			uses.push_back(reg);
 		}
 		return uses;

@@ -409,13 +409,12 @@ namespace rat {
 		VReg d = vregFor(n);
 		// float lane 0 is the low bits of the vector, a copy the allocator can coalesce
 		if(!isInt && n->getLane() == 0)
-			return mov(vr(d, esz), vr(v, 16), detail::kFp);
+			return mov(vr(d, esz), vr(v, 16));
 		if(isInt && n->getLane() != 0 && fl->vecScratch == 0)
 			fl->vecScratch = reserve(16); // staged through memory
 		I64 desc = ((I64)esz << 1) | isInt;
 		U32 dw = isInt ? 8 : esz;
-		MachineInstr& m = put(X86Op::VExtract, {vr(d, dw)}, {vr(v, 16)}, n->getLane(), desc);
-		m.regClass = isInt ? detail::kGp : detail::kFp;
+		put(X86Op::VExtract, {vr(d, dw)}, {vr(v, 16)}, n->getLane(), desc);
 		// movd zero-extends, the peephole drops this when no user reads the high bits
 		if(isInt && n->getLane() == 0)
 			signExtBits(d, 8 * esz);
@@ -481,7 +480,7 @@ namespace rat {
 			lanes.push_back(vr(classValue(n->getLane(i), laneClass), laneWidth));
 		for(U32 i = 0; i < (U32)lanes.size(); ++i) {
 			I64 desc = ((I64)i << 1) | isInt;
-			put(X86Op::VPackLane, {}, {lanes[i]}, (I64)esz, desc).regClass = laneClass;
+			put(X86Op::VPackLane, {}, {lanes[i]}, (I64)esz, desc);
 		}
 		put(X86Op::VPack, {vr(vregFor(n), 16)}, {}, (I64)esz, isInt);
 		if(repeatsLanes(n->getType()) && !readsLowLanes(n))
@@ -1040,7 +1039,7 @@ namespace rat {
 		VReg s = sseValue(src);
 		VReg d = vregFor(n);
 		I64 desc = cvtDesc(Asm::ssePrefixByte(w), 0x2c, isUnsigned || bits > 32);
-		put(X86Op::Cvt, {vr(d)}, {vr(s, w)}, desc).regClass = detail::kGp;
+		put(X86Op::Cvt, {vr(d)}, {vr(s, w)}, desc);
 		signExtBits(d, bits); // cvtt writes a whole register, restore the convention
 	}
 
@@ -1093,12 +1092,12 @@ namespace rat {
 		I64 desc = cvtDesc(Asm::ssePrefixByte(w), 0x2c, true);
 
 		VReg lo = fresh(detail::kGp); // while x < 2^63
-		put(X86Op::Cvt, {vr(lo)}, {vr(x, w)}, desc).regClass = detail::kGp;
+		put(X86Op::Cvt, {vr(lo)}, {vr(x, w)}, desc);
 
 		VReg biased = fresh(detail::kFp);
 		farith(X86Op::FSub, biased, x, k, w, (I64)w);
 		VReg hi = fresh(detail::kGp);
-		put(X86Op::Cvt, {vr(hi)}, {vr(biased, w)}, desc).regClass = detail::kGp;
+		put(X86Op::Cvt, {vr(hi)}, {vr(biased, w)}, desc);
 		alu(X86Op::Xor, hi, hi, gpConst((I64)0x8000000000000000ull)); // undo the bias
 
 		VReg m = fresh(detail::kGp); // -(x >= 2^63)

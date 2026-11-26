@@ -62,19 +62,18 @@ namespace rat {
 
 	// makeSpill: uses[0] = frame slot, uses[1] = source register
 	B32 X86PeepholePass::isSlotStore(const MachineInstr& in) {
-		return (X86Op)in.op == X86Op::Store && in.regClass == detail::kGp && detail::isAnySlotStore(in);
+		return (X86Op)in.op == X86Op::Store && detail::isAnySlotStore(in);
 	}
 
 	// makeReload: defs[0] = register, uses[0] = frame slot
 	B32 X86PeepholePass::isSlotLoad(const MachineInstr& in) {
-		return (X86Op)in.op == X86Op::Load && in.regClass == detail::kGp && isAnySlotLoad(in);
+		return (X86Op)in.op == X86Op::Load && isAnySlotLoad(in);
 	}
 
 	// replaces at, keeping its debug location and records
 	MachineInstr X86PeepholePass::makeCopy(PhysReg dst, PhysReg src, const MachineInstr& at) {
 		MachineInstr m;
 		m.op = (MachineOpcode)X86Op::Copy;
-		m.regClass = at.regClass;
 		m.loc = at.loc;
 		m.dbg = at.dbg;
 		m.defs = {MachineOperand::fixed(dst, at.defs[0].width)};

@@ -1,18 +1,11 @@
 #include "codegen/reg_alloc.h"
 
 #include <cmath>
-#include <cstring>
-
-#include "target/target.h"
 
 namespace rat {
 	namespace detail {
-		// per-loop-level operand weight
 		constexpr U32 kLoopUseWeight = 3;
 		constexpr U32 kMaxUseWeight = 100000;
-		// copy key
-		constexpr U32 kMaxLevel = 15;
-		constexpr U32 kCopyVRegMask = (1u << 30) - 1;
 		// a bundle stops growing past this many segments, so merging stays cheap
 		constexpr U32 kMaxBundleSegs = 256;
 
@@ -23,13 +16,10 @@ namespace rat {
 			return kNoReg;
 		}
 
-		// use weight of a loop depth, level counts the loops it covers
-		U32 loopWeight(I32 depth, U32& level) {
+		U32 loopWeight(I32 depth) {
 			U32 weight = 1;
-			for(I32 d = depth; d > 0 && weight < kMaxUseWeight; --d) {
+			for(I32 d = depth; d > 0 && weight < kMaxUseWeight; --d)
 				weight *= kLoopUseWeight;
-				++level;
-			}
 			return weight;
 		}
 	} // namespace detail
@@ -39,19 +29,16 @@ namespace rat {
 			setup(target);
 		fn = &mf;
 		nv = mf.nextVReg;
-		assert(nv <= detail::kCopyVRegMask && "too many vregs for a copy key");
 		usedCallee = 0;
-		copies.clear();
 		number();
 		liveness();
-		buildIntervals();
-		B32 dbg = mf.dbg.size() > 1;
-		if(dbg)
+		List<Copy> copies;
+		buildIntervals(copies);
+		if(mf.dbg.size() > 1)
 			checkDebugLive();
-		coalesce();
+		coalesce(copies);
 		assignRegs();
-		if(dbg)
-			rewriteDebug();
+		rewriteDebug();
 		rewrite();
 		fn->usedCalleeSaved.clear();
 		for(U64 m = usedCallee; m; m &= m - 1)
@@ -59,22 +46,15 @@ namespace rat {
 		return true;
 	}
 
-	B32 RegAllocPass::isCopy(const MachineInstr& in) const {
-		return hooks.isCopy && in.defs.size() == 1 && in.uses.size() == 1 && hooks.isCopy(in);
-	}
-
 	const RegAllocPass::Interval& RegAllocPass::bundle(VReg v) const { return iv[iv[v].root]; }
 
-	B32 RegAllocPass::sameBundle(const MachineOperand& a, const MachineOperand& b) const {
-		return a.isVReg() && b.isVReg() && iv[a.vreg].root == iv[b.vreg].root;
-	}
+	U64 RegAllocPass::busyAt(U32 i) const { return busy[2 * (U64)i] | busy[2 * (U64)i + 1]; }
 
 	void RegAllocPass::number() {
 		blockFirst.assign(1, 0);
 		for(const MachineBlock& blk : fn->blocks)
 			blockFirst.push_back(blockFirst.back() + (U32)blk.insts.size());
 		busy.assign(2 * (U64)blockFirst.back(), 0);
-		copyAt.resize(blockFirst.back());
 	}
 
 	// a fixed register is busy from its def to its last use in the block (call argument
@@ -88,11 +68,10 @@ namespace rat {
 		for(const MachineOperand& o : in.uses)
 			if(o.isPhys())
 				uses |= (U64)1 << o.phys;
-		U64 clob = in.clobbers;
-		assert((in.isCall || !(clob & live)) && "clobber inside a fixed-register window");
-		busy[u + 1] |= live | defs | clob;
-		live &= ~(defs | clob);
-		busy[u] |= live | uses | clob;
+		assert((in.isCall || !(in.clobbers & live)) && "clobber inside a fixed-register window");
+		busy[u + 1] |= live | defs | in.clobbers;
+		live &= ~(defs | in.clobbers);
+		busy[u] |= live | uses | in.clobbers;
 		if(!copy)
 			busy[u + 1] |= uses;
 		live |= uses;
@@ -173,12 +152,12 @@ namespace rat {
 			segs.emplace_back(start, end);
 	}
 
-	void RegAllocPass::noteCopy(const MachineInstr& in, U32 level) {
+	void RegAllocPass::noteCopy(List<Copy>& copies, const MachineInstr& in, U32 weight) {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& s = in.uses[0];
 		B32 sameClassVRegs = d.isVReg() && s.isVReg() && fn->vregClass[d.vreg] == fn->vregClass[s.vreg];
 		if(sameClassVRegs && !cross[d.vreg] && !cross[s.vreg])
-			copies.push_back((U64)(detail::kMaxLevel - level) << 60 | (U64)d.vreg << 30 | s.vreg);
+			copies.emplace_back(-(I32)weight, d.vreg, s.vreg);
 		else if(d.isVReg() && s.isPhys())
 			iv[d.vreg].hint = s.phys;
 		else if(d.isPhys() && s.isVReg())
@@ -186,7 +165,7 @@ namespace rat {
 	}
 
 	// backward walk per block from its live-out set, blocks in reverse
-	void RegAllocPass::buildIntervals() {
+	void RegAllocPass::buildIntervals(List<Copy>& copies) {
 		if(iv.size() < nv)
 			iv.resize(nv);
 		for(VReg v = 0; v < nv; ++v)
@@ -204,29 +183,25 @@ namespace rat {
 				segEnd[v] = 2 * (I32)blockFirst[b + 1] - 1;
 				liveList.push_back(v);
 			}
-			U32 level = 0; // loop levels counted in weight
-			U32 weight = detail::loopWeight(blk.loopDepth, level);
-			U64 fixed = 0; // live fixed registers
+			U32 weight = detail::loopWeight(blk.loopDepth);
+			U64 liveFixed = 0;
 			for(U32 k = (U32)blk.insts.size(); k-- > 0;) {
 				const MachineInstr& in = blk.insts[k];
 				I32 u = 2 * (I32)(blockFirst[b] + k);
 				B32 copy = isCopy(in);
-				copyAt[blockFirst[b] + k] = (U8)copy;
-				pinFixed(in, (U64)u, copy, fixed);
+				pinFixed(in, (U64)u, copy, liveFixed);
 				for(const MachineOperand& o : in.defs) {
 					if(!o.isVReg() || cross[o.vreg])
 						continue;
 					iv[o.vreg].weight += (F32)weight;
-					I32 end = u + 1; // a dead def still takes its slot
-					if(live[o.vreg])
-						end = segEnd[o.vreg];
+					I32 end = live[o.vreg] ? segEnd[o.vreg] : u + 1; // a dead def still takes its slot
 					addSeg(o.vreg, u + 1, end);
 					live[o.vreg] = 0;
 				}
 				I32 useEnd = u + 1;
 				if(copy) {
 					useEnd = u;
-					noteCopy(in, level);
+					noteCopy(copies, in, weight);
 				}
 				for(const MachineOperand& o : in.uses) {
 					if(!o.isVReg() || cross[o.vreg])
@@ -279,19 +254,16 @@ namespace rat {
 		}
 	}
 
-	// spilled bundles are found in their slot
 	void RegAllocPass::rewriteDebug() {
-		for(DbgRec& r : fn->dbg)
-			if(r.loc.isVReg())
-				r.loc = home(r.loc);
-	}
-
-	// where the bundle of a vreg lives, its register or its slot
-	MachineOperand RegAllocPass::home(const MachineOperand& o) const {
-		const Interval& t = bundle(o.vreg);
-		if(t.reg != kNoReg)
-			return MachineOperand::fixed(t.reg, o.width);
-		return MachineOperand::frameSlot(t.slot, o.width);
+		for(DbgRec& r : fn->dbg) {
+			if(!r.loc.isVReg())
+				continue;
+			const Interval& t = bundle(r.loc.vreg);
+			if(t.reg != kNoReg)
+				r.loc = MachineOperand::fixed(t.reg, r.loc.width);
+			else
+				r.loc = MachineOperand::frameSlot(t.slot, r.loc.width);
+		}
 	}
 
 	// path halving
@@ -320,7 +292,7 @@ namespace rat {
 	}
 
 	// b joins a, their segments do not overlap
-	void RegAllocPass::merge(VReg a, VReg b) {
+	void RegAllocPass::merge(VReg a, VReg b, List<Seg>& merged) {
 		Interval& t = iv[a];
 		Interval& o = iv[b];
 		merged.resize(t.segs.size() + o.segs.size());
@@ -340,14 +312,15 @@ namespace rat {
 
 	// copy-related vregs whose ranges do not overlap share one register or slot, hottest
 	// copies first
-	void RegAllocPass::coalesce() {
+	void RegAllocPass::coalesce(List<Copy>& copies) {
 		std::sort(copies.begin(), copies.end());
-		for(U64 c : copies) {
-			VReg a = find((VReg)(c >> 30) & detail::kCopyVRegMask);
-			VReg b = find((VReg)c & detail::kCopyVRegMask);
+		List<Seg> merged;
+		for(const auto& [negWeight, def, src] : copies) {
+			VReg a = find(def);
+			VReg b = find(src);
 			U64 bundleSegs = iv[a].segs.size() + iv[b].segs.size();
 			if(a != b && bundleSegs <= detail::kMaxBundleSegs && !overlaps(a, b))
-				merge(a, b);
+				merge(a, b, merged);
 		}
 		for(VReg v = 1; v < nv; ++v) {
 			iv[v].root = find(v);
@@ -360,8 +333,8 @@ namespace rat {
 	}
 
 	PhysReg RegAllocPass::pick(VReg v) const {
-		const RegClass& rc = ri->classes[fn->vregClass[v]];
-		U64 blocked = ~allocMask[rc.id];
+		U32 cls = fn->vregClass[v];
+		U64 blocked = ~allocMask[cls];
 		for(const auto& [start, end] : iv[v].segs)
 			for(I32 s = start; s <= end && blocked != ~0ull;) {
 				if((s & 63) == 0 && s + 63 <= end) {
@@ -374,23 +347,18 @@ namespace rat {
 		PhysReg hint = iv[v].hint;
 		if(hint != kNoReg && !((blocked >> hint) & 1))
 			return hint;
-		return detail::firstFree(rc.allocatable, blocked);
+		return detail::firstFree(ri->classes[cls].allocatable, blocked);
 	}
 
 	void RegAllocPass::assignRegs() {
-		List<U64> order; // (inverted weight bits, bundle), weights are positive
-		for(VReg v = 1; v < nv; ++v) {
-			if(iv[v].segs.empty())
-				continue;
-			U32 bits = 0;
-			std::memcpy(&bits, &iv[v].weight, sizeof(bits));
-			order.push_back((U64)~bits << 32 | v);
-		}
+		List<Pair<F32, VReg>> order; // (-weight, bundle), heaviest first
+		for(VReg v = 1; v < nv; ++v)
+			if(!iv[v].segs.empty())
+				order.emplace_back(-iv[v].weight, v);
 		if(!local) // few locals spill, their order hardly matters
 			std::sort(order.begin(), order.end());
 		List<Pair<I32, VReg>> spilled; // (start, bundle)
-		for(U64 key : order) {
-			VReg v = (VReg)key;
+		for(const auto& [negWeight, v] : order) {
 			Interval& t = iv[v];
 			assert(!ri->classes[fn->vregClass[v]].scratch.empty() && "vreg of a class with no scratch");
 			t.reg = pick(v);
@@ -398,18 +366,21 @@ namespace rat {
 				spilled.emplace_back(t.segs.front().first, v);
 				continue;
 			}
-			usedCallee |= ((U64)1 << t.reg) & calleeMask;
+			U64 bit = (U64)1 << t.reg;
+			usedCallee |= bit & calleeMask;
 			for(const auto& [start, end] : t.segs) {
 				for(I32 s = start; s <= end; ++s)
-					busy[(U64)s] |= (U64)1 << t.reg;
+					busy[(U64)s] |= bit;
 				for(I32 c = start >> 6; c <= end >> 6; ++c)
-					chunk[(U64)c] |= (U64)1 << t.reg;
+					chunk[(U64)c] |= bit;
 			}
 		}
 		assignSlots(spilled);
 		for(VReg v = 1; v < nv; ++v)
-			if(cross[v])
-				iv[v].slot = newSlot(fn->vregClass[v]);
+			if(cross[v]) {
+				U32 cls = fn->vregClass[v];
+				iv[v].slot = hooks.allocSlot(*fn, cls, ri->classes[cls].spillBytes);
+			}
 	}
 
 	void RegAllocPass::assignSlots(List<Pair<I32, VReg>>& spilled) {
@@ -422,17 +393,10 @@ namespace rat {
 			while(k < slots.size() && slots[k].second >= start)
 				++k;
 			if(k == slots.size())
-				slots.emplace_back(newSlot(cls), 0);
+				slots.emplace_back(hooks.allocSlot(*fn, cls, ri->classes[cls].spillBytes), 0);
 			iv[v].slot = slots[k].first;
 			slots[k].second = iv[v].segs.back().second;
 		}
-	}
-
-	I32 RegAllocPass::newSlot(U32 cls) {
-		U32 bytes = ri->classes[cls].spillBytes;
-		if(!bytes)
-			bytes = ri->spillSlotBytes;
-		return hooks.allocSlot(*fn, cls, bytes);
 	}
 
 	PhysReg RegAllocPass::pickTemp(U32 cls, U64 hard, U64 soft) {
@@ -447,69 +411,74 @@ namespace rat {
 		return p;
 	}
 
-	PhysReg RegAllocPass::spillReg(List<MachineInstr>& out, const MachineOperand& o, U32 i, B32 use) {
+	PhysReg RegAllocPass::spillReg(
+			List<MachineInstr>& out, const MachineOperand& o, U32 i, U64 clobbers, B32 use) {
 		VReg root = iv[o.vreg].root;
-		for(const auto& [v, r] : temps)
+		U64 taken = 0;
+		for(const auto& [v, r] : temps) {
 			if(v == root)
 				return r;
+			taken |= (U64)1 << r;
+		}
 		U32 cls = fn->vregClass[o.vreg];
-		U64 hard = (busy[2 * (U64)i] | busy[2 * (U64)i + 1]) & ~own;
+		U64 hard = busyAt(i) & ~clobbers;
 		if(use)
 			hard |= taken;
-		PhysReg r = pickTemp(cls, hard, own | taken);
+		PhysReg r = pickTemp(cls, hard, clobbers | taken);
 		if(use)
 			hooks.makeReload(out.emplace_back(), r, iv[root].slot, cls, o.width);
-		taken |= (U64)1 << r;
 		temps.emplace_back(root, r);
 		return r;
 	}
 
 	void RegAllocPass::rewriteInstr(List<MachineInstr>& out, MachineInstr& in, U32 i) {
 		temps.clear();
-		taken = 0;
-		own = in.clobbers;
-		stores.clear();
 		for(MachineOperand& o : in.uses) {
 			if(!o.isVReg())
 				continue;
-			PhysReg r = bundle(o.vreg).reg;
-			if(r == kNoReg && in.isCall) { // the call reads the slot itself
-				o = MachineOperand::frameSlot(bundle(o.vreg).slot, o.width);
-				continue;
-			}
-			if(r == kNoReg)
-				r = spillReg(out, o, i, true);
-			o = MachineOperand::fixed(r, o.width);
+			const Interval& t = bundle(o.vreg);
+			if(t.reg != kNoReg)
+				o = MachineOperand::fixed(t.reg, o.width);
+			else if(in.isCall) // the call reads the slot itself
+				o = MachineOperand::frameSlot(t.slot, o.width);
+			else
+				o = MachineOperand::fixed(spillReg(out, o, i, in.clobbers, true), o.width);
 		}
+		U32 at = (U32)out.size(); // spill stores go after the instr
 		for(MachineOperand& o : in.defs) {
 			if(!o.isVReg())
 				continue;
 			const Interval& t = bundle(o.vreg);
 			PhysReg r = t.reg;
 			if(r == kNoReg) {
-				r = spillReg(out, o, i, false);
-				hooks.makeSpill(stores.emplace_back(), t.slot, r, fn->vregClass[o.vreg], o.width);
+				r = spillReg(out, o, i, in.clobbers, false);
+				hooks.makeSpill(out.emplace_back(), t.slot, r, fn->vregClass[o.vreg], o.width);
 			}
 			o = MachineOperand::fixed(r, o.width);
 		}
-		out.push_back(std::move(in));
-		for(MachineInstr& s : stores)
-			out.push_back(std::move(s));
+		out.insert(out.begin() + at, std::move(in));
 	}
 
-	// a copy between a register and a spilled bundle is its reload or its spill
+	B32 RegAllocPass::isCopy(const MachineInstr& in) const {
+		return in.defs.size() == 1 && in.uses.size() == 1 && hooks.isCopy(in);
+	}
+
+	// a copy inside a bundle vanishes, one between a register and a spilled bundle is its reload or
+	// its spill
 	B32 RegAllocPass::rewriteCopy(List<MachineInstr>& out, const MachineInstr& in, U32 i) {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& s = in.uses[0];
+		if(d.isVReg() && s.isVReg() && iv[d.vreg].root == iv[s.vreg].root)
+			return true;
 		if(!(d.isVReg() || d.isPhys()) || !(s.isVReg() || s.isPhys()))
 			return false;
-		PhysReg dr = regOf(d);
-		PhysReg sr = regOf(s);
+		PhysReg dr = d.isPhys() ? d.phys : bundle(d.vreg).reg;
+		PhysReg sr = s.isPhys() ? s.phys : bundle(s.vreg).reg;
 		if(dr != kNoReg && sr != kNoReg)
 			return false;
 		if(sr == kNoReg) {
 			if(dr == kNoReg)
-				dr = pickTemp(fn->vregClass[s.vreg], busy[2 * (U64)i] | busy[2 * (U64)i + 1], 0);
+				dr = pickTemp(fn->vregClass[s.vreg], busyAt(i), 0);
 			hooks.makeReload(out.emplace_back(), dr, bundle(s.vreg).slot, fn->vregClass[s.vreg], s.width);
 			sr = dr;
 		}
@@ -518,13 +487,7 @@ namespace rat {
 		return true;
 	}
 
-	PhysReg RegAllocPass::regOf(const MachineOperand& o) const {
-		if(o.isPhys())
-			return o.phys;
-		return bundle(o.vreg).reg;
-	}
-
-	// copies inside a bundle vanish, debug records move to the first instr standing for theirs
+	// debug records move to the first instr standing for theirs
 	void RegAllocPass::rewrite() {
 		List<MachineInstr> out;
 		for(U32 b = 0; b < fn->blocks.size(); ++b) {
@@ -538,7 +501,7 @@ namespace rat {
 				U32 first = (U32)out.size();
 				dbg = fn->joinDbg(dbg, in.dbg);
 				in.dbg = 0;
-				if(!copyAt[i] || !(sameBundle(in.defs[0], in.uses[0]) || rewriteCopy(out, in, i)))
+				if(!isCopy(in) || !rewriteCopy(out, in, i))
 					rewriteInstr(out, in, i);
 				if(out.size() > first) {
 					out[first].dbg = dbg;
@@ -553,9 +516,10 @@ namespace rat {
 	void RegAllocPass::setup(const TargetInfo& target) {
 		ri = target.registers();
 		hooks = target.regAllocHooks();
-		for(const RegClass& rc : ri->classes) {
+		for(U32 cls = 0; cls < ri->classes.size(); ++cls) {
+			const RegClass& rc = ri->classes[cls];
 			for(PhysReg p : rc.allocatable)
-				allocMask[rc.id] |= (U64)1 << p;
+				allocMask[cls] |= (U64)1 << p;
 			for(PhysReg p : rc.calleeSaved)
 				calleeMask |= (U64)1 << p;
 		}

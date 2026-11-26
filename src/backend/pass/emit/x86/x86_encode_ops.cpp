@@ -7,7 +7,8 @@ namespace rat {
 	void X86EncodePass::emitCopy(const MachineInstr& in) {
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& s = in.uses[0];
-		if(in.regClass == detail::kFp) {
+		B32 xmm = (d.isPhys() && X86Target::isXmm(d.phys)) || (s.isPhys() && X86Target::isXmm(s.phys));
+		if(xmm) {
 			if(d.isPhys() && s.isPhys())
 				copyXmm(xmmOf(d), xmmOf(s));
 			else if(d.isPhys() && s.isFrameSlot())
@@ -254,7 +255,7 @@ namespace rat {
 		B32 w = (in.imm & 1) != 0;
 		const MachineOperand& d = in.defs[0];
 		const MachineOperand& s = in.uses[0];
-		U32 dst = (in.regClass == detail::kGp) ? (U32)gpOf(d) : xmmOf(d);
+		U32 dst = X86Target::isXmm(d.phys) ? xmmOf(d) : (U32)gpOf(d);
 		U32 src = X86Target::isXmm(s.phys) ? xmmOf(s) : (U32)gpOf(s); // gp only for int -> fp
 		a->rr({pfx, 0x0f, opc, w}, dst, src);
 	}

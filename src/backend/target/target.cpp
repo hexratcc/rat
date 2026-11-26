@@ -4,22 +4,20 @@
 
 namespace rat {
 	namespace detail {
-		B32 isCalleeSaved(const X86CallConv& conv, Reg r) {
-			const Reg* end = conv.gpCalleeSaved + conv.gpCalleeSavedCount;
-			return std::find(conv.gpCalleeSaved, end, r) != end;
-		}
-
 		RegClass gpRegClass(const X86CallConv& conv) {
 			constexpr Reg kCandidates[] = {RAX, RCX, RDX, RBX, RSI, RDI, R8, R9, R12, R13, R14, R15};
 			PhysReg gp = X86Target::kGpBase;
 			RegClass c;
-			c.id = X86Target::kGpClass;
-			for(U32 pass = 0; pass < 2; ++pass)
-				for(Reg r : kCandidates)
-					if(isCalleeSaved(conv, r) == (pass == 1))
-						c.allocatable.push_back(gp + r);
-			for(U32 i = 0; i < conv.gpCalleeSavedCount; ++i)
+			U32 calleeSavedBits = 0;
+			for(U32 i = 0; i < conv.gpCalleeSavedCount; ++i) {
 				c.calleeSaved.push_back(gp + conv.gpCalleeSaved[i]);
+				calleeSavedBits |= 1u << conv.gpCalleeSaved[i];
+			}
+			// caller-saved first
+			for(U32 wantCalleeSaved = 0; wantCalleeSaved < 2; ++wantCalleeSaved)
+				for(Reg r : kCandidates)
+					if(((calleeSavedBits >> r) & 1) == wantCalleeSaved)
+						c.allocatable.push_back(gp + r);
 			c.scratch = {gp + R10, gp + R11};
 			return c;
 		}
@@ -27,44 +25,29 @@ namespace rat {
 		RegClass fpRegClass(const X86CallConv& conv) {
 			PhysReg xmm = X86Target::kXmmBase;
 			RegClass c;
-			c.id = X86Target::kFpClass;
 			for(U32 i = 0; i + 2 < conv.sseVolatileCount; ++i)
 				c.allocatable.push_back(xmm + i);
 			c.scratch = {xmm + conv.sseVolatileCount - 2, xmm + conv.sseVolatileCount - 1};
 			c.spillBytes = 16; // an xmm vreg may hold a full 128-bit vector
 			return c;
 		}
-
-		RegClass x87RegClass() {
-			RegClass c;
-			c.id = X86Target::kX87Class;
-			for(U32 i = 0; i < 8; ++i) {
-				c.allocatable.push_back(X86Target::kStBase + i);
-				c.calleeSaved.push_back(X86Target::kStBase + i);
-			}
-			return c;
-		}
-
-		RegisterInfo buildX86Registers(OS os) {
-			const X86CallConv& conv = x86CallConv(os);
-			RegisterInfo info;
-			info.classes = {gpRegClass(conv), fpRegClass(conv), x87RegClass()};
-			return info;
-		}
 	} // namespace detail
 
+	X86Target::X86Target(const TargetTriple& t)
+	: triple(t) {
+		const X86CallConv& conv = x86CallConv(t.os);
+		info.classes = {detail::gpRegClass(conv), detail::fpRegClass(conv)};
+	}
+
 	B32 TargetTriple::parse(const String& spec, TargetTriple& out, String& err) {
-		U32 dash = (U32)spec.find('-');
-		// accept "x86-64"
-		if(spec.rfind("x86-64-", 0) == 0)
-			dash = 6;
+		// the arch may hold a dash, as in "x86-64"
+		U32 dash = spec.rfind("x86-64-", 0) == 0 ? 6 : (U32)spec.find('-');
 		if(dash == (U32)String::npos || dash == 0 || dash + 1 >= spec.size()) {
 			err = "malformed target triple '" + spec + "', expected <arch>-<os>";
 			return false;
 		}
 		String archs = spec.substr(0, dash);
 		String oss = spec.substr(dash + 1);
-
 		if(archs != "x86_64" && archs != "x86-64" && archs != "amd64") {
 			err = "unknown architecture '" + archs + "'";
 			return false;

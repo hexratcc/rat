@@ -25,11 +25,11 @@ namespace rat {
 		constexpr I32 kNoSlot = INT32_MIN;
 		// rbp sits this far below the cfa, past the return address and saved rbp
 		constexpr I32 kCfaFromRbp = 16;
-		// dwarf register number per PhysReg, xmm and st already match theirs
-		constexpr U32 kDwarfRegs[] = {0,	0,	2,	1,	3,	7,	6,	4,	5,	8,	9,	10, 11, 12,
-																	13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
-																	28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40};
-		static_assert(std::size(kDwarfRegs) == X86Target::kStBase + 8, "one per PhysReg");
+		// dwarf register number per PhysReg, xmm already matches theirs
+		constexpr U32 kDwarfRegs[] = {0,	0,	2,	1,	3,	7,	6,	4,	5,	8,	9,
+																	10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21,
+																	22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32};
+		static_assert(std::size(kDwarfRegs) == X86Target::kRegEnd, "one per PhysReg");
 
 		constexpr U8 kIntCc[] = {CC_E, CC_NE, CC_L, CC_LE, CC_B, CC_BE};
 		// FEq..FGe -> condition code / operand swap (swap keeps lt/le NaN-correct)
@@ -163,7 +163,6 @@ namespace rat {
 
 	struct X86OpInfo {
 		const C8* mnemonic;
-		U8 cls; // default register class
 		U8 flags;
 	};
 

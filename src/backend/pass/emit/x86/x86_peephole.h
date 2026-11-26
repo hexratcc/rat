@@ -24,7 +24,7 @@ namespace rat {
 	struct X86PeepholePass : MachinePass {
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
 	private:
-		static constexpr U32 kMaxPhys = X86Target::kStBase + 8; // every x86 register
+		static constexpr U32 kMaxPhys = X86Target::kRegEnd;
 		static constexpr U32 kDemRegs = X86Target::kXmmBase;
 		static constexpr U64 kAllBits = ~(U64)0;
 	private:

@@ -6,10 +6,12 @@
 #include "codegen/machine_function.h"
 #include "pass/pass.h"
 
+#include <tuple>
+
 namespace rat {
 	namespace detail {
 		PhysReg firstFree(const List<PhysReg>& regs, U64 blocked);
-		U32 loopWeight(I32 depth, U32& level);
+		U32 loopWeight(I32 depth);
 	} // namespace detail
 
 	struct RegAllocPass : MachinePass {
@@ -18,6 +20,7 @@ namespace rat {
 		void setLocal(B32 v) { local = v; }
 	private:
 		using Seg = Pair<I32, I32>;
+		using Copy = std::tuple<I32, VReg, VReg>; // (-loop weight, def, source)
 
 		struct Interval {
 			List<Seg> segs;
@@ -31,38 +34,35 @@ namespace rat {
 		};
 
 		void setup(const TargetInfo& target);
-		// intervals
 		void number();
+		// intervals
 		void pinFixed(const MachineInstr& in, U64 u, B32 copy, U64& live);
 		void liveness();
-		void buildIntervals();
+		void buildIntervals(List<Copy>& copies);
 		void addSeg(VReg v, I32 start, I32 end);
-		void noteCopy(const MachineInstr& in, U32 level);
+		void noteCopy(List<Copy>& copies, const MachineInstr& in, U32 weight);
 		// assignment
-		void coalesce();
+		void coalesce(List<Copy>& copies);
 		VReg find(VReg v);
 		B32 overlaps(VReg a, VReg b) const;
-		void merge(VReg a, VReg b);
+		void merge(VReg a, VReg b, List<Seg>& merged);
 		void assignRegs();
 		void assignSlots(List<Pair<I32, VReg>>& spilled);
-		I32 newSlot(U32 cls);
 		PhysReg pick(VReg v) const;
 		// debug records
 		B32 covers(VReg v, I32 pos) const;
-		MachineOperand home(const MachineOperand& o) const;
 		void checkDebugLive();
 		void rewriteDebug();
 		// rewrite
 		void rewrite();
-		B32 rewriteCopy(List<MachineInstr>& out, const MachineInstr& in, U32 i);
-		PhysReg regOf(const MachineOperand& o) const;
-		void rewriteInstr(List<MachineInstr>& out, MachineInstr& in, U32 i);
-		PhysReg spillReg(List<MachineInstr>& out, const MachineOperand& o, U32 i, B32 use);
-		PhysReg pickTemp(U32 cls, U64 hard, U64 soft);
-		// queries
 		B32 isCopy(const MachineInstr& in) const;
+		B32 rewriteCopy(List<MachineInstr>& out, const MachineInstr& in, U32 i);
+		void rewriteInstr(List<MachineInstr>& out, MachineInstr& in, U32 i);
+		PhysReg
+		spillReg(List<MachineInstr>& out, const MachineOperand& o, U32 i, U64 clobbers, B32 use);
+		PhysReg pickTemp(U32 cls, U64 hard, U64 soft);
 		const Interval& bundle(VReg v) const;
-		B32 sameBundle(const MachineOperand& a, const MachineOperand& b) const;
+		U64 busyAt(U32 i) const;
 	private:
 		B32 local = false;
 		MachineFunc* fn = nullptr;
@@ -74,21 +74,14 @@ namespace rat {
 		// numbering
 		List<U32> blockFirst; // block -> first instruction
 		List<U64> busy;				// slot -> busy physical registers
-		List<U8> copyAt;			// instruction -> is a coalescable copy
 		List<U64> chunk;			// 64 slots -> busy anywhere in them
 		U64 usedCallee = 0;
 		// liveness and bundles
 		List<U32> outFirst; // block -> first of its live-out vregs
 		List<VReg> outVRegs;
-		List<U8> cross;		 // vreg -> lives on the stack (local mode)
-		List<Interval> iv; // grows only, the first nv are live
-		List<Seg> merged;	 // merge scratch
-		List<U64> copies;	 // (kMaxLevel - level, def, source)
-		// rewrite of the current instruction
-		List<Pair<VReg, PhysReg>> temps; // spilled bundle -> its temp
-		U64 taken = 0;									 // temps
-		U64 own = 0;										 // clobbers
-		List<MachineInstr> stores;
+		List<U8> cross;									 // vreg -> lives on the stack (local mode)
+		List<Interval> iv;							 // grows only, the first nv are live
+		List<Pair<VReg, PhysReg>> temps; // spilled bundle -> its temp, for the current instr
 	};
 } // namespace rat
 
