@@ -25,7 +25,6 @@ namespace rat {
 	struct X86PeepholePass : MachinePass {
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
 	private:
-		static constexpr U32 kMaxPhys = X86Target::kRegEnd;
 		static constexpr U64 kAllBits = ~(U64)0;
 		static constexpr U32 kNoBit = ~0u;
 
@@ -45,7 +44,7 @@ namespace rat {
 			B32 seen = false;
 			B32 untracked = false;
 		};
-	private:
+
 		U32 slotKey(I32 s) const;
 		static B32 isAnySlotLoad(const MachineInstr& in);
 
@@ -63,16 +62,16 @@ namespace rat {
 		U32 foldBlock(MachineFunc& mf, MachineBlock& b, List<B32>& drop);
 
 		// dead-slot-store phase
-		void solve(const MachineFunc& mf, List<U64>& liveIn, List<U64>& cur);
+		void solve(const MachineFunc& mf, List<U64>& liveIn, List<U64>& cur) const;
 		static void blockOut(const MachineBlock& b, const List<U64>& liveIn, List<U64>& cur);
 		B32 noteSlots(const MachineInstr& in);
 		void slotStep(const MachineInstr& in, List<U64>& cur) const;
 		U32 elimDeadSlotStores(MachineFunc& mf);
-		U32 markDeadStores(const MachineBlock& b, List<U64>& cur, List<B32>& drop);
+		U32 markDeadStores(const MachineBlock& b, List<U64>& cur, List<B32>& drop) const;
 	private:
-		U32 reg[kMaxPhys]; // value number of each register, 0 unknown
-		List<Slot> slots;	 // by slotKey
-		List<B32> touches; // block -> has a slot store, reload or call slot argument
+		U32 reg[X86Target::kRegEnd]; // value number of each register, a fresh one when unknown
+		List<Slot> slots;						 // by slotKey
+		List<B32> touches;					 // block -> has a slot store, reload or call slot argument
 		U32 nextValue = 1;
 		U32 validFrom = 1; // slot values below are from before the last reset
 	};

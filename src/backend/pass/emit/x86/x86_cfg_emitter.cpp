@@ -10,27 +10,24 @@ namespace rat {
 	X86CfgEmitterPass::X86CfgEmitterPass(std::ostream& os)
 	: os(&os) {}
 
-	void X86CfgEmitterPass::writeBlock(const Function& fn, const MachineBlock& block) {
-		String nodePrefix = "f" + std::to_string(fnIndex) + "_b";
-		*os << "  " << nodePrefix << block.id << " [label=\"" << fn.getName() << " b" << block.id;
-		if(block.loopDepth)
-			*os << " (loop " << block.loopDepth << ")";
-		*os << "\\l\\l";
-		for(const MachineInstr& instr : block.insts)
-			*os << x86InstrText(instr) << "\\l";
-		*os << "\"];\n";
-		for(const MachineOperand& use : block.insts.back().uses)
-			if(use.isBlock())
-				*os << "  " << nodePrefix << block.id << " -> " << nodePrefix << use.block << ";\n";
-	}
-
 	B32 X86CfgEmitterPass::run(Module&, const Function& fn, MachineFunc& mf, const TargetInfo&) {
 		if(fnIndex == 0)
 			*os << "strict digraph rat {\n  node [shape=box, fontname=\"Courier\", fontsize=10];\n";
-		for(const MachineBlock& block : mf.blocks)
-			if(block.id >= 0 && !block.insts.empty())
-				writeBlock(fn, block);
-		++fnIndex;
+		String nodePrefix = "f" + std::to_string(fnIndex++) + "_b";
+		for(const MachineBlock& block : mf.blocks) {
+			if(block.id < 0 || block.insts.empty())
+				continue;
+			*os << "  " << nodePrefix << block.id << " [label=\"" << fn.getName() << " b" << block.id;
+			if(block.loopDepth)
+				*os << " (loop " << block.loopDepth << ")";
+			*os << "\\l\\l";
+			for(const MachineInstr& instr : block.insts)
+				*os << x86InstrText(instr) << "\\l";
+			*os << "\"];\n";
+			for(const MachineOperand& use : block.insts.back().uses)
+				if(use.isBlock())
+					*os << "  " << nodePrefix << block.id << " -> " << nodePrefix << use.block << ";\n";
+		}
 		return false;
 	}
 

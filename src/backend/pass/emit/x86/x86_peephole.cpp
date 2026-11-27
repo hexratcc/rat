@@ -18,10 +18,10 @@ namespace rat {
 		return in.defs[0].isPhys() && in.uses[0].isFrameSlot();
 	}
 
-	U32 X86PeepholePass::regValue(PhysReg p) const { return p < kMaxPhys ? reg[p] : 0; }
+	U32 X86PeepholePass::regValue(PhysReg p) const { return p < X86Target::kRegEnd ? reg[p] : 0; }
 
 	void X86PeepholePass::setReg(PhysReg p, U32 v) {
-		if(p < kMaxPhys)
+		if(p < X86Target::kRegEnd)
 			reg[p] = v;
 	}
 
@@ -60,18 +60,16 @@ namespace rat {
 		return Fold::None;
 	}
 
-	// makeSpill shape, uses[0] = frame slot, uses[1] = source register
 	X86PeepholePass::Fold X86PeepholePass::foldSpill(const MachineInstr& in) {
 		I32 slot = in.uses[0].slot;
 		U32 width = in.uses[1].width;
 		U32 v = regValue(in.uses[1].phys);
-		if(slotValue(slot, width) == v) // memory already has it
+		if(slotValue(slot, width) == v)
 			return Fold::Dropped;
 		setSlot(slot, width, v);
 		return Fold::None;
 	}
 
-	// makeReload shape, defs[0] = register, uses[0] = frame slot
 	X86PeepholePass::Fold X86PeepholePass::foldReload(MachineInstr& in) {
 		I32 slot = in.uses[0].slot;
 		U32 width = in.defs[0].width;
@@ -83,27 +81,21 @@ namespace rat {
 			setSlot(slot, width, v);
 			return Fold::None;
 		}
-		if(regValue(d) == v) // the register already has it
+		if(regValue(d) == v)
 			return Fold::Dropped;
 		PhysReg src = kNoReg;
-		for(PhysReg p = 1; p < kMaxPhys && src == kNoReg; ++p)
+		for(PhysReg p = 1; p < X86Target::kRegEnd && src == kNoReg; ++p)
 			if(reg[p] == v && p != d)
 				src = p;
 		setReg(d, v);
 		if(src == kNoReg)
 			return Fold::None;
-		// a copy replaces the reload, keeping its debug location and records
-		MachineInstr copy;
-		copy.op = (MachineOpcode)X86Op::Copy;
-		copy.loc = in.loc;
-		copy.dbg = in.dbg;
-		copy.defs = {MachineOperand::fixed(d, width)};
-		copy.uses = {MachineOperand::fixed(src, width)};
-		in = std::move(copy);
+		in.op = (MachineOpcode)X86Op::Copy;
+		in.uses[0] = MachineOperand::fixed(src, width);
 		return Fold::Rewritten;
 	}
 
-	// folds in against the value numbers, any other instruction steps them past it
+	// a copy, spill or reload folds against the value numbers, anything else steps them past it
 	X86PeepholePass::Fold X86PeepholePass::fold(MachineInstr& in) {
 		X86Op op = (X86Op)in.op;
 		B32 copy = op == X86Op::Copy && in.defs.size() == 1 && in.uses.size() == 1;
@@ -177,7 +169,7 @@ namespace rat {
 
 	// backward fixpoint of the live slots at block entry.
 	// any visit order reaches it, the last blocks first is just faster
-	void X86PeepholePass::solve(const MachineFunc& mf, List<U64>& liveIn, List<U64>& cur) {
+	void X86PeepholePass::solve(const MachineFunc& mf, List<U64>& liveIn, List<U64>& cur) const {
 		List<U32> work;
 		List<B32> queued(mf.blocks.size(), false);
 		for(U32 bi = 0; bi < (U32)mf.blocks.size(); ++bi)
@@ -211,9 +203,7 @@ namespace rat {
 	}
 
 	// union of successor live-ins, everything for open blocks
-	// inline, called per block in the fixpoint
-	inline void
-	X86PeepholePass::blockOut(const MachineBlock& b, const List<U64>& liveIn, List<U64>& cur) {
+	void X86PeepholePass::blockOut(const MachineBlock& b, const List<U64>& liveIn, List<U64>& cur) {
 		B32 open = false;
 		if(b.succs.empty() && !b.insts.empty()) {
 			X86Op last = (X86Op)b.insts.back().op;
@@ -259,7 +249,6 @@ namespace rat {
 		return reaches;
 	}
 
-	// walk one instruction backwards over the tracked slot liveness bits
 	void X86PeepholePass::slotStep(const MachineInstr& in, List<U64>& cur) const {
 		if(detail::isAnySlotStore(in)) {
 			const Slot& slot = slots[slotKey(in.uses[0].slot)];
@@ -304,8 +293,9 @@ namespace rat {
 		return removed;
 	}
 
-	// walk b backwards from its live-out in cur and mark the stores nobody reads
-	U32 X86PeepholePass::markDeadStores(const MachineBlock& b, List<U64>& cur, List<B32>& drop) {
+	U32 X86PeepholePass::markDeadStores(const MachineBlock& b,
+																			List<U64>& cur,
+																			List<B32>& drop) const {
 		drop.assign(b.insts.size(), false);
 		U32 dead = 0;
 		for(U32 i = (U32)b.insts.size(); i-- > 0;) {

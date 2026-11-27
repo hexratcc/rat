@@ -6,10 +6,7 @@
 namespace rat {
 	namespace detail {
 		B32 isPureTestBlock(const MachineBlock& b) {
-			if(b.insts.empty() || b.insts.size() > 3)
-				return false;
-			const MachineInstr& last = b.insts.back();
-			if((X86Op)last.op != X86Op::Br)
+			if(b.insts.empty() || b.insts.size() > 3 || (X86Op)b.insts.back().op != X86Op::Br)
 				return false;
 			for(U32 i = 0; i + 1 < (U32)b.insts.size(); ++i) {
 				const MachineInstr& in = b.insts[i];
@@ -19,38 +16,48 @@ namespace rat {
 			return true;
 		}
 
+		// the pure test block p jumps to, -1 when none
+		I32 jumpedTestBlock(const MachineFunc& mf, const MachineBlock& p) {
+			if(p.id < 0 || p.insts.empty() || (X86Op)p.insts.back().op != X86Op::Jmp)
+				return -1;
+			I32 t = p.insts.back().uses[0].block;
+			if(t < 0 || t >= (I32)mf.blocks.size() || t == p.id)
+				return -1;
+			const MachineBlock& b = mf.blocks[(U32)t];
+			if(b.id < 0 || !isPureTestBlock(b))
+				return -1;
+			return t;
+		}
+
+		void copyTestBlock(MachineFunc& mf, MachineBlock& p, const MachineBlock& b) {
+			U32 dbg = mf.joinDbg(p.insts.back().dbg, p.dbgEnd);
+			p.insts.pop_back();
+			U32 first = (U32)p.insts.size();
+			p.insts.insert(p.insts.end(), b.insts.begin(), b.insts.end());
+			for(U32 i = first; i < (U32)p.insts.size(); ++i)
+				p.insts[i].dbg = mf.copyDbg(p.insts[i].dbg);
+			p.insts[first].dbg = mf.joinDbg(dbg, p.insts[first].dbg);
+			p.dbgEnd = mf.copyDbg(b.dbgEnd);
+		}
+
+		void moveTestEdges(MachineFunc& mf, MachineBlock& p, MachineBlock& b) {
+			p.succs.erase(std::remove(p.succs.begin(), p.succs.end(), b.id), p.succs.end());
+			b.preds.erase(std::remove(b.preds.begin(), b.preds.end(), p.id), b.preds.end());
+			for(I32 s : b.succs) {
+				p.succs.push_back(s);
+				mf.blocks[(U32)s].preds.push_back(p.id);
+			}
+		}
+
 		U32 duplicateTestBlocks(MachineFunc& mf) {
 			U32 changed = 0;
 			for(MachineBlock& p : mf.blocks) {
-				if(p.id < 0 || p.insts.empty())
-					continue;
-				MachineInstr& term = p.insts.back();
-				if((X86Op)term.op != X86Op::Jmp)
-					continue;
-				I32 t = term.uses[0].block;
-				if(t < 0 || t >= (I32)mf.blocks.size() || t == p.id)
+				I32 t = jumpedTestBlock(mf, p);
+				if(t < 0)
 					continue;
 				MachineBlock& b = mf.blocks[(U32)t];
-				if(b.id < 0 || !isPureTestBlock(b))
-					continue;
-
-				// replace the jmp with a copy of the test block's instructions, debug records copied along
-				U32 dbg = mf.joinDbg(term.dbg, p.dbgEnd);
-				p.insts.pop_back();
-				U32 first = (U32)p.insts.size();
-				p.insts.insert(p.insts.end(), b.insts.begin(), b.insts.end());
-				for(U32 i = first; i < (U32)p.insts.size(); ++i)
-					p.insts[i].dbg = mf.copyDbg(p.insts[i].dbg);
-				p.insts[first].dbg = mf.joinDbg(dbg, p.insts[first].dbg);
-				p.dbgEnd = mf.copyDbg(b.dbgEnd);
-
-				// p's successor edge moves from b to b's successors
-				p.succs.erase(std::remove(p.succs.begin(), p.succs.end(), t), p.succs.end());
-				b.preds.erase(std::remove(b.preds.begin(), b.preds.end(), p.id), b.preds.end());
-				for(I32 s : b.succs) {
-					p.succs.push_back(s);
-					mf.blocks[(U32)s].preds.push_back(p.id);
-				}
+				copyTestBlock(mf, p, b);
+				moveTestEdges(mf, p, b);
 				++changed;
 			}
 			return changed;
@@ -63,25 +70,17 @@ namespace rat {
 			return op == X86Op::Jmp || op == X86Op::Br || op == X86Op::SwitchJump;
 		}
 
+		// the final target of a chain of blocks that only jump
 		I32 resolveJump(const MachineFunc& mf, I32 id) {
-			for(U32 hops = 0; hops < 16; ++hops) {
-				if(id < 0 || id >= (I32)mf.blocks.size())
-					break;
+			for(U32 hops = 0; hops < 16 && id >= 0 && id < (I32)mf.blocks.size(); ++hops) {
 				const MachineBlock& b = mf.blocks[(U32)id];
-				if(b.id < 0 || b.insts.size() != 1)
+				if(b.id < 0 || b.insts.size() != 1 || (X86Op)b.insts[0].op != X86Op::Jmp)
 					break;
-				const MachineInstr& only = b.insts[0];
-				if((X86Op)only.op != X86Op::Jmp)
-					break;
-				I32 next = only.uses[0].block;
-				if(next == id)
-					break; // self-loop
-				id = next;
+				id = b.insts[0].uses[0].block;
 			}
 			return id;
 		}
 
-		// retarget branches at blocks that only jump, straight to the final target
 		U32 forwardJumpChains(MachineFunc& mf) {
 			U32 changed = 0;
 			for(MachineBlock& b : mf.blocks) {
@@ -99,113 +98,13 @@ namespace rat {
 			return changed;
 		}
 
-		// reachable from entry
-		List<B32> reachableFrom(const List<U32>& first, const List<I32>& succ, I32 entry) {
-			U32 n = (U32)first.size() - 1;
-			List<B32> reach(n, false);
-			List<I32> work{entry};
-			reach[(U32)entry] = true;
-			while(!work.empty()) {
-				I32 id = work.back();
-				work.pop_back();
-				for(U32 k = first[(U32)id]; k < first[(U32)id + 1]; ++k)
-					if(I32 t = succ[k]; t >= 0 && t < (I32)n && !reach[(U32)t]) {
-						reach[(U32)t] = true;
-						work.push_back(t);
-					}
-			}
-			return reach;
-		}
-
-		// order blocks into fallthrough chains: each block followed by a successor
-		// where possible so branches fall through, unreachable blocks dropped
-		void chainLayout(MachineFunc& mf) {
-			U32 n = (U32)mf.blocks.size();
-			if(n < 2)
-				return;
-			List<U32> blockAt(n, 0);
-			List<U32> first(n + 1, 0);
-			for(U32 i = 0; i < n; ++i)
-				if(mf.blocks[i].id >= 0)
-					blockAt[(U32)mf.blocks[i].id] = i;
-			List<I32> succ;
-			for(U32 id = 0; id < n; ++id) {
-				const MachineBlock& b = mf.blocks[blockAt[id]];
-				if(b.id == (I32)id && endsInBranch(b))
-					for(const MachineOperand& u : b.insts.back().uses)
-						if(u.isBlock())
-							succ.push_back(u.block);
-				first[id + 1] = (U32)succ.size();
-			}
-
-			I32 entry = -1;
-			for(U32 i = 0; i < n && entry < 0; ++i)
-				if(mf.blocks[i].id >= 0)
-					entry = mf.blocks[i].id;
-			if(entry < 0)
-				return;
-
-			List<B32> reach = reachableFrom(first, succ, entry);
-
-			// greedy: prefer the last block operand (else/jump target), the edge
-			// the encoder can elide when adjacent
-			List<B32> placed(n, false);
-			List<U32> order;
-			order.reserve(n);
-			for(U32 seedIdx = 0; seedIdx < n; ++seedIdx) {
-				I32 seed = mf.blocks[seedIdx].id;
-				if(seed < 0 || placed[(U32)seed] || !reach[(U32)seed])
-					continue;
-				I32 id = seed;
-				while(id >= 0 && !placed[(U32)id]) {
-					placed[(U32)id] = true;
-					order.push_back(blockAt[(U32)id]);
-					I32 next = -1;
-					for(U32 k = first[(U32)id + 1]; k-- > first[(U32)id];)
-						if(I32 t = succ[k]; t >= 0 && !placed[(U32)t] && reach[(U32)t]) {
-							next = t;
-							break;
-						}
-					id = next;
-				}
-			}
-
-			List<MachineBlock> arranged;
-			arranged.reserve(n);
-			for(U32 idx : order)
-				arranged.push_back(std::move(mf.blocks[idx]));
-			// keep unreachable blocks as empty stubs so ids stay valid table indices
-			for(U32 i = 0; i < n; ++i) {
-				I32 id = mf.blocks[i].id;
-				if(id >= 0 && !placed[(U32)id]) {
-					MachineBlock stub = std::move(mf.blocks[i]);
-					// debug records stay, the successor lists still route through a skipped jump
-					for(U32 k = (U32)stub.insts.size(); k-- > 0;) // backward, each join walks one instr chain
-						stub.dbgEnd = mf.joinDbg(stub.insts[k].dbg, stub.dbgEnd);
-					stub.insts.clear();
-					arranged.push_back(std::move(stub));
-				}
-			}
-			mf.blocks = std::move(arranged);
-		}
-
 		// a branch to a block still on the depth-first search stack is a back edge,
-		// its target a loop header
-		void alignLoopHeaders(MachineFunc& mf) {
-			U32 n = (U32)mf.blocks.size();
-			U32 entry = 0;
-			while(entry < n && mf.blocks[entry].id < 0)
-				++entry;
-			if(entry == n)
-				return;
-			List<U32> at(n, 0);
-			for(U32 i = 0; i < n; ++i)
-				if(mf.blocks[i].id >= 0)
-					at[(U32)mf.blocks[i].id] = i;
-			List<U8> state(n, 0);		// by id: 0 unseen, 1 on the stack, 2 done
-			List<U32> stack{entry}; // block indices
-			List<U32> cursor{0};		// next branch operand of each stacked block
-			state[(U32)mf.blocks[entry].id] = 1;
+		// its target a loop header. returns the search state by id, nonzero once reached
+		List<U8> alignLoopHeaders(MachineFunc& mf, U32 entry) {
+			List<U8> state(mf.blocks.size(), 0); // 0 unseen, 1 on the stack, 2 done
+			List<U32> stack{entry};
+			List<U32> cursor{0}; // next branch operand of each stacked block
+			state[entry] = 1;
 			while(!stack.empty()) {
 				const MachineBlock& b = mf.blocks[stack.back()];
 				U32 k = cursor.back()++;
@@ -219,21 +118,83 @@ namespace rat {
 				if(!u.isBlock() || u.block < 0)
 					continue;
 				if(state[(U32)u.block] == 1)
-					mf.blocks[at[(U32)u.block]].align = kLoopAlign;
+					mf.blocks[(U32)u.block].align = kLoopAlign;
 				if(state[(U32)u.block] != 0)
 					continue;
 				state[(U32)u.block] = 1;
-				stack.push_back(at[(U32)u.block]);
+				stack.push_back((U32)u.block);
 				cursor.push_back(0);
 			}
+			return state;
+		}
+
+		// prefer the last block operand (else/jump target),
+		// the edge the encoder can elide when adjacent
+		I32 chainSuccessor(const MachineBlock& b, const List<B32>& placed, const List<U8>& reached) {
+			if(!endsInBranch(b))
+				return -1;
+			const MachineOperands& uses = b.insts.back().uses;
+			for(U32 k = (U32)uses.size(); k-- > 0;) {
+				if(!uses[k].isBlock())
+					continue;
+				I32 t = uses[k].block;
+				if(t >= 0 && !placed[(U32)t] && reached[(U32)t])
+					return t;
+			}
+			return -1;
+		}
+
+		// order blocks into fallthrough chains, each block followed by a successor
+		// where possible so branches fall through, unreachable blocks emptied
+		void chainLayout(MachineFunc& mf, const List<U8>& reached) {
+			U32 n = (U32)mf.blocks.size();
+			List<B32> placed(n, false);
+			List<MachineBlock> arranged;
+			arranged.reserve(n);
+			for(U32 seed = 0; seed < n; ++seed) {
+				I32 id = mf.blocks[seed].id;
+				while(id >= 0 && reached[(U32)id] && !placed[(U32)id]) {
+					placed[(U32)id] = true;
+					arranged.push_back(std::move(mf.blocks[(U32)id]));
+					id = chainSuccessor(arranged.back(), placed, reached);
+				}
+			}
+			// unreachable blocks stay as empty stubs, ids remain table indices
+			for(MachineBlock& stub : mf.blocks) {
+				if(stub.id < 0 || placed[(U32)stub.id])
+					continue;
+				// debug records stay, the successor lists still route through a skipped jump
+				for(U32 k = (U32)stub.insts.size(); k-- > 0;) // backward, each join walks one instr chain
+					stub.dbgEnd = mf.joinDbg(stub.insts[k].dbg, stub.dbgEnd);
+				stub.insts.clear();
+				arranged.push_back(std::move(stub));
+			}
+			mf.blocks = std::move(arranged);
+		}
+
+		// a second layout run needs every block back at the index of its id
+		void blocksById(MachineFunc& mf) {
+			List<MachineBlock> byId(blockIdBound(mf));
+			for(MachineBlock& b : byId)
+				b.id = -1;
+			for(MachineBlock& b : mf.blocks)
+				if(b.id >= 0)
+					byId[(U32)b.id] = std::move(b);
+			mf.blocks = std::move(byId);
 		}
 	} // namespace detail
 
+	// block ids are block indices after blocksById, chainLayout reorders the blocks.
+	// the loop header search also tells which blocks the entry reaches
 	B32 X86LayoutPass::run(Module&, const Function&, MachineFunc& mf, const TargetInfo&) {
+		detail::blocksById(mf);
 		U32 changed = detail::duplicateTestBlocks(mf);
 		changed += detail::forwardJumpChains(mf);
-		detail::chainLayout(mf);
-		detail::alignLoopHeaders(mf);
+		U32 entry = 0;
+		while(entry < (U32)mf.blocks.size() && mf.blocks[entry].id < 0)
+			++entry;
+		if(entry < (U32)mf.blocks.size())
+			detail::chainLayout(mf, detail::alignLoopHeaders(mf, entry));
 		return changed != 0;
 	}
 } // namespace rat

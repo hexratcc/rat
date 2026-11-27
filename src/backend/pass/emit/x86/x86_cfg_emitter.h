@@ -9,15 +9,11 @@
 #include <iosfwd>
 
 namespace rat {
-	struct MachineBlock;
-
 	struct X86CfgEmitterPass : MachinePass {
 		explicit X86CfgEmitterPass(std::ostream& os);
 
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
 		void finish(Module& module, const TargetInfo& target) override;
-	private:
-		void writeBlock(const Function& fn, const MachineBlock& block);
 	private:
 		std::ostream* os;
 		U32 fnIndex = 0;
