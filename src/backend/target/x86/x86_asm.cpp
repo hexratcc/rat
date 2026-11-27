@@ -9,19 +9,16 @@ namespace rat {
 		if(k == Kind::X87)
 			return nextMem(16, 16);
 		if(conv.sharedSlots) {
-			Loc l{slot < conv.gpArgCount ? (I32)slot : -1, stackBytes};
-			if(l.reg < 0)
-				stackBytes += 8;
-			++slot;
-			return l;
+			U32 reg = slot++;
+			if(reg < conv.gpArgCount)
+				return {(I32)reg, 0};
+			return nextMem(8, 8);
 		}
 		U32& used = k == Kind::Sse ? sseUsed : gpUsed;
 		U32 cap = k == Kind::Sse ? conv.sseArgCount : conv.gpArgCount;
 		if(used < cap)
 			return {(I32)used++, 0};
-		Loc l{-1, stackBytes};
-		stackBytes += 8;
-		return l;
+		return nextMem(8, 8);
 	}
 
 	X86ArgAssigner::Loc X86ArgAssigner::nextMem(U32 bytes, U32 align) {
@@ -52,7 +49,7 @@ namespace rat {
 
 	// the recommended nop forms of 1 to 9 bytes (Intel SDM, NOP)
 	void Asm::alignNop(U32 a) {
-		static const U8 kNop[9][9] = {
+		static constexpr U8 kNop[9][9] = {
 				{0x90},
 				{0x66, 0x90},
 				{0x0f, 0x1f, 0x00},
@@ -130,17 +127,17 @@ namespace rat {
 		lead(e, 0, 0, r);
 	}
 
-	void Asm::rrImm(U8 op8, U8 op32, U32 reg, U32 rm, I32 imm) {
-		B32 short8 = imm == (I32)(I8)imm;
-		rr({0, 0, short8 ? op8 : op32, 1}, reg, rm);
-		this->imm(imm, short8 ? 1 : 4);
+	void Asm::rrImm(U8 op8, U8 op32, U32 reg, U32 rm, I32 value, B32 w) {
+		B32 short8 = value == (I32)(I8)value;
+		rr({0, 0, short8 ? op8 : op32, w}, reg, rm);
+		imm(value, short8 ? 1 : 4);
 	}
 
-	void Asm::aluImm(U8 ext, Reg r, I32 imm) { rrImm(0x83, 0x81, ext, r, imm); }
+	void Asm::aluImm(Alu op, Reg r, I32 value, B32 w) { rrImm(0x83, 0x81, op, r, value, w); }
 
-	void Asm::movImm64(Reg r, U64 imm) {
+	void Asm::movImm64(Reg r, U64 value) {
 		opReg({0, 0, 0xb8, 1}, r);
-		d64(imm);
+		d64(value);
 	}
 
 	// mov, movsxd, movzx or movsx by width and sign
@@ -158,14 +155,14 @@ namespace rat {
 
 	void Asm::store(const Mem& mem, Reg src, U32 width) {
 		U8 opc = width == 1 ? 0x88 : 0x89;
-		B32 byteReg = width == 1 && src >= RSP && src <= RDI;
-		rm({(U8)(width == 2 ? 0x66 : 0), 0, opc, width == 8, byteReg}, src, mem);
+		B32 byteReg = width == 1 && needsRex8(src);
+		rm({opSizePrefix(width), 0, opc, width == 8, byteReg}, src, mem);
 	}
 
-	void Asm::storeImm(const Mem& mem, I64 imm, U32 width) {
+	void Asm::storeImm(const Mem& mem, I64 value, U32 width) {
 		U8 opc = width == 1 ? 0xc6 : 0xc7;
-		rm({(U8)(width == 2 ? 0x66 : 0), 0, opc, width == 8}, 0, mem);
-		this->imm(imm, std::min(width, 4u));
+		rm({opSizePrefix(width), 0, opc, width == 8}, 0, mem);
+		imm(value, std::min(width, 4u));
 	}
 
 	// movss, movsd or movups by width
@@ -180,6 +177,9 @@ namespace rat {
 	void Asm::storeXmm(U32 xmm, const Mem& mem, U32 width) {
 		rm({ssePrefixByte(width), 0x0f, 0x11}, xmm, mem);
 	}
+
+	U8 Asm::opSizePrefix(U32 width) { return (U8)(width == 2 ? 0x66 : 0); }
+	B32 Asm::needsRex8(Reg r) { return r >= RSP && r <= RDI; }
 
 	U32 Asm::reserve32() {
 		U32 at = here();

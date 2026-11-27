@@ -16,12 +16,10 @@ namespace rat {
 		inline PhysReg gpPhys(Reg r) { return X86Target::kGpBase + (PhysReg)r; }
 		inline PhysReg xmmPhys(U32 n) { return X86Target::kXmmBase + n; }
 		inline U64 physBit(PhysReg p) { return (U64)1 << p; }
-		// the encoder scratch regs
 		inline U64 scratchBits() { return physBit(gpPhys(R10)) | physBit(gpPhys(R11)); }
 
 		constexpr I64 kX87MemBits = 80;
 
-		// an unassigned frame slot offset
 		constexpr I32 kNoSlot = INT32_MIN;
 		// rbp sits this far below the cfa, past the return address and saved rbp
 		constexpr I32 kCfaFromRbp = 16;
@@ -31,28 +29,13 @@ namespace rat {
 																	22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32};
 		static_assert(std::size(kDwarfRegs) == X86Target::kRegEnd, "one per PhysReg");
 
-		constexpr U8 kIntCc[] = {CC_E, CC_NE, CC_L, CC_LE, CC_B, CC_BE};
-		// FEq..FGe -> condition code / operand swap (swap keeps lt/le NaN-correct)
-		constexpr U8 kFpCc[] = {CC_E, CC_NE, CC_A, CC_AE, CC_A, CC_AE};
-		constexpr U8 kFpSwap[] = {0, 0, 1, 1, 0, 0};
+		// Sse imm bit, set when imm2 holds an imm8 that follows the modrm
+		constexpr I64 kSseImm8 = (I64)1 << 26;
 
-		// FAdd..FDiv -> sse opcode, scalar and packed
-		constexpr U8 kSseOp[] = {0x58, 0x5c, 0x59, 0x5e};
-
-		// VArith desc bit, set when imm2 holds an imm8 that follows the modrm
-		constexpr I64 kVecImm8 = (I64)1 << 24;
-		// FEq..FGe -> cmpps/cmppd predicate, gt and ge are lt and le with swapped operands
-		constexpr U8 kVecFpPred[] = {0, 4, 1, 2, 1, 2};
-		// the prefix of a float op by packed and double, F3 ss, F2 sd, none ps, 66 pd
-		constexpr U8 kFpPfx[2][2] = {{0xf3, 0xf2}, {0, 0x66}};
-		// log2 of the lane bytes -> paddb, paddw, paddd, paddq
-		constexpr U8 kVecAddOpc[] = {0xfc, 0xfd, 0xfe, 0xd4};
-		// log2 of the lane bytes -> psubb, psubw, psubd, psubq
-		constexpr U8 kVecSubOpc[] = {0xf8, 0xf9, 0xfa, 0xfb};
-		// Shl, LShr, AShr -> /ext of pslld, psrld, psrad by an imm8
-		constexpr U8 kVecShiftExt[] = {6, 2, 4};
-		// Shl, LShr, AShr -> pslld, psrld, psrad by an xmm count, +1 for qword, -1 for word lanes
-		constexpr U8 kVecShiftOpc[] = {0xf2, 0xd2, 0xe2};
+		// imm2 bits of the memory ops, see sibBits
+		constexpr I64 kSibSign = 1;
+		constexpr I64 kSibIndexed = 2;
+		constexpr U32 sibScaleLog2(I64 imm2) { return (U32)(imm2 >> 2 & 3); }
 	} // namespace detail
 
 	enum class X86Op : U32 {
@@ -62,7 +45,7 @@ namespace rat {
 		LoadSym,	 // dst = lea rip[sym]  (address of a global)
 		FrameAddr, // dst = lea rbp[imm]  (address of an arbitrary rbp offset, imm = disp)
 		RetAddr,	 // dst = [rbp+8]      (this frame's return address, forces a frame)
-		Lea,			 // dst = lea [use[0] + use[1]*(1<<imm2) + imm]
+		Lea,			 // dst = lea [use[0] + use[1]*scale + imm], imm2 as for Load
 		// dynamic stack
 		StackAlloc,		// rsp -= roundup(use[0], 16), rsp &= ~15, dst = rsp
 		StackSave,		// dst = rsp
@@ -70,9 +53,10 @@ namespace rat {
 		// non-local goto, use[0] points at [frame pointer, resume address, stack pointer]
 		SetJmp,	 // fills the buffer, def = 0 falling through, 1 when a LongJmp lands
 		LongJmp, // restores rbp/rsp from the buffer and jumps to the resume address
-		// integer memory: use[0] = address reg, imm = displacement
-		Load,	 // dst = [addr + index*scale + disp], sign/zero-extended per width/imm2
-		Store, // [addr + index * scale + disp] = src (index in use[2] per imm2), width
+		// integer memory, use[0] = address reg or an 8-byte frame slot, imm = displacement
+		// imm2 = (scaleLog2 << 2) | (indexed << 1) | sign, see sibBits
+		Load,	 // dst = [addr + index*scale + disp], index in use[1], sign or zero extended
+		Store, // [addr + index*scale + disp] = use[1], index in use[2], width of use[1]
 		// integer ALU (two-address on the def reg, def and use[0] are coalesced)
 		Add,
 		Sub,
@@ -82,15 +66,19 @@ namespace rat {
 		Xor,
 		Neg,
 		Not,
+		// shift count in use[1], an imm or RCX
 		Shl,
 		AShr,
-		LShr, // shift count in use[1] (fixed to RCX by lowering)
+		LShr,
+		// rotate, constant count in use[1], operand width in imm
 		Rotl,
-		Rotr, // rotate, constant count in use[1], operand width in imm
+		Rotr,
+		// RAX/RDX/RCX fixed by lowering via Phys operands
 		SDiv,
 		SRem,
 		UDiv,
-		URem,				 // RAX/RDX/RCX fixed by lowering via Phys operands
+		URem,
+		// bit ops, flags and extensions
 		BitScanF,		 // dst = bsf use[0], operand width in imm (undefined when use[0] is 0)
 		BitScanR,		 // dst = bsr use[0], operand width in imm (undefined when use[0] is 0)
 		Cmp,				 // flag-setting compare of use[0],use[1]
@@ -101,49 +89,40 @@ namespace rat {
 		Bswap,			 // dst = byte-reverse dst, operand width in imm (32 or 64)
 		// SSE scalar float
 		FLoad,
-		FStore, // [addr+disp] <-> xmm
-		FAdd,
-		FSub,
-		FMul,
-		FDiv,			 // two-address on the def xmm
+		FStore,		 // [addr+disp] <-> xmm
 		FNeg,			 // pxor-based negate, lane width in imm
-		FSqrt,		 // dst = sqrt(use[0]), width in imm
 		FAbs,			 // dst = |use[0]| via lane shifts, width in imm
 		FCmp,			 // ucomis use[0],use[1] + setcc, cc in imm, swap in imm2
 		FCmpFlags, // flags-only ucomis use[0],use[1], swap in imm2 (cc consumed by a fused Br)
-		Cvt,			 // SSE convert, pfx/opc/w packed in imm
+		// any sse instr
+		// dst = OP use[1] or OP use[0] when it is the only use, the Enc packed in imm
+		// plus kSseImm8, see there. A use[2] of xmm0 is the implicit blendv mask
+		Sse,
 		// SSE packed vector (128-bit)
-		// dst = dst OP use[1] packed, imm = (escape << 16) | (prefix << 8) | opcode, plus kVecImm8 when
-		// imm2 holds an imm8. A use[2] of xmm0 is the implicit blendv mask
-		VArith,
-		VUnary,			// dst = OP use[0] packed, imm as VArith
-		VShiftImm,	// dst = dst shifted by an immediate, imm = lane bits, imm2 = (/ext << 8) | count
-		VSplat,			// dst = broadcast use[0] to all lanes, imm = elem bytes, imm2 = int?
-		VExtract,		// dst = lane imm of use[0], imm2 = (elem bytes << 1) | int?
-		VPackLane,	// [vec scratch + imm2>>1 * imm] = use[0]
-		VPack,			// dst = the vec scratch slot
-		VPackReg,		// dst = movd/movq of int lane use[0]
-		VInsertReg, // lane imm2 of dst = use[1], imm = elem bytes
-		VShuf,			// dst = pshufd(use[0], imm)
+		VShiftImm, // dst = dst shifted by an immediate, imm = lane bits, imm2 = (/ext << 8) | count
+		VSplat,		 // dst = broadcast use[0] to all lanes, imm = elem bytes, imm2 = int?
+		VExtract,	 // dst = lane imm of use[0], imm2 = (elem bytes << 1) | int?
 		// x87 ops
-		X87LoadMem,	 // def(slot) = fld [use0 addr], imm = mem width (4/8/80)
-		X87StoreMem, // [use0 addr] = fstp use1(slot), imm = mem width (4/8/80)
+		// imm 80 moves an m80 at [use0 addr], imm -1 and -2 work on st0
+		X87LoadMem,	 // def(slot) = fld [use0 addr], imm -1 pushes use0(slot) to st0
+		X87StoreMem, // [use0 addr] = fstp use1(slot), imm -1 pops st0 to def(slot), imm -2 drops it
 		X87LoadImmD, // def(slot) = fld double-bits in use0.imm (via scratch slot)
 		X87FromInt,	 // def(slot) = fild use0 (gp), through scratch slot
 		X87ToInt,		 // def(gp)   = fistp use0(slot), through scratch slot + cw juggle
-		X87FromSse,	 // def(slot) = (long double)use0 (xmm), imm = src width
+		X87FromSse,	 // def(slot) = (long double)use0 (xmm), imm = src width, imm 80 copies slot use0
 		X87ToSse,		 // def(xmm)  = (float)use0(slot),   imm = dst width
+		// def(slot) = use0(slot) OP use1(slot)
 		X87Add,
 		X87Sub,
 		X87Mul,
-		X87Div, // def(slot) = use0(slot) OP use1(slot)
+		X87Div,
 		X87Neg, // def(slot) = -use0(slot) (fchs)
 		X87Cmp, // def(gp) = use0(slot) CMP use1(slot), cc in imm, swap in imm2
 		// control / calls
 		Call, // to the sym use, or through the r11 use when imm2 is set, imm = stack arg bytes
 		Ret,
 		Jmp,				// unconditional, target block in use[0].block
-		SwitchJump, // table jump: use[0] = selector reg, use[1..] = slot target blocks
+		SwitchJump, // table jump, use[0] = selector reg, use[1..] = slot target blocks
 		Br,					// jnz use[0] to use[1] else use[2], with imm2 set jcc imm to use[0] else use[1]
 		// variadic support
 		VaStart, // init va_list at [use0], imm = gpOffset start, imm2 = fpOffset start
@@ -152,53 +131,25 @@ namespace rat {
 		Prefetch, // prefetch [use0 + imm], imm2 = hint (0 = nta, 1 = t0, 2 = t1, 3 = t2)
 	};
 
-	namespace detail {
-		// X86OpInfo flags. a transparent op reaches no frame memory outside its operands and is not
-		// re-entered, a keeps-low-bits op computes its low result bits from the low input bits only
-		constexpr U8 kX86Transparent = 1;
-		constexpr U8 kX86WritesFlags = 2;
-		constexpr U8 kX86ReadsFlags = 4;
-		constexpr U8 kX86KeepsLowBits = 8;
-	} // namespace detail
-
 	struct X86OpInfo {
 		const C8* mnemonic;
-		U8 flags;
+		B32 transparent; // reaches no frame memory outside its operands and is not re-entered
 	};
 
 	const X86OpInfo& x86OpInfo(X86Op op);
 
 	namespace detail {
-		String dispText(I64 disp);
+		I64 packEnc(Enc e, B32 imm8);
+		Enc unpackEnc(I64 desc);
 		String operandText(const MachineOperand& operand);
-		String addressText(const MachineInstr& instr, U32 width, U32 indexUse, U32 scaleLog2);
-		String memoryOperandText(const MachineInstr& instr);
-		B32 immIsCc(const MachineInstr& instr);
-		B32 immIsOperand(X86Op op);
-		B32 repeatsDef(const MachineInstr& instr);
-		B32 isNormalize(X86Op op);
+		B32 testsCc(const MachineInstr& in);
+		U32 addressIndexUse(X86Op op);
+		String addressText(const MachineInstr& in, U32 indexUse);
 		B32 isAnySlotStore(const MachineInstr& in);
+		U32 blockIdBound(const MachineFunc& mf);
 	} // namespace detail
 
 	String x86InstrText(const MachineInstr& instr);
-
-	// operand shorthands, for the cases where a raw type would be ambiguous with VReg
-	struct Imm {
-		I64 v;
-		U32 w = 8;
-	};
-	struct Slot {
-		I32 s;
-		U32 w = 8;
-	};
-	struct Xmm {
-		U32 n;
-		U32 w = 8;
-	};
-
-	inline Imm imm(I64 v, U32 w = 8) { return {v, w}; }
-	inline Slot slot(I32 s, U32 w = 8) { return {s, w}; }
-	inline Xmm xmm(U32 n, U32 w = 8) { return {n, w}; }
 
 	struct X86FrameLayout : MachineFuncAux {
 		I32 ldScratch = 0;

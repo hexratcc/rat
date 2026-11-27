@@ -45,75 +45,67 @@ namespace rat {
 
 			B32 operator<(U32 other) const;
 		};
-		// a location the peephole left wrong past its first okBits bits
-		struct Poison {
-			VarLoc loc;
-			U32 okBits;
-		};
-		// debug var tracking state at one point, open ranges plus poisoned locations
+		// the open ranges at one point, and the slots a dropped dead store left stale
 		struct VarState {
 			List<OpenVarRange> live;
-			List<Poison> poison;
+			List<VarLoc> stale;
 		};
 		static constexpr U32 kNoPc = ~0u;									// solving, no ranges
-		static constexpr U32 kClean = ~0u;								// okBits of an unpoisoned location
 		static constexpr U64 kMaxVarTrackCost = 20000000; // instrs times tracked vars
+		static constexpr U32 kByvalInlineBytes = 64; // by-value args up to this copy through an xmm
 
 		static void emitGlobal(ObjectFile& obj, const Global* g, U32 ptrBytes);
 		void defineFunctions();
 
-		static U32 blockIdBound(const MachineFunc& f);
 		static B32 touchesFrame(const MachineOperand& o);
 		static B32 needsFrame(const MachineInstr& in);
 		U32 planFrame();
-		void trackVars(U32 instCount);
 		void patchJumps();
 		void encodeFunction(const MachineFunc& f, Asm& asm_);
 
 		static Reg toGp(PhysReg p);
 		static Reg gpOf(const MachineOperand& o);
 		static U32 xmmOf(const MachineOperand& o);
-		// [use0 + disp], plus the scaled index in uses[indexUse] when imm2 bit 1 is set
+		static U32 regNum(const MachineOperand& o);
+		// [rbp + slot] for a frame slot use0, else see X86LowerPass::sibBits
 		static Mem memOf(const MachineInstr& in, U32 indexUse);
 		static U8 laneSel(U32 lane, U32 esz);
 		void readGp(const MachineOperand& o, Reg r);
 		void copyXmm(U32 d, U32 s);
-		void stash(Reg r);
-		void unstash(Reg r);
-		void immToScratch(I64 v);
+		void movImm32(Reg r, U32 v);
 		void emitCopy(const MachineInstr& in);
 		void emitLoadImm(const MachineInstr& in);
 		void emitStackAlloc(const MachineInstr& in);
 		void emitSetJmp(const MachineInstr& in);
 		void emitLongJmp(const MachineInstr& in);
-		void emitLoad(const MachineInstr& in);
 		void emitStore(const MachineInstr& in);
 		void emitFLoad(const MachineInstr& in);
-		void emitFStore(const MachineInstr& in);
 		void emitAlu(const MachineInstr& in, U8 aluOp);
 		void emitDiv(const MachineInstr& in, B32 isSigned);
 		void emitExtBits(const MachineInstr& in, B32 sign);
-		void emitCmp(const MachineInstr& in);
+		void testReg(const MachineOperand& o);
 		void setccExt(U8 cc, Reg d);
 		void emitFSign(const MachineInstr& in, B32 abs);
 		void emitFCmpFlags(const MachineInstr& in);
-		void emitCvt(const MachineInstr& in);
 		void emitVSplat(const MachineInstr& in);
 		void emitVExtract(const MachineInstr& in);
 		void pshufd(U32 d, U32 s, U8 sel);
+		void shiftImm(U8 ext, Reg r, U8 count, B32 w);
 		void sseShift(U32 laneBits, U8 ext, U32 x, U8 count);
 		void x87Mem(U8 esc, U8 ext, const Mem& mem);
-		void x87Op(U8 b0, U8 b1);
+		void twoBytes(U8 b0, U8 b1);
 		void fldSlot(const MachineOperand& o);
 		void fstpSlot(const MachineOperand& o);
 		void emitX87StoreMem(const MachineInstr& in);
 		void emitX87ToInt(const MachineInstr& in);
 		void emitX87FromSse(const MachineInstr& in);
-		void emitX87ToSse(const MachineInstr& in);
 		void emitX87Binary(const MachineInstr& in, U32 idx);
 		void emitX87Cmp(const MachineInstr& in);
 		void emitVaStart(const MachineInstr& in);
 		void copyByval(const MachineOperand& src, U32 bytes, I32 off);
+		static U32 callTargetUse(const MachineInstr& in);
+		void storeStackArgs(const MachineInstr& in, U32 targetUse);
+		void mirrorSseArgs(const MachineInstr& in, U32 targetUse);
 		void emitCall(const MachineInstr& in);
 		void emitRet();
 		void emitSwitchJump(const MachineInstr& in);
@@ -130,16 +122,12 @@ namespace rat {
 		static B32 writesSlot(const MachineInstr& in, I64 cfaOff);
 		void closeRange(const OpenVarRange& open, U32 end);
 		void setLoc(List<OpenVarRange>& live, U32 inst, VarLoc loc, U32 pc);
-		static U32 okBits(const List<Poison>& poison, const VarLoc& loc);
-		static void setPoison(List<Poison>& poison, const VarLoc& loc, U32 ok);
 		void applyRecords(VarState& vars, U32 chain, U32 pc);
-		static U32 poisonFlow(const List<Poison>& poison, const MachineInstr& in);
-		static void writePoison(List<Poison>& poison, const VarLoc& loc, B32 partial, U32 flow);
-		static void passPoison(List<Poison>& poison, const MachineInstr& in);
+		static void freshen(List<VarLoc>& stale, const MachineInstr& in);
 		void clobber(VarState& vars, const MachineInstr& in, U32 pc);
 		static B32 meet(VarState& into, const VarState& from);
-		U32 pcOrNone(B32 emit) const;
 		void walkBlock(U32 bi, VarState& vars, B32 emit);
+		void trackVars(U32 instCount);
 		void solveVars();
 	private:
 		std::ostream* os;

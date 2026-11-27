@@ -1,6 +1,5 @@
 #include "pass/emit/x86/x86_lower.h"
 
-#include "codegen/reg_alloc.h"
 #include "ir/function.h"
 #include "ir/node.h"
 
@@ -32,16 +31,14 @@ namespace rat {
 		return pos;
 	}
 
-	// past the code of the value when this block has it
 	U32 X86LowerPass::valuePos(const DebugBinding& bd, I32 b, const BindingPlan& plan) const {
 		const Node* v = bd.value;
 		if(!v || isa<PhiNode>(v) || isa<ConstantNode>(v)) // constants may sit in another function
 			return 0;
 		if(isParam(v))
 			return b == sched->rpo()[0] ? plan.paramsEnd : 0;
-		const ProjNode* vp = dyn_cast<ProjNode>(v);
 		U32 pos = endIn(v, b, plan);
-		if(vp)
+		if(const ProjNode* vp = dyn_cast<ProjNode>(v))
 			pos = std::max(pos, endIn(vp->getProducer(), b, plan));
 		return pos;
 	}
@@ -58,7 +55,7 @@ namespace rat {
 		const Type* t = value->getType();
 		const ConstantNode* c = dyn_cast<ConstantNode>(value);
 		if(c && (t->isInt() || t->isPtr()))
-			return im(imm(c->getValue(), opWidth(t)));
+			return im(c->getValue(), opWidth(t));
 		if(c) // other constants get no vreg, they may sit in another function
 			return MachineOperand::none();
 		VReg valueVReg = vregOf[value->getId()];
@@ -78,7 +75,7 @@ namespace rat {
 			if(pos > src) // the old value is gone, the new one not there yet
 				out->addDbg(mb->dbgBefore(src), bd.inst, MachineOperand::none());
 			out->addDbg(mb->dbgBefore(pos), bd.inst, bindingLoc(bd.value));
-			// a param extension writes its register and ends the var, bind it again past it
+			// a bool param mask writes its register and ends the var, bind it again past it
 			if(b == sched->rpo()[0] && isParam(bd.value) && pos < plan.prologueEnd) {
 				out->addDbg(mb->dbgBefore(plan.prologueEnd), bd.inst, bindingLoc(bd.value));
 				plan.cursor[bd.inst] = plan.prologueEnd;

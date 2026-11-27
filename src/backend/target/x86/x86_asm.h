@@ -38,6 +38,16 @@ namespace rat {
 		CC_LE = 0xe,
 	};
 
+	// group-1 alu /digit, see aluImm
+	enum Alu : U8 {
+		ALU_ADD = 0,
+		ALU_OR = 1,
+		ALU_AND = 4,
+		ALU_SUB = 5,
+		ALU_XOR = 6,
+		ALU_CMP = 7,
+	};
+
 	enum class X86VaList : U32 {
 		SysV,		 // struct with gp/fp offsets and a register save area
 		CharPtr, // plain pointer walking 8-byte home slots (win64)
@@ -156,7 +166,7 @@ namespace rat {
 		B32 indexed = false;
 	};
 
-	// the only way to build an indexed Mem, a bare index without indexed would encode wrong
+	// the only way to build an indexed Mem
 	Mem indexedMem(Reg base, Reg index, U32 scaleLog2, I32 disp);
 
 	// an opcode with its mandatory prefix and escape bytes
@@ -164,8 +174,8 @@ namespace rat {
 		U8 pfx = 0; // 0x66, 0xf2, 0xf3 or none
 		U8 map = 0; // 0x0f, 0x38 for 0f 38, 0x3a for 0f 3a, or none
 		U8 opc = 0;
-		B32 w = 0;	 // REX.W
-		B32 rex = 0; // a bare 0x40 rex too, spl..dil need it as byte operands
+		B32 w = false;	 // REX.W
+		B32 rex = false; // a bare 0x40 rex too, spl..dil need it as byte operands
 	};
 
 	// x86-64 instruction encoder, appends machine bytes to code and reloc records to relocs.
@@ -193,19 +203,21 @@ namespace rat {
 		void ripSym(Enc e, U32 reg, const String& sym);
 		// the register in the low opcode bits
 		void opReg(Enc e, U32 r);
-		// the imm8 opcode when imm fits, else the imm32 one
-		void rrImm(U8 op8, U8 op32, U32 reg, U32 rm, I32 imm);
-		// group-1 alu op on a 64-bit register
-		void aluImm(U8 ext, Reg r, I32 imm);
+		// the imm8 opcode when value fits, else the imm32 one
+		void rrImm(U8 op8, U8 op32, U32 reg, U32 rm, I32 value, B32 w = true);
+		// group-1 alu op on a register
+		void aluImm(Alu op, Reg r, I32 value, B32 w = true);
 
 		// width-sized moves
-		void movImm64(Reg r, U64 imm);
+		void movImm64(Reg r, U64 value);
 		void load(Reg dst, const Mem& mem, U32 width, B32 sign);
 		void store(const Mem& mem, Reg src, U32 width);
-		void storeImm(const Mem& mem, I64 imm, U32 width);
+		void storeImm(const Mem& mem, I64 value, U32 width);
 		void loadXmm(U32 xmm, const Mem& mem, U32 width);
 		void storeXmm(U32 xmm, const Mem& mem, U32 width);
 		static U8 ssePrefixByte(U32 width);
+		static U8 opSizePrefix(U32 width);
+		static B32 needsRex8(Reg r);
 
 		U32 jmpRel32();
 		U32 jccRel32(U8 cc);
@@ -220,21 +232,23 @@ namespace rat {
 	// common encodings, W marks the 64-bit form
 	namespace enc {
 		constexpr Enc kMovW{0, 0, 0x89, 1}; // mov r/m, r
+		constexpr Enc kAddW{0, 0, 0x01, 1};
+		constexpr Enc kOrW{0, 0, 0x09, 1};
+		constexpr Enc kAndW{0, 0, 0x21, 1};
+		constexpr Enc kSubW{0, 0, 0x29, 1};
+		constexpr Enc kXorW{0, 0, 0x31, 1};
 		constexpr Enc kLeaW{0, 0, 0x8d, 1};
 		constexpr Enc kMovsxdW{0, 0, 0x63, 1}; // movsxd r, r/m32
 		constexpr Enc kTestW{0, 0, 0x85, 1};
-		constexpr Enc kF7W{0, 0, 0xf7, 1}; // group 3, /2 not /3 neg /6 div /7 idiv
-		constexpr Enc kC1W{0, 0, 0xc1, 1}; // group 2 by imm8, /4 shl /5 shr /7 sar
 		constexpr Enc kPush{0, 0, 0x50};
 		constexpr Enc kPop{0, 0, 0x58};
 		constexpr Enc kMovImm32{0, 0, 0xb8};
-		constexpr Enc kFf{0, 0, 0xff}; // group 5, /2 call /4 jmp
+		constexpr Enc kGroup5{0, 0, 0xff}; // group 5, /2 call /4 jmp
 		constexpr Enc kMovaps{0, 0x0f, 0x28};
 		constexpr Enc kMovdToXmm{0x66, 0x0f, 0x6e, 0, 1};
-		constexpr Enc kMovdFromXmm{0x66, 0x0f, 0x7e};
+		constexpr Enc kMovqToXmm{0x66, 0x0f, 0x6e, 1, 1};
+		constexpr Enc kMovqFromXmm{0x66, 0x0f, 0x7e, 1};
 		constexpr Enc kPshufd{0x66, 0x0f, 0x70};
-		constexpr Enc kPxor{0x66, 0x0f, 0xef};
-		constexpr Enc kSseShift{0x66, 0x0f, 0x72}; // dword lanes by imm8, 0x73 for qword lanes
 	} // namespace enc
 } // namespace rat
 

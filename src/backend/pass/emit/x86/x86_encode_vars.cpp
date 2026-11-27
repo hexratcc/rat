@@ -1,11 +1,10 @@
 #include "pass/emit/x86/x86_encode.h"
 
 #include "codegen/machine_function.h"
+#include "ir/function.h"
 
 // debug var locations in the style of LLVM's LiveDebugValues, a block starts with the locations all
-// its predecessors agree on, a record moves its var, a write to a location ends the vars living there.
-// a kill record poisons its location, poison flows along the values computed from it and a var is
-// not placed where it is poisoned
+// its predecessors agree on, a record moves its var, a write ends the vars in its location.
 namespace rat {
 	VarLoc X86EncodePass::toVarLoc(const MachineOperand& o) {
 		switch(o.kind) {
@@ -52,97 +51,43 @@ namespace rat {
 
 	void X86EncodePass::setLoc(List<OpenVarRange>& live, U32 inst, VarLoc loc, U32 pc) {
 		auto it = std::lower_bound(live.begin(), live.end(), inst);
-		B32 found = it != live.end() && it->inst == inst;
-		if(found && it->loc == loc)
+		if(it == live.end() || it->inst != inst) {
+			if(loc.kind != VarLoc::Kind::None)
+				live.insert(it, {inst, loc, pc});
 			return;
-		if(found)
-			closeRange(*it, pc);
-		if(found && loc.kind == VarLoc::Kind::None)
+		}
+		if(it->loc == loc)
+			return;
+		closeRange(*it, pc);
+		if(loc.kind == VarLoc::Kind::None)
 			live.erase(it);
-		else if(found)
+		else
 			*it = {inst, loc, pc};
-		else if(loc.kind != VarLoc::Kind::None)
-			live.insert(it, {inst, loc, pc});
-	}
-
-	U32 X86EncodePass::okBits(const List<Poison>& poison, const VarLoc& loc) {
-		for(const Poison& p : poison)
-			if(p.loc == loc)
-				return p.okBits;
-		return kClean;
-	}
-
-	void X86EncodePass::setPoison(List<Poison>& poison, const VarLoc& loc, U32 ok) {
-		U32 i = 0;
-		while(i < poison.size() && !(poison[i].loc == loc))
-			++i;
-		if(i < poison.size() && ok == kClean)
-			poison.erase(poison.begin() + i);
-		else if(i < poison.size())
-			poison[i].okBits = ok;
-		else if(ok != kClean)
-			poison.push_back({loc, ok});
 	}
 
 	void X86EncodePass::applyRecords(VarState& vars, U32 chain, U32 pc) {
 		for(U32 r = chain; r; r = fn->dbg[r].next) {
 			const DbgRec& rec = fn->dbg[r];
 			VarLoc loc = toVarLoc(rec.loc);
-			U32 ok = okBits(vars.poison, loc);
-			if(rec.inst == kDbgKill)
-				setPoison(vars.poison, loc, std::min(ok, (U32)rec.loc.width));
-			else if(ok < rec.loc.width * 8u)
-				setLoc(vars.live, rec.inst, VarLoc{}, pc);
-			else
-				setLoc(vars.live, rec.inst, loc, pc);
+			B32 stale = std::count(vars.stale.begin(), vars.stale.end(), loc) != 0;
+			if(rec.inst != kDbgKill)
+				setLoc(vars.live, rec.inst, stale ? VarLoc{} : loc, pc);
+			else if(!stale)
+				vars.stale.push_back(loc);
 		}
 	}
 
-	// the right low bits of what in computes from its poisoned inputs, kClean when none is. a slot store
-	// passes its source on, a normalize within the right bits makes it right again
-	U32 X86EncodePass::poisonFlow(const List<Poison>& poison, const MachineInstr& in) {
-		B32 store = detail::isAnySlotStore(in);
-		U32 ok = kClean;
-		U32 first = store ? 1 : 0; // a slot store writes uses[0]
-		for(U32 i = first; i < in.uses.size(); ++i)
-			ok = std::min(ok, okBits(poison, toVarLoc(in.uses[i])));
-		X86Op op = (X86Op)in.op;
-		if(ok == kClean || store)
-			return ok;
-		if(!(x86OpInfo(op).flags & detail::kX86KeepsLowBits))
-			return 0;
-		if(detail::isNormalize(op) && (U64)in.imm <= ok)
-			return kClean;
-		return ok;
-	}
-
-	// a partial write keeps the poison of the bits it leaves
-	void X86EncodePass::writePoison(List<Poison>& poison, const VarLoc& loc, B32 partial, U32 flow) {
-		U32 ok = flow;
-		if(partial)
-			ok = std::min(ok, okBits(poison, loc));
-		setPoison(poison, loc, ok);
-	}
-
-	void X86EncodePass::passPoison(List<Poison>& poison, const MachineInstr& in) {
-		if(poison.empty())
-			return;
-		U32 flow = poisonFlow(poison, in);
-		U32 kept = 0;
-		for(const Poison& p : poison)
-			if(p.loc.kind != VarLoc::Kind::Reg || !((in.clobbers >> p.loc.reg) & 1))
-				poison[kept++] = p;
-		poison.resize(kept);
+	// a write makes its location hold a value again
+	void X86EncodePass::freshen(List<VarLoc>& stale, const MachineInstr& in) {
 		for(const MachineOperand& d : in.defs)
-			if(d.isPhys() || d.isFrameSlot())
-				writePoison(poison, toVarLoc(d), d.width < 4, flow);
+			stale.erase(std::remove(stale.begin(), stale.end(), toVarLoc(d)), stale.end());
 		if(detail::isAnySlotStore(in))
-			writePoison(poison, toVarLoc(in.uses[0]), in.uses[1].width < 8, flow);
+			stale.erase(std::remove(stale.begin(), stale.end(), toVarLoc(in.uses[0])), stale.end());
 	}
 
 	// the epilogue ends all
 	void X86EncodePass::clobber(VarState& vars, const MachineInstr& in, U32 pc) {
-		passPoison(vars.poison, in);
+		freshen(vars.stale, in);
 		if(vars.live.empty())
 			return;
 		B32 ret = (X86Op)in.op == X86Op::Ret;
@@ -162,9 +107,8 @@ namespace rat {
 		vars.live.resize(kept);
 	}
 
-	// the locations both sides agree on, the poison of either. true when into changed
+	// the locations both sides agree on, the stale slots of either. true when into changed
 	B32 X86EncodePass::meet(VarState& into, const VarState& from) {
-		U32 before = (U32)into.live.size();
 		U32 kept = 0;
 		U32 j = 0;
 		for(const OpenVarRange& open : into.live) {
@@ -173,24 +117,21 @@ namespace rat {
 			if(j < from.live.size() && from.live[j].inst == open.inst && from.live[j].loc == open.loc)
 				into.live[kept++] = open;
 		}
+		B32 changed = kept != into.live.size();
 		into.live.resize(kept);
-		B32 changed = kept != before;
-		for(const Poison& p : from.poison)
-			if(p.okBits < okBits(into.poison, p.loc)) {
-				setPoison(into.poison, p.loc, p.okBits);
+		for(const VarLoc& loc : from.stale)
+			if(!std::count(into.stale.begin(), into.stale.end(), loc)) {
+				into.stale.push_back(loc);
 				changed = true;
 			}
 		return changed;
 	}
 
-	U32 X86EncodePass::pcOrNone(B32 emit) const { return emit ? a->here() : kNoPc; }
-
-	// the var state through block bi, from its in-state when tracked. emitting also encodes its code,
-	// solving passes no pcs
+	// emitting also encodes the block, solving passes no pcs
 	void X86EncodePass::walkBlock(U32 bi, VarState& vars, B32 emit) {
 		const MachineBlock& blk = fn->blocks[bi];
 		B32 track = !varsIn.empty();
-		U32 pc = pcOrNone(emit);
+		U32 pc = emit ? a->here() : kNoPc;
 		if(track)
 			vars = varsIn[bi];
 		for(OpenVarRange& open : vars.live)
@@ -199,7 +140,7 @@ namespace rat {
 		if(bi + 1 < fn->blocks.size())
 			fallthrough = fn->blocks[bi + 1].id;
 		for(const MachineInstr& in : blk.insts) {
-			U32 at = pcOrNone(emit);
+			U32 at = emit ? a->here() : kNoPc;
 			// a write ends its vars one byte in, so the instr start still shows them but no later pc does
 			U32 writeEnd = kNoPc;
 			if(track)
@@ -213,20 +154,29 @@ namespace rat {
 			if(track)
 				clobber(vars, in, writeEnd);
 		}
-		pc = pcOrNone(emit);
+		pc = emit ? a->here() : kNoPc;
 		if(track)
 			applyRecords(vars, blk.dbgEnd, pc);
 		for(const OpenVarRange& open : vars.live)
 			closeRange(open, pc);
 	}
 
-	// in-states only shrink in locations and grow in poison, a block is redone when its in-state
-	// changed. the first predecessor to reach a block seeds it. the successor lists still name the
-	// blocks forwarded jumps skip, so their records count
+	// like gcc's max-vartrack-size, huge functions keep their vars without locations
+	void X86EncodePass::trackVars(U32 instCount) {
+		varsIn.clear();
+		if(!encodedFunc || fn->dbg.size() <= 1)
+			return;
+		const DebugBody* body = encodedFunc->fn->getDebug();
+		if(body && (U64)instCount * body->vars.size() <= kMaxVarTrackCost)
+			solveVars();
+	}
+
+	// in-states only lose locations and gain stale slots, the first predecessor seeds them
+	// succs still name the blocks forwarded jumps skip, so their records count
 	void X86EncodePass::solveVars() {
 		U32 nb = (U32)fn->blocks.size();
 		varsIn.assign(nb, {});
-		List<I32> at(blockIdBound(*fn), -1);
+		List<I32> at(detail::blockIdBound(*fn), -1);
 		for(U32 bi = 0; bi < nb; ++bi)
 			if(fn->blocks[bi].id >= 0)
 				at[(U32)fn->blocks[bi].id] = (I32)bi;

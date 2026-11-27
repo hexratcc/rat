@@ -6,11 +6,8 @@
 //   mov rcx,[rbp-8]   ->   mov rcx,rax      (slot value still sits in a reg)
 //   mov rax,rcx            <deleted>        (both sides already equal)
 //
-// A second phase runs a backward demanded-bits dataflow over the physical
-// registers and deletes the width normalizations (SignExtBits/MaskBits) whose
-// high bits no reader observes. A third phase runs a backward liveness
-// dataflow over the spill slots and deletes the stores no reload, call
-// argument, or overwrite ever observes.
+// A second phase runs a backward liveness dataflow over the spill slots and
+// deletes the stores no reload, call argument, or overwrite ever observes.
 
 #ifndef RAT_PASS_EMIT_X86PEEPHOLE_H
 #define RAT_PASS_EMIT_X86PEEPHOLE_H
@@ -21,99 +18,63 @@
 #include "pass/pass.h"
 
 namespace rat {
+	namespace detail {
+		void eraseMarked(MachineFunc& mf, MachineBlock& b, const List<B32>& drop, B32 kill);
+	} // namespace detail
+
 	struct X86PeepholePass : MachinePass {
 		B32 run(Module& module, const Function& fn, MachineFunc& mf, const TargetInfo& target) override;
 	private:
 		static constexpr U32 kMaxPhys = X86Target::kRegEnd;
-		static constexpr U32 kDemRegs = X86Target::kXmmBase;
 		static constexpr U64 kAllBits = ~(U64)0;
-	private:
-		static U32 slotKey(I32 s, U32 keys);
-
-		struct SlotValue {
-			U32 value = 0;
-			U32 width = 0;
-			U32 epoch = 0; // stale unless it matches the state epoch
-		};
-
-		struct ValueState {
-			U32 reg[kMaxPhys];
-			List<SlotValue> slot; // by slotKey
-			U32 keys = 0;
-			U32 epoch = 1;
-			U32 next = 1;
-
-			U32 fresh() { return next++; }
-			void begin(U32 frameKeys);
-			void reset();
-			void killAllRegs();
-			void killReg(PhysReg p);
-			U32 valueOf(PhysReg p) const { return p < kMaxPhys ? reg[p] : 0; }
-			void setReg(PhysReg p, U32 v);
-			PhysReg regHolding(U32 v, PhysReg except) const;
-			U32 slotValue(I32 s, U32 width) const;
-			void setSlot(I32 s, U32 width, U32 v);
-		};
-
-		// value-numbering phase
-		static B32 isRegCopy(const MachineInstr& in);
-		static B32 isSlotStore(const MachineInstr& in);
-		static B32 isSlotLoad(const MachineInstr& in);
-		static MachineInstr makeCopy(PhysReg dst, PhysReg src, const MachineInstr& at);
-		static B32 writesUntrackedSlot(const MachineInstr& in);
-		U32 foldRegCopy(MachineInstr& in, B32& keep);
-		U32 foldSlotStore(MachineInstr& in, B32& keep);
-		U32 foldSlotLoad(MachineInstr& in, B32& keep);
-		void stepOther(const MachineInstr& in);
-		U32 runOnBlock(MachineFunc& mf, MachineBlock& b, B32 killFolds);
-
-		// demanded-bits phase
-		static B32 tracked(const MachineOperand& o) { return o.isPhys() && o.phys < kDemRegs; }
-		static U64 lowMask(U32 n);
-		static U64 carryMask(U64 out);
-		static B32 hasNormalize(const MachineBlock& b);
-		static void demandUses(const MachineInstr& in, U64 mask, U64* dem, U32 from = 0, U32 to = ~0u);
-		static B32 immCount(const MachineInstr& in, U32& out);
-		static B32 flagSafeToDrop(const MachineBlock& b, U32 at);
-		static void transfer(const MachineInstr& in, U64* dem);
-		void eraseMarked(MachineFunc& mf, MachineBlock& b, B32 kill);
-		static void killWrite(MachineFunc& mf, U32& chain, const MachineInstr& dropped);
-		void noteKills(const MachineFunc& mf, U32 chain, List<U32>& diverged) const;
-		B32 holdsDiverged(const MachineInstr& in, const List<U32>& diverged) const;
-		void solve(const MachineFunc& mf, List<U64>& liveIn, List<U64>& cur, B32 slotPhase);
-		static B32 orInto(U64* into, const List<U64>& from);
-		void postorder(const MachineFunc& mf);
-		U32 elimRedundantExt(MachineFunc& mf);
-	private:
-		// dead-slot-store phase
 		static constexpr U32 kNoBit = ~0u;
 
-		// dense
-		struct TrackedSlots {
-			List<U32> index;
-			List<U32> readWidth;
-			List<B32> touches; // block id -> has a slot store, reload or call slot argument
-			List<U8> seen;
-			List<U8> untracked;
-			U32 keys = 0;
-			U32 count = 0;
-
-			U32 key(I32 s) const;
-			void begin(const MachineFunc& mf);
-			void note(const MachineInstr& in, U32 block);
-			void finish();
+		enum class Fold {
+			None,
+			Rewritten,
+			Dropped
 		};
 
+		// an 8-byte spill slot, the last one is shared by every other frame offset, see slotKey.
+		// value and width belong to the value numbering, the rest to the dead-slot-store phase
+		struct Slot {
+			U32 value = 0; // value number, stale below validFrom
+			U32 width = 0; // of value
+			U32 readWidth = 0;
+			U32 bit = kNoBit; // liveness bit while only spill stores, reloads and call arguments touch it
+			B32 seen = false;
+			B32 untracked = false;
+		};
+	private:
+		U32 slotKey(I32 s) const;
 		static B32 isAnySlotLoad(const MachineInstr& in);
-		static void slotBlockOut(const MachineBlock& b, const List<U64>& liveIn, List<U64>& cur);
+
+		// value-numbering phase
+		U32 regValue(PhysReg p) const;
+		void setReg(PhysReg p, U32 v);
+		U32 slotValue(I32 s, U32 width) const;
+		void setSlot(I32 s, U32 width, U32 v);
+		void killAllRegs();
+		void forgetAll();
+		Fold foldCopy(const MachineInstr& in);
+		Fold foldSpill(const MachineInstr& in);
+		Fold foldReload(MachineInstr& in);
+		Fold fold(MachineInstr& in);
+		U32 foldBlock(MachineFunc& mf, MachineBlock& b, List<B32>& drop);
+
+		// dead-slot-store phase
+		void solve(const MachineFunc& mf, List<U64>& liveIn, List<U64>& cur);
+		static void blockOut(const MachineBlock& b, const List<U64>& liveIn, List<U64>& cur);
+		B32 noteSlots(const MachineInstr& in);
 		void slotStep(const MachineInstr& in, List<U64>& cur) const;
 		U32 elimDeadSlotStores(MachineFunc& mf);
-
-		ValueState st;
-		TrackedSlots slots;
-		List<U32> seed;				// block postorder
-		List<B32> seedQueued; // block -> in seed, empty until computed
-		List<B32> drop;				// per instruction of the block being swept
+		U32 markDeadStores(const MachineBlock& b, List<U64>& cur, List<B32>& drop);
+	private:
+		U32 reg[kMaxPhys]; // value number of each register, 0 unknown
+		List<Slot> slots;	 // by slotKey
+		List<B32> touches; // block -> has a slot store, reload or call slot argument
+		U32 nextValue = 1;
+		U32 validFrom = 1; // slot values below are from before the last reset
 	};
 } // namespace rat
 

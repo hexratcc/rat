@@ -23,9 +23,9 @@ namespace rat {
 		// matched address, after its base and index are in registers
 		struct AddrParts {
 			VReg base = 0;
+			I32 disp = 0;
 			VReg index = 0;
 			U32 scaleLog2 = 0;
-			I32 disp = 0;
 			B32 frameBase = false; // rbp-rel
 		};
 		struct AddrMatch {
@@ -43,211 +43,189 @@ namespace rat {
 			Kind cls;
 			I32 reg;
 		};
+		// what a vreg holds above the width of its int, a bool is always 0 or 1
+		enum class Ext : U8 {
+			None, // undefined bits
+			Sign,
+			Zero
+		};
 		enum class ReturnMove : U8 {
 			IntoSlot,
 			OutOfSlot
 		};
-
-		void lowerBlocks();
-
-		// operand shorthands
-		static MachineOperand vr(VReg v, U32 w = 8);
-		static MachineOperand ph(Reg r);
-		static MachineOperand xm(Xmm x);
-		static MachineOperand im(Imm i);
-		static MachineOperand sl(Slot s);
-		static MachineOperand blockRef(I32 b);
-		static B32 isX87Ty(const Type* t);
-		static B32 isSseTy(const Type* t);
-		static U32 intBits(const Type* t);
-		static B32 immOf(Node* n, I64& out);
-		static B32 branchOnlyCompare(Node* n);
-		static B32 selectOnlyCompare(Node* n);
-		static B32 fusableCompare(Node* n);
-		static U32 log2Scale(I64 c);
-		static BinaryNode* asAdd(Node* n);
-		static B32 onlyUsedBy(const Node* n, Opcode op);
-		static B32 zextOnlyLoad(const LoadNode* l);
-		static B32 lowHalfOnlyLoad(const LoadNode* l);
-		static B32 splatOnlyLoad(const Node* n);
-		static BinaryNode* addSubOf(const ShuffleNode* n);
-		static B32 addSubOnly(const Node* n);
-		static U32 opWidth(const Type* t);
-		static U32 regWidth(const Type* t);
-		static B32 repeatsLanes(const Type* t);
-		static B32 readsLowLanes(const Node* n);
-		static B32 gpSignOp(const Node* n);
-		static B32 gpSignLoad(const LoadNode* l);
-		void emitGpSign(UnaryNode* n);
-		void repeatLowHalf(VReg d);
-
-		I32 reserve(U32 bytes, U32 align = 8);
-		void needScratch();
-		void layout();
-		U32 classOf(const Type* t) const;
-		Kind argKind(const Type* t) const;
-		VReg fresh(U32 cls);
-		Slot x87SlotOf(const Node* n);
-		VReg vregFor(const Node* n);
-		MachineInstr& put(X86Op op, OpList defs, Ops uses, I64 imm = 0, I64 imm2 = 0);
-
-		// data movement
-		void mov(VReg d, VReg s);
-		void mov(Reg d, VReg s);
-		void mov(VReg d, Reg s);
-		void mov(Reg d, Reg s);
-		void mov(MachineOperand d, MachineOperand s);
-		void movaps(VReg d, VReg s, U32 w);
-		void movaps(VReg d, Xmm s);
-		void movaps(Xmm d, VReg s);
-		void lea(VReg d, const String& s);
-		void lea(VReg d, const AddrParts& a);
-		// integer memory
-		void ld(VReg d, VReg base);
-		void ld(VReg d, Slot s);
-		void ld(VReg d, U32 w, const AddrParts& a, B32 sign);
-		void ld(VReg d, U32 w, VReg base, B32 sign);
-		void st(VReg base, MachineOperand src);
-		void st(Slot d, Reg src);
-		void st(const AddrParts& a, MachineOperand src, X86Op op = X86Op::Store);
-		// integer ALU
-		void alu(X86Op op, VReg d, VReg a, VReg b); // Add..Xor
-		void alu(X86Op op, VReg d, VReg a, Imm b);
-		void shift(X86Op op, VReg d, Imm cnt); // Shl / AShr / LShr
-		void shift(X86Op op, VReg d, Reg cl);
-		void cmp(VReg a, VReg b);
-		void cmp(VReg a, Imm b);
-		// sse scalar float
-		void ldf(VReg d, U32 w, VReg base);
-		void ldf(VReg d, U32 w, const String& s);
-		void ldf(VReg d, U32 w, const AddrParts& a);
-		MachineInstr& farith(X86Op op, VReg d, VReg a, VReg b, U32 w, I64 desc);
-		void cvtf(VReg d, U32 dw, VReg s, U32 sw, U8 pfx, U8 opc, B32 wide); // Cvt, xmm dest
-		// sse packed vector
-		static I64 vecDesc(U8 pfx, U8 opc, U8 esc);
-		void varith(VReg d, VReg a, VReg b, U8 pfx, U8 opc, B32 esc38);
-		void varithImm(VReg d, VReg a, VReg b, U8 pfx, U8 opc, U8 esc, U8 imm8);
-		void vmerge(VReg d, VReg s, U8 pfx, U8 opc, U8 esc, I32 imm8);
-		void vunary(VReg d, VReg s, U8 pfx, U8 opc, U8 esc);
-		void vshiftImm(VReg d, U32 laneBits, U32 idx, I64 cnt);
-		void vblend(VReg d, VReg f, VReg t, VReg mask, U32 esz);
-		// x87
-		void fldSlot(Slot d, Slot s);
-
-		VReg gpValue(Node* n);
-
-		B32 scaleOf(Node* n, Node*& idx, U32& scaleLog2);
-		AddrMatch decodeAddr(Node* ptr);
-		AddrParts matchAddr(Node* ptr);
-		B32 addressOnlyAdd(Node* n);
-		B32 addressOnlyScale(Node* n);
-		MachineOperand addrBase(const AddrParts& a);
-		I64 sibBits(I64 sign, const AddrParts& a);
-		Ops addrUses(const AddrParts& a);
-		VReg sseValue(Node* n);
-		VReg classValue(Node* n, U32 cls);
-		const String& fpPoolSym(U64 bits, U32 width);
-		void fpConstLoad(ConstantNode* c, VReg dst);
-		Slot x87Value(Node* n);
-		void emitStore(StoreNode* s);
-		void emitLoad(LoadNode* l);
-		VReg frameAddr(I64 disp);
-		static AddrParts baseDisp(VReg base, I32 disp);
-		void maskBits(VReg d, U32 bits);
-		void signExtBits(VReg d, U32 bits);
-		void emitDivLike(BinaryNode* n, X86Op op);
-		void emitShift(BinaryNode* n, X86Op op);
-		void emitRotate(BinaryNode* n, X86Op op);
-		void emitAlu(BinaryNode* n, X86Op op);
-		void mulImm(VReg d, VReg s, I64 v);
-		void emitBinary(BinaryNode* n);
-		void emitFloatBinary(BinaryNode* n);
-		void emitVecBinary(BinaryNode* n);
-		void emitVecShift(BinaryNode* n);
-		void emitByteShift(BinaryNode* n, I64 cnt);
-		void emitByteMul(BinaryNode* n);
-		void emitSplat(SplatNode* n);
-		void emitExtract(ExtractNode* n);
-		List<U8> constLanes(PackNode* n, U32 esz);
-		B32 emitConstPack(PackNode* n, U32 esz);
-		void emitPack(PackNode* n);
-		void emitPackMem(PackNode* n, U32 esz, B32 isInt);
-		void packLaneZero(PackNode* n, VReg d, U32 esz, B32 isInt);
-		void insertLane(VReg d, Node* lane, U32 i, U32 esz, B32 isInt);
-		void emitAddSub(ShuffleNode* n, BinaryNode* sub);
-		static void shuffleDwords(const ShuffleNode* n, U8& sel, U8& mask, B32& inPlace);
-		void emitShuffle(ShuffleNode* n);
-		void emitSelect(SelectNode* n);
-		VReg vecMask(CompareNode* c, B32& invert);
-		VReg vecIntMask(Opcode op, VReg l, VReg r, U32 esz);
-		B32 emitMinMax(SelectNode* n, CompareNode* c);
-		void emitFMinMax(SelectNode* n, B32 max);
-		void emitVecSelect(SelectNode* n);
-		const String& vecPoolSym(const List<U8>& bytes);
-		VReg gpConst(I64 v);
-		void emitBitScan(UnaryNode* n, B32 reverse);
-		void emitPopcnt(UnaryNode* n);
-		void emitFNeg(UnaryNode* n);
-		void emitFSqrtAbs(UnaryNode* n);
-		void emitUnary(UnaryNode* n);
-		U8 emitCmp(CompareNode* n);
-		void emitCompare(CompareNode* n);
-		static I64 cvtDesc(U8 pfx, U8 opc, B32 w);
-		void emitConvert(ConvertNode* n);
-		void emitVecConvert(ConvertNode* n);
-		void emitVecTrunc(ConvertNode* n);
-		static U8 pmovOpc(U32 sw, U32 dw, B32 zext);
-		void emitIntResize(ConvertNode* n, Node* src);
-		void emitIntToFP(ConvertNode* n, Node* src);
-		void emitFPToInt(ConvertNode* n, Node* src);
-		Pair<VReg, VReg> splitHalves(VReg s);
-		void blendU64(ConvertNode* n, VReg lo, VReg hi, VReg m);
-		void emitU64ToFP(ConvertNode* n, VReg s, U32 w);
-		void emitFPToU64(ConvertNode* n, Node* src);
-		void emitUIntToX87(ConvertNode* n, VReg s, U32 bits);
-		void emitX87ToU64(ConvertNode* n, Slot x);
-		void emitConvertX87(ConvertNode* n, Node* src, Opcode op);
-		U64 callerSavedClobbers() const;
-		U64 allRegClobbers() const;
-		B32 emitBuiltin(CallNode* c);
-		void emitCall(CallNode* c);
-		Ops callUses(CallNode* c, const List<CallArg>& args, U32 sseUsed);
-		void pushCallArgs(CallNode* c, X86ArgAssigner& as, List<CallArg>& args);
-		CallArg callArg(Node* arg, X86ArgAssigner& as);
-		MachineOperand argToReg(const CallArg& a);
-		void callResult(Node* vp, const Type* rt, B32 sret, I32 retTemp);
-		static MachineOperand returnReg(AbiClass c, U32& gp, U32& sse);
-		Ops moveRegReturn(VReg retSlot, const AbiRegs& regs, ReturnMove move);
-		void storeX87Return(VReg retSlot, U32 count);
-		void loadX87Return(VReg retSlot, U32 count);
-		VReg x87PartAddr(VReg base, U32 index);
-		void emitAsm(AsmNode* a);
-		B32 emitMathIntrinsic(CallNode* c);
-		U32 emitPrologue();
-		void extendParams(const List<X86ArgAssigner::Loc>& locs);
-		List<X86ArgAssigner::Loc> paramLocs(X86ArgAssigner& as);
-		void lowerParam(U32 index, X86ArgAssigner::Loc l);
-		void x87Param(ProjNode* p, X86ArgAssigner::Loc l);
-		VReg stackParamAddr(U32 off);
-		void emitNode(Node* n);
-		void emitReturn(ReturnNode* r);
-		void moveValue(VReg dst, VReg src, U32 cls, U32 w);
-		void emitPhiCopies(I32 targetBlock, I32 predIdx);
-		void emitTerminator(I32 b);
 		// debug bindings of the function, grouped by the block of their anchor
 		struct BindingPlan {
 			List<U32> first;	 // block -> first of its bindings in order
 			List<U32> order;	 // binding indexes
 			List<U32> nodeEnd; // node id -> insts index past its code
 			List<U32> cursor;	 // var inst -> least position left in the block
-			U32 paramsEnd = 0; // past the param copies, their extensions follow
+			U32 paramsEnd = 0; // past the param copies, the bool masks follow
 			U32 prologueEnd = 0;
 		};
+
+		// operands and instr encodings
+		static MachineOperand vr(VReg v, U32 w = 8);
+		static MachineOperand ph(Reg r);
+		static MachineOperand xm(U32 n, U32 w = 8);
+		static MachineOperand im(I64 v, U32 w = 8);
+		static MachineOperand sl(I32 s, U32 w = 8);
+		static MachineOperand addrBase(const AddrParts& a);
+		static I64 sibBits(B32 sign, const AddrParts& a);
+		static Enc scalarEnc(U8 opc, U32 w, B32 rexW = false);
+		// types and node patterns
+		static B32 isX87Ty(const Type* t);
+		static B32 isSseTy(const Type* t);
+		static U32 intBits(const Type* t);
+		static U32 gpWidth(const Type* t);
+		static U32 opWidth(const Type* t);
+		static U32 regWidth(const Type* t);
+		static B32 repeatsLanes(const Type* t);
+		static B32 readsLowLanes(const Node* n);
+		static B32 gpSignOp(const Node* n);
+		static B32 gpSignLoad(const LoadNode* l);
+		static B32 immOf(Node* n, I64& out);
+		static B32 fusableCompare(Node* n);
+		static B32 selectOnlyCompare(Node* n);
+		static B32 onlyUsedBy(const Node* n, Opcode op);
+		static B32 sextAtDef(const Node* n);
+		static B32 fillsOperand(U32 bits);
+		static B32 signedOrder(const CompareNode* n);
+		static Ext extFor(B32 sign);
+		static I64 dwordImm(I64 v, U32 bits, B32 sign);
+		static B32 splatOnlyLoad(const Node* n);
+		static BinaryNode* addSubOf(const ShuffleNode* n);
+		static B32 addSubOnly(const Node* n);
+		static U32 log2Scale(I64 c);
+		static BinaryNode* asAdd(Node* n);
+		static B32 scaleOf(Node* n, Node*& idx, U32& scaleLog2);
+		static AddrMatch decodeAddr(Node* ptr);
+		static B32 addressOnlyAdd(Node* n);
+		static B32 addressOnlyScale(Node* n);
+		static List<U8> constLanes(PackNode* n, U32 esz);
+		static void shuffleDwords(const ShuffleNode* n, U8& sel, U8& mask, B32& inPlace);
+		static B32 isParam(const Node* v);
+
+		// frame, vregs and values
+		I32 reserve(U32 bytes, U32 align = 8);
+		void needScratch();
+		void layout();
+		U32 classOf(const Type* t) const;
+		Kind argKind(const Type* t) const;
+		U64 regClobbers(B32 withCalleeSaved) const;
+		VReg fresh(U32 cls);
+		VReg vregFor(const Node* n);
+		I32 x87SlotOf(const Node* n);
+		VReg gpValue(Node* n);
+		VReg sseValue(Node* n);
+		VReg classValue(Node* n, U32 cls);
+		I32 x87Value(Node* n);
+		VReg gpConst(I64 v);
+		VReg frameAddr(I64 disp);
+		AddrParts matchAddr(Node* ptr);
+		void loadPool(VReg d, U32 w, const String& name, const List<U8>& bytes, B32 isVec);
+		void loadFp(VReg d, U64 bits, U32 w);
+		void loadVec(VReg d, const List<U8>& bytes);
+
+		// instr emitters
+		MachineInstr& put(X86Op op, OpList defs, Ops uses, I64 imm = 0, I64 imm2 = 0);
+		void mov(MachineOperand d, MachineOperand s);
+		void moveValue(VReg dst, VReg src, U32 cls, U32 w);
+		void lea(VReg d, const AddrParts& a);
+		void load(X86Op op, VReg d, U32 w, const AddrParts& a, B32 sign = false);
+		void store(X86Op op, const AddrParts& a, MachineOperand src);
+		void alu(X86Op op, VReg d, MachineOperand rhs, U32 w = 8);
+		void cmp(VReg lhs, MachineOperand rhs, U32 w = 8);
+		void maskBits(VReg d, U32 bits);
+		void extendBits(VReg d, U32 bits, B32 sign);
+		VReg widened(VReg s, U32 bits, B32 sign);
+		VReg dwordValue(Node* n, B32 sign);
+		MachineInstr& sse(Enc e, MachineOperand d, Ops uses, I32 imm8 = -1);
+		MachineInstr& farith(Enc e, VReg d, VReg a, VReg b, U32 w, I32 imm8 = -1);
+		MachineInstr& varith(Enc e, VReg d, VReg a, VReg b, I32 imm8 = -1);
+		void vmerge(Enc e, VReg d, VReg s, I32 imm8 = -1);
+		void fldSlot(I32 d, I32 s);
+
+		// node lowering
+		void lowerBlocks();
+		void emitNode(Node* n);
+		void extendAtDef(const Node* n);
+		void emitPhiCopies(I32 targetBlock, I32 predIdx);
+		void emitTerminator(I32 b);
+		void emitStore(StoreNode* s);
+		void emitLoad(LoadNode* l);
+		void emitBinary(BinaryNode* n);
+		void emitAlu(BinaryNode* n, X86Op op);
+		void emitDiv(BinaryNode* n, X86Op op);
+		void emitShift(BinaryNode* n, X86Op op);
+		void emitFloatBinary(BinaryNode* n);
+		void emitVecBinary(BinaryNode* n);
+		void emitVecShift(BinaryNode* n);
+		void vshiftImm(VReg d, U32 laneBits, U32 idx, I64 cnt);
+		void emitByteShift(BinaryNode* n, I64 cnt);
+		void emitByteMul(BinaryNode* n);
+		void emitSplat(SplatNode* n);
+		void emitExtract(ExtractNode* n);
+		void emitPack(PackNode* n);
+		void packLaneZero(PackNode* n, VReg d, U32 esz, B32 isInt);
+		void insertLane(VReg d, Node* lane, U32 i, U32 esz, B32 isInt);
+		void repeatLowHalf(VReg d);
+		void emitShuffle(ShuffleNode* n);
+		void emitBitScan(UnaryNode* n, B32 reverse);
+		void emitPopcnt(UnaryNode* n);
+		void emitFNeg(UnaryNode* n);
+		void emitGpSign(UnaryNode* n);
+		void emitFSqrtAbs(UnaryNode* n);
+		void emitUnary(UnaryNode* n);
+		B32 holdsExt(const Node* n, Ext ext) const;
+		B32 fitsWideCmp(const CompareNode* n) const;
+		void emitWideCmp(CompareNode* n);
+		void emitNarrowCmp(CompareNode* n);
+		U8 emitFpCmp(CompareNode* n);
+		U8 emitCmp(CompareNode* n);
+		void emitSelect(SelectNode* n);
+		VReg vecMask(CompareNode* c, B32& invert);
+		VReg vecIntMask(Opcode op, VReg l, VReg r, U32 esz);
+		B32 emitMinMax(SelectNode* n, CompareNode* c);
+		void emitFMinMax(SelectNode* n, B32 max);
+		void emitVecSelect(SelectNode* n);
+		void emitCompare(CompareNode* n);
+		void emitConvert(ConvertNode* n);
+		void emitVecConvert(ConvertNode* n);
+		void emitVecTrunc(ConvertNode* n);
+		void emitIntResize(ConvertNode* n);
+		void emitIntToFP(ConvertNode* n);
+		void emitFPToInt(ConvertNode* n);
+		Pair<VReg, VReg> splitHalves(VReg s);
+		void emitU64ToFP(ConvertNode* n, VReg s, U32 w);
+		void emitFPToU64(ConvertNode* n, MachineOperand x, MachineOperand k);
+		void emitU64ToX87(ConvertNode* n, VReg s);
+		void emitConvertX87(ConvertNode* n);
+
+		// calls, params and returns
+		B32 emitMathIntrinsic(CallNode* c);
+		void emitAsm(AsmNode* a);
+		B32 emitBuiltin(CallNode* c);
+		void emitCall(CallNode* c);
+		void pushCallArgs(CallNode* c, X86ArgAssigner& as, List<CallArg>& args);
+		Ops callUses(CallNode* c, const List<CallArg>& args, U32 sseUsed);
+		CallArg callArg(Node* arg, X86ArgAssigner& as);
+		void callResult(Node* vp, const Type* rt, B32 sret, I32 retTemp);
+		Ops moveRegReturn(VReg retSlot, const AbiRegs& regs, ReturnMove move);
+		void moveX87Return(VReg retSlot, U32 count, ReturnMove move);
+		VReg x87PartAddr(VReg base, U32 index);
+		List<X86ArgAssigner::Loc> paramLocs(X86ArgAssigner& as);
+		U32 emitPrologue();
+		void maskBoolParams(const List<X86ArgAssigner::Loc>& locs);
+		void lowerParam(U32 index, X86ArgAssigner::Loc l);
+		void x87Param(ProjNode* p, X86ArgAssigner::Loc l);
+		VReg stackParamAddr(U32 off);
+		void emitReturn(ReturnNode* r);
+
+		// debug binding placement
 		void planBindings(BindingPlan& plan) const;
 		U32 endIn(const Node* n, I32 b, const BindingPlan& plan) const;
 		U32 sourcePos(const DebugBinding& bd, I32 b, const BindingPlan& plan) const;
 		U32 valuePos(const DebugBinding& bd, I32 b, const BindingPlan& plan) const;
-		static B32 isParam(const Node* v);
 		MachineOperand bindingLoc(const Node* value) const;
 		void placeBindings(I32 b, BindingPlan& plan);
 	private:
@@ -255,7 +233,6 @@ namespace rat {
 		const X86CallConv* conv = &abi::kSysV;
 		const RegisterInfo* regs = nullptr;
 		U32 ptrBytes = 8;
-		B32 sse41 = true;
 		// current module, function and block
 		Module* mod = nullptr;
 		const Function* fn = nullptr;
@@ -266,7 +243,8 @@ namespace rat {
 		U32 curLoc = 0;
 		// per node id
 		List<VReg> vregOf;
-		List<I32> x87Slot;
+		List<Ext> extOf;
+		List<I32> x87Slot; // node id -> 16-byte x87 frame slot, an rbp offset
 	};
 } // namespace rat
 
