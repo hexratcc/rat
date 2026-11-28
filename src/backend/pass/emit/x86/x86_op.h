@@ -119,7 +119,9 @@ namespace rat {
 		X87Neg, // def(slot) = -use0(slot) (fchs)
 		X87Cmp, // def(gp) = use0(slot) CMP use1(slot), cc in imm, swap in imm2
 		// control / calls
-		Call, // to the sym use, or through the r11 use when imm2 is set, imm = stack arg bytes
+		// to the sym use, or through the r11 use when imm2 is set
+		// imm = stack arg alignment high, bytes low
+		Call,
 		Ret,
 		Jmp,				// unconditional, target block in use[0].block
 		SwitchJump, // table jump, use[0] = selector reg, use[1..] = slot target blocks

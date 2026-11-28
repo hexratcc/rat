@@ -135,7 +135,10 @@ namespace rat {
 		B32 indirect = in.imm2 != 0;
 		U32 targetUse = callTargetUse(in);
 		U32 total = (U32)alignUp((U32)in.imm + conv->shadowBytes, 16);
-		if(total)
+		U32 areaAlign = (U32)(in.imm >> 32);
+		if(areaAlign > 16)
+			realignArgs(total, areaAlign);
+		else if(total)
 			a->aluImm(ALU_SUB, RSP, (I32)total);
 		storeStackArgs(in, targetUse);
 		if(conv->dupSseArgsInGp)
@@ -144,8 +147,18 @@ namespace rat {
 			a->rr(enc::kGroup5, 2, R11); // call
 		else
 			a->callSym(in.uses[targetUse].sym());
-		if(total)
+		if(areaAlign > 16)
+			a->load(RSP, {RSP, (I32)total}, 8, false);
+		else if(total)
 			a->aluImm(ALU_ADD, RSP, (I32)total);
+	}
+
+	// rsp aligned for the args, the old rsp waits above them for the restore
+	void X86EncodePass::realignArgs(U32 total, U32 align) {
+		a->rr(enc::kMovW, RSP, R10);
+		a->aluImm(ALU_SUB, RSP, (I32)total + 8);
+		a->aluImm(ALU_AND, RSP, -(I32)align);
+		a->store({RSP, (I32)total}, R10, 8);
 	}
 
 	void X86EncodePass::emitRet() {

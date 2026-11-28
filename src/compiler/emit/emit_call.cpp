@@ -108,9 +108,9 @@ namespace rat::cc {
 
 	Node* Emitter::vaOverflow(Function& fn, Node* overflowAt, U32 step, U32 align) {
 		Node* p = fn.load(mod.getPtr(), overflowAt);
-		// a stack argument aligns to 16 at most, see X86ArgAssigner::nextMem
+		// a stack argument keeps its own alignment, see X86ArgAssigner::nextMem
 		if(align > 8)
-			p = fn.and_(fn.add(p, constSize(fn, 15)), constSize(fn, -(U64)16));
+			p = fn.and_(fn.add(p, constSize(fn, align - 1)), constSize(fn, -(U64)align));
 		fn.store(overflowAt, fn.add(p, constSize(fn, step)));
 		return p;
 	}

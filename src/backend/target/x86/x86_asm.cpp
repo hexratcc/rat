@@ -22,7 +22,8 @@ namespace rat {
 	}
 
 	X86ArgAssigner::Loc X86ArgAssigner::nextMem(U32 bytes, U32 align) {
-		U32 slotAlign = std::clamp(align, 8u, 16u);
+		U32 slotAlign = std::max(align, 8u);
+		stackAlign = std::max(stackAlign, slotAlign);
 		stackBytes = (U32)alignUp(stackBytes, slotAlign);
 		Loc l{-1, stackBytes};
 		stackBytes += (U32)alignUp(bytes, 8);

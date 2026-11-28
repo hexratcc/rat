@@ -133,7 +133,7 @@ namespace rat {
 		call.isCall = true;
 		call.clobbers = regClobbers(false);
 		call.uses = callUses(c, args, as.sseUsed);
-		call.imm = (I64)as.stackBytes;
+		call.imm = (I64)as.stackAlign << 32 | as.stackBytes;
 		if(c->isIndirect()) {
 			call.imm2 = 1; // indirect
 			mov(ph(R11), vr(target));

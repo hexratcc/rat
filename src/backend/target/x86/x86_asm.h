@@ -148,6 +148,7 @@ namespace rat {
 		U32 gpUsed = 0, sseUsed = 0; // split-slot counters (sysv)
 		U32 slot = 0;								 // shared-slot counter (win64)
 		U32 stackBytes = 0;
+		U32 stackAlign = 16; // of the stack arguments, above 16 the caller realigns rsp
 	};
 
 	struct AsmReloc {

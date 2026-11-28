@@ -107,6 +107,7 @@ namespace rat {
 		void storeStackArgs(const MachineInstr& in, U32 targetUse);
 		void mirrorSseArgs(const MachineInstr& in, U32 targetUse);
 		void emitCall(const MachineInstr& in);
+		void realignArgs(U32 total, U32 align);
 		void emitRet();
 		void emitSwitchJump(const MachineInstr& in);
 		void emitBr(const MachineInstr& in, I32 fallthrough);
