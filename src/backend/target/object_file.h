@@ -4,18 +4,12 @@
 #include "core.h"
 
 #include "elf_file.h"
+#include "reloc.h"
 #include "target/target.h"
 
 #include <iosfwd>
 
 namespace rat {
-	enum class RelocKind : U32 {
-		Abs64 = 1,	// absolute 64-bit address       (S + A)
-		Pc32 = 2,		// 32-bit pc-relative            (S + A - P), used by lea(rip)
-		Plt32 = 4,	// 32-bit pc-relative call       (L + A - P), call to a function
-		Abs32 = 10, // 32-bit absolute              (S + A), debug section offsets
-	};
-
 	enum class ObjectFormat : U32 {
 		Coff,
 		Elf

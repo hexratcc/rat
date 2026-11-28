@@ -151,13 +151,6 @@ namespace rat {
 		U32 stackAlign = 16; // of the stack arguments, above 16 the caller realigns rsp
 	};
 
-	struct AsmReloc {
-		U32 offset;
-		String symbol;
-		RelocKind kind;
-		I64 addend;
-	};
-
 	// [base + disp], or [base + index*(1<<scaleLog2) + disp] when indexed
 	struct Mem {
 		Reg base;
