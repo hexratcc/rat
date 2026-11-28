@@ -267,6 +267,8 @@ namespace rat {
 		return index < byval.size() ? byval[index] : std::nullopt;
 	}
 
+	B32 CallAbi::zeroExtAt(U32 index) const { return index < zeroExt.size() && zeroExt[index]; }
+
 	const String& CallNode::getCallee() const { return callee; }
 	// indirect calls reserve one extra input (index 2) for the target pointer
 	U32 CallNode::getArgCount() const { return getInputCount() - 2 - (indirect ? 1 : 0); }

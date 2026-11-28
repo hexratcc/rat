@@ -144,6 +144,14 @@ namespace rat::cc {
 		abi.byval[index] = ByvalArg{(U32)byteSize(t), alignOf(t)};
 	}
 
+	// sysv clang callees read an unsigned char or short as zero extended to 32 bits
+	void Emitter::markZeroExt(CallAbi& abi, U32 index, CType t) const {
+		if(lay.win64VaList || !isInteger(t) || !t.isUnsigned() || (t.bits != 8 && t.bits != 16))
+			return;
+		abi.zeroExt.resize(index + 1);
+		abi.zeroExt[index] = true;
+	}
+
 	Type* Emitter::eightbyteType(AbiClass c) {
 		if(c == AbiClass::Sse)
 			return mod.getFloat(64);

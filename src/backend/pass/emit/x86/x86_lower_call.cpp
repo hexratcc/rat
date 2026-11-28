@@ -151,7 +151,7 @@ namespace rat {
 		for(U32 i = abi.ret.count ? 1 : 0; i < c->getArgCount(); ++i) {
 			std::optional<ByvalArg> byval = abi.byvalAt(i);
 			if(!byval) {
-				args.push_back(callArg(c->getArg(i), as));
+				args.push_back(callArg(c->getArg(i), as, abi.zeroExtAt(i)));
 				continue;
 			}
 			U32 stackOff = as.nextMem(byval->bytes, byval->align).stackOff;
@@ -186,7 +186,7 @@ namespace rat {
 		return uses;
 	}
 
-	X86LowerPass::CallArg X86LowerPass::callArg(Node* arg, X86ArgAssigner& as) {
+	X86LowerPass::CallArg X86LowerPass::callArg(Node* arg, X86ArgAssigner& as, B32 zeroExt) {
 		const Type* t = arg->getType();
 		if(isX87Ty(t) && conv->x87ByRef) {
 			I32 src = x87Value(arg);
@@ -199,7 +199,7 @@ namespace rat {
 		if(isSseTy(t))
 			return {vr(sseValue(arg), opWidth(t)), Kind::Sse, as.next(Kind::Sse).reg};
 		// a narrow int goes widened to a dword, as clang callees read it
-		return {vr(dwordValue(arg, true)), Kind::Int, as.next(Kind::Int).reg};
+		return {vr(dwordValue(arg, !zeroExt)), Kind::Int, as.next(Kind::Int).reg};
 	}
 
 	void X86LowerPass::callResult(Node* vp, const Type* rt, B32 sret, I32 retTemp) {

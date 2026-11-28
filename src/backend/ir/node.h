@@ -286,9 +286,11 @@ namespace rat {
 
 	struct CallAbi {
 		List<std::optional<ByvalArg>> byval;
+		List<B32> zeroExt; // unsigned narrow int args, the caller widens them to 32 bits
 		AbiRegs ret;
 
 		std::optional<ByvalArg> byvalAt(U32 index) const;
+		B32 zeroExtAt(U32 index) const;
 	};
 
 	struct CallNode : FixedOpcodeNode<Opcode::Call, AnchoredNode> {

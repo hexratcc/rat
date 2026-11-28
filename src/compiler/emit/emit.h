@@ -326,6 +326,7 @@ namespace rat::cc {
 		AbiRegs takeArgRegs(CType t, ArgRegs& free) const;
 		ArgRegs freeArgRegs(CType ret) const;
 		void markByval(CallAbi& abi, U32 index, CType t) const;
+		void markZeroExt(CallAbi& abi, U32 index, CType t) const;
 		Type* eightbyteType(AbiClass c);
 
 		// builtins

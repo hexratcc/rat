@@ -63,6 +63,7 @@ namespace rat::cc {
 			} else {
 				takeArgRegs(pt, args.free);
 				args.nodes.push_back(convert(fn, a.node, a.type, pt));
+				markZeroExt(args.abi, (U32)args.nodes.size() - 1, pt);
 			}
 		}
 		return true;

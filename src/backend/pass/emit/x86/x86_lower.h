@@ -208,7 +208,7 @@ namespace rat {
 		void emitCall(CallNode* c);
 		void pushCallArgs(CallNode* c, X86ArgAssigner& as, List<CallArg>& args);
 		Ops callUses(CallNode* c, const List<CallArg>& args, U32 sseUsed);
-		CallArg callArg(Node* arg, X86ArgAssigner& as);
+		CallArg callArg(Node* arg, X86ArgAssigner& as, B32 zeroExt);
 		void callResult(Node* vp, const Type* rt, B32 sret, I32 retTemp);
 		Ops moveRegReturn(VReg retSlot, const AbiRegs& regs, ReturnMove move);
 		void moveX87Return(VReg retSlot, U32 count, ReturnMove move);
